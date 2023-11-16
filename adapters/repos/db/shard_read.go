@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *RealShard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (s *RealShard) ObjectByID(ctx context.Context, id strfmt.UUID, props search
 	return obj, nil
 }
 
-func (s *RealShard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
 	objects := make([]*storobj.Object, len(query))
 
 	ids := make([][]byte, len(query))
@@ -95,7 +95,7 @@ func (s *RealShard) MultiObjectByID(ctx context.Context, query []multi.Identifie
 // on the LSMKV which only checks the bloom filters, which at least in the case
 // of a true negative would be considerably faster. For a (false) positive,
 // we'd still need to check, though.
-func (s *RealShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err
@@ -113,7 +113,7 @@ func (s *RealShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return true, nil
 }
 
-func (s *RealShard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
+func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
@@ -136,12 +136,12 @@ func (s *RealShard) objectByIndexID(ctx context.Context, indexID uint64, acceptD
 	return obj, nil
 }
 
-func (s *RealShard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
 	keyBuf := make([]byte, 8)
 	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf})
 }
 
-func (s *RealShard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice) ([]float32, error) {
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
@@ -159,7 +159,7 @@ func (s *RealShard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID ui
 	return storobj.VectorFromBinary(bytes, container.Slice)
 }
 
-func (s *RealShard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -212,7 +212,7 @@ func (s *RealShard) ObjectSearch(ctx context.Context, limit int, filters *filter
 	return objs, nil, err
 }
 
-func (s *RealShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
 		dists     []float32
@@ -282,7 +282,7 @@ func (s *RealShard) ObjectVectorSearch(ctx context.Context, searchVector []float
 	return objs, dists, nil
 }
 
-func (s *RealShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	if len(sort) > 0 {
 		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
 		if err != nil {
@@ -298,7 +298,7 @@ func (s *RealShard) ObjectList(ctx context.Context, limit int, sort []filters.So
 	return s.cursorObjectList(ctx, cursor, additional, className)
 }
 
-func (s *RealShard) cursorObjectList(ctx context.Context, c *filters.Cursor,
+func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
@@ -336,7 +336,7 @@ func (s *RealShard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	return out[:i], nil
 }
 
-func (s *RealShard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,className schema.ClassName) ([]uint64, error) {
+func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort object list")
@@ -348,7 +348,7 @@ func (s *RealShard) sortedObjectList(ctx context.Context, limit int, sort []filt
 	return docIDs, nil
 }
 
-func (s *RealShard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,className schema.ClassName, docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
+func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName, docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.GetSchemaSkipAuth(), className)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sort objects with distances")
@@ -360,7 +360,7 @@ func (s *RealShard) sortDocIDsAndDists(ctx context.Context, limit int, sort []fi
 	return sortedDocIDs, sortedDists, nil
 }
 
-func (s *RealShard) buildAllowList(ctx context.Context, filters *filters.LocalFilter,addl additional.Properties) (helpers.AllowList, error) {
+func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(),
 		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
@@ -374,7 +374,7 @@ func (s *RealShard) buildAllowList(ctx context.Context, filters *filters.LocalFi
 	return list, nil
 }
 
-func (s *RealShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
+func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return "", errors.Errorf("objects bucket not found")
@@ -396,7 +396,7 @@ func (s *RealShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	return strfmt.UUID(prop[0]), nil
 }
 
-func (s *RealShard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -442,7 +442,7 @@ func (s *RealShard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	return nil
 }
 
-func (s *RealShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err

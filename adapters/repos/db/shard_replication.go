@@ -56,7 +56,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (s *RealShard) commitReplication(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
+func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
@@ -68,12 +68,12 @@ func (s *RealShard) commitReplication(ctx context.Context, requestID string, bac
 	return f(ctx)
 }
 
-func (s *RealShard) abortReplication(ctx context.Context, requestID string) replica.SimpleResponse {
+func (s *Shard) abortReplication(ctx context.Context, requestID string) replica.SimpleResponse {
 	s.replicationMap.delete(requestID)
 	return replica.SimpleResponse{}
 }
 
-func (s *RealShard) preparePutObject(ctx context.Context, requestID string, object *storobj.Object) replica.SimpleResponse {
+func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *storobj.Object) replica.SimpleResponse {
 	uuid, err := parseBytesUUID(object.ID())
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{{
@@ -93,7 +93,7 @@ func (s *RealShard) preparePutObject(ctx context.Context, requestID string, obje
 	return replica.SimpleResponse{}
 }
 
-func (s *RealShard) prepareMergeObject(ctx context.Context, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
+func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
 	uuid, err := parseBytesUUID(doc.ID)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
@@ -113,7 +113,7 @@ func (s *RealShard) prepareMergeObject(ctx context.Context, requestID string, do
 	return replica.SimpleResponse{}
 }
 
-func (s *RealShard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
+func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
 	bucket, obj, idBytes, docID, err := s.canDeleteOne(ctx, uuid)
 	if err != nil {
 		return replica.SimpleResponse{
@@ -135,7 +135,7 @@ func (s *RealShard) prepareDeleteObject(ctx context.Context, requestID string, u
 	return replica.SimpleResponse{}
 }
 
-func (s *RealShard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
 		rawErrs := s.putBatch(ctx, objects)
 		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
@@ -150,7 +150,7 @@ func (s *RealShard) preparePutObjects(ctx context.Context, requestID string, obj
 	return replica.SimpleResponse{}
 }
 
-func (s *RealShard) prepareDeleteObjects(ctx context.Context, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
 		result := newDeleteObjectsBatcher(s).Delete(ctx, docIDs, dryRun)
 		resp := replica.DeleteBatchResponse{
@@ -170,7 +170,7 @@ func (s *RealShard) prepareDeleteObjects(ctx context.Context, requestID string, 
 	return replica.SimpleResponse{}
 }
 
-func (s *RealShard) prepareAddReferences(ctx context.Context, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
+func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
 		rawErrs := newReferencesBatcher(s).References(ctx, refs)
 		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}

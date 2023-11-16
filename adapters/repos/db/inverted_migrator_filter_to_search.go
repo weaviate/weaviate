@@ -140,7 +140,7 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 		if _, ok := migrationState.MissingFilterableClass2Props[index.Config.ClassName.String()]; !ok {
 			continue
 		}
-		index.ForEachShard(func(name string, shard ShardInterface) error {
+		index.ForEachShard(func(name string, shard ShardLike) error {
 			m.logShard(shard).Debug("setting fallback mode for shard")
 			shard.setFallbackToSearchable(true)
 			return nil
@@ -168,7 +168,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		if !(inverted.HasFilterableIndex(prop) && inverted.HasSearchableIndex(prop)) {
 			continue
 		}
-		if err := index.ForEachShard(func(name string, shard ShardInterface) error {
+		if err := index.ForEachShard(func(name string, shard ShardLike) error {
 			if toFix, err := m.isPropToFix(prop, shard); toFix {
 				if _, ok := shard2PropsToFix[shard.Name()]; !ok {
 					shard2PropsToFix[shard.Name()] = map[string]struct{}{}
@@ -216,7 +216,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 	return uniquePropsToFix, nil
 }
 
-func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard ShardInterface,
+func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard ShardLike,
 	props map[string]struct{},
 ) error {
 	m.logShard(shard).Debug("started migration of shard")
@@ -243,7 +243,7 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 	return nil
 }
 
-func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard ShardInterface) (bool, error) {
+func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard ShardLike) (bool, error) {
 	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 	if bucketFilterable != nil &&
 		bucketFilterable.Strategy() == lsmkv.StrategyMapCollection &&
@@ -273,7 +273,7 @@ func (m *filterableToSearchableMigrator) isEmptyMapBucket(bucket *lsmkv.Bucket) 
 }
 
 func (m *filterableToSearchableMigrator) pauseStoreActivity(
-	ctx context.Context, shard ShardInterface,
+	ctx context.Context, shard ShardLike,
 ) error {
 	m.logShard(shard).Debug("pausing store activity")
 
@@ -290,7 +290,7 @@ func (m *filterableToSearchableMigrator) pauseStoreActivity(
 }
 
 func (m *filterableToSearchableMigrator) resumeStoreActivity(
-	ctx context.Context, shard ShardInterface,
+	ctx context.Context, shard ShardLike,
 ) error {
 	m.logShard(shard).Debug("resuming store activity")
 
@@ -311,7 +311,7 @@ func (m *filterableToSearchableMigrator) logIndex(index *Index) *logrus.Entry {
 	return m.log().WithField("index", index.ID())
 }
 
-func (m *filterableToSearchableMigrator) logShard(shard ShardInterface) *logrus.Entry {
+func (m *filterableToSearchableMigrator) logShard(shard ShardLike) *logrus.Entry {
 	return m.logIndex(shard.Index()).WithField("shard", shard.ID())
 }
 

@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func (s *RealShard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
+func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -44,7 +44,7 @@ func (s *RealShard) MergeObject(ctx context.Context, merge objects.MergeDocument
 	return s.merge(ctx, idBytes, merge)
 }
 
-func (s *RealShard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
+func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
 	next, status, err := s.mergeObjectInStorage(doc, idBytes)
 	if err != nil {
 		return err
@@ -69,7 +69,7 @@ func (s *RealShard) merge(ctx context.Context, idBytes []byte, doc objects.Merge
 	return nil
 }
 
-func (s *RealShard) mergeObjectInStorage(merge objects.MergeDocument,
+func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 	idBytes []byte,
 ) (*storobj.Object, objectInsertStatus, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -134,7 +134,7 @@ func (s *RealShard) mergeObjectInStorage(merge objects.MergeDocument,
 // The above makes this a perfect candidate for a batch reference update as
 // this alters neither the vector position, nor does it remove anything from
 // the inverted index
-func (s *RealShard) mutableMergeObjectLSM(merge objects.MergeDocument,
+func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	idBytes []byte,
 ) (mutableMergeResult, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -186,7 +186,7 @@ type mutableMergeResult struct {
 	status   objectInsertStatus
 }
 
-func (s *RealShard) mergeObjectData(previous []byte,
+func (s *Shard) mergeObjectData(previous []byte,
 	merge objects.MergeDocument,
 ) (*storobj.Object, *storobj.Object, error) {
 	var previousObj *storobj.Object

@@ -39,7 +39,6 @@ func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonPropertyL
 	return fa.propLenTracker
 }
 
-
 func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if fa.params.Hybrid != nil {
 		return fa.hybrid(ctx)

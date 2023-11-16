@@ -28,7 +28,7 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *RealShard) AddReferencesBatch(ctx context.Context,refs objects.BatchReferences) []error {
+func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if s.isReadOnly() {
 		return []error{errors.Errorf("shard is read-only")}
 	}
@@ -41,12 +41,12 @@ func (s *RealShard) AddReferencesBatch(ctx context.Context,refs objects.BatchRef
 // operations)
 type referencesBatcher struct {
 	sync.Mutex
-	shard ShardInterface
+	shard ShardLike
 	errs  []error
 	refs  objects.BatchReferences
 }
 
-func newReferencesBatcher(s ShardInterface) *referencesBatcher {
+func newReferencesBatcher(s ShardLike) *referencesBatcher {
 	return &referencesBatcher{
 		shard: s,
 	}
@@ -80,7 +80,7 @@ func (b *referencesBatcher) storeInObjectStore(
 	// the vector index
 }
 
-func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,batch objects.BatchReferences) []error {
+func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch objects.BatchReferences) []error {
 	errs := make([]error, len(batch))
 	errLock := &sync.Mutex{}
 
@@ -163,7 +163,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,batch obje
 	return errs
 }
 
-func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,ref objects.BatchReference, prop *models.Property) error {
+func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult, ref objects.BatchReference, prop *models.Property) error {
 	prevProps, err := b.analyzeRef(mergeResult.previous, ref, prop)
 	if err != nil {
 		return err

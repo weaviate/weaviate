@@ -50,7 +50,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) init() error {
 }
 
 func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(ctx context.Context,
-	shard ShardInterface,
+	shard ShardLike,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
 
@@ -113,7 +113,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) updateMigrationStateAndS
 	return t.files.saveMigrationState(t.migrationState)
 }
 
-func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard ShardInterface) error {
+func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
 	// turn off fallback mode immediately after creating filterable index and resuming store's activity
 	shard.setFallbackToSearchable(false)
 	return nil

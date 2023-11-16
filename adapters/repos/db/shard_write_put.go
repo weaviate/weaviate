@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *RealShard) PutObject(ctx context.Context, object *storobj.Object) error {
+func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -39,7 +39,7 @@ func (s *RealShard) PutObject(ctx context.Context, object *storobj.Object) error
 	return s.putOne(ctx, uuid, object)
 }
 
-func (s *RealShard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
 	if object.Vector != nil {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		err := s.VectorIndex().ValidateBeforeInsert(object.Vector)
@@ -79,7 +79,7 @@ func (s *RealShard) putOne(ctx context.Context, uuid []byte, object *storobj.Obj
 // as the name implies this method only performs the insertions, but completely
 // ignores any deletes. It thus assumes that the caller has already taken care
 // of all the deletes in another way
-func (s *RealShard) updateVectorIndexIgnoreDelete(vector []float32,
+func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 	status objectInsertStatus,
 ) error {
 	// vector is now optional as of
@@ -95,7 +95,7 @@ func (s *RealShard) updateVectorIndexIgnoreDelete(vector []float32,
 	return nil
 }
 
-func (s *RealShard) updateVectorIndex(vector []float32,
+func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus,
 ) error {
 	// even if no vector is provided in an update, we still need
@@ -121,7 +121,7 @@ func (s *RealShard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-func (s *RealShard) putObjectLSM(object *storobj.Object, idBytes []byte,
+func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
@@ -179,7 +179,7 @@ type objectInsertStatus struct {
 // to be called with the current contents of a row, if the row is empty (i.e.
 // didn't exist before), we will get a new docID from the central counter.
 // Otherwise, we will reuse the previous docID and mark this as an update
-func (s *RealShard) determineInsertStatus(previous []byte,
+func (s *Shard) determineInsertStatus(previous []byte,
 	next *storobj.Object,
 ) (objectInsertStatus, error) {
 	var out objectInsertStatus
@@ -217,7 +217,7 @@ func (s *RealShard) determineInsertStatus(previous []byte,
 // where it does not alter the doc id if one already exists. Calling this
 // method only makes sense under very special conditions, such as those
 // outlined in mutableMergeObjectInTx
-func (s *RealShard) determineMutableInsertStatus(previous []byte,
+func (s *Shard) determineMutableInsertStatus(previous []byte,
 	next *storobj.Object,
 ) (objectInsertStatus, error) {
 	var out objectInsertStatus
@@ -241,7 +241,7 @@ func (s *RealShard) determineMutableInsertStatus(previous []byte,
 	return out, nil
 }
 
-func (s *RealShard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
+func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
 	keyBuf := bytes.NewBuffer(nil)
@@ -251,7 +251,7 @@ func (s *RealShard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []
 	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
 }
 
-func (s *RealShard) updateInvertedIndexLSM(object *storobj.Object,
+func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, previous []byte,
 ) error {
 	props, nilprops, err := s.AnalyzeObject(object)
@@ -312,7 +312,7 @@ func (s *RealShard) updateInvertedIndexLSM(object *storobj.Object,
 
 // addIndexedTimestampsToProps ensures that writes are indexed
 // by internal timestamps
-func (s *RealShard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inverted.Property) error {
+func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inverted.Property) error {
 	createTime, err := json.Marshal(object.CreationTimeUnix())
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal _creationTimeUnix")
@@ -337,7 +337,7 @@ func (s *RealShard) addIndexedTimestampsToProps(object *storobj.Object, props *[
 	return nil
 }
 
-func (s *RealShard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
+func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	previous []byte,
 ) error {
 	if !status.docIDChanged {

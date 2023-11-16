@@ -41,15 +41,15 @@ import (
 )
 
 type BM25Searcher struct {
-	config        schema.BM25Config
-	store         *lsmkv.Store
-	schema        schema.Schema
-	classSearcher ClassSearcher // to allow recursive searches on ref-props
-	propIndices   propertyspecific.Indices
-	deletedDocIDs DeletedDocIDChecker
-	propLenTracker   propLengthRetriever
-	logger        logrus.FieldLogger
-	shardVersion  uint16
+	config         schema.BM25Config
+	store          *lsmkv.Store
+	schema         schema.Schema
+	classSearcher  ClassSearcher // to allow recursive searches on ref-props
+	propIndices    propertyspecific.Indices
+	deletedDocIDs  DeletedDocIDChecker
+	propLenTracker propLengthRetriever
+	logger         logrus.FieldLogger
+	shardVersion   uint16
 }
 
 type propLengthRetriever interface {
@@ -63,15 +63,15 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
-		config:        config,
-		store:         store,
-		schema:        schema,
-		propIndices:   propIndices,
-		classSearcher: classSearcher,
-		deletedDocIDs: deletedDocIDs,
-		propLenTracker:   propLenTracker,
-		logger:        logger.WithField("action", "bm25_search"),
-		shardVersion:  shardVersion,
+		config:         config,
+		store:          store,
+		schema:         schema,
+		propIndices:    propIndices,
+		classSearcher:  classSearcher,
+		deletedDocIDs:  deletedDocIDs,
+		propLenTracker: propLenTracker,
+		logger:         logger.WithField("action", "bm25_search"),
+		shardVersion:   shardVersion,
 	}
 }
 

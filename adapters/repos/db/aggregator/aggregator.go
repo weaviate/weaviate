@@ -42,7 +42,7 @@ type Aggregator struct {
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
-	propLenTracker            *inverted.JsonPropertyLengthTracker
+	propLenTracker         *inverted.JsonPropertyLengthTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
@@ -65,7 +65,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		vectorIndex:            vectorIndex,
-		propLenTracker:            propLenTracker,
+		propLenTracker:         propLenTracker,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
@@ -75,7 +75,6 @@ func New(store *lsmkv.Store, params aggregation.Params,
 func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	return a.propLenTracker
 }
-
 
 func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if a.params.GroupBy != nil {

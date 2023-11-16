@@ -27,12 +27,12 @@ import (
 )
 
 type ShardInvertedReindexTask interface {
-	GetPropertiesToReindex(ctx context.Context, shard ShardInterface,
+	GetPropertiesToReindex(ctx context.Context, shard ShardLike,
 	) ([]ReindexableProperty, error)
 	// right now only OnResume is needed, but in the future more
 	// callbacks could be added
 	// (like OnPrePauseStore, OnPostPauseStore, OnPreResumeStore, etc)
-	OnPostResumeStore(ctx context.Context, shard ShardInterface) error
+	OnPostResumeStore(ctx context.Context, shard ShardLike) error
 }
 
 type ReindexableProperty struct {
@@ -45,13 +45,13 @@ type ReindexableProperty struct {
 
 type ShardInvertedReindexer struct {
 	logger logrus.FieldLogger
-	shard  ShardInterface
+	shard  ShardLike
 
 	tasks []ShardInvertedReindexTask
 	class *models.Class
 }
 
-func NewShardInvertedReindexer(shard ShardInterface, logger logrus.FieldLogger) *ShardInvertedReindexer {
+func NewShardInvertedReindexer(shard ShardLike, logger logrus.FieldLogger) *ShardInvertedReindexer {
 	class, _ := schema.GetClassByName(shard.Index().getSchema.GetSchemaSkipAuth().Objects,
 		shard.Index().Config.ClassName.String())
 

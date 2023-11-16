@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *RealShard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -81,7 +81,7 @@ func (s *RealShard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	return nil
 }
 
-func (s *RealShard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, err error) {
+func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, err error) {
 	if uid, err = parseBytesUUID(id); err != nil {
 		return nil, nil, uid, 0, err
 	}
@@ -105,7 +105,7 @@ func (s *RealShard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *l
 	return bucket, existing, uid, docID, nil
 }
 
-func (s *RealShard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64) error {
+func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64) error {
 	if obj == nil || bucket == nil {
 		return nil
 	}
@@ -138,7 +138,7 @@ func (s *RealShard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, id
 	return nil
 }
 
-func (s *RealShard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
+func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
 	previousObject, err := storobj.FromBinary(previous)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)

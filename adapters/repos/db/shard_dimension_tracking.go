@@ -19,7 +19,7 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func (s *RealShard) Dimensions() int {
+func (s *Shard) Dimensions() int {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return 0
@@ -36,7 +36,7 @@ func (s *RealShard) Dimensions() int {
 	return sum
 }
 
-func (s *RealShard) QuantizedDimensions(segments int) int {
+func (s *Shard) QuantizedDimensions(segments int) int {
 	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
 	// as the segment size
 	if segments <= 0 {
@@ -61,7 +61,7 @@ func (s *RealShard) QuantizedDimensions(segments int) int {
 	return sum
 }
 
-func (s *RealShard) getSegments() (bool, int) {
+func (s *Shard) getSegments() (bool, int) {
 	// Detect if vector index is HNSW
 	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
 	if !ok {
@@ -73,7 +73,7 @@ func (s *RealShard) getSegments() (bool, int) {
 	return false, 0
 }
 
-func (s *RealShard) clearDimensionMetrics() {
+func (s *Shard) clearDimensionMetrics() {
 	pqEnabled, _ := s.getSegments()
 	if pqEnabled {
 		s.sendVectorSegmentsMetric(0)
@@ -84,7 +84,7 @@ func (s *RealShard) clearDimensionMetrics() {
 	}
 }
 
-func (s *RealShard) publishDimensionMetrics() {
+func (s *Shard) publishDimensionMetrics() {
 	pqEnabled, segments := s.getSegments()
 	if pqEnabled {
 		count := s.QuantizedDimensions(segments)
@@ -97,7 +97,7 @@ func (s *RealShard) publishDimensionMetrics() {
 	}
 }
 
-func (s *RealShard) sendVectorDimensionsMetric(count int) {
+func (s *Shard) sendVectorDimensionsMetric(count int) {
 	if s.promMetrics != nil {
 		// Important: Never group classes/shards for this metric. We need the
 		// granularity here as this tracks an absolute value per shard that changes
@@ -115,7 +115,7 @@ func (s *RealShard) sendVectorDimensionsMetric(count int) {
 	}
 }
 
-func (s *RealShard) sendVectorSegmentsMetric(count int) {
+func (s *Shard) sendVectorSegmentsMetric(count int) {
 	if s.promMetrics != nil {
 		metric, err := s.promMetrics.VectorSegmentsSum.
 			GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
@@ -125,7 +125,7 @@ func (s *RealShard) sendVectorSegmentsMetric(count int) {
 	}
 }
 
-func (s *RealShard) initDimensionTracking() {
+func (s *Shard) initDimensionTracking() {
 	if s.index.Config.TrackVectorDimensions {
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics()

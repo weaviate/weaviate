@@ -21,7 +21,7 @@ import (
 type ShardInvertedReindexTaskSetToRoaringSet struct{}
 
 func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx context.Context,
-	shard ShardInterface,
+	shard ShardLike,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
 
@@ -71,6 +71,6 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 	return reindexableProperties, nil
 }
 
-func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard ShardInterface) error {
+func (t *ShardInvertedReindexTaskSetToRoaringSet) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
 	return nil
 }

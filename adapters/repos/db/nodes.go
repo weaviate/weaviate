@@ -139,7 +139,7 @@ func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
 }
 
 func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCount int64) {
-	i.ForEachShard(func(name string, shard ShardInterface) error {
+	i.ForEachShard(func(name string, shard ShardLike) error {
 		objectCount := int64(shard.ObjectCount())
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,

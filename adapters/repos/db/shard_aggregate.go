@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
-func (s *RealShard) Aggregate(ctx context.Context,
+func (s *Shard) Aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
 	return aggregator.New(s.store, params, s.index.getSchema,

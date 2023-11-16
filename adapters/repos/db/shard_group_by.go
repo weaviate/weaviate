@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *RealShard) groupResults(ctx context.Context, ids []uint64,
+func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	dists []float32, groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {

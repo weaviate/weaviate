@@ -18,25 +18,25 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func (s *RealShard) initStatus() {
+func (s *Shard) initStatus() {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
 	s.status = storagestate.StatusReady
 }
 
-func (s *RealShard) GetStatus() storagestate.Status {
+func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
 	return s.status
 }
 
-func (s *RealShard) isReadOnly() bool {
+func (s *Shard) isReadOnly() bool {
 	return s.GetStatus() == storagestate.StatusReadOnly
 }
 
-func (s *RealShard) compareAndSwapStatus(old, new string) (storagestate.Status, error) {
+func (s *Shard) compareAndSwapStatus(old, new string) (storagestate.Status, error) {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
@@ -47,7 +47,7 @@ func (s *RealShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 	return s.status, s.updateStatusUnlocked(new)
 }
 
-func (s *RealShard) UpdateStatus(in string) error {
+func (s *Shard) UpdateStatus(in string) error {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
@@ -56,7 +56,7 @@ func (s *RealShard) UpdateStatus(in string) error {
 
 // updateStatusUnlocked updates the status without locking the statusLock.
 // Warning: Use UpdateStatus instead.
-func (s *RealShard) updateStatusUnlocked(in string) error {
+func (s *Shard) updateStatusUnlocked(in string) error {
 	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	if err != nil {
 		return errors.Wrap(err, in)
@@ -68,6 +68,6 @@ func (s *RealShard) updateStatusUnlocked(in string) error {
 	return nil
 }
 
-func (s *RealShard) updateStoreStatus(targetStatus storagestate.Status) {
+func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) {
 	s.store.UpdateBucketsStatus(targetStatus)
 }

@@ -74,9 +74,9 @@ type shardMap sync.Map
 
 // Range calls f sequentially for each key and value present in the map.
 // If f returns an error, range stops the iteration
-func (m *shardMap) Range(f func(name string, shard ShardInterface) error) (err error) {
+func (m *shardMap) Range(f func(name string, shard ShardLike) error) (err error) {
 	(*sync.Map)(m).Range(func(key, value any) bool {
-		err = f(key.(string), value.(ShardInterface))
+		err = f(key.(string), value.(ShardLike))
 		return err == nil
 	})
 	return err
@@ -85,11 +85,11 @@ func (m *shardMap) Range(f func(name string, shard ShardInterface) error) (err e
 // RangeConcurrently calls f for each key and value present in the map with at
 // most _NUMCPU executors running in parallel. As opposed to [Range] it does
 // not guarantee an exit on the first error.
-func (m *shardMap) RangeConcurrently(f func(name string, shard ShardInterface) error) (err error) {
+func (m *shardMap) RangeConcurrently(f func(name string, shard ShardLike) error) (err error) {
 	eg := errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 	(*sync.Map)(m).Range(func(key, value any) bool {
-		name, shard := key.(string), value.(ShardInterface)
+		name, shard := key.(string), value.(ShardLike)
 		eg.Go(func() error {
 			return f(name, shard)
 		})
@@ -100,42 +100,42 @@ func (m *shardMap) RangeConcurrently(f func(name string, shard ShardInterface) e
 }
 
 // Load returns the shard or nil if no shard is present.
-func (m *shardMap) Load(name string) ShardInterface {
+func (m *shardMap) Load(name string) ShardLike {
 	v, ok := (*sync.Map)(m).Load(name)
 	if !ok {
 		return nil
 	}
-	return v.(ShardInterface)
+	return v.(ShardLike)
 }
 
 // Store sets a shard giving its name and value
-func (m *shardMap) Store(name string, shard ShardInterface) {
+func (m *shardMap) Store(name string, shard ShardLike) {
 	(*sync.Map)(m).Store(name, shard)
 }
 
 // Swap swaps the shard for a key and returns the previous value if any.
 // The loaded result reports whether the key was present.
-func (m *shardMap) Swap(name string, shard ShardInterface) (previous ShardInterface, loaded bool) {
+func (m *shardMap) Swap(name string, shard ShardLike) (previous ShardLike, loaded bool) {
 	v, ok := (*sync.Map)(m).Swap(name, shard)
 	if v == nil || !ok {
 		return nil, ok
 	}
-	return v.(ShardInterface), ok
+	return v.(ShardLike), ok
 }
 
 // CompareAndSwap swaps the old and new values for key if the value stored in the map is equal to old.
-func (m *shardMap) CompareAndSwap(name string, old, new ShardInterface) bool {
+func (m *shardMap) CompareAndSwap(name string, old, new ShardLike) bool {
 	return (*sync.Map)(m).CompareAndSwap(name, old, new)
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous value if any.
 // The loaded result reports whether the key was present.
-func (m *shardMap) LoadAndDelete(name string) (ShardInterface, bool) {
+func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
 	v, ok := (*sync.Map)(m).LoadAndDelete(name)
 	if v == nil || !ok {
 		return nil, ok
 	}
-	return v.(ShardInterface), ok
+	return v.(ShardLike), ok
 }
 
 // Index is the logical unit which contains all the data for one particular
@@ -182,9 +182,9 @@ type Index struct {
 	lastBackup  atomic.Pointer[BackupState]
 }
 
-func (i *Index) GetShards() []ShardInterface {
-	var out []ShardInterface
-	i.shards.Range(func(_ string, shard ShardInterface) error {
+func (i *Index) GetShards() []ShardLike {
+	var out []ShardLike
+	i.shards.Range(func(_ string, shard ShardLike) error {
 		out = append(out, shard)
 		return nil
 	})
@@ -291,8 +291,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 }
 
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardInterface, object *storobj.Object) error) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardInterface) error {
+func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
+	return i.ForEachShard(func(_ string, shard ShardLike) error {
 		wrapper := func(object *storobj.Object) error {
 			return cb(i, shard, object)
 		}
@@ -301,17 +301,17 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
-func (i *Index) ForEachShard(f func(name string, shard ShardInterface) error) error {
+func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
-func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardInterface) error) error {
+func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
 	return i.shards.RangeConcurrently(f)
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
-func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardInterface) error) (err error) {
-	return i.ForEachShard(func(key string, shard ShardInterface) error {
+func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
+	return i.ForEachShard(func(key string, shard ShardLike) error {
 		return cb(i, shard)
 	})
 }
@@ -320,7 +320,7 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardInterface) error {
+	i.ForEachShard(func(key string, shard ShardLike) error {
 		shard.createPropertyIndex(ctx, prop, eg)
 		return nil
 	})
@@ -331,7 +331,7 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
-	return i.ForEachShard(func(name string, shard ShardInterface) error {
+	return i.ForEachShard(func(name string, shard ShardLike) error {
 		err := shard.addIDProperty(ctx)
 		if err != nil {
 			return errors.Wrapf(err, "add id property to shard %q", name)
@@ -341,7 +341,7 @@ func (i *Index) addUUIDProperty(ctx context.Context) error {
 }
 
 func (i *Index) addDimensionsProperty(ctx context.Context) error {
-	return i.ForEachShard(func(name string, shard ShardInterface) error {
+	return i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.addDimensionsProperty(ctx); err != nil {
 			return errors.Wrapf(err, "add dimensions property to shard %q", name)
 		}
@@ -350,7 +350,7 @@ func (i *Index) addDimensionsProperty(ctx context.Context) error {
 }
 
 func (i *Index) addTimestampProperties(ctx context.Context) error {
-	return i.ForEachShard(func(name string, shard ShardInterface) error {
+	return i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.addTimestampProperties(ctx); err != nil {
 			return errors.Wrapf(err, "add timestamp properties to shard %q", name)
 		}
@@ -362,7 +362,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
 	// an updated is not specific to one shard, but rather all
-	err := i.ForEachShard(func(name string, shard ShardInterface) error {
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
 		// At the moment, we don't do anything in an update that could fail, but
 		// technically this should be part of some sort of a two-phase commit  or
 		// have another way to rollback if we have updates that could potentially
@@ -1453,7 +1453,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id)
 }
 
-func (i *Index) localShard(name string) ShardInterface {
+func (i *Index) localShard(name string) ShardLike {
 	return i.shards.Load(name)
 }
 
@@ -1561,7 +1561,7 @@ func (i *Index) drop() error {
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
-	dropShard := func(name string, shard ShardInterface) error {
+	dropShard := func(name string, shard ShardLike) error {
 		if shard == nil {
 			return nil
 		}
@@ -1598,7 +1598,7 @@ func (i *Index) drop() error {
 // To confirm the deletion, the user must call Commit(true).
 // To roll back the deletion, the user must call Commit(false)
 func (i *Index) dropShards(names []string) (commit func(success bool), err error) {
-	shards := make(map[string]ShardInterface, len(names))
+	shards := make(map[string]ShardLike, len(names))
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
 
@@ -1653,7 +1653,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	defer i.backupMutex.RUnlock()
 
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShardConcurrently(func(name string, shard ShardInterface) error {
+	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
 		if err := shard.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", name)
 		}
@@ -1786,7 +1786,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 }
 
 func (i *Index) notifyReady() {
-	i.ForEachShard(func(name string, shard ShardInterface) error {
+	i.ForEachShard(func(name string, shard ShardLike) error {
 		shard.NotifyReady()
 		return nil
 	})

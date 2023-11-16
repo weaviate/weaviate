@@ -23,7 +23,7 @@ import (
 )
 
 // BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
-func (s *RealShard) BeginBackup(ctx context.Context) (err error) {
+func (s *Shard) BeginBackup(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
@@ -51,7 +51,7 @@ func (s *RealShard) BeginBackup(ctx context.Context) (err error) {
 }
 
 // ListBackupFiles lists all files used to backup a shard
-func (s *RealShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
 	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
 		return err
@@ -69,7 +69,7 @@ func (s *RealShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescri
 	return nil
 }
 
-func (s *RealShard) resumeMaintenanceCycles(ctx context.Context) error {
+func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	var g errgroup.Group
 
 	g.Go(func() error {
@@ -90,7 +90,7 @@ func (s *RealShard) resumeMaintenanceCycles(ctx context.Context) error {
 	return nil
 }
 
-func (s *RealShard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
+func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
 	d.Node = s.nodeName()
 	fpath := s.counter.FileName()
@@ -120,7 +120,7 @@ func (s *RealShard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	return nil
 }
 
-func (s *RealShard) nodeName() string {
+func (s *Shard) nodeName() string {
 	node, _ := s.index.getSchema.ShardOwner(
 		s.index.Config.ClassName.String(), s.name)
 	return node

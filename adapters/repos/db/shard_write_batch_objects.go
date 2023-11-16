@@ -27,7 +27,7 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *RealShard) PutObjectBatch(ctx context.Context,
+func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if s.isReadOnly() {
@@ -46,7 +46,7 @@ func asyncEnabled() bool {
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
-func (s *RealShard) putBatch(ctx context.Context,
+func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if asyncEnabled() {
@@ -65,7 +65,7 @@ func (s *RealShard) putBatch(ctx context.Context,
 	return err
 }
 
-func (s *RealShard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []error {
+func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []error {
 	beforeBatch := time.Now()
 	defer s.metrics.BatchObject(beforeBatch, len(objects))
 
@@ -85,7 +85,7 @@ func (s *RealShard) putBatchAsync(ctx context.Context, objects []*storobj.Object
 // operations)
 type objectsBatcher struct {
 	sync.Mutex
-	shard          ShardInterface
+	shard          ShardLike
 	statuses       map[strfmt.UUID]objectInsertStatus
 	errs           []error
 	duplicates     map[int]struct{}
@@ -94,7 +94,7 @@ type objectsBatcher struct {
 	batchStartTime time.Time
 }
 
-func newObjectsBatcher(s ShardInterface) *objectsBatcher {
+func newObjectsBatcher(s ShardLike) *objectsBatcher {
 	return &objectsBatcher{shard: s}
 }
 

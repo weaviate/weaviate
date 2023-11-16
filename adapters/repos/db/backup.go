@@ -99,7 +99,7 @@ func (db *DB) ShardsBackup(
 		}
 	}()
 
-	sm := make(map[string]ShardInterface, len(shards))
+	sm := make(map[string]ShardLike, len(shards))
 	for _, shardName := range shards {
 		shard := idx.shards.Load(shardName)
 		if shard == nil {
@@ -214,7 +214,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	i.backupMutex.Lock()
 	defer i.backupMutex.Unlock()
 
-	if err = i.ForEachShard(func(name string, s ShardInterface) error {
+	if err = i.ForEachShard(func(name string, s ShardLike) error {
 		if err = s.BeginBackup(ctx); err != nil {
 			return fmt.Errorf("pause compaction and flush: %w", err)
 		}
@@ -273,7 +273,7 @@ func (i *Index) resetBackupState() {
 }
 
 func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
-	i.ForEachShard(func(name string, shard ShardInterface) error {
+	i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.resumeMaintenanceCycles(ctx); err != nil {
 			lastErr = err
 			i.logger.WithField("shard", name).WithField("op", "resume_maintenance").Error(err)

@@ -314,7 +314,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 
 	// set all shards to readonly
-	index.ForEachShard(func(name string, shard ShardInterface) error {
+	index.ForEachShard(func(name string, shard ShardLike) error {
 		err = shard.UpdateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 		return nil

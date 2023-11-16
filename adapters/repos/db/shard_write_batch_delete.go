@@ -25,7 +25,7 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *RealShard) DeleteObjectBatch(ctx context.Context,docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+func (s *Shard) DeleteObjectBatch(ctx context.Context, docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
 	if s.isReadOnly() {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
@@ -36,25 +36,25 @@ func (s *RealShard) DeleteObjectBatch(ctx context.Context,docIDs []uint64, dryRu
 
 type deleteObjectsBatcher struct {
 	sync.Mutex
-	shard   ShardInterface
+	shard   ShardLike
 	objects objects.BatchSimpleObjects
 }
 
-func newDeleteObjectsBatcher(shard ShardInterface) *deleteObjectsBatcher {
+func newDeleteObjectsBatcher(shard ShardLike) *deleteObjectsBatcher {
 	return &deleteObjectsBatcher{shard: shard}
 }
 
-func (b *deleteObjectsBatcher) Delete(ctx context.Context,docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+func (b *deleteObjectsBatcher) Delete(ctx context.Context, docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
 	b.delete(ctx, docIDs, dryRun)
 	b.flushWALs(ctx)
 	return b.objects
 }
 
-func (b *deleteObjectsBatcher) delete(ctx context.Context,docIDs []uint64, dryRun bool) {
+func (b *deleteObjectsBatcher) delete(ctx context.Context, docIDs []uint64, dryRun bool) {
 	b.objects = b.deleteSingleBatchInLSM(ctx, docIDs, dryRun)
 }
 
-func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,batch []uint64, dryRun bool) objects.BatchSimpleObjects {
+func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch []uint64, dryRun bool) objects.BatchSimpleObjects {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
@@ -86,7 +86,7 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,batch 
 	return result
 }
 
-func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,docID uint64, dryRun bool) objects.BatchSimpleObject {
+func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context, docID uint64, dryRun bool) objects.BatchSimpleObject {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
 
@@ -132,7 +132,7 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-func (s *RealShard) FindDocIDs(ctx context.Context,filters *filters.LocalFilter) ([]uint64, error) {
+func (s *Shard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
 		s.index.getSchema.GetSchemaSkipAuth(), nil,
 		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,

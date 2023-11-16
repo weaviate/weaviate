@@ -33,7 +33,7 @@ type shardCycleCallbacks struct {
 	geoPropsCombinedCallbacksCtrl     cyclemanager.CycleCallbackCtrl
 }
 
-func (s *RealShard) initCycleCallbacks() {
+func (s *Shard) initCycleCallbacks() {
 	id := func(elems ...string) string {
 		elems = append([]string{"shard", s.index.ID(), s.name}, elems...)
 		return strings.Join(elems, "/")

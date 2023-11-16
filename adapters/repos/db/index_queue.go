@@ -259,7 +259,7 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 // PreloadShard goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(ctx context.Context, shard ShardInterface) error {
+func (q *IndexQueue) PreloadShard(ctx context.Context, shard ShardLike) error {
 	if !asyncEnabled() {
 		return nil
 	}

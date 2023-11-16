@@ -234,7 +234,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard ShardInterface) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 12800, shard.Dimensions())
 			assert.Equal(t, 6400, shard.QuantizedDimensions(64))
 			return nil
@@ -257,7 +257,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after delete", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard ShardInterface) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 11520, shard.Dimensions())
 			assert.Equal(t, 5760, shard.QuantizedDimensions(64))
 			return nil
@@ -306,7 +306,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard ShardInterface) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 6400, shard.Dimensions())
 			assert.Equal(t, 3200, shard.QuantizedDimensions(64))
 			assert.Equal(t, 1600, shard.QuantizedDimensions(32))
@@ -356,7 +356,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard ShardInterface) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 12800, shard.Dimensions())
 			assert.Equal(t, 6400, shard.QuantizedDimensions(64))
 			assert.Equal(t, 12800, shard.QuantizedDimensions(0))

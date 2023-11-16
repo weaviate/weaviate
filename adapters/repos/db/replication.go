@@ -150,7 +150,7 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 	return
 }
 
-func (i *Index) writableShard(name string) (ShardInterface, *replica.SimpleResponse) {
+func (i *Index) writableShard(name string) (ShardLike, *replica.SimpleResponse) {
 	localShard := i.localShard(name)
 	if localShard == nil {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
@@ -262,7 +262,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context,
 	return shard.reinit(ctx)
 }
 
-func (s *RealShard) filePutter(ctx context.Context,
+func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {
 	// TODO: validate file prefix to rule out that we're accidentally writing
@@ -281,7 +281,7 @@ func (s *RealShard) filePutter(ctx context.Context,
 	return f, nil
 }
 
-func (s *RealShard) reinit(ctx context.Context) error {
+func (s *Shard) reinit(ctx context.Context) error {
 	if err := s.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
