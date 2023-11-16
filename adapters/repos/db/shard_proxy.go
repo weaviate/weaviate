@@ -1,5 +1,15 @@
-package db
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
 
+package db
 
 import (
 	"context"
@@ -32,13 +42,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-
-
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
-	shard *Shard
-	loaded bool
-	mutex sync.Mutex
+	shard     *Shard
+	loaded    bool
+	mutex     sync.Mutex
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -49,10 +57,10 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 		shardOpts: &deferredShardOpts{
 			promMetrics: promMetrics,
 
-			name:        shardName,
-			index:       index,
-			class:       class,
-			jobQueueCh:  jobQueueCh,
+			name:             shardName,
+			index:            index,
+			class:            class,
+			jobQueueCh:       jobQueueCh,
 			indexCheckpoints: indexCheckpoints,
 		},
 	}
@@ -60,11 +68,11 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 }
 
 type deferredShardOpts struct {
-	promMetrics *monitoring.PrometheusMetrics
-	name 	  string
-	index 	  *Index
-	class 	  *models.Class
-	jobQueueCh chan job
+	promMetrics      *monitoring.PrometheusMetrics
+	name             string
+	index            *Index
+	class            *models.Class
+	jobQueueCh       chan job
 	indexCheckpoints *indexcheckpoint.Checkpoints
 }
 
@@ -163,7 +171,6 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 }
 
 func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
-
 	l.Load()
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetDist, limit, filters, sort, groupBy, additional)
 }
@@ -447,4 +454,3 @@ func (l *LazyLoadShard) Metrics() *Metrics {
 	l.Load()
 	return l.shard.Metrics()
 }
-

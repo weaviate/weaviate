@@ -158,7 +158,6 @@ type ShardLike interface {
 
 	Metrics() *Metrics
 	Load() error // Force shard to load immediately
-
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -176,7 +175,7 @@ type Shard struct {
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
-	propLenTracker  *inverted.JsonPropertyLengthTracker
+	propLenTracker   *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -207,7 +206,6 @@ type Shard struct {
 func (s *Shard) Load() error {
 	return nil
 }
-
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
