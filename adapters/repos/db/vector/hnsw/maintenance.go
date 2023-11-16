@@ -28,16 +28,29 @@ const (
 // its own, make sure that this function is called from a single-thread or
 // locked situation
 func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) error {
+	defer func() {
+		h.metrics.SetSize(len(h.nodes))
+	}()
+
 	before := time.Now()
-	newIndex, changed, err := growIndexToAccomodateNode(h.nodes, id, logger)
-	if err != nil {
-		return err
+
+	// check whether h.nodes slice needs growing
+	// not to unnecessarily lock h.shardedNodeLocks
+	if id < uint64(len(h.nodes)) {
+		return nil
 	}
 
-	h.metrics.SetSize(len(h.nodes))
+	// lock h.nodes' individual elements to avoid race between writing to elements
+	// and copying entire slice in growIndexToAccomodateNode method
+	newIndex, err := func() ([]*vertex, error) {
+		h.shardedNodeLocks.RLockAll()
+		defer h.shardedNodeLocks.RUnlockAll()
 
-	if !changed {
-		return nil
+		newIndex, _, err := growIndexToAccomodateNode(h.nodes, id, logger)
+		return newIndex, err
+	}()
+	if err != nil {
+		return err
 	}
 
 	defer h.metrics.GrowDuration(before)
