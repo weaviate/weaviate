@@ -334,6 +334,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
+		idx.ForceLoadShards()
 	require.Nil(t, err)
 	return idx
 }

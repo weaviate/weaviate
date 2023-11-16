@@ -270,7 +270,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 		shardName := shardName // prevent loop variable capture
 		eg.Go(func() error {
-			shard, err := NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
+			shard, err := NewLazyLoadShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
 			if err != nil {
 				return fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
 			}
@@ -288,6 +288,13 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	index.cycleCallbacks.flushCycle.Start()
 
 	return index, nil
+}
+
+func (i *Index) ForceLoadShards() (err error) {
+	return i.ForEachShard(func(_ string, shard ShardLike) error {
+			shard.Load()
+		return nil
+	})
 }
 
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -1933,7 +1940,7 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewShard(ctx, nil, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+	s, err := NewLazyLoadShard(ctx, nil, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 	if err != nil {
 		return err
 	}

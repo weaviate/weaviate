@@ -157,6 +157,8 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
+	Load() error // Force shard to load immediately
+
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -174,7 +176,7 @@ type Shard struct {
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
-	propertyLengths  *inverted.JsonPropertyLengthTracker
+	propLenTracker  *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -202,91 +204,10 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func (s *Shard) Queue() *IndexQueue {
-	return s.queue
+func (s *Shard) Load() error {
+	return nil
 }
 
-// func (s *RealShard) GetQueue() *IndexQueue {
-// 	return s.queue
-// }
-
-func (s *Shard) VectorIndex() VectorIndex {
-	return s.vectorIndex
-}
-
-func (s *Shard) Versioner() *shardVersioner {
-	return s.versioner
-}
-
-// func (s *RealShard) GetIndex() *Index {
-// 	return s.index
-// }
-
-func (s *Shard) Index() *Index {
-	return s.index
-}
-
-// func (s *RealShard) GetName() string {
-// 	return s.name
-// }
-
-func (s *Shard) Name() string {
-	return s.name
-}
-
-//	func (s *RealShard) GetStore() *lsmkv.Store {
-//		return s.store
-//	}
-func (s *Shard) Store() *lsmkv.Store {
-	return s.store
-}
-
-//	func (s *RealShard) GetCounter() *indexcounter.Counter {
-//		return s.counter
-//	}
-func (s *Shard) Counter() *indexcounter.Counter {
-	return s.counter
-}
-
-// func (s *RealShard) GetVectorIndex() VectorIndex {
-// 	return s.VectorIndex()
-// }
-
-// func (s *RealShard) GetPropertyIndices() propertyspecific.Indices {
-// 	return s.propertyIndices
-// }
-
-func (s *Shard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-	return s.propertyLengths
-}
-
-// func (s *RealShard) SetPropertyTracker(tracker *inverted.JsonPropertyLengthTracker) {
-// 	s.propertyLengths = tracker
-// }
-
-func (s *Shard) Metrics() *Metrics {
-	return s.metrics
-}
-
-func (s *Shard) setFallbackToSearchable(fallback bool) {
-	s.fallbackToSearchable = fallback
-}
-
-func (s *Shard) addJobToQueue(job job) {
-	s.centralJobQueue <- job
-}
-
-func (s *Shard) hasGeoIndex() bool {
-	s.propertyIndicesLock.RLock()
-	defer s.propertyIndicesLock.RUnlock()
-
-	for _, idx := range s.propertyIndices {
-		if idx.Type == schema.DataTypeGeoCoordinates {
-			return true
-		}
-	}
-	return false
-}
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
@@ -464,7 +385,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 
-	s.propertyLengths = tracker
+	s.propLenTracker = tracker
 
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())

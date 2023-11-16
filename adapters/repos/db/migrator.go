@@ -198,7 +198,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
 		}
-		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
+		shard, err := NewLazyLoadShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create partition %q: %w", pl, err)
 		}
@@ -288,7 +288,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			if shard := idx.shards.Load(name); shard != nil {
 				continue
 			}
-			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
+			shard, err := NewLazyLoadShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 			if err != nil {
 				return fmt.Errorf("cannot activate shard '%s': %w", name, err)
 			}
