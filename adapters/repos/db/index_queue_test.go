@@ -26,9 +26,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func startWorker(t testing.TB, retryInterval ...time.Duration) chan job {
@@ -645,6 +649,43 @@ func TestIndexQueue(t *testing.T) {
 
 		// indexing should happen
 		<-indexed
+	})
+
+	t.Run("compression does not occur at the indexing if async is enabled", func(t *testing.T) {
+		vectors := [][]float32{{0, 1, 3, 4, 5, 6}, {0, 1, 3, 4, 5, 6}, {0, 1, 3, 4, 5, 6}}
+		distancer := distancer.NewL2SquaredProvider()
+		uc := ent.UserConfig{}
+		uc.MaxConnections = 112
+		uc.EFConstruction = 112
+		uc.EF = 10
+		uc.VectorCacheMaxObjects = 10e12
+		index, _ := hnsw.New(
+			hnsw.Config{
+				RootPath:              t.TempDir(),
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+				DistanceProvider:      distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+					copy(container.Slice, vectors[int(id)])
+					return container.Slice, nil
+				},
+			}, uc,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		defer index.Shutdown(context.Background())
+
+		q, err := NewIndexQueue("1", new(mockShard), index, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "please break...", Distribution: "normal"}}
+		err = index.UpdateUserConfig(uc, func() {})
+		require.Nil(t, err)
 	})
 }
 
