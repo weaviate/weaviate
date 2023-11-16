@@ -6,7 +6,8 @@ body:
     attributes:
       value: |
         #### Before you get started
-        * Check to make sure someone hasn't already [requested this feature](https://github.com/weaviate/weaviate/issues?q=is:issue+label:"feature+request").
+        * Is this feature already in our [roadmap](https://weaviate.io/developers/weaviate/roadmap)?
+        * Check to make sure someone hasn't already [requested this feature](https://github.com/weaviate/weaviate/issues?q=is:issue+label:"feature+request"). if that's the case, give it a thumbs up 👍
         * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
 
   - type: textarea
@@ -26,6 +27,3 @@ body:
       options:
         - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
           required: true
-
-
-
