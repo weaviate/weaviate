@@ -587,16 +587,14 @@ func (h *hnsw) Stats() {
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-
-	return h.isEmptyUnsecured()
-}
-
-func (h *hnsw) isEmptyUnsecured() bool {
 	h.shardedNodeLocks.RLock(h.entryPointID)
 	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	entryPoint := h.nodes[h.entryPointID]
-	return entryPoint == nil
+	return h.isEmptyUnlocked()
+}
+
+func (h *hnsw) isEmptyUnlocked() bool {
+	return h.nodes[h.entryPointID] == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -609,6 +607,9 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		// ahead" than the hnsw index and we receive a delete request
 		return nil
 	}
+
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
 
 	return h.nodes[id]
 }
@@ -684,9 +685,11 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
-	ok := len(h.nodes) > int(id) && h.nodes[id] != nil
-	h.RUnlock()
-	return ok
+	defer h.RUnlock()
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }
 
 func (h *hnsw) DistancerProvider() distancer.Provider {

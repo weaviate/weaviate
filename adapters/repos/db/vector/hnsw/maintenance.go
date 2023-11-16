@@ -67,7 +67,9 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	h.pools.visitedLists = visited.NewPool(1, len(newIndex)+512)
 	h.pools.visitedListsLock.Unlock()
 
+	h.shardedNodeLocks.LockAll()
 	h.nodes = newIndex
+	h.shardedNodeLocks.UnlockAll()
 
 	return nil
 }
