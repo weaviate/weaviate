@@ -161,9 +161,9 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 
 	nodeId := node.id
 
-	h.shardedNodeLocks[nodeId%NodeLockStripe].Lock()
+	h.shardedNodeLocks.Lock(nodeId)
 	h.nodes[nodeId] = node
-	h.shardedNodeLocks[nodeId%NodeLockStripe].Unlock()
+	h.shardedNodeLocks.Unlock(nodeId)
 
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(vector)
