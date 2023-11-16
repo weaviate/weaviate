@@ -41,6 +41,25 @@ func EnsureClassExists(t *testing.T, className string, tenant string) {
 	require.Len(t, class, 1)
 }
 
+func EnsureCompressedVectorsRestored(t *testing.T, className string) {
+	query := fmt.Sprintf("{Get{%s(limit:1){_additional{vector}}}}", className)
+	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+
+	class := resp.Get("Get", className).Result.([]interface{})
+	require.Len(t, class, 1)
+	vecResp := class[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
+
+	searchVec := graphqlhelper.Vec2String(graphqlhelper.ParseVec(t, vecResp))
+
+	limit := 10
+	query = fmt.Sprintf(
+		"{Get{%s(nearVector:{vector:%s} limit:%d){_additional{vector}}}}",
+		className, searchVec, limit)
+	resp = graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+	class = resp.Get("Get", className).Result.([]interface{})
+	require.Len(t, class, limit)
+}
+
 func GetClassCount(t *testing.T, className string, tenant string) int64 {
 	query := fmt.Sprintf("{Aggregate{%s", className)
 	if tenant != "" {
