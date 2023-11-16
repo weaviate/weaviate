@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/backup"
 	"golang.org/x/sync/errgroup"
 )
@@ -33,10 +32,10 @@ func (s *RealShard) BeginBackup(ctx context.Context) (err error) {
 		}
 	}()
 	if err = s.store.PauseCompaction(ctx); err != nil {
-		return errors.Wrap(err, "pause compaction")
+		return fmt.Errorf("pause compaction: %w", err)
 	}
 	if err = s.store.FlushMemtables(ctx); err != nil {
-		return errors.Wrap(err, "flush memtables")
+		return fmt.Errorf("flush memtables: %w", err)
 	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
@@ -44,8 +43,8 @@ func (s *RealShard) BeginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.VectorIndex().SwitchCommitLogs(ctx); err != nil {
-		return errors.Wrap(err, "switch commit logs")
+    if err = s.VectorIndex().SwitchCommitLogs(ctx); err != nil {
+		return fmt.Errorf("switch commit logs: %w", err)
 	}
 	return nil
 }
@@ -83,8 +82,7 @@ func (s *RealShard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return errors.Wrapf(err,
-			"failed to resume maintenance cycles for shard '%s'", s.name)
+		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
 
 	return nil
