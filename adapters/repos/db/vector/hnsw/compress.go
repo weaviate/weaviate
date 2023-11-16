@@ -40,7 +40,7 @@ func (h *hnsw) initCompressedStore() error {
 }
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
-	if h.nodes[0] == nil {
+	if h.isEmpty() {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
 	err := h.initCompressedStore()
@@ -48,11 +48,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		return errors.Wrap(err, "Initializing compressed vector store")
 	}
 
-	vec, err := h.vectorForID(context.Background(), h.nodes[0].id)
-	if err != nil {
-		return errors.Wrap(err, "Inferring data dimensions")
-	}
-	dims := len(vec)
+	dims := int(h.dims)
 
 	// segments == 0 (default value) means use as many segments as dimensions
 	if cfg.Segments <= 0 {
