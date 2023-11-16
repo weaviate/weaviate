@@ -6,17 +6,28 @@ import (
 	"math/rand"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+type Times struct {
+	Setup          int
+	Insert         int
+	BucketShutdown int
+}
+
 // Lock contention example written by Parker to demo WVT-40 (multiple threads writing to bucket concurrently)
 func TestMemtableLockContention(t *testing.T) {
-	const numWorkers = 10000
 	const numKeys = 1000000
 	const operationsPerWorker = 1000
+	const numClients = 10000
+
+	// Could this be replaced by subtests?
+	times := Times{}
+	startTime := time.Now()
 
 	ctx := context.Background()
 	dirName := t.TempDir()
@@ -25,8 +36,6 @@ func TestMemtableLockContention(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyRoaringSet))
 	require.Nil(t, err)
-
-	defer b.Shutdown(ctx)
 
 	wg := sync.WaitGroup{}
 	// create some keys upfront:
@@ -39,14 +48,18 @@ func TestMemtableLockContention(t *testing.T) {
 	for i := range keys {
 		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
 	}
-	for i := 0; i < numWorkers; i++ {
+
+	times.Setup = int(time.Since(startTime).Milliseconds())
+	startTime = time.Now()
+
+	for i := 0; i < numClients; i++ {
 		i := i
 		wg.Add(1)
 		go func() {
 			// pick a random start key, so not all routines start with the same key
 			keyIndex := rand.Intn(len(keys))
 			for j := 0; j < operationsPerWorker; j++ {
-				err = b.RoaringSetAddOne(keys[keyIndex], uint64(i*numWorkers+j))
+				err = b.RoaringSetAddOne(keys[keyIndex], uint64(i*numClients+j))
 				if err != nil {
 					fmt.Printf("err: %v", err)
 				}
@@ -57,4 +70,17 @@ func TestMemtableLockContention(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+
+	fmt.Println("Total size:", b.active.size)
+	times.Insert = int(time.Since(startTime).Milliseconds())
+	startTime = time.Now()
+
+	b.Shutdown(ctx)
+
+	times.BucketShutdown = int(time.Since(startTime).Milliseconds())
+
+	fmt.Println("Bucket shutdown")
+	fmt.Println("Setup:", times.Setup)
+	fmt.Println("Insert:", times.Insert)
+	fmt.Println("Bucket shutdown:", times.BucketShutdown)
 }
