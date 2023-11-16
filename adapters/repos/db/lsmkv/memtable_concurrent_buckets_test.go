@@ -21,7 +21,7 @@ type Request struct {
 
 // TODO: ensure errors are handled and output is the same as the non-concurrent version
 type Response struct {
-	Data string
+	Error error
 }
 
 // Worker goroutine: adds to the RoaringSet
@@ -35,14 +35,14 @@ func worker(id int, dirName string, requests <-chan Request, wg *sync.WaitGroup)
 
 	for req := range requests {
 		// Do the work
-		b.RoaringSetAddOne(req.key, req.value)
+		err := b.RoaringSetAddOne(req.key, req.value)
 		// Send a response back
-		req.ResponseCh <- Response{Data: "Processed by worker " + fmt.Sprint(id)}
+		req.ResponseCh <- Response{Error: err}
 
 	}
 
 	// Perform any cleanup here
-	//b.Shutdown(context.Background())
+	b.Shutdown(context.Background())
 	fmt.Println("Worker", id, "size:", b.active.size)
 }
 
@@ -56,7 +56,11 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, reque
 		requests <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
 
 		// TODO: handle errors and ensure output matches non-concurrent version
-		<-responseCh
+		err := <-responseCh
+
+		if err.Error != nil {
+			fmt.Printf("err: %v", err)
+		}
 
 		keyIndex = (keyIndex + 1) % len(keys)
 		//fmt.Println("Client", i, "received:", response.Data)
