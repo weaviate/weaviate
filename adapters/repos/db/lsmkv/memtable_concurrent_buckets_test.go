@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -26,13 +26,24 @@ type Response struct {
 
 // Worker goroutine: adds to the RoaringSet
 // TODO: wrap this code to support an interface similar to the non-concurrent version on Bucket, instead of this worker model
-func worker(id int, b *Bucket, requests <-chan Request) {
+func worker(id int, dirName string, requests <-chan Request, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ctx := context.Background()
+	b, _ := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet))
+
 	for req := range requests {
 		// Do the work
 		b.RoaringSetAddOne(req.key, req.value)
 		// Send a response back
 		req.ResponseCh <- Response{Data: "Processed by worker " + fmt.Sprint(id)}
+
 	}
+
+	// Perform any cleanup here
+	//b.Shutdown(context.Background())
+	fmt.Println("Worker", id, "size:", b.active.size)
 }
 
 func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests chan<- Request, wg *sync.WaitGroup) {
@@ -55,19 +66,23 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, reque
 // Per-thread bucket write to reduce lock contention of WVT-40 (multiple threads writing to bucket concurrently)
 func TestMemtableConcurrent(t *testing.T) {
 	// keep same constants as TestMemtableLockContention to make comparison easier
-	const numWorkers = 10000
 	const numKeys = 1000000
 	const operationsPerWorker = 1000
+	const numClients = 10000
 
 	// sane default? Can be potentially tuned
-	numClients := runtime.NumCPU()
+	numWorkers := runtime.NumCPU()
 
-	var wg sync.WaitGroup
+	times := Times{}
+	startTime := time.Now()
+
+	var wgClients sync.WaitGroup
+	var wgWorkers sync.WaitGroup
 	requests := make(chan Request, numClients)
 
 	// Not sure if this is the best way of keeping the buckets around, but it works
 	// This is being done at Bucket level instead of Memtable level for comparison reasons, but the same could be done at Memtable level, as the RoaringSetAddOne and other RoaringTable calls are basically a passthrough to the Memtable
-	buckets := make([]*Bucket, numWorkers)
+	//buckets := make([]*Bucket, numWorkers)
 
 	keys := make([][]byte, numKeys)
 	for i := range keys {
@@ -75,31 +90,30 @@ func TestMemtableConcurrent(t *testing.T) {
 	}
 
 	// Start worker goroutines
+	wgWorkers.Add(numWorkers)
 	for i := 0; i < numWorkers; i++ {
-		ctx := context.Background()
 		dirName := t.TempDir()
-
-		b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyRoaringSet))
-		require.Nil(t, err)
-		buckets[i] = b
-
-		go worker(i, b, requests)
+		go worker(i, dirName, requests, &wgWorkers)
 	}
+
+	times.Setup = int(time.Since(startTime).Milliseconds())
+	startTime = time.Now()
 
 	// Start client goroutines
-	wg.Add(numClients)
+	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, keys, operationsPerWorker, requests, &wg)
+		go client(i, numWorkers, keys, operationsPerWorker, requests, &wgClients)
 	}
 
-	wg.Wait()       // Wait for all clients to finish
-	close(requests) // Close the requests channel
+	wgClients.Wait() // Wait for all clients to finish
+	close(requests)  // Close the requests channel
 
-	for _, b := range buckets {
-		b.Shutdown(context.Background())
-	}
+	wgWorkers.Wait() // Wait for all workers to finish
+
+	times.Insert = int(time.Since(startTime).Milliseconds())
+	fmt.Println("Setup:", times.Setup)
+	fmt.Println("Insert:", times.Insert)
+	fmt.Println("Bucket shutdown:", times.BucketShutdown)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 }
