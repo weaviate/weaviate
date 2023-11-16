@@ -342,7 +342,7 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 			}
 		}
 
-		if len(ids) >= 0 {
+		if len(ids) > 0 {
 		LOOP:
 			for {
 				err := job.indexer.AddBatch(ids, vectors)
