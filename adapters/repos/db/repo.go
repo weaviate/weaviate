@@ -340,24 +340,26 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 				vectors = append(vectors, c.data[i].vector)
 			}
 		}
-	LOOP:
-		for {
-			err := job.indexer.AddBatch(ids, vectors)
-			if err == nil {
-				break LOOP
-			}
-
-			logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
-
-			t := time.NewTimer(retryInterval)
-			select {
-			case <-job.ctx.Done():
-				// drain the timer
-				if !t.Stop() {
-					<-t.C
+		if len(ids) > 0 {
+		LOOP:
+			for {
+				err := job.indexer.AddBatch(ids, vectors)
+				if err == nil {
+					break LOOP
 				}
-				return
-			case <-t.C:
+
+				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+
+				t := time.NewTimer(retryInterval)
+				select {
+				case <-job.ctx.Done():
+					// drain the timer
+					if !t.Stop() {
+						<-t.C
+					}
+					return
+				case <-t.C:
+				}
 			}
 		}
 
