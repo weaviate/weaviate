@@ -36,6 +36,7 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 		if len(h.nodes) <= int(candidate) { // if index hasn't grown yet for a newly inserted node
 			continue
 		}
+
 		h.shardedNodeLocks.RLock(candidate)
 		c := h.nodes[candidate]
 		h.shardedNodeLocks.RUnlock(candidate)
