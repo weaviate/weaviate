@@ -8,25 +8,28 @@ body:
       value: |
         #### Before you get started
         * Check that sure someone hasn't already opened a similar [issue](https://github.com/weaviate/weaviate-io/issues).
+        * Check this example of a [good bug report](https://github.com/weaviate/weaviate/issues/3762).
         * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
 
   - type: textarea
-    id: issue_body
+    id: how_to_reproduce
     attributes:
-      label: Describe your issue
-      description: |
-        * What is the expected behavior? 
-        * What is the actual behavior? 
-        * Can you replicate it in latest version?
-        * How can we reproduce it?
+      label: How to reproduce this bug?
+      description: Specify here the steps in order to reproduce this bug.
     validations:
       required: true
 
-  - type: input
-    id: server_version
+  - type: textarea
+    id: expected_behavior
     attributes:
-      label: Server Version
-      description: What Weaviate Version are you running?
+      label: What is the expected behavior?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: What is the actual behavior?
     validations:
       required: true
 
@@ -38,6 +41,14 @@ body:
     validations:
       required: false
 
+  - type: input
+    id: server_version
+    attributes:
+      label: Server Version
+      description: What Weaviate Version are you running?
+    validations:
+      required: true
+
   - type: checkboxes
     id: terms
     attributes:
@@ -46,6 +57,3 @@ body:
       options:
         - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
           required: true
-
-
-
