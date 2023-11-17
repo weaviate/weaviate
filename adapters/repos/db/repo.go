@@ -266,7 +266,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
 
 	if !asyncEnabled() {
-		db.workersCancelFunc()
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			db.jobQueueCh <- job{
@@ -285,6 +284,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	if asyncEnabled() {
 		// shut down the async workers
+		db.workersCancelFunc()
 		close(db.jobQueueCh)
 	}
 

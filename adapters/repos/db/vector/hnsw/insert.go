@@ -80,12 +80,13 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	shuttingDown.Store(false)
 	go func() {
 		for {
+		LOOP:
 			select {
 			case <-time.After(2 * time.Second):
 
 			case <-ctx.Done():
 				shuttingDown.Store(true)
-				break
+				break LOOP
 			}
 		}
 	}()
