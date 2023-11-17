@@ -37,10 +37,11 @@ type executor interface {
 }
 
 type Cluster struct {
-	members  members
-	executor executor
-	address  string
-	ln       net.Listener
+	members    members
+	executor   executor
+	address    string
+	ln         net.Listener
+	grpcServer *grpc.Server
 }
 
 func NewCluster(ms members, ex executor, address string) Cluster {
@@ -98,10 +99,15 @@ func (c *Cluster) Open() error {
 	return nil
 }
 
+func (c *Cluster) Shutdown() {
+	log.Printf("server shutdown")
+	c.grpcServer.Stop()
+}
+
 func (c *Cluster) serve() error {
-	s := grpc.NewServer()
-	cmd.RegisterClusterServiceServer(s, c)
-	if err := s.Serve(c.ln); err != nil {
+	c.grpcServer = grpc.NewServer()
+	cmd.RegisterClusterServiceServer(c.grpcServer, c)
+	if err := c.grpcServer.Serve(c.ln); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 	return nil
