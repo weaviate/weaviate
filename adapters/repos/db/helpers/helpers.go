@@ -20,7 +20,7 @@ import (
 var (
 	ObjectsBucket          = []byte("objects")
 	ObjectsBucketLSM       = "objects"
-	VectorsPQBucketLSM     = "vectors_pq"
+	VectorsHNSWPQBucketLSM = "vectors_hnsw_pq"
 	VectorsFlatBucketLSM   = "vectors_flat"
 	VectorsFlatBQBucketLSM = "vectors_flat_bq"
 	DimensionsBucketLSM    = "dimensions"
