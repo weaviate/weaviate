@@ -154,7 +154,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			Distribution: ent.PQEncoderDistributionLogNormal,
 		},
 		BitCompression: false,
-		Segments:       0,
+		Segments:       dimensions,
 		Centroids:      256,
 	}
 
