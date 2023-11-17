@@ -214,11 +214,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		if dist > worstResultDistance && results.Len() >= ef {
 			break
 		}
-		h.RLock()
-		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RLock()
+
+		h.shardedNodeLocks.RLock(candidate.ID)
 		candidateNode := h.nodes[candidate.ID]
-		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RUnlock()
-		h.RUnlock()
+		h.shardedNodeLocks.RUnlock(candidate.ID)
+
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
 			// just cleaned up while we were waiting for a read lock
