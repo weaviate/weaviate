@@ -161,6 +161,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	s.notifyReady()
+
 	var err error
 	s.queue, err = NewIndexQueue(s.ID(), s, s.vectorIndex, s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{
 		Logger: s.index.logger,
@@ -169,11 +171,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	err = s.queue.PreloadShard(ctx, s)
-	if err != nil {
-		return nil, err
+	if asyncEnabled() {
+		go func() {
+			// preload unindexed objects in the background
+			err = s.queue.PreloadShard(s)
+			if err != nil {
+				s.queue.Logger.WithError(err).Error("preload shard")
+			}
+		}()
 	}
-	s.notifyReady()
 
 	return s, nil
 }

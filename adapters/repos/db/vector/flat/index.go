@@ -114,7 +114,10 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	return nil
 }
 
-func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
+func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -122,6 +125,9 @@ func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 	for i := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := index.Add(ids[i], vectors[i]); err != nil {
 			return err
 		}
