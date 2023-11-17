@@ -50,10 +50,10 @@ func worker(id int, dirName string, requests <-chan Request, wg *sync.WaitGroup)
 func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests chan<- Request, wg *sync.WaitGroup) {
 	defer wg.Done()
 	keyIndex := rand.Intn(len(keys))
+	responseCh := make(chan Response)
 
 	for j := 0; j < operationsPerWorker; j++ {
 
-		responseCh := make(chan Response)
 		requests <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
 
 		err := <-responseCh
@@ -74,10 +74,10 @@ func clientRandom(i int, numWorkers int, keys [][]byte, operationsPerWorker int,
 
 	for j := 0; j < operationsPerWorker; j++ {
 
-		//workerID := rand.Intn(numWorkers)
+		workerID := rand.Intn(numWorkers)
 		//workerID := 0 // TODO: remove this line to make it random again
 		//workerID := i % numWorkers // TODO: remove this line to make it random again
-		workerID := j % numWorkers // TODO: remove this line to make it random again
+		//workerID := j % numWorkers // TODO: remove this line to make it random again
 		requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
 
 		// TODO: handle errors and ensure output matches non-concurrent version
@@ -102,10 +102,10 @@ func hashKey(key []byte, numWorkers int) int {
 func clientHash(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests []chan Request, wg *sync.WaitGroup) {
 	defer wg.Done()
 	keyIndex := rand.Intn(len(keys))
+	responseCh := make(chan Response)
 
 	for j := 0; j < operationsPerWorker; j++ {
 
-		responseCh := make(chan Response)
 		workerID := hashKey(keys[keyIndex], numWorkers)
 		requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
 
