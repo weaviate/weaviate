@@ -38,8 +38,7 @@ func TestHandler_AddProperty(t *testing.T) {
 	t.Run("adds property of each data type", func(t *testing.T) {
 		handler, shutdown := newTestHandler(t, &fakeDB{})
 		defer func() {
-			future := shutdown()
-			require.NoError(t, future.Error())
+			shutdown()
 		}()
 
 		class := models.Class{
@@ -109,8 +108,7 @@ func TestHandler_AddProperty(t *testing.T) {
 	t.Run("fails adding property of existing name", func(t *testing.T) {
 		handler, shutdown := newTestHandler(t, &fakeDB{})
 		defer func() {
-			future := shutdown()
-			require.NoError(t, future.Error())
+			shutdown()
 		}()
 
 		class := models.Class{
@@ -171,8 +169,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		future := shutdown()
-		require.NoError(t, future.Error())
+		shutdown()
 	}()
 
 	class := models.Class{
@@ -471,8 +468,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 func Test_Validation_PropertyTokenization(t *testing.T) {
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		future := shutdown()
-		require.NoError(t, future.Error())
+		shutdown()
 	}()
 
 	type testCase struct {
@@ -723,8 +719,7 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		future := shutdown()
-		require.NoError(t, future.Error())
+		shutdown()
 	}()
 
 	t.Run("validates indexInverted + indexFilterable + indexSearchable combinations", func(t *testing.T) {

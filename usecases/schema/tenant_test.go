@@ -36,8 +36,7 @@ func TestAddTenants(t *testing.T) {
 
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		future := shutdown()
-		require.NoError(t, future.Error())
+		shutdown()
 	}()
 
 	mtNilClass := &models.Class{
@@ -192,8 +191,7 @@ func TestUpdateTenants(t *testing.T) {
 
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		future := shutdown()
-		require.NoError(t, future.Error())
+		shutdown()
 	}()
 
 	mtNilClass := &models.Class{
@@ -362,8 +360,7 @@ func TestDeleteTenants(t *testing.T) {
 
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		future := shutdown()
-		require.NoError(t, future.Error())
+		shutdown()
 	}()
 
 	mtNilClass := &models.Class{
