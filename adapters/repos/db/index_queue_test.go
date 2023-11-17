@@ -50,7 +50,7 @@ func startWorker(t testing.TB, retryInterval ...time.Duration) chan job {
 	go func() {
 		logger := logrus.New()
 		logger.Level = logrus.ErrorLevel
-		asyncWorker(ch, logger, itv)
+		asyncWorker(context.Background(), ch, logger, itv)
 	}()
 
 	return ch
@@ -747,7 +747,7 @@ type mockBatchIndexer struct {
 	onCompressionTurnedOn func(func()) error
 }
 
-func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error) {
+func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector [][]float32) (err error) {
 	m.Lock()
 	defer m.Unlock()
 

@@ -92,7 +92,7 @@ type IndexQueueOptions struct {
 }
 
 type batchIndexer interface {
-	AddBatch(id []uint64, vector [][]float32) error
+	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)

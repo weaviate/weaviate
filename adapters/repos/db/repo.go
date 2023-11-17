@@ -80,6 +80,8 @@ type DB struct {
 	maxNumberGoroutines     int
 	batchMonitorLock        sync.Mutex
 	ratePerSecond           int
+	workersContext          context.Context
+	workersCancelFunc       context.CancelFunc
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -130,6 +132,7 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics,
 ) (*DB, error) {
+	ctx, workersCancelFunc := context.WithCancel(context.Background())
 	db := &DB{
 		logger:                  logger,
 		config:                  config,
@@ -145,6 +148,8 @@ func New(logger logrus.FieldLogger, config Config,
 		resourceScanState:       newResourceScanState(),
 		memMonitor: memwatch.NewMonitor(runtime.MemProfile,
 			debug.SetMemoryLimit, runtime.MemProfileRate, 0.97),
+		workersContext:    ctx,
+		workersCancelFunc: workersCancelFunc,
 	}
 
 	// make sure memMonitor has an initial state
@@ -168,7 +173,7 @@ func New(logger logrus.FieldLogger, config Config,
 			go func() {
 				defer db.shutDownWg.Done()
 
-				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
+				asyncWorker(db.workersContext, db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
 			}()
 		}
 	}
@@ -261,6 +266,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
 
 	if !asyncEnabled() {
+		db.workersCancelFunc()
 		// shut down the workers that add objects to
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			db.jobQueueCh <- job{
@@ -326,7 +332,7 @@ type job struct {
 	queue   *vectorQueue
 }
 
-func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
+func asyncWorker(ctx context.Context, ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
 	var ids []uint64
 	var vectors [][]float32
 	var deleted []uint64
@@ -345,7 +351,7 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 		if len(ids) > 0 {
 		LOOP:
 			for {
-				err := job.indexer.AddBatch(ids, vectors)
+				err := job.indexer.AddBatch(ctx, ids, vectors)
 				if err == nil {
 					break LOOP
 				}

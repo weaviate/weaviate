@@ -114,7 +114,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	return nil
 }
 
-func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
+func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}

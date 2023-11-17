@@ -28,7 +28,7 @@ func NewIndex() *Index {
 	return &Index{}
 }
 
-func (i *Index) AddBatch(id []uint64, vector [][]float32) error {
+func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) error {
 	// silently ignore
 	return nil
 }
