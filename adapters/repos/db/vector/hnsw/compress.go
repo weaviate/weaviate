@@ -43,7 +43,11 @@ func (h *hnsw) compressedStoreLSMPath() string {
 }
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
-	if h.nodes[0] == nil {
+	h.shardedNodeLocks.RLock(0)
+	node := h.nodes[0]
+	h.shardedNodeLocks.RUnlock(0)
+
+	if node == nil {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
 	err := h.initCompressedStore()
@@ -51,7 +55,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		return errors.Wrap(err, "Initializing compressed vector store")
 	}
 
-	vec, err := h.vectorForID(context.Background(), h.nodes[0].id)
+	vec, err := h.vectorForID(context.Background(), node.id)
 	if err != nil {
 		return errors.Wrap(err, "Inferring data dimensions")
 	}
