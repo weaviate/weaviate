@@ -18,9 +18,6 @@ import (
 	"sync"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/multi"
-	"github.com/weaviate/weaviate/entities/searchparams"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -30,16 +27,16 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/weaviate/weaviate/entities/storobj"
-
-	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type LazyLoadShard struct {
