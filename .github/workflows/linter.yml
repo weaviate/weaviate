@@ -13,13 +13,13 @@ jobs:
     steps:
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
       - uses: actions/checkout@v4
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
           # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
-          version: v1.53
+          version: v1.54
           args: --timeout=5m
   protolint:
     name: protolint
