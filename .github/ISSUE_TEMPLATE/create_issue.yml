@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         #### Before you get started
-        * Check that sure someone hasn't already opened a similar [issue](https://github.com/weaviate/weaviate-io/issues).
+        * Check to make sure someone hasn't already opened a similar [issue](https://github.com/weaviate/weaviate-io/issues).
         * Check this example of a [good bug report](https://github.com/weaviate/weaviate/issues/3762).
         * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
 
@@ -15,7 +15,7 @@ body:
     id: how_to_reproduce
     attributes:
       label: How to reproduce this bug?
-      description: Specify here the steps in order to reproduce this bug.
+      description: Specify the steps here in order to reproduce this bug.
     validations:
       required: true
 
@@ -53,7 +53,7 @@ body:
     id: terms
     attributes:
       label: Code of Conduct
-      description: This project has a Code of Conduct that all participants are expected to understand and follow.
+      description: This project has a Code of Conduct. All participants are expected to understand and follow the CoC.
       options:
         - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
           required: true
