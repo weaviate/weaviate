@@ -709,7 +709,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
-			Segments:       0,
+			Segments:       3,
 			Centroids:      256,
 		}
 		index.Compress(cfg)
