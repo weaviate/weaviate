@@ -66,8 +66,9 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "filesystem", fsBackupJourneyClassName,
-				fsBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+			journey.BackupJourneyTests_Cluster(t, "filesystem",
+				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil,
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
 		})
 	})
 }
