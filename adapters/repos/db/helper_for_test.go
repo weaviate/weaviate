@@ -207,7 +207,7 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*LazyLoadShard, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 

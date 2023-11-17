@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Some standard accessors for the shard struct.
+// It is important to NEVER access the shard struct directly, because we lazy load shards, so the information might not be there.
 package db
 
 import (
@@ -36,10 +38,12 @@ func (s *Shard) Index() *Index {
 	return s.index
 }
 
+// Shard name(identifier?)
 func (s *Shard) Name() string {
 	return s.name
 }
 
+//The physical data store
 func (s *Shard) Store() *lsmkv.Store {
 	return s.store
 }
@@ -56,14 +60,17 @@ func (s *Shard) GetPropertyIndices() propertyspecific.Indices {
 	return s.propertyIndices
 }
 
+// Tracks the lengths of all properties.  Must be updated on inserts/deletes.
 func (s *Shard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	return s.propLenTracker
 }
 
+// Tracks the lengths of all properties.  Must be updated on inserts/deletes.
 func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonPropertyLengthTracker) {
 	s.propLenTracker = tracker
 }
 
+//Grafana metrics
 func (s *Shard) Metrics() *Metrics {
 	return s.metrics
 }
