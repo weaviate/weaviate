@@ -342,11 +342,18 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 			}
 		}
 
+		var err error
+
 		if len(ids) > 0 {
 		LOOP:
 			for {
-				err := job.indexer.AddBatch(ids, vectors)
+				err = job.indexer.AddBatch(job.ctx, ids, vectors)
 				if err == nil {
+					break LOOP
+				}
+
+				if errors.Is(err, context.Canceled) {
+					logger.WithError(err).Debugf("skipping indexing batch due to context cancellation")
 					break LOOP
 				}
 
@@ -365,7 +372,11 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 			}
 		}
 
-		job.queue.persistCheckpoint(ids)
+		// only persist checkpoint if we indexed a full batch
+		if err == nil {
+			job.queue.persistCheckpoint(ids)
+		}
+
 		job.queue.releaseChunk(c)
 
 		if len(deleted) > 0 {

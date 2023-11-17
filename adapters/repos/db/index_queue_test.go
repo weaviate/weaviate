@@ -747,7 +747,7 @@ type mockBatchIndexer struct {
 	onCompressionTurnedOn func(func()) error
 }
 
-func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error) {
+func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector [][]float32) (err error) {
 	m.Lock()
 	defer m.Unlock()
 

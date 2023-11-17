@@ -41,7 +41,10 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
-func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
+func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -77,6 +80,10 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 	}
 
 	for i := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
@@ -220,7 +227,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 }
 
 func (h *hnsw) Add(id uint64, vector []float32) error {
-	return h.AddBatch([]uint64{id}, [][]float32{vector})
+	return h.AddBatch(context.TODO(), []uint64{id}, [][]float32{vector})
 }
 
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {

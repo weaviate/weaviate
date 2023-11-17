@@ -92,7 +92,7 @@ type IndexQueueOptions struct {
 }
 
 type batchIndexer interface {
-	AddBatch(id []uint64, vector [][]float32) error
+	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
@@ -267,7 +267,7 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 // PreloadShard goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
+func (q *IndexQueue) PreloadShard(shard *Shard) error {
 	if !asyncEnabled() {
 		return nil
 	}
@@ -286,6 +286,8 @@ func (q *IndexQueue) PreloadShard(ctx context.Context, shard *Shard) error {
 	maxDocID := shard.counter.Get()
 
 	var counter int
+
+	ctx := context.Background()
 
 	buf := make([]byte, 8)
 	for i := checkpoint; i < maxDocID; i++ {
