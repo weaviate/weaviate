@@ -15,24 +15,26 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 const (
 	flatFSIndexFileRegex = `[_0-9A-Za-z]*_[A-Za-z0-9\-\_]{1,64}`
+	flatFSPQFileRegex    = `^[A-Z][A-Za-z0-9\_]*`
 	vectorIndexCommitLog = `hnsw.commitlog.d`
 )
 
 var validateIndexFileRegex *regexp.Regexp
+var validatePQFileRegex *regexp.Regexp
 
 func init() {
 	validateIndexFileRegex = regexp.MustCompile(flatFSIndexFileRegex)
+	validatePQFileRegex = regexp.MustCompile(flatFSPQFileRegex)
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {
@@ -68,15 +70,16 @@ func (db *DB) migrateToHierarchicalFS() error {
 	for newRoot, parts := range plan {
 		for _, part := range parts {
 			newPath := path.Join(newRoot, part.newRelPath)
+			absDir, _ := filepath.Split(newPath)
+			if err := os.MkdirAll(absDir, os.ModePerm); err != nil {
+				return fmt.Errorf("mkdir %q: %w", absDir, err)
+			}
 			if err = os.Rename(part.oldAbsPath, newPath); err != nil {
-				return fmt.Errorf("mv %s %s: %w", part.oldAbsPath, newPath, err)
+				if !os.IsExist(err) {
+					return fmt.Errorf("mv %s %s: %w", part.oldAbsPath, newPath, err)
+				}
 			}
 		}
-	}
-
-	err = db.migratePQVectors(plan)
-	if err != nil {
-		return fmt.Errorf("migrate pq vectors: %w", err)
 	}
 
 	db.logger.WithField("action", "hierarchical_fs_migration").
@@ -105,9 +108,6 @@ func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (migrationPlan, err
 			if len(parts) > 1 {
 				idx, shard := parts[0], parts[1]
 				root := path.Join(db.config.RootPath, idx, shard)
-				if err := os.MkdirAll(root, os.ModePerm); err != nil {
-					return nil, fmt.Errorf("mkdir index/shard %s/%s: %w", idx, shard, err)
-				}
 				plan[root] = append(plan[root],
 					migrationPart{
 						oldAbsPath: path.Join(db.config.RootPath, entry.Name()),
@@ -115,6 +115,37 @@ func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (migrationPlan, err
 						index:      idx,
 						shard:      shard,
 					})
+			}
+		}
+
+		pqFile := validatePQFileRegex.FindString(entry.Name())
+		if pqFile != "" && entry.IsDir() {
+			oldIndexRoot := path.Join(db.config.RootPath, entry.Name())
+			newIndexRoot := path.Join(db.config.RootPath, strings.ToLower(entry.Name()))
+			err := os.Rename(oldIndexRoot, newIndexRoot)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
+					oldIndexRoot, newIndexRoot, err)
+			}
+			shards, err := os.ReadDir(newIndexRoot)
+			if err != nil {
+				return nil, fmt.Errorf("read pq class dir %q: %w", entry.Name(), err)
+			}
+			for _, shard := range shards {
+				if shard.IsDir() {
+					root := path.Join(newIndexRoot, shard.Name())
+					files, err := os.ReadDir(path.Join(newIndexRoot, shard.Name()))
+					if err != nil {
+						return nil, fmt.Errorf("read pq shard dir %q: %w", shard.Name(), err)
+					}
+					for _, f := range files {
+						plan[root] = append(plan[root], migrationPart{
+							oldAbsPath: path.Join(root, f.Name()),
+							newRelPath: path.Join("lsm", helpers.VectorsHNSWPQBucketLSM, f.Name()),
+						})
+					}
+				}
 			}
 		}
 	}
@@ -133,66 +164,6 @@ func makeNewRelPath(oldPath, prefix string) (newPath string) {
 	return
 }
 
-func (db *DB) migratePQVectors(plan migrationPlan) error {
-	for _, parts := range plan {
-		oldClassPath := path.Join(
-			db.config.RootPath,
-			toTitleCase(parts[0].index),
-		)
-		oldStorePath := path.Join(
-			oldClassPath,
-			parts[0].shard,
-			"compressed_objects",
-		)
-
-		exists, err := fileExists(oldStorePath)
-		if err != nil {
-			return fmt.Errorf("check store exists: %w", err)
-		}
-
-		if !exists {
-			continue
-		}
-
-		newStorePath := path.Join(
-			oldClassPath,
-			parts[0].shard,
-			"lsm",
-			helpers.VectorsHNSWPQBucketLSM,
-		)
-		if err := os.MkdirAll(newStorePath, os.ModePerm); err != nil {
-			return fmt.Errorf("make new store: %w", err)
-		}
-
-		entries, err := os.ReadDir(oldStorePath)
-		if err != nil {
-			return fmt.Errorf("read store: %w", err)
-		}
-
-		for _, entry := range entries {
-			oldPath := path.Join(oldStorePath, entry.Name())
-			newPath := path.Join(newStorePath, entry.Name())
-			if err = os.Rename(oldPath, newPath); err != nil {
-				return fmt.Errorf("rename store: %w", err)
-			}
-		}
-
-		if err := os.Remove(oldStorePath); err != nil {
-			return fmt.Errorf("rm old store: %w", err)
-		}
-
-		newClassPath := path.Join(
-			db.config.RootPath,
-			parts[0].index,
-		)
-		if err = os.Rename(oldClassPath, newClassPath); err != nil {
-			return fmt.Errorf("rename class path")
-		}
-	}
-
-	return nil
-}
-
 func fileExists(file string) (bool, error) {
 	_, err := os.Stat(file)
 	if os.IsNotExist(err) {
@@ -202,8 +173,4 @@ func fileExists(file string) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-func toTitleCase(lower string) string {
-	return cases.Title(language.English).String(lower)
 }
