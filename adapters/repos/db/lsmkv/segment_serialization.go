@@ -14,10 +14,11 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/byteops"
-	"io"
 )
 
 // a single node of strategy "replace"

@@ -33,7 +33,11 @@ func (h *hnsw) initCompressedBucket() error {
 }
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
-	if h.nodes[0] == nil {
+	h.shardedNodeLocks.RLock(0)
+	node := h.nodes[0]
+	h.shardedNodeLocks.RUnlock(0)
+
+	if node == nil {
 		return errors.New("data must be inserted before compress command can be executed")
 	}
 	err := h.initCompressedBucket()
@@ -41,7 +45,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		return fmt.Errorf("init compressed vector store: %w", err)
 	}
 
-	vec, err := h.vectorForID(context.Background(), h.nodes[0].id)
+	vec, err := h.vectorForID(context.Background(), node.id)
 	if err != nil {
 		return fmt.Errorf("infer vector dimensions: %w", err)
 	}
