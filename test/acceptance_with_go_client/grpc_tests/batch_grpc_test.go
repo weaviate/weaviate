@@ -26,7 +26,7 @@ import (
 
 func TestGRPC_Batch(t *testing.T) {
 	ctx := context.Background()
-	config := wvt.Config{Scheme: "http", Host: "localhost:8080", GrpcConfig: grpc.Config{Enabled: true, Host: "localhost:50051"}}
+	config := wvt.Config{Scheme: "http", Host: "localhost:8080", GrpcConfig: &grpc.Config{Host: "localhost:50051"}}
 	client, err := wvt.NewClient(config)
 	require.NoError(t, err)
 	require.NotNil(t, client)

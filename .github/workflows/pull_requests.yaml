@@ -17,7 +17,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -26,7 +26,8 @@ jobs:
           # check if anything is different
           CHANGED=$(git status -s | wc -l)
           if [ "$CHANGED" -gt 0 ]; then
-            echo "Please run ./tools/gen-code-from-swagger.sh script and commit changes"
+            echo "Please run ./tools/gen-code-from-swagger.sh script and commit changes:"
+            git status -s
             exit 1
           else
             exit 0
@@ -40,7 +41,7 @@ jobs:
       - name: Scan for Vulnerabilities in Code
         uses: Templum/govulncheck-action@v1.0.0
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
@@ -51,7 +52,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -68,7 +69,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
@@ -85,40 +86,28 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: Acceptance tests (modules)
         run: ./test/run.sh --acceptance-module-tests-only
   Acceptance-Tests:
     name: acceptance-tests  
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        async_indexing: ["true", "false"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-        run: ./test/run.sh --acceptance-only
-  Async-Acceptance-Tests:
-    name: async-acceptance-tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.20'
-          cache: true
-      - name: Async Acceptance tests
-        env:
-          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
-          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-          ASYNC_INDEXING: "true"
+          ASYNC_INDEXING: ${{ matrix.async_indexing }}
         run: ./test/run.sh --acceptance-only
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
@@ -149,7 +138,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: goreleaser
         run: |
@@ -201,7 +190,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
       - name: start weaviate
         shell: bash
