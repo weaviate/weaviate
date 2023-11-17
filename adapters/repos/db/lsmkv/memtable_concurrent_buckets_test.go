@@ -3,6 +3,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -55,6 +56,30 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, reque
 		responseCh := make(chan Response)
 		requests <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
 
+		err := <-responseCh
+
+		if err.Error != nil {
+			fmt.Printf("err: %v", err)
+		}
+
+		keyIndex = (keyIndex + 1) % len(keys)
+		//fmt.Println("Client", i, "received:", response.Data)
+	}
+}
+
+func clientRandom(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests []chan Request, wg *sync.WaitGroup) {
+	defer wg.Done()
+	keyIndex := rand.Intn(len(keys))
+	responseCh := make(chan Response)
+
+	for j := 0; j < operationsPerWorker; j++ {
+
+		//workerID := rand.Intn(numWorkers)
+		//workerID := 0 // TODO: remove this line to make it random again
+		//workerID := i % numWorkers // TODO: remove this line to make it random again
+		workerID := j % numWorkers // TODO: remove this line to make it random again
+		requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
+
 		// TODO: handle errors and ensure output matches non-concurrent version
 		err := <-responseCh
 
@@ -67,12 +92,41 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, reque
 	}
 }
 
+func hashKey(key []byte, numWorkers int) int {
+	// consider using different hash function like Murmur hash or other hash table friendly hash functions
+	hasher := fnv.New32a()
+	hasher.Write(key)
+	return int(hasher.Sum32()) % numWorkers
+}
+
+func clientHash(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests []chan Request, wg *sync.WaitGroup) {
+	defer wg.Done()
+	keyIndex := rand.Intn(len(keys))
+
+	for j := 0; j < operationsPerWorker; j++ {
+
+		responseCh := make(chan Response)
+		workerID := hashKey(keys[keyIndex], numWorkers)
+		requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
+
+		err := <-responseCh
+
+		if err.Error != nil {
+			fmt.Printf("err: %v", err)
+		}
+
+		keyIndex = (keyIndex + 1) % len(keys)
+		//fmt.Println("Client", i, "received:", response.Data)
+	}
+}
+
+const numKeys = 1000000
+const operationsPerWorker = 1000
+const numClients = 10000
+
 // Per-thread bucket write to reduce lock contention of WVT-40 (multiple threads writing to bucket concurrently)
-func TestMemtableConcurrent(t *testing.T) {
+func TestMemtableConcurrentSingle(t *testing.T) {
 	// keep same constants as TestMemtableLockContention to make comparison easier
-	const numKeys = 1000000
-	const operationsPerWorker = 1000
-	const numClients = 10000
 
 	// sane default? Can be potentially tuned
 	numWorkers := runtime.NumCPU()
@@ -82,7 +136,7 @@ func TestMemtableConcurrent(t *testing.T) {
 
 	var wgClients sync.WaitGroup
 	var wgWorkers sync.WaitGroup
-	requests := make(chan Request, numClients)
+	requests := make(chan Request, numWorkers)
 
 	// Not sure if this is the best way of keeping the buckets around, but it works
 	// This is being done at Bucket level instead of Memtable level for comparison reasons, but the same could be done at Memtable level, as the RoaringSetAddOne and other RoaringTable calls are basically a passthrough to the Memtable
@@ -111,6 +165,114 @@ func TestMemtableConcurrent(t *testing.T) {
 
 	wgClients.Wait() // Wait for all clients to finish
 	close(requests)  // Close the requests channel
+
+	wgWorkers.Wait() // Wait for all workers to finish
+
+	times.Insert = int(time.Since(startTime).Milliseconds())
+	fmt.Println("Setup:", times.Setup)
+	fmt.Println("Insert:", times.Insert)
+	fmt.Println("Bucket shutdown:", times.BucketShutdown)
+
+	// TODO: merge the buckets and compare to the non-concurrent version
+}
+
+// Per-thread bucket write to reduce lock contention of WVT-40 (multiple threads writing to bucket concurrently)
+func TestMemtableConcurrentHash(t *testing.T) {
+	// keep same constants as TestMemtableLockContention to make comparison easier
+
+	// sane default? Can be potentially tuned
+	numWorkers := runtime.NumCPU()
+
+	times := Times{}
+	startTime := time.Now()
+
+	var wgClients sync.WaitGroup
+	var wgWorkers sync.WaitGroup
+	requestsChannels := make([]chan Request, numWorkers)
+
+	// Not sure if this is the best way of keeping the buckets around, but it works
+	// This is being done at Bucket level instead of Memtable level for comparison reasons, but the same could be done at Memtable level, as the RoaringSetAddOne and other RoaringTable calls are basically a passthrough to the Memtable
+	//buckets := make([]*Bucket, numWorkers)
+
+	keys := make([][]byte, numKeys)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
+	}
+
+	// Start worker goroutines
+	wgWorkers.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		requestsChannels[i] = make(chan Request)
+		dirName := t.TempDir()
+		go worker(i, dirName, requestsChannels[i], &wgWorkers)
+	}
+
+	times.Setup = int(time.Since(startTime).Milliseconds())
+	startTime = time.Now()
+
+	// Start client goroutines
+	wgClients.Add(numClients)
+	for i := 0; i < numClients; i++ {
+		go clientHash(i, numWorkers, keys, operationsPerWorker, requestsChannels, &wgClients)
+	}
+
+	wgClients.Wait() // Wait for all clients to finish
+	for _, ch := range requestsChannels {
+		close(ch)
+	}
+
+	wgWorkers.Wait() // Wait for all workers to finish
+
+	times.Insert = int(time.Since(startTime).Milliseconds())
+	fmt.Println("Setup:", times.Setup)
+	fmt.Println("Insert:", times.Insert)
+	fmt.Println("Bucket shutdown:", times.BucketShutdown)
+
+	// TODO: merge the buckets and compare to the non-concurrent version
+}
+
+func TestMemtableConcurrentRandom(t *testing.T) {
+
+	// sane default? Can be potentially tuned
+	numWorkers := runtime.NumCPU()
+
+	times := Times{}
+	startTime := time.Now()
+
+	var wgClients sync.WaitGroup
+	var wgWorkers sync.WaitGroup
+	requestsChannels := make([]chan Request, numWorkers)
+
+	// Not sure if this is the best way of keeping the buckets around, but it works
+	// This is being done at Bucket level instead of Memtable level for comparison reasons, but the same could be done at Memtable level, as the RoaringSetAddOne and other RoaringTable calls are basically a passthrough to the Memtable
+	//buckets := make([]*Bucket, numWorkers)
+
+	keys := make([][]byte, numKeys)
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
+	}
+
+	// Start worker goroutines
+	wgWorkers.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		requestsChannels[i] = make(chan Request)
+		dirName := t.TempDir()
+		go worker(i, dirName, requestsChannels[i], &wgWorkers)
+	}
+
+	times.Setup = int(time.Since(startTime).Milliseconds())
+	startTime = time.Now()
+
+	// Start client goroutines
+	wgClients.Add(numClients)
+	for i := 0; i < numClients; i++ {
+		go clientRandom(i, numWorkers, keys, operationsPerWorker, requestsChannels, &wgClients)
+	}
+
+	wgClients.Wait() // Wait for all clients to finish
+	for _, ch := range requestsChannels {
+		close(ch)
+	}
 
 	wgWorkers.Wait() // Wait for all workers to finish
 
