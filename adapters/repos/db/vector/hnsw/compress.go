@@ -45,7 +45,13 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	// segments == 0 (default value) means use as many segments as dimensions
 	if cfg.Segments <= 0 {
-		cfg.Segments = dims
+		for i := 6; i > 0; i-- {
+			if dims%i == 0 {
+				cfg.Segments = dims / i
+				break
+			}
+		}
+		h.logger.Error(dims, cfg.Segments)
 	}
 
 	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)
