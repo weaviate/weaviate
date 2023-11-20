@@ -32,7 +32,8 @@ const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
 func CreateGRPCServer(state *state.State) *GRPCServer {
 	o := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(maxMsgSize),
-		grpc.MaxSendMsgSize(maxMsgSize)}
+		grpc.MaxSendMsgSize(maxMsgSize),
+	}
 
 	// Add TLS creds for the GRPC connection, if defined.
 	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 && len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
