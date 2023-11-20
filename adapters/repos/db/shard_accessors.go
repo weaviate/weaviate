@@ -43,7 +43,7 @@ func (s *Shard) Name() string {
 	return s.name
 }
 
-//The physical data store
+// The physical data store
 func (s *Shard) Store() *lsmkv.Store {
 	return s.store
 }
@@ -70,7 +70,7 @@ func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonPropertyLengthTra
 	s.propLenTracker = tracker
 }
 
-//Grafana metrics
+// Grafana metrics
 func (s *Shard) Metrics() *Metrics {
 	return s.metrics
 }
