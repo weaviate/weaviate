@@ -12,6 +12,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -84,6 +85,13 @@ type Store struct {
 
 	mutex      sync.Mutex
 	candidates map[string]string
+
+	// initialLastAppliedIndex represents the index of the last applied command when the store is opened.
+	initialLastAppliedIndex uint64
+
+	loadDB func() error
+	// dbLoaded is set when the DB is loaded at startup
+	dbLoaded atomic.Bool
 }
 
 func New(cfg Config) Store {
@@ -123,6 +131,26 @@ func (st *Store) Execute(req *cmd.ApplyRequest) error {
 		return err
 	}
 	return nil
+}
+
+// WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
+// after RAFT is in a healthy state, which is when the leader has been elected and there
+// is consensus on the log.
+func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) error {
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			if st.dbLoaded.Load() {
+				return nil
+			} else {
+				log.Println("waiting for database to be restored")
+			}
+		}
+	}
 }
 
 // IsLeader returns whether this node is the leader of the cluster
