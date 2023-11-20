@@ -25,7 +25,6 @@ import (
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
-	"golang.org/x/exp/slices"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -42,12 +41,15 @@ const (
 	nRetainedSnapShots = 1
 )
 
+/// TODO: make loadDB an interface
+
 // Open opens this store and marked as such.
-func (st *Store) Open() (err error) {
+func (st *Store) Open(loadDB func() error) (err error) {
 	fmt.Println("bootstrapping started")
 	if st.open.Load() { // store already opened
 		return nil
 	}
+	st.loadDB = loadDB
 	defer func() { st.open.Store(err == nil) }()
 
 	if err = os.MkdirAll(st.raftDir, 0o755); err != nil {
@@ -83,11 +85,22 @@ func (st *Store) Open() (err error) {
 	}
 	log.Printf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v\n", address, tcpAddr, tcpMaxPool, tcpTimeout)
 
+	rLog := rLog{logStore}
+	st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
+	if err != nil {
+		return fmt.Errorf("read log last command: %w", err)
+	}
+	if st.initialLastAppliedIndex == 0 {
+		st.loadDatabase()
+	}
+
 	// raft node
 	st.raft, err = raft.NewRaft(st.configureRaft(), st, logCache, logStore, snapshotStore, transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
+
+	log.Printf("starting raft applied_index %d last_index %d %d\n", st.raft.AppliedIndex(), st.raft.LastIndex(), st.initialLastAppliedIndex)
 
 	go func() {
 		lastLeader := "Unknown"
@@ -110,7 +123,9 @@ func (st *Store) Open() (err error) {
 // It returns a value which will be made available in the
 // ApplyFuture returned by Raft.Apply method if that
 // method was called on the same Raft node as the FSM.
+
 func (st *Store) Apply(l *raft.Log) interface{} {
+	log.Println("apply", l.Type, l.Index) //, st.raft.AppliedIndex(), st.raft.LastIndex())
 	if l.Type != raft.LogCommand {
 		log.Printf("%v is not a log command\n", l.Type)
 		return nil
@@ -122,7 +137,12 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		log.Printf("apply: unmarshal command %v\n", err)
 		return nil
 	}
-	// log.Printf("apply: op=%v key=%v value=%v", cmd.Type, cmd.Class, cmd.SubCommand)
+	schemaOnly := l.Index <= st.initialLastAppliedIndex
+	defer func() {
+		if l.Index >= st.initialLastAppliedIndex && !st.dbLoaded.Load() {
+			st.loadDatabase()
+		}
+	}()
 	switch cmd.Type {
 	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS:
 		req := command.AddClassRequest{}
@@ -137,7 +157,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			return Response{Error: err}
 		}
 		req.State.SetLocalName(st.nodeID)
-		if ret.Error = st.schema.addClass(req.Class, req.State); ret.Error == nil {
+		if ret.Error = st.schema.addClass(req.Class, req.State); ret.Error == nil && !schemaOnly {
 			st.db.AddClass(req)
 		}
 	case command.ApplyRequest_TYPE_UPDATE_CLASS:
@@ -151,12 +171,14 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if err := st.parser.ParseClass(req.Class); err != nil {
 			return Response{Error: err}
 		}
-		if ret.Error = st.schema.updateClass(req.Class, req.State); ret.Error == nil {
+		if ret.Error = st.schema.updateClass(req.Class, req.State); ret.Error == nil && !schemaOnly {
 			st.db.UpdateClass(req)
 		}
 	case command.ApplyRequest_TYPE_DELETE_CLASS:
 		st.schema.deleteClass(cmd.Class)
-		st.db.DeleteClass(cmd.Class)
+		if !schemaOnly {
+			st.db.DeleteClass(cmd.Class)
+		}
 	case command.ApplyRequest_TYPE_ADD_PROPERTY:
 		req := command.AddPropertyRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -165,7 +187,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if req.Property == nil {
 			return Response{Error: fmt.Errorf("nil property")}
 		}
-		if ret.Error = st.schema.addProperty(cmd.Class, *req.Property); ret.Error == nil {
+		if ret.Error = st.schema.addProperty(cmd.Class, *req.Property); ret.Error == nil && !schemaOnly {
 			st.db.AddProperty(cmd.Class, req)
 		}
 
@@ -174,14 +196,16 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 			return Response{Error: err}
 		}
-		ret.Error = st.db.UpdateShardStatus(&req)
+		if !schemaOnly {
+			ret.Error = st.db.UpdateShardStatus(&req)
+		}
 
 	case command.ApplyRequest_TYPE_ADD_TENANT:
 		req := &command.AddTenantsRequest{}
 		if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 			return Response{Error: err}
 		}
-		if ret.Error = st.schema.addTenants(cmd.Class, req); ret.Error == nil {
+		if ret.Error = st.schema.addTenants(cmd.Class, req); ret.Error == nil && !schemaOnly {
 			st.db.AddTenants(cmd.Class, req)
 		}
 	case command.ApplyRequest_TYPE_UPDATE_TENANT:
@@ -190,7 +214,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			return Response{Error: err}
 		}
 		ret.Data, ret.Error = st.schema.updateTenants(cmd.Class, req)
-		if ret.Error == nil {
+		if ret.Error == nil && !schemaOnly {
 			st.db.UpdateTenants(cmd.Class, req)
 		}
 	case command.ApplyRequest_TYPE_DELETE_TENANT:
@@ -201,11 +225,14 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		if err := st.schema.deleteTenants(cmd.Class, req); err != nil {
 			log.Printf("delete tenants from class %q: %v", cmd.Class, err)
 		}
-		st.db.DeleteTenants(cmd.Class, req)
+		if !schemaOnly {
+			st.db.DeleteTenants(cmd.Class, req)
+		}
 
 	default:
 		log.Printf("unknown command %v\n", &cmd)
 	}
+
 	return ret
 }
 
@@ -214,37 +241,29 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 	return st.schema, nil
 }
 
+// Restore is used to restore an FSM from a snapshot. It is not called
+// concurrently with any other command. The FSM must discard all previous
+// state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
 	log.Println("restoring snapshot")
+	defer func() {
+		if err := rc.Close(); err != nil {
+			log.Printf("restore snapshot: close reader: %v\n", err)
+		}
+	}()
+
 	if err := st.schema.Restore(rc); err != nil {
-		log.Printf("restore shanpshot: %v", err)
+		return fmt.Errorf("restore snapshot: %w", err)
+	}
+	if !st.dbLoaded.Load() && st.initialLastAppliedIndex == st.raft.AppliedIndex() {
+		st.loadDatabase()
 	}
 
-	for k, v := range st.schema.Classes {
-		if err := st.parser.ParseClass(&v.Class); err != nil {
-			log.Printf("parse class %v", err)
-			continue
-		}
-		v.Sharding.SetLocalName(st.nodeID)
-		if err := st.db.AddClass(command.AddClassRequest{
-			Class: &v.Class,
-			State: &v.Sharding,
-		}); err != nil {
-			log.Printf("add class %v", err)
-			continue
-		}
-
-		for _, t := range v.Sharding.Physical {
-			if !slices.Contains[string](t.BelongsToNodes, st.nodeID) {
-				continue
-			}
-			st.db.AddTenants(k, &command.AddTenantsRequest{
-				Tenants: []*command.Tenant{
-					{Name: t.Name, Status: t.Status, Nodes: t.BelongsToNodes},
-				},
-			})
-		}
-	}
+	// TODO-RAFT START
+	// In some cases, when the follower state is too far behind the leader's log, the leader might decide to send a snapshot.
+	// Consequently, the follower needs to update its state accordingly.
+	// Task: https://semi-technology.atlassian.net/browse/WVT-42
+	//
 	return nil
 }
 
@@ -355,23 +374,36 @@ func (st *Store) assertFuture(fut raft.IndexFuture) error {
 	}
 }
 
-func (s *Store) raftConfig() (raft.Configuration, error) {
-	cfg := s.raft.GetConfiguration()
+func (st *Store) raftConfig() (raft.Configuration, error) {
+	cfg := st.raft.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return raft.Configuration{}, err
 	}
 	return cfg.Configuration(), nil
 }
 
-func (f *Store) configureRaft() *raft.Config {
+func (st *Store) configureRaft() *raft.Config {
 	cfg := raft.DefaultConfig()
-	if f.raftHeartbeatTimeout != 0 {
-		cfg.HeartbeatTimeout = f.raftHeartbeatTimeout
+	if st.raftHeartbeatTimeout != 0 {
+		cfg.HeartbeatTimeout = st.raftHeartbeatTimeout
 	}
-	if f.raftElectionTimeout != 0 {
-		cfg.ElectionTimeout = f.raftElectionTimeout
+	if st.raftElectionTimeout != 0 {
+		cfg.ElectionTimeout = st.raftElectionTimeout
 	}
-	cfg.LocalID = raft.ServerID(f.nodeID)
+	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.SnapshotThreshold = 250 // TODO remove
 	return cfg
+}
+
+func (st *Store) loadDatabase() {
+	for _, cls := range st.schema.Classes {
+		st.parser.ParseClass(&cls.Class)
+		cls.Sharding.SetLocalName(st.nodeID)
+	}
+
+	if err := st.loadDB(); err != nil {
+		log.Fatalf("could not restore database: %v", err)
+	}
+	st.dbLoaded.Store(true)
+	log.Println("database has been successfully loaded")
 }
