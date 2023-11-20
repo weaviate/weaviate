@@ -30,17 +30,15 @@ var (
 )
 
 type schema struct {
-	nodeID string
-	sync.RWMutex
-	Classes     snapshot `json:"classes"`
+	nodeID      string
 	shardReader shardReader
+	sync.RWMutex
+	Classes map[string]*metaClass
 }
 
 type shardReader interface {
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 }
-
-type snapshot map[string]*metaClass
 
 type metaClass struct {
 	Class    models.Class
@@ -50,7 +48,7 @@ type metaClass struct {
 func NewSchema(nodeID string, shardReader shardReader) *schema {
 	return &schema{
 		nodeID:      nodeID,
-		Classes:     make(snapshot, 128),
+		Classes:     make(map[string]*metaClass, 128),
 		shardReader: shardReader,
 	}
 }
