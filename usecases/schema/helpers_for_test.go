@@ -21,12 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
+	ctrans "github.com/weaviate/weaviate/cloud/transport"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -35,11 +35,11 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db store.DB) (*Handler, func() raft.Future) {
+func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 	cfg := config.Config{}
-	cluster, writer, clusterstate := startRaftCluster(t)
-	writer.SetDB(db)
-	reader := writer.SchemaReader()
+	raftCluster, raftClusterClient, raftStore, clusterstate := startRaftCluster(t)
+	raftStore.SetDB(db)
+	reader := raftStore.SchemaReader()
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
@@ -47,45 +47,58 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func() raft.Future) {
 		},
 	}
 	handler, err := NewHandler(
-		writer, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		raftClusterClient, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, clusterstate, &fakeScaleOutManager{})
 	require.Nil(t, err)
-	return &handler, cluster.Shutdown
+	return &handler, raftCluster.Shutdown
 }
 
-func startRaftCluster(t *testing.T) (*store.Cluster, *store.Store, clusterState) {
+func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Store, clusterState) {
 	node := "node-1"
-	url := newRandomHostURL(t)
-	candidates := []store.Candidate{
-		{
-			ID:       node,
-			Address:  url.address,
-			NonVoter: false,
-		},
-	}
+	nodeUrl := newRandomHostURL(t)
+	raftUrl := newRandomHostURL(t)
+	t.Logf("node: %s, nodeUrl: %s:%d", node, nodeUrl.host, nodeUrl.port)
+	t.Logf("raft: %s, raftUrl: %s:%d", node, raftUrl.host, raftUrl.port)
 
 	root := t.TempDir()
 	clusterstate := newFakeClusterState()
 
-	writer := store.New(store.Config{
+	// First init the store
+	raftStore := store.New(store.Config{
 		WorkDir:              root,
 		NodeID:               node,
-		Host:                 url.host,
-		RaftPort:             newRandomHostURL(t).port,
+		Host:                 nodeUrl.host,
+		RaftPort:             raftUrl.port,
 		RaftElectionTimeout:  500 * time.Millisecond,
 		RaftHeartbeatTimeout: 500 * time.Millisecond,
 		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
+		BootstrapExpect:      1,
 	})
-
-	raftNode, err := writer.Open(false, candidates)
+	err := raftStore.Open()
 	require.Nil(t, err)
-	cluster := store.NewCluster(raftNode, fmt.Sprintf("%s:%d", url.host, url.port))
-	err = cluster.Open()
-	require.Nil(t, err, "expected nil error, got: %v", err)
+
+	// Start a raft cluster using the created store
+	raftCluster := ctrans.NewCluster(&raftStore, clusterstate, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port))
+	err = raftCluster.Open()
+	require.Nil(t, err)
+
+	// Create a client to the cluster. Do not set isLocalhost to true or it will automatically determine the raft port to be nodePort+1, but
+	// it might be the otherway around depending on the node resolving we do above.
+	clusterClient := ctrans.NewClient(ctrans.NewRPCResolver(false, fmt.Sprintf("%d", nodeUrl.port)))
+	require.Nil(t, err)
+	raftClient := store.NewService(&raftStore, clusterClient)
+
+	// Bootstrap the cluster, give a 10 second timeout for the bootstrap
+	bootstrapCtx, bCancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer bCancel()
+	nodeBootstrapper := store.NewBootstrapper(clusterClient, node, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port))
+	err = nodeBootstrapper.Do(bootstrapCtx, []string{fmt.Sprintf("%s:%d", raftUrl.host, raftUrl.port)})
+	require.Nil(t, err)
+
 	// Allow time to elect leader
 	time.Sleep(2 * time.Second)
-	return &cluster, &writer, clusterstate
+	return &raftCluster, raftClient, &raftStore, clusterstate
 }
 
 type randomHostURL struct {
@@ -306,6 +319,10 @@ func (f *fakeClusterState) ResolveParentNodes(string, string,
 
 func (f *fakeClusterState) NodeHostname(string) (string, bool) {
 	return "", false
+}
+
+func (f *fakeClusterState) Execute(cmd *command.ApplyRequest) error {
+	return nil
 }
 
 type fakeVectorConfig struct {

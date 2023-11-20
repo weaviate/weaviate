@@ -34,8 +34,7 @@ func Test_GetSchema(t *testing.T) {
 	t.Parallel()
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	sch, err := handler.GetSchema(nil)
@@ -49,8 +48,7 @@ func Test_AddClass(t *testing.T) {
 
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	t.Run("happy path", func(t *testing.T) {
@@ -379,8 +377,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 	t.Parallel()
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	t.Run("set defaults and migrate string|stringArray datatype and tokenization", func(t *testing.T) {
@@ -706,11 +703,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 func Test_Defaults_NestedProperties(t *testing.T) {
 	t.Parallel()
-	//handler, shutdown := newTestHandler(t, &fakeDB{})
-	//defer func() {
-	//	fut := shutdown()
-	//	require.Nil(t, fut.Error())
-	//}()
 
 	for _, pdt := range schema.PrimitiveDataTypes {
 		t.Run(pdt.String(), func(t *testing.T) {
@@ -806,8 +798,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 	t.Parallel()
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	type testCase struct {
@@ -896,8 +887,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 	t.Parallel()
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	type testCase struct {
@@ -1105,8 +1095,7 @@ func Test_UpdateClass(t *testing.T) {
 	t.Parallel()
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	t.Run("a class which doesn't exist", func(t *testing.T) {
@@ -1358,8 +1347,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 	t.Parallel()
 	handler, shutdown := newTestHandler(t, &fakeDB{})
 	defer func() {
-		fut := shutdown()
-		require.Nil(t, fut.Error())
+		shutdown()
 	}()
 
 	classes := []*models.Class{
