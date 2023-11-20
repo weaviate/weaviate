@@ -74,11 +74,11 @@ type deferredShardOpts struct {
 }
 
 func (l *LazyLoadShard) Load() error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 	if l.loaded {
 		return nil
 	}
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
 	if l.loaded {
 		return nil
 	}
