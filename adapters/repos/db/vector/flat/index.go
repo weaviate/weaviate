@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
@@ -41,6 +42,7 @@ const (
 )
 
 type flat struct {
+	sync.Mutex
 	id                  string
 	dims                int32
 	store               *lsmkv.Store
@@ -54,6 +56,7 @@ type flat struct {
 	pool      *pools
 
 	compression string
+	bqCache     cache.Cache[uint64]
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -70,6 +73,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		logger = l
 	}
 
+	var bqCache cache.Cache[uint64]
 	index := &flat{
 		id:                cfg.ID,
 		logger:            logger,
@@ -79,10 +83,25 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		compression:       extractCompression(uc),
 		pool:              newPools(),
 		store:             store,
+		bqCache:           bqCache,
 	}
 	index.initBuckets(context.Background())
+	if uc.BQ.Enabled && uc.VectorCache {
+		index.bqCache = cache.NewShardedUInt64LockCache(index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+	}
 
 	return index, nil
+}
+
+func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) {
+	key := flat.pool.byteSlicePool.Get(8)
+	defer flat.pool.byteSlicePool.Put(key)
+	binary.BigEndian.PutUint64(key.slice, id)
+	bytes, err := flat.store.Bucket(helpers.VectorsFlatBQBucketLSM).Get(key.slice)
+	if err != nil {
+		return nil, err
+	}
+	return uint64SliceFromByteSlice(bytes, make([]uint64, len(bytes)/8)), nil
 }
 
 func extractCompression(uc flatent.UserConfig) string {
@@ -209,6 +228,12 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		if err != nil {
 			return err
 		}
+		if index.bqCache != nil {
+			index.Lock()
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
+			index.Unlock()
+		}
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
 	}
@@ -217,6 +242,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
+		index.bqCache.Delete(context.Background(), ids[i])
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
@@ -294,11 +320,17 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 		return nil, nil, err
 	}
 
-	if err := index.findTopVectors(heap, allow, rescore,
-		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
-		index.createDistanceCalcBQ(vectorBQ),
-	); err != nil {
-		return nil, nil, err
+	if index.bqCache != nil {
+		if err := index.findTopVectorsCached(heap, allow, rescore, vectorBQ); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := index.findTopVectors(heap, allow, rescore,
+			index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
+			index.createDistanceCalcBQ(vectorBQ),
+		); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	distanceCalc := index.createDistanceCalc(vector)
@@ -377,6 +409,49 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.Allow
 		id = binary.BigEndian.Uint64(key)
 		if allow == nil || allow.Contains(id) {
 			distance, err := distanceCalc(v)
+			if err != nil {
+				return err
+			}
+			index.insertToHeap(heap, limit, id, distance)
+		}
+	}
+	return nil
+}
+
+// populates given heap with smallest distances and corresponding ids calculated by
+// distanceCalc
+func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
+	vectorBQ []uint64,
+) error {
+	var id uint64
+	allowMax := uint64(0)
+
+	if allow != nil {
+		// nothing allowed, skip search
+		if allow.IsEmpty() {
+			return nil
+		}
+
+		allowMax = allow.Max()
+
+		id = allow.Min()
+	} else {
+		id = 0
+	}
+	all := index.bqCache.Len()
+
+	// since keys are sorted, once key/id get greater than max allowed one
+	// further search can be stopped
+	for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
+		if allow == nil || allow.Contains(id) {
+			vec, err := index.bqCache.Get(context.Background(), id)
+			if err != nil {
+				return err
+			}
+			if len(vec) == 0 {
+				continue
+			}
+			distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
 			if err != nil {
 				return err
 			}
@@ -527,6 +602,13 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) PostStartup() {
+	cursor := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor()
+	defer cursor.Close()
+
+	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		index.bqCache.Preload(id, uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)))
+	}
 }
 
 func (index *flat) Dump(labels ...string) {
