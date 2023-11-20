@@ -318,14 +318,49 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	err = vectorRepo.WaitForStartup(ctx)
+	// TODO-RAFT START
+
+	candidateList, err := resolveRaftAddresses(appState)
 	if err != nil {
 		appState.Logger.
-			WithError(err).
 			WithField("action", "startup").
-			Fatal("db didn't start up")
-		os.Exit(1)
+			WithError(err).
+			Fatal("cannot resolve raft addresses using memberlist")
 	}
+
+	err = fsm.Open(func() error { return vectorRepo.WaitForStartup(ctx) })
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").
+			WithError(err).
+			Fatal("could not open fsm store")
+	}
+
+	bs := schemav2.NewBootstrapper(cl, nodeName, raftAddr)
+	bCtx, bCancel := context.WithTimeout(ctx, time.Second*60)
+	defer bCancel()
+	if err := bs.Do(bCtx, candidateList); err != nil {
+		appState.Logger.
+			WithField("action", "startup").
+			WithError(err).
+			Fatal("could not open fsm store")
+	}
+	if err := fsm.WaitToRestoreDB(ctx, 10*time.Second); err != nil {
+		appState.Logger.
+			WithField("action", "startup_db").
+			WithError(err).
+			Fatal("could not restore database")
+	}
+
+	// TODO-RAFT END
+	// err = vectorRepo.WaitForStartup(ctx)
+	// if err != nil {
+	// 	appState.Logger.
+	// 		WithError(err).
+	// 		WithField("action", "startup").
+	// 		Fatal("db didn't start up")
+	// 	os.Exit(1)
+	// }
 
 	if err := schemaManager.StartServing(ctx); err != nil {
 		appState.Logger.
@@ -412,36 +447,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		migrator.RecountProperties(ctx)
 	}
-
-	// TODO-RAFT START
-
-	candidateList, err := resolveRaftAddresses(appState)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("cannot resolve raft addresses using memberlist")
-	}
-
-	err = fsm.Open()
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not open fsm store")
-	}
-
-	bs := schemav2.NewBootstrapper(cl, nodeName, raftAddr)
-	bCtx, bCancel := context.WithTimeout(ctx, time.Second*60)
-	defer bCancel()
-	if err := bs.Do(bCtx, candidateList); err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not open fsm store")
-	}
-
-	// TODO-RAFT END
 
 	return appState
 }
