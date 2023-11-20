@@ -53,7 +53,7 @@ func NewCluster(ms members, ex executor, address string) Cluster {
 }
 
 func (c *Cluster) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	log.Printf("server: join peer %+v\n", req)
+	// log.Printf("server: join peer %+v\n", req)
 	err := c.members.Join(req.Id, req.Address, req.Voter)
 	if err == nil {
 		return &cmd.JoinPeerResponse{}, nil
@@ -72,7 +72,7 @@ func (c *Cluster) RemovePeer(_ context.Context, req *cmd.RemovePeerRequest) (*cm
 }
 
 func (c *Cluster) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
-	log.Printf("server: join peer %+v\n", req)
+	// log.Printf("server: join peer %+v\n", req)
 	return &cmd.NotifyPeerResponse{}, toRPCError(c.members.Notify(req.Id, req.Address))
 }
 
