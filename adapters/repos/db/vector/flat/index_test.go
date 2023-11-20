@@ -51,7 +51,7 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-func run(dirName string, logger *logrus.Logger, compression string,
+func run(dirName string, logger *logrus.Logger, compression string, vectorCache bool,
 	vectors [][]float32, queries [][]float32, k int, truths [][]uint64,
 	extraVectorsForDelete [][]float32, allowIds []uint64,
 	distancer distancer.Provider,
@@ -84,8 +84,9 @@ func run(dirName string, logger *logrus.Logger, compression string,
 		ID:               runId,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
-		PQ: pq,
-		BQ: bq,
+		VectorCache: false,
+		PQ:          pq,
+		BQ:          bq,
 	}, store)
 	if err != nil {
 		return 0, 0, err
@@ -171,7 +172,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	t.Run("recall on no compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, nil, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, false, vectors, queries, k, truths, nil, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -180,7 +181,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, nil, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, false, vectors, queries, k, truths, nil, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -190,7 +191,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
 	t.Run("recall on no compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, false, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -199,7 +200,44 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, false, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.8))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on no compression with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionNone, true, vectors, queries, k, truths, nil, nil, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on compression with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionBQ, true, vectors, queries, k, truths, nil, nil, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.9))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	extraVectorsForDelete, _ = testinghelpers.RandomVecs(5_000, 0, dimensions)
+	t.Run("recall on no compression with deletes with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionNone, true, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on compression with deletes with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionBQ, true, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -219,7 +257,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	t.Run("recall on filtered no compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, nil, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, false, vectors, queries, k, truths, nil, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -228,7 +266,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on filtered compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, nil, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, false, vectors, queries, k, truths, nil, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -237,7 +275,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on filtered no compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, false, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -246,7 +284,43 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on filtered compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, false, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.8))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on filtered no compression with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionNone, true, vectors, queries, k, truths, nil, allowIds, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on filtered compression with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionBQ, true, vectors, queries, k, truths, nil, allowIds, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.9))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on filtered no compression with deletes with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionNone, true, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+		require.Nil(t, err)
+
+		fmt.Println(recall, latency)
+		assert.Greater(t, recall, float32(0.99))
+		assert.Less(t, latency, float32(1_000_000))
+	})
+
+	t.Run("recall on filtered compression with deletes with cache", func(t *testing.T) {
+		recall, latency, err := run(dirName, logger, CompressionBQ, true, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
