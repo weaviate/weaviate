@@ -20,23 +20,22 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-func (s *schema) Restore(rc io.ReadCloser) error {
-	s.Lock()
-	defer s.Unlock()
+type snapshot struct {
+	NodeID     string                `json:"node_id"`
+	SnapshotID string                `json:"snapshot_id"`
+	Classes    map[string]*metaClass `json:"classes"`
+}
 
+func (s *schema) Restore(r io.Reader) error {
 	log.Println("restoring snapshot")
-
-	defer func() {
-		if err2 := rc.Close(); err2 != nil {
-			log.Printf("restore snapshot: close reader: %v\n", err2)
-		}
-	}()
-
-	//
-	// TODO: restore class embedded sub types (see repo.schema.store)
-	if err := json.NewDecoder(rc).Decode(&s); err != nil {
+	snap := snapshot{}
+	if err := json.NewDecoder(r).Decode(&snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %v", err)
 	}
+
+	s.Lock()
+	defer s.Unlock()
+	s.Classes = snap.Classes
 
 	return nil
 }
@@ -48,15 +47,15 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 	defer s.Unlock()
 
 	defer sink.Close()
+	snap := snapshot{NodeID: s.nodeID, SnapshotID: sink.ID(), Classes: s.Classes}
+	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
+		return fmt.Errorf("encode: %w", err)
+	}
 
-	err = json.NewEncoder(sink).Encode(s)
-
-	// should we cal cancel if err != nil
-	log.Println("persisting snapshot done", err)
-	return err
+	log.Printf("snapshot persistence completed successfully: %s\n", sink.ID())
+	return nil
 }
 
 // Release is invoked when we are finished with the snapshot.
 func (s *schema) Release() {
-	log.Println("snapshot has been successfully created")
 }
