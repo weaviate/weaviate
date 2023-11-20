@@ -34,6 +34,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
+const (
+	compressionBQ   = "bq"
+	compressionPQ   = "pq"
+	compressionNone = "none"
+)
+
 type flat struct {
 	id                  string
 	dims                int32
@@ -41,7 +47,7 @@ type flat struct {
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
 	trackDimensionsOnce sync.Once
-	ef                  int64
+	rescore             int64
 	bq                  ssdhelpers.BinaryQuantizer
 
 	pqResults *common.PqMaxPool
@@ -68,16 +74,44 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		id:                cfg.ID,
 		logger:            logger,
 		distancerProvider: cfg.DistanceProvider,
-		ef:                int64(uc.EF),
+		rescore:           extractCompressionRescore(uc),
 		pqResults:         common.NewPqMaxPool(100),
-		// disable for now until we have tested more
-		compression: flatent.CompressionNone,
-		pool:        newPools(),
-		store:       store,
+		compression:       extractCompression(uc),
+		pool:              newPools(),
+		store:             store,
 	}
 	index.initBuckets(context.Background())
 
 	return index, nil
+}
+
+func extractCompression(uc flatent.UserConfig) string {
+	if uc.BQ.Enabled && uc.PQ.Enabled {
+		return compressionNone
+	}
+
+	if uc.BQ.Enabled {
+		return compressionBQ
+	}
+
+	if uc.PQ.Enabled {
+		return compressionPQ
+	}
+
+	return compressionNone
+}
+
+func extractCompressionRescore(uc flatent.UserConfig) int64 {
+	compression := extractCompression(uc)
+	switch compression {
+	case compressionPQ:
+		return int64(uc.PQ.Rescore)
+	case compressionBQ:
+		return int64(uc.BQ.Rescore)
+	default:
+		return 0
+	}
+
 }
 
 func (index *flat) storeCompressedVector(id uint64, vector []byte) {
@@ -102,7 +136,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
-	if index.compression == flatent.CompressionBQ {
+	if index.compression == compressionBQ {
 		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
 			lsmkv.WithForceCompation(true),
 			lsmkv.WithUseBloomFilter(false),
@@ -160,7 +194,7 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		if index.compression == flatent.CompressionBQ {
+		if index.compression == compressionBQ {
 			index.bq = ssdhelpers.NewBinaryQuantizer()
 		}
 	})
@@ -171,7 +205,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.compression == flatent.CompressionBQ {
+	if index.compression == compressionBQ {
 		vectorBQ, err := index.bq.Encode(vector)
 		if err != nil {
 			return err
@@ -191,7 +225,7 @@ func (index *flat) Delete(ids ...uint64) error {
 			return err
 		}
 
-		if index.compression == flatent.CompressionBQ {
+		if index.compression == compressionBQ {
 			if err := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(idBytes); err != nil {
 				return err
 			}
@@ -204,17 +238,17 @@ func (index *flat) searchTimeEF(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
-	if ef := int(atomic.LoadInt64(&index.ef)); ef > k {
-		return ef
+	if rescore := int(atomic.LoadInt64(&index.rescore)); rescore > k {
+		return rescore
 	}
 	return k
 }
 
 func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	switch index.compression {
-	case flatent.CompressionBQ:
+	case compressionBQ:
 		return index.searchByVectorBQ(vector, k, allow)
-	case flatent.CompressionPQ:
+	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
 	default:
@@ -251,8 +285,8 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	ef := index.searchTimeEF(k)
-	heap := index.pqResults.GetMax(ef)
+	rescore := index.searchTimeEF(k)
+	heap := index.pqResults.GetMax(rescore)
 	defer index.pqResults.Put(heap)
 
 	vector = index.normalized(vector)
@@ -261,7 +295,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 		return nil, nil, err
 	}
 
-	if err := index.findTopVectors(heap, allow, ef,
+	if err := index.findTopVectors(heap, allow, rescore,
 		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
 		index.createDistanceCalcBQ(vectorBQ),
 	); err != nil {
@@ -455,7 +489,7 @@ func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback f
 
 	// Store automatically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
-	atomic.StoreInt64(&index.ef, int64(parsed.EF))
+	atomic.StoreInt64(&index.rescore, extractCompressionRescore(parsed))
 
 	callback()
 	return nil
@@ -561,11 +595,15 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 		},
 		{
 			name:     "fullyOnDisk",
-			accessor: func(c flatent.UserConfig) interface{} { return c.FullyOnDisk },
+			accessor: func(c flatent.UserConfig) interface{} { return c.VectorCache },
 		},
 		{
-			name:     "compression",
-			accessor: func(c flatent.UserConfig) interface{} { return c.Compression },
+			name:     "pq",
+			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Enabled },
+		},
+		{
+			name:     "bq",
+			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Enabled },
 		},
 	}
 
