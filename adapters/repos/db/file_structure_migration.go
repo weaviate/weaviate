@@ -75,7 +75,11 @@ func (db *DB) migrateToHierarchicalFS() error {
 				return fmt.Errorf("mkdir %q: %w", absDir, err)
 			}
 			if err = os.Rename(part.oldAbsPath, newPath); err != nil {
-				if !os.IsExist(err) {
+				if os.IsExist(err) {
+					if err = os.RemoveAll(part.oldAbsPath); err != nil {
+						return fmt.Errorf("rm file %q: %w", part.oldAbsPath, err)
+					}
+				} else {
 					return fmt.Errorf("mv %s %s: %w", part.oldAbsPath, newPath, err)
 				}
 			}
@@ -135,13 +139,13 @@ func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (migrationPlan, err
 			for _, shard := range shards {
 				if shard.IsDir() {
 					root := path.Join(newIndexRoot, shard.Name())
-					files, err := os.ReadDir(path.Join(newIndexRoot, shard.Name()))
+					files, err := os.ReadDir(path.Join(newIndexRoot, shard.Name(), "compressed_objects"))
 					if err != nil {
 						return nil, fmt.Errorf("read pq shard dir %q: %w", shard.Name(), err)
 					}
 					for _, f := range files {
 						plan[root] = append(plan[root], migrationPart{
-							oldAbsPath: path.Join(root, f.Name()),
+							oldAbsPath: path.Join(root, "compressed_objects", f.Name()),
 							newRelPath: path.Join("lsm", helpers.VectorsHNSWPQBucketLSM, f.Name()),
 						})
 					}
