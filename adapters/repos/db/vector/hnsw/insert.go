@@ -268,3 +268,15 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
 }
+
+func (h *hnsw) CompressVector(vector []float32) []byte {
+	return nil
+}
+
+func (h *hnsw) AddCompressed(id uint64, vector []byte) error {
+	return nil
+}
+
+func (h *hnsw) AddCompressedBatch(ctx context.Context, id []uint64, vector [][]byte) error {
+	return nil
+}

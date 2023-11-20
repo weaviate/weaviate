@@ -25,6 +25,8 @@ type VectorIndex interface {
 	Dump(labels ...string)
 	Add(id uint64, vector []float32) error
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
+	AddCompressed(id uint64, vector []byte) error
+	AddCompressedBatch(ctx context.Context, id []uint64, vector [][]byte) error
 	Delete(id ...uint64) error
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
@@ -45,4 +47,5 @@ type VectorIndex interface {
 	Compressed() bool
 	AlreadyIndexed() uint64
 	TurnOnCompression(callback func()) error
+	CompressVector(vector []float32) []byte
 }

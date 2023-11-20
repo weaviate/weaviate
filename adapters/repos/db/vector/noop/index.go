@@ -131,3 +131,15 @@ func (i *Index) AlreadyIndexed() uint64 {
 func (i *Index) TurnOnCompression(callback func()) error {
 	return nil
 }
+
+func (i *Index) CompressVector(vector []float32) []byte {
+	return nil
+}
+
+func (i *Index) AddCompressed(id uint64, vector []byte) error {
+	return nil
+}
+
+func (i *Index) AddCompressedBatch(ctx context.Context, id []uint64, vector [][]byte) error {
+	return nil
+}

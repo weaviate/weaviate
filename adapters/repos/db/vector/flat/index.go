@@ -602,3 +602,15 @@ func (h *flat) AlreadyIndexed() uint64 {
 func (h *flat) TurnOnCompression(callback func()) error {
 	return nil
 }
+
+func (h *flat) CompressVector(vector []float32) []byte {
+	return nil
+}
+
+func (h *flat) AddCompressed(id uint64, vector []byte) error {
+	return nil
+}
+
+func (h *flat) AddCompressedBatch(ctx context.Context, id []uint64, vector [][]byte) error {
+	return nil
+}
