@@ -36,10 +36,6 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-const (
-	NodeLockStripe = uint64(512)
-)
-
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
@@ -166,7 +162,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       common.VectorForID[float32]
-	shardedNodeLocks       []sync.RWMutex
+	shardedNodeLocks       shardedNodeLocks
 }
 
 type CommitLogger interface {
@@ -268,7 +264,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     make([]sync.RWMutex, NodeLockStripe),
+		shardedNodeLocks:     newShardedNodeLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -288,10 +284,6 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if err := index.init(cfg); err != nil {
 		return nil, errors.Wrapf(err, "init index %q", index.id)
-	}
-
-	for i := uint64(0); i < NodeLockStripe; i++ {
-		index.shardedNodeLocks[i] = sync.RWMutex{}
 	}
 
 	return index, nil
@@ -595,15 +587,14 @@ func (h *hnsw) Stats() {
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
+	h.shardedNodeLocks.RLock(h.entryPointID)
+	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.isEmptyUnsecured()
+	return h.isEmptyUnlocked()
 }
 
-func (h *hnsw) isEmptyUnsecured() bool {
-	h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RLock()
-	defer h.shardedNodeLocks[h.entryPointID%NodeLockStripe].RUnlock()
-	entryPoint := h.nodes[h.entryPointID]
-	return entryPoint == nil
+func (h *hnsw) isEmptyUnlocked() bool {
+	return h.nodes[h.entryPointID] == nil
 }
 
 func (h *hnsw) nodeByID(id uint64) *vertex {
@@ -616,6 +607,9 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		// ahead" than the hnsw index and we receive a delete request
 		return nil
 	}
+
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
 
 	return h.nodes[id]
 }
@@ -691,9 +685,11 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
-	ok := len(h.nodes) > int(id) && h.nodes[id] != nil
-	h.RUnlock()
-	return ok
+	defer h.RUnlock()
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }
 
 func (h *hnsw) DistancerProvider() distancer.Provider {
