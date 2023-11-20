@@ -75,7 +75,7 @@ func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Sto
 		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
 		BootstrapExpect:      1,
 	})
-	err := raftStore.Open()
+	err := raftStore.Open(func() error { return nil })
 	require.Nil(t, err)
 
 	// Start a raft cluster using the created store
