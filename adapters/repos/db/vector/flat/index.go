@@ -111,7 +111,6 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 	default:
 		return 0
 	}
-
 }
 
 func (index *flat) storeCompressedVector(id uint64, vector []byte) {
