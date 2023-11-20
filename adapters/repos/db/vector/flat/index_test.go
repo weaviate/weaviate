@@ -38,6 +38,12 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
+const (
+	CompressionNone = "none"
+	CompressionPQ   = "pq"
+	CompressionBQ   = "bq"
+)
+
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
 		dist, _, _ := provider.SingleDist(x, y)
@@ -60,12 +66,26 @@ func run(dirName string, logger *logrus.Logger, compression string,
 		return 0, 0, err
 	}
 
+	pq := flatent.CompressionUserConfig{
+		Enabled: false,
+	}
+	bq := flatent.CompressionUserConfig{
+		Enabled: false,
+	}
+	switch compression {
+	case CompressionPQ:
+		pq.Enabled = true
+		pq.Rescore = 100 * k
+	case CompressionBQ:
+		bq.Enabled = true
+		bq.Rescore = 100 * k
+	}
 	index, err := flat.New(flat.Config{
 		ID:               runId,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
-		Compression: compression,
-		EF:          100 * k,
+		PQ: pq,
+		BQ: bq,
 	}, store)
 	if err != nil {
 		return 0, 0, err
@@ -151,7 +171,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	t.Run("recall on no compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionNone, vectors, queries, k, truths, nil, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, nil, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -160,7 +180,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionBQ, vectors, queries, k, truths, nil, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, nil, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -170,7 +190,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
 	t.Run("recall on no compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionNone, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -179,7 +199,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionBQ, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -199,7 +219,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	}
 
 	t.Run("recall on filtered no compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionNone, vectors, queries, k, truths, nil, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, nil, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -208,7 +228,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on filtered compression", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionBQ, vectors, queries, k, truths, nil, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, nil, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -217,7 +237,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on filtered no compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionNone, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionNone, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
@@ -226,7 +246,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	})
 
 	t.Run("recall on filtered compression with deletes", func(t *testing.T) {
-		recall, latency, err := run(dirName, logger, flatent.CompressionBQ, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+		recall, latency, err := run(dirName, logger, CompressionBQ, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
 		require.Nil(t, err)
 
 		fmt.Println(recall, latency)
