@@ -242,7 +242,9 @@ func (index *flat) Add(id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
-		index.bqCache.Delete(context.Background(), ids[i])
+		if index.bqCache != nil {
+			index.bqCache.Delete(context.Background(), ids[i])
+		}
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
