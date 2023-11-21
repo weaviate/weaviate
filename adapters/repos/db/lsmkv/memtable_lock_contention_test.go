@@ -25,7 +25,7 @@ type Times struct {
 // Lock contention example written by Parker to demo WVT-40 (multiple threads writing to bucket concurrently)
 func TestMemtableLockContention(t *testing.T) {
 	const numKeys = 1000000
-	const operationsPerWorker = 1000
+	const operationsPerClient = 1000
 	const numClients = 10000
 
 	// Could this be replaced by subtests?
@@ -61,7 +61,7 @@ func TestMemtableLockContention(t *testing.T) {
 		go func() {
 			// pick a random start key, so not all routines start with the same key
 			keyIndex := rand.Intn(len(keys))
-			for j := 0; j < operationsPerWorker; j++ {
+			for j := 0; j < operationsPerClient; j++ {
 				err = b.RoaringSetAddOne(keys[keyIndex], uint64(i*numClients+j))
 				if err != nil {
 					fmt.Printf("err: %v", err)

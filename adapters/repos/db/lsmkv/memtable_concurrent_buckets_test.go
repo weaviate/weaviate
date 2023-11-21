@@ -27,28 +27,28 @@ type Response struct {
 
 func TestMemtableConcurrent(t *testing.T) {
 	const numKeys = 1000000
-	const operationsPerWorker = 1000
+	const operationsPerClient = 1000
 	const numClients = 10000
 	numWorkers := runtime.NumCPU()
 
 	t.Run("single-channel", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "single-channel")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel")
 	})
 
 	t.Run("random", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "random")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random")
 	})
 
 	t.Run("round-robin", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "round-robin")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin")
 	})
 
 	t.Run("hash", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "hash")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash")
 	})
 }
 
-func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
+func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
 
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
@@ -87,7 +87,7 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClient
 	// Start client goroutines
 	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, keys, operationsPerWorker, requestsChannels, &wgClients, workerAssignment, nil)
+		go client(i, numWorkers, keys, operationsPerClient, requestsChannels, &wgClients, workerAssignment, nil)
 	}
 
 	wgClients.Wait() // Wait for all clients to finish
@@ -139,7 +139,7 @@ func hashKey(key []byte, numWorkers int) int {
 	return int(hasher.Sum32()) % numWorkers
 }
 
-func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests []chan Request, wg *sync.WaitGroup, workerAssignment string, threadOperations []*Request) {
+func client(i int, numWorkers int, keys [][]byte, operationsPerClient int, requests []chan Request, wg *sync.WaitGroup, workerAssignment string, threadOperations []*Request) {
 	defer wg.Done()
 	keyIndex := 0
 	if keys != nil {
@@ -147,7 +147,7 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, reque
 	}
 	responseCh := make(chan Response)
 
-	for j := 0; j < operationsPerWorker; j++ {
+	for j := 0; j < operationsPerClient; j++ {
 
 		workerID := 0
 		if workerAssignment == "single-channel" {

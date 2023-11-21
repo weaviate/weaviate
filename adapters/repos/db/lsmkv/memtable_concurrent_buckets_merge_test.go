@@ -21,35 +21,35 @@ import (
 
 func TestMemtableConcurrentMerge(t *testing.T) {
 	const numKeys = 1000000
-	const operationsPerWorker = 1000
+	const operationsPerClient = 1000
 	const numClients = 10000
 	numWorkers := runtime.NumCPU()
 
 	t.Run("single-channel", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "single-channel")
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel")
 	})
 
 	t.Run("random", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "random")
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random")
 	})
 
 	t.Run("round-robin", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "round-robin")
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin")
 	})
 
 	t.Run("hash", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "hash")
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash")
 	})
 }
 
-func RunMergeExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
+func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
 
 	var wgClients sync.WaitGroup
 	var wgWorkers sync.WaitGroup
 	requestsChannels := make([]chan Request, numWorkers)
 	responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
 
-	operations := generateOperations(numKeys, operationsPerWorker, numClients)
+	operations := generateOperations(numKeys, operationsPerClient, numClients)
 
 	correctOrder, err := createSimpleBucket(operations, t)
 	require.Nil(t, err)
@@ -72,7 +72,7 @@ func RunMergeExperiment(t *testing.T, numKeys int, operationsPerWorker int, numC
 	// Start client goroutines
 	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, nil, operationsPerWorker, requestsChannels, &wgClients, workerAssignment, operations[i])
+		go client(i, numWorkers, nil, operationsPerClient, requestsChannels, &wgClients, workerAssignment, operations[i])
 	}
 
 	wgClients.Wait() // Wait for all clients to finish
@@ -125,7 +125,7 @@ func RunMergeExperiment(t *testing.T, numKeys int, operationsPerWorker int, numC
 	return buckets
 }
 
-func generateOperations(numKeys int, operationsPerWorker int, numClients int) [][]*Request {
+func generateOperations(numKeys int, operationsPerClient int, numClients int) [][]*Request {
 	keys := make([][]byte, numKeys)
 	operations := make([][]*Request, numClients)
 
@@ -133,9 +133,9 @@ func generateOperations(numKeys int, operationsPerWorker int, numClients int) []
 		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
 	}
 	for i := 0; i < numClients; i++ {
-		operations[i] = make([]*Request, operationsPerWorker)
+		operations[i] = make([]*Request, operationsPerClient)
 		keyIndex := rand.Intn(len(keys))
-		for j := 0; j < operationsPerWorker; j++ {
+		for j := 0; j < operationsPerClient; j++ {
 			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j)}
 			keyIndex = (keyIndex + 1) % len(keys)
 		}
