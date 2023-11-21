@@ -25,67 +25,27 @@ type Response struct {
 	Error error
 }
 
-// Worker goroutine: adds to the RoaringSet
-// TODO: wrap this code to support an interface similar to the non-concurrent version on Bucket, instead of this worker model
-func worker(id int, dirName string, requests <-chan Request, response chan<- []*roaringset.BinarySearchNode, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ctx := context.Background()
-	// One bucket per worker, initialization is done in the worker thread
-	b, _ := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyRoaringSet))
+func TestMemtableConcurrent(t *testing.T) {
+	const numKeys = 1000000
+	const operationsPerWorker = 1000
+	const numClients = 10000
+	numWorkers := runtime.NumCPU()
 
-	for req := range requests {
-		err := b.RoaringSetAddOne(req.key, req.value)
-		req.ResponseCh <- Response{Error: err}
+	t.Run("single-channel", func(t *testing.T) {
+		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "single-channel")
+	})
 
-	}
-	// Grab the nodes and send them back for further merging
-	nodes := b.active.roaringSet.FlattenInOrder()
-	response <- nodes
-	close(response)
-	fmt.Println("Worker", id, "size:", b.active.size)
-}
+	t.Run("random", func(t *testing.T) {
+		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "random")
+	})
 
-func hashKey(key []byte, numWorkers int) int {
-	// consider using different hash function like Murmur hash or other hash table friendly hash functions
-	hasher := fnv.New32a()
-	hasher.Write(key)
-	return int(hasher.Sum32()) % numWorkers
-}
+	t.Run("round-robin", func(t *testing.T) {
+		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "round-robin")
+	})
 
-func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests []chan Request, wg *sync.WaitGroup, workerAssignment string) {
-	defer wg.Done()
-	keyIndex := rand.Intn(len(keys))
-	responseCh := make(chan Response)
-
-	for j := 0; j < operationsPerWorker; j++ {
-
-		workerID := 0 // TODO: remove this line to make it random again
-		if workerAssignment == "single-channel" {
-			workerID = 0
-		} else if workerAssignment == "random" {
-			workerID = rand.Intn(numWorkers)
-		} else if workerAssignment == "round-robin" {
-			workerID = i % numWorkers
-		} else if workerAssignment == "hash" {
-			workerID = hashKey(keys[keyIndex], numWorkers)
-		} else {
-			panic("invalid worker assignment")
-		}
-
-		requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
-
-		// TODO: handle errors and ensure output matches non-concurrent version
-		err := <-responseCh
-
-		if err.Error != nil {
-			fmt.Printf("err: %v", err)
-		}
-
-		keyIndex = (keyIndex + 1) % len(keys)
-		//fmt.Println("Client", i, "received:", response.Data)
-	}
+	t.Run("hash", func(t *testing.T) {
+		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "hash")
+	})
 }
 
 func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
@@ -127,7 +87,7 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClient
 	// Start client goroutines
 	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, keys, operationsPerWorker, requestsChannels, &wgClients, workerAssignment)
+		go client(i, numWorkers, keys, operationsPerWorker, requestsChannels, &wgClients, workerAssignment, nil)
 	}
 
 	wgClients.Wait() // Wait for all clients to finish
@@ -146,30 +106,80 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClient
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
-	//fmt.Println("Bucket shutdown:", times.Shutdown)
 
 	return buckets
 }
 
-func TestMemtableConcurrent(t *testing.T) {
-	const numKeys = 1000000
-	const operationsPerWorker = 1000
-	const numClients = 10000
-	numWorkers := runtime.NumCPU()
+// Worker goroutine: adds to the RoaringSet
+// TODO: wrap this code to support an interface similar to the non-concurrent version on Bucket, instead of this worker model
+func worker(id int, dirName string, requests <-chan Request, response chan<- []*roaringset.BinarySearchNode, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ctx := context.Background()
+	// One bucket per worker, initialization is done in the worker thread
+	b, _ := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyRoaringSet))
 
-	t.Run("single-channel", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "single-channel")
-	})
+	for req := range requests {
+		err := b.RoaringSetAddOne(req.key, req.value)
+		req.ResponseCh <- Response{Error: err}
 
-	t.Run("random", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "random")
-	})
+	}
+	// Grab the nodes and send them back for further merging
+	nodes := b.active.roaringSet.FlattenInOrder()
+	response <- nodes
+	close(response)
+	fmt.Println("Worker", id, "size:", b.active.size)
+}
 
-	t.Run("round-robin", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "round-robin")
-	})
+func hashKey(key []byte, numWorkers int) int {
+	// consider using different hash function like Murmur hash or other hash table friendly hash functions
+	hasher := fnv.New32a()
+	hasher.Write(key)
+	return int(hasher.Sum32()) % numWorkers
+}
 
-	t.Run("hash", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerWorker, numClients, numWorkers, "hash")
-	})
+func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, requests []chan Request, wg *sync.WaitGroup, workerAssignment string, threadOperations []*Request) {
+	defer wg.Done()
+	keyIndex := 0
+	if keys != nil {
+		keyIndex = rand.Intn(len(keys))
+	}
+	responseCh := make(chan Response)
+
+	for j := 0; j < operationsPerWorker; j++ {
+
+		workerID := 0
+		if workerAssignment == "single-channel" {
+			workerID = 0
+		} else if workerAssignment == "random" {
+			workerID = rand.Intn(numWorkers)
+		} else if workerAssignment == "round-robin" {
+			workerID = i % numWorkers
+		} else if workerAssignment == "hash" {
+			if keys == nil {
+				workerID = hashKey(threadOperations[j].key, numWorkers)
+			} else {
+				workerID = hashKey(keys[keyIndex], numWorkers)
+			}
+		} else {
+			panic("invalid worker assignment")
+		}
+
+		if threadOperations != nil {
+			operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, ResponseCh: responseCh}
+			requests[workerID] <- operationWithChannel
+		} else {
+			requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
+		}
+
+		err := <-responseCh
+
+		if err.Error != nil {
+			fmt.Printf("err: %v", err)
+		}
+		if keys != nil {
+			keyIndex = (keyIndex + 1) % len(keys)
+		}
+	}
 }
