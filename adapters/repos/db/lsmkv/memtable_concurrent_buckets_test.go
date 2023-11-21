@@ -169,9 +169,10 @@ func TestMemtableConcurrentSingle(t *testing.T) {
 	wgWorkers.Wait() // Wait for all workers to finish
 
 	times.Insert = int(time.Since(startTime).Milliseconds())
+
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
-	fmt.Println("Bucket shutdown:", times.BucketShutdown)
+	fmt.Println("Bucket shutdown:", times.Shutdown)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 }
@@ -226,7 +227,7 @@ func TestMemtableConcurrentHash(t *testing.T) {
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
-	fmt.Println("Bucket shutdown:", times.BucketShutdown)
+	fmt.Println("Bucket shutdown:", times.Shutdown)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 }
@@ -279,7 +280,7 @@ func TestMemtableConcurrentRandom(t *testing.T) {
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
-	fmt.Println("Bucket shutdown:", times.BucketShutdown)
+	fmt.Println("Bucket shutdown:", times.Shutdown)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 }

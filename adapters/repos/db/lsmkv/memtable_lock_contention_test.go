@@ -14,9 +14,12 @@ import (
 )
 
 type Times struct {
-	Setup          int
-	Insert         int
-	BucketShutdown int
+	Setup    int
+	Insert   int
+	Copy     int
+	Flatten  int
+	Merge    int
+	Shutdown int
 }
 
 // Lock contention example written by Parker to demo WVT-40 (multiple threads writing to bucket concurrently)
@@ -77,10 +80,10 @@ func TestMemtableLockContention(t *testing.T) {
 
 	b.Shutdown(ctx)
 
-	times.BucketShutdown = int(time.Since(startTime).Milliseconds())
+	times.Shutdown = int(time.Since(startTime).Milliseconds())
 
-	fmt.Println("Bucket shutdown")
+	fmt.Println()
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
-	fmt.Println("Bucket shutdown:", times.BucketShutdown)
+	fmt.Println("Shutdown:", times.Shutdown)
 }
