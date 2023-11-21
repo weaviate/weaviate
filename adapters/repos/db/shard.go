@@ -154,7 +154,7 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
-	MustLoad()  // Force shard to load immediately
+	MustLoad()                  // Force shard to load immediately
 	Load(context.Context) error // Load shard
 }
 
