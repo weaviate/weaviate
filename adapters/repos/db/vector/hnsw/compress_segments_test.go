@@ -81,5 +81,6 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		}
 		index.Compress(cfg)
 		assert.Equal(t, expectedSegments, int(index.pq.ExposeFields().M))
+		assert.Equal(t, expectedSegments, index.pqConfig.Segments)
 	}
 }

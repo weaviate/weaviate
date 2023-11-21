@@ -139,6 +139,10 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 		h.cache.Drop()
 
+		if h.pqConfig.Segments == 0 {
+			h.pqConfig.Segments = int(state.PQData.Dimensions)
+		}
+
 		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
 			h.pqConfig,
 			h.distancerProvider,
