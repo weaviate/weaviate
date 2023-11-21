@@ -113,6 +113,7 @@ func New(cfg Config) Store {
 
 func (f *Store) SetDB(db DB) {
 	f.db = db
+	f.schema.shardReader = db
 }
 
 func (st *Store) Execute(req *cmd.ApplyRequest) error {
