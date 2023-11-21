@@ -36,13 +36,12 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	}
 
 	// Add TLS creds for the GRPC connection, if defined.
-	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 && len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
+	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 || len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
 		c, err := credentials.NewServerTLSFromFile(state.ServerConfig.Config.GRPC.CertFile,
 			state.ServerConfig.Config.GRPC.KeyFile)
 		if err != nil {
 			state.Logger.WithField("action", "grpc_startup").
-				Errorf("grpc server TLS credential error: %s", err)
-			return nil
+				Fatalf("grpc server TLS credential error: %s", err)
 		}
 		o = append(o, grpc.Creds(c))
 	}
