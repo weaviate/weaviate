@@ -532,6 +532,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["CLUSTER_HOSTNAME"] = "node1"
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
+			envSettings["RAFT_PORT"] = "8300"
+			envSettings["RAFT_INTERNAL_PORT"] = "8301"
+			envSettings["RAFT_BOOTSTRAP_EXPECT"] = "1"
 		}
 		if d.withWeaviateBasicAuth {
 			envSettings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
@@ -566,8 +569,26 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		for k, v := range d.weaviateEnvs {
 			envSettings[k] = v
 		}
+		envSettings["RAFT_PORT"] = "8302"
+		envSettings["RAFT_INTERNAL_PORT"] = "8303"
+		envSettings["RAFT_JOIN"] = "node1:8300"
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", hostname)
+		}
+		containers = append(containers, container)
+
+		hostname = WeaviateNode3
+		envSettings["CLUSTER_HOSTNAME"] = "node3"
+		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
+		envSettings["CLUSTER_DATA_BIND_PORT"] = "7105"
+		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
+		envSettings["RAFT_PORT"] = "8304"
+		envSettings["RAFT_INTERNAL_PORT"] = "8305"
+		envSettings["RAFT_JOIN"] = "node1:8300"
+		container, err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+			envSettings, networkName, image, hostname)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -586,8 +607,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		for k, v := range d.weaviateEnvs {
 			envSettings[k] = v
 		}
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
+		delete(secondWeaviateSettings, "RAFT_PORT")
+		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
+		delete(secondWeaviateSettings, "RAFT_JOIN")
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
