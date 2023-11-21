@@ -231,6 +231,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_DATA_BIND_PORT":   "7101",
 			},
 			expectedResult: cluster.Config{
+				Hostname:       "weaviate-0",
 				GossipBindPort: 7100,
 				DataBindPort:   7101,
 			},
@@ -238,6 +239,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		{
 			name: "valid cluster config - no ports provided",
 			expectedResult: cluster.Config{
+				Hostname:       "weaviate-0",
 				GossipBindPort: DefaultGossipBindPort,
 				DataBindPort:   DefaultGossipBindPort + 1,
 			},
@@ -248,6 +250,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
+				Hostname:       "weaviate-0",
 				GossipBindPort: 7777,
 				DataBindPort:   7778,
 			},
@@ -275,6 +278,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
 			},
 			expectedResult: cluster.Config{
+				Hostname:                "weaviate-0",
 				GossipBindPort:          7946,
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
