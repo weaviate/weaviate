@@ -52,7 +52,7 @@ func TestClusterAPIAuth(t *testing.T) {
 
 			nodes := nodeStatusResp.Nodes
 			require.NotNil(t, nodes)
-			require.Len(t, nodes, 2)
+			require.Len(t, nodes, 3)
 		})
 
 		booksClass := books.ClassContextionaryVectorizer()
