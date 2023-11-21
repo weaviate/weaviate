@@ -75,9 +75,11 @@ type deferredShardOpts struct {
 }
 
 func (l *LazyLoadShard) MustLoad() {
+		/* Sigh
 	if l.loaded {
-		return
+		return nil
 	}
+	*/
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	if l.loaded {
@@ -94,9 +96,11 @@ func (l *LazyLoadShard) MustLoad() {
 }
 
 func (l *LazyLoadShard) MustLoadCtx(ctx context.Context) {
+		/* Sigh
 	if l.loaded {
-		return
+		return nil
 	}
+	*/
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	if l.loaded {
