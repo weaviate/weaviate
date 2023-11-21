@@ -25,6 +25,7 @@ import (
 const (
 	Weaviate      = "weaviate"
 	WeaviateNode2 = "weaviate2"
+	WeaviateNode3 = "weaviate3"
 
 	SecondWeaviate = "second-weaviate"
 )
