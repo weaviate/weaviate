@@ -192,6 +192,7 @@ func NewManager(migrator Migrator,
 		clusterState: clusterState,
 		Handler:      handler,
 		metaReader:   metaReader,
+		Authorizer:   authorizer,
 	}
 
 	if err := m.loadOrInitializeSchema(context.Background()); err != nil {
