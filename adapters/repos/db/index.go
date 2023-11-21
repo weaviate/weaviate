@@ -290,9 +290,9 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	return index, nil
 }
 
-func (i *Index) ForceLoadShards() (err error) {
+func (i *Index) ForceLoadShards(ctx context.Context) (err error) {
 	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		shard.Load()
+		shard.Load(ctx)
 		return nil
 	})
 }

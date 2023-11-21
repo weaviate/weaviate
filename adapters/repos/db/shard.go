@@ -154,7 +154,8 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
-	Load() error // Force shard to load immediately
+	MustLoad()  // Force shard to load immediately
+	Load(context.Context) error // Load shard
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -200,8 +201,12 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func (s *Shard) Load() error {
+func (s *Shard) Load(ctx context.Context) error {
 	return nil
+}
+
+func (s *Shard) MustLoad() {
+	return
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -241,9 +246,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	var err error
-	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{
-		Logger: s.index.logger,
-	})
+	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
 	if err != nil {
 		return nil, err
 	}

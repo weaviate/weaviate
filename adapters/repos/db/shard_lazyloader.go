@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -73,7 +74,26 @@ type deferredShardOpts struct {
 	indexCheckpoints *indexcheckpoint.Checkpoints
 }
 
-func (l *LazyLoadShard) Load() error {
+func (l *LazyLoadShard) MustLoad() {
+	if l.loaded {
+		return
+	}
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	if l.loaded {
+		return
+	}
+	shard, err := NewShard(context.Background(), l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index, l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
+	if err != nil {
+		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
+		panic(msg)
+	}
+	l.shard = shard
+	l.loaded = true
+	return
+}
+
+func (l *LazyLoadShard) Load(ctx context.Context) error {
 	if l.loaded {
 		return nil
 	}
@@ -85,7 +105,7 @@ func (l *LazyLoadShard) Load() error {
 	shard, err := NewShard(context.Background(), l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index, l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
-		panic(msg)
+		return errors.New(msg)
 	}
 	l.shard = shard
 	l.loaded = true
@@ -93,361 +113,361 @@ func (l *LazyLoadShard) Load() error {
 }
 
 func (l *LazyLoadShard) Index() *Index {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Index()
 }
 
 func (l *LazyLoadShard) Name() string {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Name()
 }
 
 func (l *LazyLoadShard) Store() *lsmkv.Store {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Store()
 }
 
 func (l *LazyLoadShard) NotifyReady() {
-	l.Load()
+	l.MustLoad()
 	l.shard.NotifyReady()
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.Load()
+	l.MustLoad()
 	return l.shard.GetStatus()
 }
 
 func (l *LazyLoadShard) UpdateStatus(status string) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.UpdateStatus(status)
 }
 
 func (l *LazyLoadShard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.FindDocIDs(ctx, filters)
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Counter()
 }
 
 func (l *LazyLoadShard) ObjectCount() int {
-	l.Load()
+	l.MustLoad()
 	return l.shard.ObjectCount()
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-	l.Load()
+	l.MustLoad()
 	return l.shard.GetPropertyLengthTracker()
 }
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.PutObject(ctx, object)
 }
 
 func (l *LazyLoadShard) PutObjectBatch(ctx context.Context, objects []*storobj.Object) []error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.PutObjectBatch(ctx, objects)
 }
 
 func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.Exists(ctx, id)
 }
 
 func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 }
 
 func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.AddReferencesBatch(ctx, refs)
 }
 
 func (l *LazyLoadShard) DeleteObjectBatch(ctx context.Context, ids []uint64, dryRun bool) objects.BatchSimpleObjects {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.DeleteObjectBatch(ctx, ids, dryRun)
 }
 
 func (l *LazyLoadShard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.DeleteObject(ctx, id)
 }
 
 func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
 func (l *LazyLoadShard) ID() string {
-	l.Load()
+	l.MustLoad()
 	return l.shard.ID()
 }
 
 func (l *LazyLoadShard) DBPathLSM() string {
-	l.Load()
+	l.MustLoad()
 	return l.shard.DBPathLSM()
 }
 
 func (l *LazyLoadShard) drop() error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.drop()
 }
 
 func (l *LazyLoadShard) addIDProperty(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.addIDProperty(ctx)
 }
 
 func (l *LazyLoadShard) addDimensionsProperty(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.addDimensionsProperty(ctx)
 }
 
 func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.addTimestampProperties(ctx)
 }
 
 func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
-	l.Load()
+	l.Load(ctx)
 	l.shard.createPropertyIndex(ctx, prop, eg)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.BeginBackup(ctx)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.ListBackupFiles(ctx, ret)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.resumeMaintenanceCycles(ctx)
 }
 
 func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.SetPropertyLengths(props)
 }
 
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []nilProp, error) {
-	l.Load()
+	l.MustLoad()
 	return l.shard.AnalyzeObject(object)
 }
 
 func (l *LazyLoadShard) Dimensions() int {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Dimensions()
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(segments int) int {
-	l.Load()
+	l.MustLoad()
 	return l.shard.QuantizedDimensions(segments)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.Aggregate(ctx, params)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.MergeObject(ctx, object)
 }
 
 func (l *LazyLoadShard) Queue() *IndexQueue {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Queue()
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.Shutdown(ctx)
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className)
 }
 
 func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.WasDeleted(ctx, id)
 }
 
 func (l *LazyLoadShard) VectorIndex() VectorIndex {
-	l.Load()
+	l.MustLoad()
 	return l.shard.VectorIndex()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Versioner()
 }
 
 func (l *LazyLoadShard) isReadOnly() bool {
-	l.Load()
+	l.MustLoad()
 	return l.shard.isReadOnly()
 }
 
 func (l *LazyLoadShard) preparePutObject(ctx context.Context, shardID string, object *storobj.Object) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.preparePutObject(ctx, shardID, object)
 }
 
 func (l *LazyLoadShard) preparePutObjects(ctx context.Context, shardID string, objects []*storobj.Object) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.preparePutObjects(ctx, shardID, objects)
 }
 
 func (l *LazyLoadShard) prepareMergeObject(ctx context.Context, shardID string, object *objects.MergeDocument) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.prepareMergeObject(ctx, shardID, object)
 }
 
 func (l *LazyLoadShard) prepareDeleteObject(ctx context.Context, shardID string, id strfmt.UUID) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.prepareDeleteObject(ctx, shardID, id)
 }
 
 func (l *LazyLoadShard) prepareDeleteObjects(ctx context.Context, shardID string, ids []uint64, dryRun bool) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.prepareDeleteObjects(ctx, shardID, ids, dryRun)
 }
 
 func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string, refs []objects.BatchReference) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
 func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *backupMutex) interface{} {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.commitReplication(ctx, shardID, mutex)
 }
 
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.abortReplication(ctx, shardID)
 }
 
 func (l *LazyLoadShard) reinit(ctx context.Context) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.reinit(ctx)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.filePutter(ctx, shardID)
 }
 
 func (l *LazyLoadShard) extendDimensionTrackerLSM(dimensions int, docID uint64) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.extendDimensionTrackerLSM(dimensions, docID)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.addToPropertyMapBucket(bucket, pair, key)
 }
 
 func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
-	l.Load()
+	l.MustLoad()
 	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
 }
 
 func (l *LazyLoadShard) keyPropertyNull(isNull bool) ([]byte, error) {
-	l.Load()
+	l.MustLoad()
 	return l.shard.keyPropertyNull(isNull)
 }
 
 func (l *LazyLoadShard) keyPropertyLength(length int) ([]byte, error) {
-	l.Load()
+	l.MustLoad()
 	return l.shard.keyPropertyLength(length)
 }
 
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
-	l.Load()
+	l.MustLoad()
 	l.shard.setFallbackToSearchable(fallback)
 }
 
 func (l *LazyLoadShard) addJobToQueue(job job) {
-	l.Load()
+	l.MustLoad()
 	l.shard.addJobToQueue(job)
 }
 
 func (l *LazyLoadShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	l.Load()
+	l.MustLoad()
 	return l.shard.uuidFromDocID(docID)
 }
 
 func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
-	l.Load()
+	l.Load(ctx)
 	return l.shard.batchDeleteObject(ctx, id)
 }
 
 func (l *LazyLoadShard) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
-	l.Load()
+	l.MustLoad()
 	return l.shard.putObjectLSM(object, idBytes)
 }
 
 func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
-	l.Load()
+	l.MustLoad()
 	return l.shard.mutableMergeObjectLSM(merge, idBytes)
 }
 
 func (l *LazyLoadShard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.deleteInvertedIndexItemLSM(bucket, item, docID)
 }
 
 func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.batchExtendInvertedIndexItemsLSMNoFrequency(b, item)
 }
 
 func (l *LazyLoadShard) updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.updatePropertySpecificIndices(object, status)
 }
 
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error {
-	l.Load()
+	l.MustLoad()
 	return l.shard.updateVectorIndexIgnoreDelete(vector, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {
-	l.Load()
+	l.MustLoad()
 	return l.shard.hasGeoIndex()
 }
 
 func (l *LazyLoadShard) Metrics() *Metrics {
-	l.Load()
+	l.MustLoad()
 	return l.shard.Metrics()
 }
