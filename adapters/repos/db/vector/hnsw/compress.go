@@ -50,11 +50,11 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	dims := int(h.dims)
 
-	// segments == 0 (default value) means use as many segments as dimensions
 	if cfg.Segments <= 0 {
 		for i := 6; i > 0; i-- {
 			if dims%i == 0 {
 				cfg.Segments = dims / i
+				h.pqConfig.Segments = cfg.Segments
 				break
 			}
 		}
