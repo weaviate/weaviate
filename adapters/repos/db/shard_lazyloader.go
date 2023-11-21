@@ -114,9 +114,11 @@ func (l *LazyLoadShard) MustLoadCtx(ctx context.Context) {
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
+	/* Sigh
 	if l.loaded {
 		return nil
 	}
+	*/
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	if l.loaded {
