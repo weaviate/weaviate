@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -20,30 +21,29 @@ type Request struct {
 	ResponseCh chan Response
 }
 
-// TODO: ensure errors are handled and output is the same as the non-concurrent version
 type Response struct {
 	Error error
 }
 
 // Worker goroutine: adds to the RoaringSet
 // TODO: wrap this code to support an interface similar to the non-concurrent version on Bucket, instead of this worker model
-func worker(id int, dirName string, requests <-chan Request, wg *sync.WaitGroup) {
+func worker(id int, dirName string, requests <-chan Request, response chan<- []*roaringset.BinarySearchNode, wg *sync.WaitGroup) {
 	defer wg.Done()
 	ctx := context.Background()
+	// One bucket per worker, initialization is done in the worker thread
 	b, _ := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyRoaringSet))
 
 	for req := range requests {
-		// Do the work
 		err := b.RoaringSetAddOne(req.key, req.value)
-		// Send a response back
 		req.ResponseCh <- Response{Error: err}
 
 	}
-
-	// Perform any cleanup here
-	b.Shutdown(context.Background())
+	// Grab the nodes and send them back for further merging
+	nodes := b.active.roaringSet.FlattenInOrder()
+	response <- nodes
+	close(response)
 	fmt.Println("Worker", id, "size:", b.active.size)
 }
 
@@ -88,7 +88,7 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerWorker int, reque
 	}
 }
 
-func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClients int, numWorkers int, workerAssignment string) {
+func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
 
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
@@ -102,6 +102,7 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClient
 	var wgWorkers sync.WaitGroup
 
 	requestsChannels := make([]chan Request, numChannels)
+	responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
 
 	keys := make([][]byte, numKeys)
 	for i := range keys {
@@ -116,7 +117,8 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClient
 	wgWorkers.Add(numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		dirName := t.TempDir()
-		go worker(i, dirName, requestsChannels[i%numChannels], &wgWorkers)
+		responseChannels[i] = make(chan []*roaringset.BinarySearchNode)
+		go worker(i, dirName, requestsChannels[i%numChannels], responseChannels[i], &wgWorkers)
 	}
 
 	times.Setup = int(time.Since(startTime).Milliseconds())
@@ -133,12 +135,20 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerWorker int, numClient
 		close(ch)
 	}
 
+	buckets := make([][]*roaringset.BinarySearchNode, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		bucket := <-responseChannels[i]
+		buckets[i] = bucket
+	}
+
 	wgWorkers.Wait() // Wait for all workers to finish
 
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
-	fmt.Println("Bucket shutdown:", times.Shutdown)
+	//fmt.Println("Bucket shutdown:", times.Shutdown)
+
+	return buckets
 }
 
 func TestMemtableConcurrent(t *testing.T) {
