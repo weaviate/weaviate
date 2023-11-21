@@ -60,11 +60,10 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
 	h.RLock()
-	previousSize := uint64(len(h.nodes))
-	if maxId >= previousSize {
+	if maxId >= uint64(len(h.nodes)) {
 		h.RUnlock()
 		h.Lock()
-		if maxId >= previousSize {
+		if maxId >= uint64(len(h.nodes)) {
 			err := h.growIndexToAccomodateNode(maxId, h.logger)
 			if err != nil {
 				h.Unlock()
