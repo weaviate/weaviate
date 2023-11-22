@@ -77,6 +77,6 @@ func TestFusionRelativeScoreExplain(t *testing.T) {
 	}
 	results := [][]*Result{result1, result2}
 	fused := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword","vector"})
-	require.Contains(t, fused[0].ExplainScore, "keyword: original score 0.5, normalized score: 0.5")
-	require.Contains(t, fused[0].ExplainScore, "vector: original score 2, normalized score: 0.5 - keyword: original score 0.5, normalized score: 0.5")
+	require.Contains(t, fused[0].ExplainScore, "(Result Set 'keyword') Document 1: original score 0.5, normalized score: 0.5")
+	require.Contains(t, fused[0].ExplainScore, "(Result Set 'vector') Document 1: original score 2, normalized score: 0.5")
 }
