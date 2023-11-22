@@ -46,10 +46,34 @@ type embeddingData struct {
 }
 
 type openAIApiError struct {
-	Message string      `json:"message"`
-	Type    string      `json:"type"`
-	Param   string      `json:"param"`
-	Code    json.Number `json:"code"`
+	Message string `json:"message"`
+	Type    string `json:"type"`
+	Param   string `json:"param"`
+	Code    string `json:"code"`
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface and ensures that the
+// openAIApiError struct correctly handles the code field, which can be either string
+// or number.
+func (e *openAIApiError) UnmarshalJSON(b []byte) error {
+	type openAIApiErrorAlias struct {
+		Message string      `json:"message"`
+		Type    string      `json:"type"`
+		Param   string      `json:"param"`
+		Code    json.Number `json:"code"`
+	}
+	var err error
+	var alias openAIApiErrorAlias
+	if err = json.Unmarshal(b, &alias); err != nil {
+		return err
+	}
+	*e = openAIApiError{
+		Message: alias.Message,
+		Type:    alias.Type,
+		Param:   alias.Param,
+		Code:    alias.Code.String(),
+	}
+	return nil
 }
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {

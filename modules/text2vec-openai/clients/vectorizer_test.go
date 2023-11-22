@@ -471,7 +471,7 @@ func Test_openAIApiErrorDecode(t *testing.T) {
 				err := json.Unmarshal(tt.args.response, &got)
 				require.NoError(t, err)
 
-				if got.Code.String() != tt.want {
+				if got.Code != tt.want {
 					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
 				}
 			})
