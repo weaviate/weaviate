@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -54,26 +55,40 @@ func (m *GenerativeAWSModule) Type() modulecapabilities.ModuleType {
 func (m *GenerativeAWSModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
+	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init q/a")
 	}
 
 	return nil
 }
 
-func (m *GenerativeAWSModule) initAdditional(ctx context.Context,
+func (m *GenerativeAWSModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	awsAccessKey := m.getAWSAccessKey()
+	awsSecret := m.getAWSSecretAccessKey()
 
-	client := clients.New(awsAccessKey, awsSecret, logger)
+	client := clients.New(awsAccessKey, awsSecret, timeout, logger)
 
 	m.generative = client
 
 	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
 
 	return nil
+}
+
+func (m *GenerativeAWSModule) getAWSAccessKey() string {
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" {
+		return os.Getenv("AWS_ACCESS_KEY_ID")
+	}
+	return os.Getenv("AWS_ACCESS_KEY")
+}
+
+func (m *GenerativeAWSModule) getAWSSecretAccessKey() string {
+	if os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		return os.Getenv("AWS_SECRET_ACCESS_KEY")
+	}
+	return os.Getenv("AWS_SECRET_KEY")
 }
 
 func (m *GenerativeAWSModule) MetaInfo() (map[string]interface{}, error) {

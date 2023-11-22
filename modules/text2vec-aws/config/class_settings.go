@@ -37,16 +37,15 @@ const (
 	DefaultVectorizeClassName    = false
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	DefaultService               = "bedrock"
 )
 
 var availableAWSServices = []string{
 	"bedrock",
-	"sagemaker",
 }
 
 var availableAWSBedrockModels = []string{
-	"amazon.titan-e1t-medium",
-	"amazon.titan-embed-g1-text-02",
+	"amazon.titan-embed-text-v1",
 	"cohere.embed-english-v3",
 	"cohere.embed-multilingual-v3",
 }
@@ -230,7 +229,7 @@ func (cv *classSettings) validateIndexState(class *models.Class, settings vector
 
 // Aws params
 func (ic *classSettings) Service() string {
-	return ic.getStringProperty(serviceProperty, "")
+	return ic.getStringProperty(serviceProperty, DefaultService)
 }
 
 func (ic *classSettings) Region() string {

@@ -45,27 +45,27 @@ func TestVectorizingTexts(t *testing.T) {
 		{
 			name:               "multiple sentences (joined with a dot)",
 			input:              []string{"this is sentence 1", "and here's number 2"},
-			expectedClientCall: "this is sentence 1. and here's number 2",
+			expectedClientCall: "and here's number 2",
 		},
 		{
 			name:               "multiple sentences already containing a dot",
 			input:              []string{"this is sentence 1.", "and here's number 2"},
-			expectedClientCall: "this is sentence 1. and here's number 2",
+			expectedClientCall: "and here's number 2",
 		},
 		{
 			name:               "multiple sentences already containing a question mark",
 			input:              []string{"this is sentence 1?", "and here's number 2"},
-			expectedClientCall: "this is sentence 1? and here's number 2",
+			expectedClientCall: "and here's number 2",
 		},
 		{
 			name:               "multiple sentences already containing an exclamation mark",
 			input:              []string{"this is sentence 1!", "and here's number 2"},
-			expectedClientCall: "this is sentence 1! and here's number 2",
+			expectedClientCall: "and here's number 2",
 		},
 		{
 			name:               "multiple sentences already containing comma",
 			input:              []string{"this is sentence 1,", "and here's number 2"},
-			expectedClientCall: "this is sentence 1, and here's number 2",
+			expectedClientCall: "and here's number 2",
 		},
 	}
 

@@ -41,6 +41,7 @@ var (
 	DefaultTitanStopSequences = []string{}
 	DefaultTitanTemperature   = 0.0
 	DefaultTitanTopP          = 1.0
+	DefaultService            = "bedrock"
 )
 
 var (
@@ -53,29 +54,18 @@ var (
 
 var DefaultAI21MaxTokens = 300
 
-// DefaultAnthropicStopSequences = []string{"\\n\\nHuman:"}
-// DefaultAnthropicTemperature   = 1.0
-// DefaultAnthropicTopK          = 250
-// DefaultAnthropicTopP          = 0.999
-
 var (
 	DefaultCohereMaxTokens   = 100
 	DefaultCohereTemperature = 0.8
+	DefaultAI21Temperature   = 0.7
 	DefaultCohereTopP        = 1.0
 )
 
 var availableAWSServices = []string{
-	"bedrock",
-	"sagemaker",
+	DefaultService,
 }
 
 var availableBedrockModels = []string{
-	"amazon.titan-tg1-large",
-	"anthropic.claude-instant-v1",
-	"anthropic.claude-v1",
-	"anthropic.claude-v2",
-	"ai21.j2-mid",
-	"ai21.j2-ultra",
 	"cohere.command-text-v14",
 	"cohere.command-light-text-v14",
 }
@@ -120,7 +110,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
 		}
 		topP := ic.TopP()
-		if *topP < 0 || *topP > 1 {
+		if topP != nil && (*topP < 0 || *topP > 1) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 0 and 1", topPProperty))
 		}
 
@@ -262,7 +252,7 @@ func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []st
 
 // AWS params
 func (ic *classSettings) Service() string {
-	return ic.getStringProperty(serviceProperty, "")
+	return ic.getStringProperty(serviceProperty, DefaultService)
 }
 
 func (ic *classSettings) Region() string {
@@ -313,6 +303,9 @@ func (ic *classSettings) Temperature() *float64 {
 		}
 		if isCohereModel(ic.Model()) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultCohereTemperature)
+		}
+		if isAI21Model(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultAI21Temperature)
 		}
 	}
 	return ic.getFloatProperty(temperatureProperty, nil)

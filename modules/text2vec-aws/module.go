@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/weaviate/weaviate/modules/text2vec-aws/config"
 
@@ -73,7 +74,7 @@ func (m *AwsModule) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -102,17 +103,31 @@ func (m *AwsModule) InitExtension(modules []modulecapabilities.Module) error {
 	return nil
 }
 
-func (m *AwsModule) initVectorizer(ctx context.Context,
+func (m *AwsModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	client := clients.New(awsAccessKey, awsSecret, logger)
+	awsAccessKey := m.getAWSAccessKey()
+	awsSecret := m.getAWSSecretAccessKey()
+	client := clients.New(awsAccessKey, awsSecret, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client
 
 	return nil
+}
+
+func (m *AwsModule) getAWSAccessKey() string {
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" {
+		return os.Getenv("AWS_ACCESS_KEY_ID")
+	}
+	return os.Getenv("AWS_ACCESS_KEY")
+}
+
+func (m *AwsModule) getAWSSecretAccessKey() string {
+	if os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		return os.Getenv("AWS_SECRET_ACCESS_KEY")
+	}
+	return os.Getenv("AWS_SECRET_KEY")
 }
 
 func (m *AwsModule) initAdditionalPropertiesProvider() error {
