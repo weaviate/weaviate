@@ -35,7 +35,7 @@ func FusionRanked(weights []float64, resultSets [][]*Result) []*Result {
 			if ok {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
 					"%v\n(Result Set %v) Document %v contributed %v to the score",
-					previousResult.AdditionalProperties["explainScore"], resultSetIndex,tempResult.ID, score)
+					previousResult.AdditionalProperties["explainScore"], resultSetIndex, tempResult.ID, score)
 				score += float64(previousResult.Score)
 			} else {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
