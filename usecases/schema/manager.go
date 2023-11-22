@@ -199,18 +199,23 @@ func NewManager(migrator Migrator,
 }
 
 func (m *Manager) Shutdown(ctx context.Context) error {
-	allCommitsDone := make(chan struct{})
-	go func() {
-		m.cluster.Shutdown()
-		allCommitsDone <- struct{}{}
-	}()
+	// TODO-RAFT START
+	// Fix shutdown logic
+	//
 
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("waiting for transactions to commit: %w", ctx.Err())
-	case <-allCommitsDone:
-		return nil
-	}
+	// allCommitsDone := make(chan struct{})
+	// go func() {
+	// 	m.cluster.Shutdown()
+	// 	allCommitsDone <- struct{}{}
+	// }()
+
+	// select {
+	// case <-ctx.Done():
+	// 	return fmt.Errorf("waiting for transactions to commit: %w", ctx.Err())
+	// case <-allCommitsDone:
+	// 	return nil
+	// }
+	return nil
 }
 
 func (m *Manager) TxManager() *cluster.TxManager {
