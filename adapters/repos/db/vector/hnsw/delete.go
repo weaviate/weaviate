@@ -86,29 +86,53 @@ func (h *hnsw) Delete(ids ...uint64) error {
 
 func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	h.resetLock.Lock()
+	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
-	defer h.resetLock.Unlock()
 
-	if h.isEmptyUnsecured() {
-		return true, h.resetUnsecured()
+	empty = func() bool {
+		h.shardedNodeLocks.RLock(h.entryPointID)
+		defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+
+		return h.isEmptyUnlocked()
+	}()
+	// It can happen that between calls of isEmptyUnlocked and resetUnlocked
+	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
+	// This is acceptable in order to avoid long Locking of all striped locks
+	if empty {
+		h.shardedNodeLocks.LockAll()
+		defer h.shardedNodeLocks.UnlockAll()
+
+		return true, h.resetUnlocked()
 	}
 	return false, nil
 }
 
 func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (onlyNode bool, err error) {
 	h.resetLock.Lock()
+	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
-	defer h.resetLock.Unlock()
 
-	if h.isOnlyNodeUnsecured(needle, denyList) {
-		return true, h.resetUnsecured()
+	onlyNode = func() bool {
+		h.shardedNodeLocks.RLockAll()
+		defer h.shardedNodeLocks.RUnlockAll()
+
+		return h.isOnlyNodeUnlocked(needle, denyList)
+	}()
+	// It can happen that between calls of isOnlyNodeUnlocked and resetUnlocked
+	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
+	// This is acceptable in order to avoid long Locking of all striped locks
+	if onlyNode {
+		h.shardedNodeLocks.LockAll()
+		defer h.shardedNodeLocks.UnlockAll()
+
+		return true, h.resetUnlocked()
 	}
 	return false, nil
 }
 
-func (h *hnsw) resetUnsecured() error {
+func (h *hnsw) resetUnlocked() error {
 	h.resetCtxCancel()
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	h.resetCtx = resetCtx
@@ -250,9 +274,10 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 			// level, we need to find an entrypoint on a lower level
 			// 2. there is a risk that this is the only node in the entire graph. In
 			// this case we must reset the graph
-			h.RLock()
+			h.shardedNodeLocks.RLock(id)
 			node := h.nodes[id]
-			h.RUnlock()
+			h.shardedNodeLocks.RUnlock(id)
+
 			if err := h.deleteEntrypoint(node, deleteList); err != nil {
 				return false, errors.Wrap(err, "delete entrypoint")
 			}
@@ -287,7 +312,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 
 	h.RLock()
+	h.shardedNodeLocks.RLock(neighbor)
 	neighborNode := h.nodes[neighbor]
+	h.shardedNodeLocks.RUnlock(neighbor)
 	currentEntrypoint := h.entryPointID
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
@@ -459,9 +486,10 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 			if denyList.Contains(uint64(i)) {
 				continue
 			}
-			h.RLock()
+
+			h.shardedNodeLocks.RLock(uint64(i))
 			candidate := h.nodes[i]
-			h.RUnlock()
+			h.shardedNodeLocks.RUnlock(uint64(i))
 
 			if candidate == nil {
 				continue
@@ -514,9 +542,10 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 			if denyList.Contains(uint64(i)) {
 				continue
 			}
-			h.RLock()
+
+			h.shardedNodeLocks.RLock(uint64(i))
 			candidate := h.nodes[i]
-			h.RUnlock()
+			h.shardedNodeLocks.RUnlock(uint64(i))
 
 			if candidate == nil {
 				continue
@@ -543,12 +572,14 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	h.RLock()
+	h.shardedNodeLocks.RLockAll()
 	defer h.RUnlock()
+	defer h.shardedNodeLocks.RUnlockAll()
 
-	return h.isOnlyNodeUnsecured(needle, denyList)
+	return h.isOnlyNodeUnlocked(needle, denyList)
 }
 
-func (h *hnsw) isOnlyNodeUnsecured(needle *vertex, denyList helpers.AllowList) bool {
+func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
 		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
 			continue
@@ -589,9 +620,9 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		if !breakCleanUpTombstonedNodes() {
-			h.shardedNodeLocks[id%NodeLockStripe].Lock()
+			h.shardedNodeLocks.Lock(id)
 			h.nodes[id] = nil
-			h.shardedNodeLocks[id%NodeLockStripe].Unlock()
+			h.shardedNodeLocks.Unlock(id)
 			if h.compressed.Load() {
 				h.compressedVectorsCache.delete(context.TODO(), id)
 			} else {
