@@ -126,15 +126,18 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 
 func compareBuckets(b1 []*roaringset.BinarySearchNode, b2 []*roaringset.BinarySearchNode) bool {
 	if len(b1) != len(b2) {
+		fmt.Println("Length not equal:", len(b1), len(b2))
 		return false
 	}
 	for i := range b1 {
 		if !bytes.Equal(b1[i].Key, b2[i].Key) {
+			fmt.Println("Keys not equal:", string(b1[i].Key), string(b2[i].Key))
 			return false
 		}
 		oldCardinality := b1[i].Value.Additions.GetCardinality()
 		b1[i].Value.Additions.And(b2[i].Value.Additions)
 		if b1[i].Value.Additions.GetCardinality() != oldCardinality {
+			fmt.Println("Addition not equal:", string(b1[i].Key), oldCardinality, b2[i].Value.Additions.GetCardinality(), b1[i].Value.Additions.GetCardinality())
 			return false
 		}
 
@@ -142,6 +145,7 @@ func compareBuckets(b1 []*roaringset.BinarySearchNode, b2 []*roaringset.BinarySe
 		b1[i].Value.Deletions.And(b2[i].Value.Deletions)
 
 		if b1[i].Value.Deletions.GetCardinality() != oldCardinality {
+			fmt.Println("Deletions not equal:", string(b1[i].Key), oldCardinality, b2[i].Value.Deletions.GetCardinality(), b1[i].Value.Deletions.GetCardinality())
 			return false
 		}
 
@@ -169,6 +173,10 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode, t *testing.T) 
 				if smallestNode == nil || bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) < 0 {
 					smallestNode = metaNodes[i][index]
 					smallestNodeIndex = i
+				} else if smallestNode != nil && bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) == 0 {
+					smallestNode.Value.Additions.Or(metaNodes[i][index].Value.Additions)
+					smallestNode.Value.Deletions.Or(metaNodes[i][index].Value.Deletions)
+					indices[i]++
 				}
 			}
 		}
@@ -181,7 +189,7 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode, t *testing.T) 
 	}
 
 	fmt.Printf("Merged %d nodes into %d nodes", totalSize, mergedNodesIndex)
-	return flat, nil
+	return flat[:mergedNodesIndex], nil
 }
 
 func writeBucket(flat []*roaringset.BinarySearchNode, path string, totalSize int) error {
