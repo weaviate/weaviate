@@ -214,7 +214,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (*Shard, error) {
 	before := time.Now()
-
+	var err error
 	s := &Shard{
 		index:       index,
 		name:        shardName,
@@ -233,6 +233,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer s.metrics.ShardStartup(before)
 
+	_, err = os.Stat(s.path())
+	exists := false
+	if err == nil {
+		exists = true
+	}
+
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
@@ -245,7 +251,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	var err error
 	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
 	if err != nil {
 		return nil, err
@@ -257,6 +262,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 	s.NotifyReady()
 
+	if exists {
+		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(before))
+	} else {
+		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
+	}
 	return s, nil
 }
 

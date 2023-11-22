@@ -88,6 +88,7 @@ func (l *LazyLoadShard) MustLoad() {
 	shard, err := NewShard(context.Background(), l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index, l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
+		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		panic(msg)
 	}
 	l.shard = shard
@@ -109,6 +110,7 @@ func (l *LazyLoadShard) MustLoadCtx(ctx context.Context) {
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index, l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
+		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		panic(msg)
 	}
 	l.shard = shard
@@ -130,6 +132,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index, l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
+		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
 		return errors.New(msg)
 	}
 	l.shard = shard

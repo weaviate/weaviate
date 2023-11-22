@@ -269,19 +269,13 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		}
 
 		shardName := shardName // prevent loop variable capture
-		eg.Go(func() error {
-			shard, err := NewLazyLoadShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
-			if err != nil {
-				return fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
-			}
 
-			index.shards.Store(shardName, shard)
-			return nil
-		})
-	}
+		shard, err := NewLazyLoadShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
+		if err != nil {
+			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
+		}
 
-	if err := eg.Wait(); err != nil {
-		return nil, err
+		index.shards.Store(shardName, shard)
 	}
 
 	index.cycleCallbacks.compactionCycle.Start()
