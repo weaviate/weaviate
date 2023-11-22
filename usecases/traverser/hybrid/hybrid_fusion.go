@@ -80,7 +80,7 @@ func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) 
 //	Input score = [1, 8, 6, 11] => [0, 0.7, 0.5, 1]
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
-func FusionRelativeScore(weights []float64, resultSets [][]*Result) []*Result {
+func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []string) []*Result {
 	if len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
 		return []*Result{}
 	}
@@ -125,7 +125,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result) []*Result {
 			}
 
 			previousResult, ok := mapResults[res.ID]
-			explainScore := res.ExplainScore + fmt.Sprintf(": original score %v, normalized score: %v", res.SecondarySortValue, score)
+			explainScore := fmt.Sprintf("(Result Set '%v') Document %v: original score %v, normalized score: %v",names[i], res.ID, res.SecondarySortValue, score)
 			if ok {
 				score += previousResult.Score
 				explainScore += " - " + previousResult.ExplainScore

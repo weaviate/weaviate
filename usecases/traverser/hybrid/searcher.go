@@ -141,7 +141,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, found, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, found)
+		fused = FusionRelativeScore(weights, found, names)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
