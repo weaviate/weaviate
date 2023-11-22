@@ -469,11 +469,10 @@ func Test_openAIApiErrorDecode(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				var got *openAIApiError
 				err := json.Unmarshal(tt.args.response, &got)
-				if err != nil {
-					t.Fatalf("failed to unmarshal response: %v", err)
-				}
+				require.NoError(t, err)
+
 				if got.Code.String() != tt.want {
-					t.Errorf("vectorizer.getModelString() = %v, want %v", got.Code, tt.want)
+					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
 				}
 			})
 		}
