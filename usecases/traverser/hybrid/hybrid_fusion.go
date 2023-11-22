@@ -18,10 +18,10 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func FusionRanked(weights []float64, results [][]*Result) []*Result {
-	mapResults := map[strfmt.UUID]*Result{}
-	for resultSetIndex, result := range results {
-		for i, res := range result {
+func FusionRanked(weights []float64, resultSets [][]*Result) []*Result {
+	combinedResults := map[strfmt.UUID]*Result{}
+	for resultSetIndex, resultSet := range resultSets {
+		for i, res := range resultSet {
 			tempResult := res
 			docId := tempResult.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
@@ -31,31 +31,31 @@ func FusionRanked(weights []float64, results [][]*Result) []*Result {
 			}
 
 			// Get previous results from the map, if any
-			previousResult, ok := mapResults[docId]
+			previousResult, ok := combinedResults[docId]
 			if ok {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
-					"%v\n(hybrid) Document %v contributed %v to the score",
-					previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
+					"%v\n(Result Set %v) Document %v contributed %v to the score",
+					previousResult.AdditionalProperties["explainScore"], resultSetIndex,tempResult.ID, score)
 				score += float64(previousResult.Score)
 			} else {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
-					"%v\n(hybrid) Document %v contributed %v to the score",
-					tempResult.ExplainScore, tempResult.ID, score)
+					"%v\n(Result Set %v) Document %v contributed %v to the score",
+					tempResult.ExplainScore, resultSetIndex, tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score
 			tempResult.AdditionalProperties["score"] = score
 
 			tempResult.Score = float32(score)
-			mapResults[docId] = tempResult
+			combinedResults[docId] = tempResult
 		}
 	}
 
 	// Sort the results
 	var (
-		concat = make([]*Result, len(mapResults))
+		concat = make([]*Result, len(combinedResults))
 		i      = 0
 	)
-	for _, res := range mapResults {
+	for _, res := range combinedResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
 		concat[i] = res
 		i++
