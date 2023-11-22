@@ -31,24 +31,26 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 	const numClients = 10000
 	numWorkers := runtime.NumCPU()
 
+	operations := generateOperations(numKeys, operationsPerClient, numClients)
+
 	t.Run("single-channel", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel", operations)
 	})
 
 	t.Run("random", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random", operations)
 	})
 
 	t.Run("round-robin", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin", operations)
 	})
 
 	t.Run("hash", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash")
+		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash", operations)
 	})
 }
 
-func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
+func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([][]*roaringset.BinarySearchNode, Times) {
 
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
@@ -63,12 +65,6 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClient
 
 	requestsChannels := make([]chan Request, numChannels)
 	responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
-	operations := generateOperations(numKeys, operationsPerClient, numClients)
-
-	keys := make([][]byte, numKeys)
-	for i := range keys {
-		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
-	}
 
 	for i := 0; i < numChannels; i++ {
 		requestsChannels[i] = make(chan Request)
@@ -108,12 +104,13 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClient
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
 
-	return buckets
+	return buckets, times
 }
 
 func generateOperations(numKeys int, operationsPerClient int, numClients int) [][]*Request {
 	keys := make([][]byte, numKeys)
 	operations := make([][]*Request, numClients)
+	operationsPerKey := make(map[string]int)
 
 	for i := range keys {
 		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
@@ -123,9 +120,11 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 		keyIndex := rand.Intn(len(keys))
 		for j := 0; j < operationsPerClient; j++ {
 			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j)}
+			operationsPerKey[string(keys[keyIndex])]++
 			keyIndex = (keyIndex + 1) % len(keys)
 		}
 	}
+	fmt.Println("Operations:", numClients*operationsPerClient, "Unique key count:", len(operationsPerKey))
 	return operations
 }
 
@@ -148,7 +147,8 @@ func worker(id int, dirName string, requests <-chan Request, response chan<- []*
 	nodes := b.active.roaringSet.FlattenInOrder()
 	response <- nodes
 	close(response)
-	fmt.Println("Worker", id, "size:", b.active.size)
+	fmt.Println("Worker", id, "size:", len(nodes))
+
 }
 
 func hashKey(key []byte, numWorkers int) int {

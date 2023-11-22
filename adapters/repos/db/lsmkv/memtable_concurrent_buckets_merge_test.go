@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"sync"
 	"testing"
 	"time"
 
@@ -24,79 +23,36 @@ func TestMemtableConcurrentMerge(t *testing.T) {
 	const numClients = 10000
 	numWorkers := runtime.NumCPU()
 
-	t.Run("single-channel", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel")
-	})
-
-	t.Run("random", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random")
-	})
-
-	t.Run("round-robin", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin")
-	})
-
-	t.Run("hash", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash")
-	})
-}
-
-func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string) [][]*roaringset.BinarySearchNode {
-
-	var wgClients sync.WaitGroup
-	var wgWorkers sync.WaitGroup
-	requestsChannels := make([]chan Request, numWorkers)
-	responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
-
 	operations := generateOperations(numKeys, operationsPerClient, numClients)
-
 	correctOrder, err := createSimpleBucket(operations, t)
 	require.Nil(t, err)
 
-	times := Times{}
-	startTime := time.Now()
+	t.Run("single-channel", func(t *testing.T) {
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel", operations, correctOrder)
+	})
 
-	// Start worker goroutines
-	wgWorkers.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		dirName := t.TempDir()
-		requestsChannels[i] = make(chan Request)
-		responseChannels[i] = make(chan []*roaringset.BinarySearchNode)
-		go worker(i, dirName, requestsChannels[i], responseChannels[i], &wgWorkers)
-	}
+	t.Run("random", func(t *testing.T) {
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random", operations, correctOrder)
+	})
 
-	times.Setup = int(time.Since(startTime).Milliseconds())
-	startTime = time.Now()
+	t.Run("round-robin", func(t *testing.T) {
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin", operations, correctOrder)
+	})
 
-	// Start client goroutines
-	wgClients.Add(numClients)
-	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, operations[i], requestsChannels, &wgClients, workerAssignment)
-	}
+	t.Run("hash", func(t *testing.T) {
+		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash", operations, correctOrder)
+	})
+}
 
-	wgClients.Wait() // Wait for all clients to finish
-	for _, ch := range requestsChannels {
-		close(ch)
-	}
+func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) [][]*roaringset.BinarySearchNode {
 
-	times.Insert = int(time.Since(startTime).Milliseconds())
-	startTime = time.Now()
-
-	buckets := make([][]*roaringset.BinarySearchNode, numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		bucket := <-responseChannels[i]
-		buckets[i] = bucket
-	}
-
-	wgWorkers.Wait() // Wait for all workers to finish
-
-	times.Copy = int(time.Since(startTime).Milliseconds())
-	startTime = time.Now()
+	buckets, times := RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, workerAssignment, operations)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 
 	//dirName := "multi_thread/segment"
 	dirName := t.TempDir()
+	startTime := time.Now()
 	nodes, err := mergeRoaringSets(buckets, t)
 
 	times.Merge = int(time.Since(startTime).Milliseconds())
@@ -155,7 +111,7 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 
 	times.Flatten = int(time.Since(startTime).Milliseconds())
 
-	fmt.Println("Single bucket:")
+	fmt.Println("Single bucket with node count:", len(nodes))
 	fmt.Println("\tSetup:", times.Setup)
 	fmt.Println("\tInsert:", times.Insert)
 	fmt.Println("\tFlatten:", times.Flatten)
