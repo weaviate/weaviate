@@ -125,7 +125,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 			}
 
 			previousResult, ok := mapResults[res.ID]
-			explainScore := fmt.Sprintf("(Result Set '%v') Document %v: original score %v, normalized score: %v",names[i], res.ID, res.SecondarySortValue, score)
+			explainScore := fmt.Sprintf("(Result Set '%v') Document %v: original score %v, normalized score: %v", names[i], res.ID, res.SecondarySortValue, score)
 			if ok {
 				score += previousResult.Score
 				explainScore += " - " + previousResult.ExplainScore

@@ -216,7 +216,7 @@ func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearch
 	case "nearVector":
 		return nearVectorSubSearch(subsearch, denseSearch)
 	default:
-		return nil,"unknown", 0, fmt.Errorf("unknown hybrid search type %q", subsearch.Type)
+		return nil, "unknown", 0, fmt.Errorf("unknown hybrid search type %q", subsearch.Type)
 	}
 }
 
@@ -226,7 +226,7 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 
 	res, dists, err := sparseSearch()
 	if err != nil {
-		return nil,"", 0, fmt.Errorf("sparse subsearch: %w", err)
+		return nil, "", 0, fmt.Errorf("sparse subsearch: %w", err)
 	}
 
 	out := make([]*Result, len(res))
@@ -235,23 +235,23 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return out, "bm25f", subsearch.Weight,  nil
+	return out, "bm25f", subsearch.Weight, nil
 }
 
-func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result,string, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
 	if modules == nil {
-		return nil,"", 0, nil
+		return nil, "", 0, nil
 	}
 
 	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], modules)
 	if err != nil {
-		return nil,"", 0, err
+		return nil, "", 0, err
 	}
 
 	res, dists, err := denseSearch(vector)
 	if err != nil {
-		return nil,"", 0, err
+		return nil, "", 0, err
 	}
 
 	out := make([]*Result, len(res))
@@ -260,15 +260,15 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return out,"vector,nearText", subsearch.Weight, nil
+	return out, "vector,nearText", subsearch.Weight, nil
 }
 
-func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*Result, string,float64, error) {
+func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearVector)
 
 	res, dists, err := denseSearch(sp.Vector)
 	if err != nil {
-		return nil,"", 0, err
+		return nil, "", 0, err
 	}
 
 	out := make([]*Result, len(res))
@@ -277,7 +277,7 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return out,"vector,nearVector", subsearch.Weight, nil
+	return out, "vector,nearVector", subsearch.Weight, nil
 }
 
 func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {
