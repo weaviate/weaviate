@@ -28,25 +28,25 @@ func TestMemtableConcurrentMerge(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("single-channel", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel", operations, correctOrder)
+		RunMergeExperiment(t, numClients, numWorkers, "single-channel", operations, correctOrder)
 	})
 
 	t.Run("random", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random", operations, correctOrder)
+		RunMergeExperiment(t, numClients, numWorkers, "random", operations, correctOrder)
 	})
 
 	t.Run("round-robin", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin", operations, correctOrder)
+		RunMergeExperiment(t, numClients, numWorkers, "round-robin", operations, correctOrder)
 	})
 
 	t.Run("hash", func(t *testing.T) {
-		RunMergeExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash", operations, correctOrder)
+		RunMergeExperiment(t, numClients, numWorkers, "hash", operations, correctOrder)
 	})
 }
 
-func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) [][]*roaringset.BinarySearchNode {
+func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) [][]*roaringset.BinarySearchNode {
 
-	buckets, times := RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, workerAssignment, operations)
+	buckets, times := RunExperiment(t, numClients, numWorkers, workerAssignment, operations)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 
@@ -59,7 +59,7 @@ func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numC
 	startTime = time.Now()
 
 	require.Nil(t, err)
-	require.Nil(t, writeBucket(nodes, dirName, numKeys))
+	require.Nil(t, writeBucket(nodes, dirName))
 
 	times.Shutdown = int(time.Since(startTime).Milliseconds())
 
@@ -95,11 +95,26 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 	times.Setup = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
 
+	maxOperations := 0
+	for _, op := range operations {
+		if len(op) > maxOperations {
+			maxOperations = len(op)
+		}
+	}
 	// transverse operations in column major order
-	for i := 0; i < len(operations[0]); i++ {
+	for i := 0; i < maxOperations; i++ {
 		for j := 0; j < len(operations); j++ {
-			if err := b.RoaringSetAddOne(operations[j][i].key, operations[j][i].value); err != nil {
-				return nil, err
+			if i >= len(operations[j]) {
+				continue
+			}
+			if operations[j][i].isDeletion {
+				//fmt.Println("Removing", string(operations[j][i].key), operations[j][i].value)
+				err := b.RoaringSetRemoveOne(operations[j][i].key, operations[j][i].value)
+				require.Nil(t, err)
+			} else {
+				//fmt.Println("Adding", string(operations[j][i].key), operations[j][i].value)
+				err := b.RoaringSetAddOne(operations[j][i].key, operations[j][i].value)
+				require.Nil(t, err)
 			}
 		}
 	}
@@ -143,7 +158,6 @@ func compareBuckets(b1 []*roaringset.BinarySearchNode, b2 []*roaringset.BinarySe
 
 		oldCardinality = b1[i].Value.Deletions.GetCardinality()
 		b1[i].Value.Deletions.And(b2[i].Value.Deletions)
-
 		if b1[i].Value.Deletions.GetCardinality() != oldCardinality {
 			fmt.Println("Deletions not equal:", string(b1[i].Key), oldCardinality, b2[i].Value.Deletions.GetCardinality(), b1[i].Value.Deletions.GetCardinality())
 			return false
@@ -192,7 +206,8 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode, t *testing.T) 
 	return flat[:mergedNodesIndex], nil
 }
 
-func writeBucket(flat []*roaringset.BinarySearchNode, path string, totalSize int) error {
+func writeBucket(flat []*roaringset.BinarySearchNode, path string) error {
+	totalSize := len(flat)
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),

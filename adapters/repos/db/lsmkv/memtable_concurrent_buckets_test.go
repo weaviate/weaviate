@@ -35,23 +35,23 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 	operations := generateOperations(numKeys, operationsPerClient, numClients)
 
 	t.Run("single-channel", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "single-channel", operations)
+		RunExperiment(t, numClients, numWorkers, "single-channel", operations)
 	})
 
 	t.Run("random", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "random", operations)
+		RunExperiment(t, numClients, numWorkers, "random", operations)
 	})
 
 	t.Run("round-robin", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "round-robin", operations)
+		RunExperiment(t, numClients, numWorkers, "round-robin", operations)
 	})
 
 	t.Run("hash", func(t *testing.T) {
-		RunExperiment(t, numKeys, operationsPerClient, numClients, numWorkers, "hash", operations)
+		RunExperiment(t, numClients, numWorkers, "hash", operations)
 	})
 }
 
-func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([][]*roaringset.BinarySearchNode, Times) {
+func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([][]*roaringset.BinarySearchNode, Times) {
 
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
@@ -141,9 +141,11 @@ func worker(id int, dirName string, requests <-chan Request, response chan<- []*
 
 	for req := range requests {
 		if req.isDeletion {
+			//fmt.Println(id, "Removing", string(req.key), req.value)
 			err := b.RoaringSetRemoveOne(req.key, req.value)
 			req.ResponseCh <- Response{Error: err}
 		} else {
+			//fmt.Println(id, "Adding", string(req.key), req.value)
 			err := b.RoaringSetAddOne(req.key, req.value)
 			req.ResponseCh <- Response{Error: err}
 		}
@@ -184,7 +186,7 @@ func client(i int, numWorkers int, threadOperations []*Request, requests []chan 
 			panic("invalid worker assignment")
 		}
 
-		operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, ResponseCh: responseCh}
+		operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, isDeletion: threadOperations[j].isDeletion, ResponseCh: responseCh}
 		requests[workerID] <- operationWithChannel
 
 		err := <-responseCh
