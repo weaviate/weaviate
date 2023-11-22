@@ -62,11 +62,12 @@ func (e *openAIApiError) UnmarshalJSON(b []byte) error {
 		Param   string      `json:"param"`
 		Code    json.Number `json:"code"`
 	}
-	var err error
+
 	var alias openAIApiErrorAlias
-	if err = json.Unmarshal(b, &alias); err != nil {
+	if err := json.Unmarshal(b, &alias); err != nil {
 		return err
 	}
+	
 	*e = openAIApiError{
 		Message: alias.Message,
 		Type:    alias.Type,
