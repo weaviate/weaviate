@@ -29,11 +29,12 @@ import (
 )
 
 func buildBedrockUrl(service, region, model string) string {
-	if strings.Split(model, ".")[0] == "cohere" {
-		service += "-runtime"
+	serviceName := service
+	if strings.HasPrefix(model, "cohere") {
+		serviceName = fmt.Sprintf("%s-runtime", serviceName)
 	}
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
-	return fmt.Sprintf(urlTemplate, service, region, model)
+	return fmt.Sprintf(urlTemplate, serviceName, region, model)
 }
 
 func buildSagemakerUrl(service, region, endpoint string) string {
@@ -50,12 +51,12 @@ type aws struct {
 	logger              logrus.FieldLogger
 }
 
-func New(awsAccessKey string, awsSecret string, logger logrus.FieldLogger) *aws {
+func New(awsAccessKey string, awsSecret string, timeout time.Duration, logger logrus.FieldLogger) *aws {
 	return &aws{
 		awsAccessKey: awsAccessKey,
 		awsSecret:    awsSecret,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		buildBedrockUrlFn:   buildBedrockUrl,
 		buildSagemakerUrlFn: buildSagemakerUrl,
@@ -207,46 +208,31 @@ func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input [
 	// if resBodyMap has inputTextTokenCount, it's a resonse from an Amazon model
 	// otherwise, it is a response from a Cohere model
 	var resBody bedrockEmbeddingResponse
-	if _, ok := resBodyMap["inputTextTokenCount"]; ok {
-		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return nil, errors.Wrap(err, "unmarshal response body")
-		}
-	} else {
-		// Cohere's response does not give a token count, so we set it to 0
-		resBody.InputTextTokenCount = 0
-
-		embeddingsInterface, _ := resBodyMap["embeddings"].([]interface{})
-		firstEmbeddingInterface, _ := embeddingsInterface[0].([]interface{})
-
-		firstEmbeddingFloat := make([]float32, len(firstEmbeddingInterface))
-		for i, v := range firstEmbeddingInterface {
-			if val, ok := v.(float64); ok {
-				firstEmbeddingFloat[i] = float32(val)
-			} else {
-				return nil, fmt.Errorf("expected the elements of the first 'embeddings' to be float64")
-			}
-		}
-
-		resBody.Embedding = firstEmbeddingFloat
-
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {
 		if resBody.Message != nil {
-			return nil, fmt.Errorf("connection to AWS failed with status: %v error: %s",
+			return nil, fmt.Errorf("connection to AWS Bedrock failed with status: %v error: %s",
 				res.StatusCode, *resBody.Message)
 		}
-		return nil, fmt.Errorf("connection to AWS failed with status: %d", res.StatusCode)
+		return nil, fmt.Errorf("connection to AWS Bedrock failed with status: %d", res.StatusCode)
 	}
 
-	if len(resBody.Embedding) == 0 {
-		return nil, errors.Errorf("empty embeddings response")
+	if len(resBody.Embedding) == 0 && len(resBody.Embeddings) == 0 {
+		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
+	}
+
+	embedding := resBody.Embedding
+	if len(resBody.Embeddings) > 0 {
+		embedding = resBody.Embeddings[0]
 	}
 
 	return &ent.VectorizationResult{
 		Text:       input[0],
-		Dimensions: len(resBody.Embedding),
-		Vector:     resBody.Embedding,
+		Dimensions: len(embedding),
+		Vector:     embedding,
 	}, nil
 }
 
@@ -349,9 +335,10 @@ type sagemakerEmbeddingsRequest struct {
 }
 
 type bedrockEmbeddingResponse struct {
-	InputTextTokenCount int       `json:"InputTextTokenCount,omitempty"`
-	Embedding           []float32 `json:"embedding,omitempty"`
-	Message             *string   `json:"message,omitempty"`
+	InputTextTokenCount int         `json:"InputTextTokenCount,omitempty"`
+	Embedding           []float32   `json:"embedding,omitempty"`
+	Embeddings          [][]float32 `json:"embeddings,omitempty"`
+	Message             *string     `json:"message,omitempty"`
 }
 type sagemakerEmbeddingResponse struct {
 	Embedding          [][]float32 `json:"embedding,omitempty"`

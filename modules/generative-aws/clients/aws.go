@@ -33,7 +33,7 @@ var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildBedrockUrl(service, region, model string) string {
 	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
-	return fmt.Sprintf(urlTemplate, service+"-runtime", region, model)
+	return fmt.Sprintf(urlTemplate, fmt.Sprintf("%s-runtime", service), region, model)
 }
 
 func buildSagemakerUrl(service, region, endpoint string) string {
@@ -50,12 +50,12 @@ type aws struct {
 	logger              logrus.FieldLogger
 }
 
-func New(awsAccessKey string, awsSecretKey string, logger logrus.FieldLogger) *aws {
+func New(awsAccessKey string, awsSecretKey string, timeout time.Duration, logger logrus.FieldLogger) *aws {
 	return &aws{
 		awsAccessKey: awsAccessKey,
 		awsSecretKey: awsSecretKey,
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 		buildBedrockUrlFn:   buildBedrockUrl,
 		buildSagemakerUrlFn: buildSagemakerUrl,
@@ -107,12 +107,6 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 		if v.isAmazonModel(model) {
 			body, err = json.Marshal(bedrockAmazonGenerateRequest{
 				InputText: prompt,
-				//TextGenerationConfig: &textGenerationConfig{
-				//	MaxTokenCount: *settings.MaxTokenCount(),
-				//	StopSequences: settings.StopSequences(),
-				//	Temperature:    *settings.Temperature(),
-				//	TopP:          int(*settings.TopP()),
-				//},
 			})
 		} else if v.isAnthropicModel(model) {
 			var builder strings.Builder
@@ -124,7 +118,7 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 				MaxTokensToSample: *settings.MaxTokenCount(),
 				Temperature:       *settings.Temperature(),
 				TopK:              *settings.TopK(),
-				TopP:              *settings.TopP(),
+				TopP:              settings.TopP(),
 				StopSequences:     settings.StopSequences(),
 				AnthropicVersion:  "bedrock-2023-05-31",
 			})
@@ -133,7 +127,7 @@ func (v *aws) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt 
 				Prompt:        prompt,
 				MaxTokens:     *settings.MaxTokenCount(),
 				Temperature:   *settings.Temperature(),
-				TopP:          *settings.TopP(),
+				TopP:          settings.TopP(),
 				StopSequences: settings.StopSequences(),
 			})
 		} else if v.isCohereModel(model) {
@@ -221,43 +215,35 @@ func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response) (*gener
 	}
 
 	var resBody bedrockGenerateResponse
-
-	// assume this was for amazon model
-	if _, ok := resBodyMap["inputTextTokenCount"]; ok {
-		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return nil, errors.Wrap(err, "unmarshal response body")
-		}
-	} else {
-		// this is for cohere model
-		generationsInterface := resBodyMap["generations"].([]interface{})
-		firstGenerationMap := generationsInterface[0].(map[string]interface{})
-		text := firstGenerationMap["text"].(string)
-		finishReason := firstGenerationMap["finish_reason"].(string)
-		result := Result{
-			OutputText:       text,
-			CompletionReason: finishReason,
-		}
-
-		resBody.Results = []Result{result}
-
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
 	if res.StatusCode != 200 || resBody.Message != nil {
 		if resBody.Message != nil {
-			return nil, fmt.Errorf("connection to AWS failed with status: %v error: %s",
+			return nil, fmt.Errorf("connection to AWS Bedrock failed with status: %v error: %s",
 				res.StatusCode, *resBody.Message)
 		}
-		return nil, fmt.Errorf("connection to AWS failed with status: %d", res.StatusCode)
+		return nil, fmt.Errorf("connection to AWS Bedrock failed with status: %d", res.StatusCode)
 	}
 
-	if len(resBody.Results) > 0 && len(resBody.Results[0].CompletionReason) > 0 {
-		content := resBody.Results[0].OutputText
-		if content != "" {
-			return &generativemodels.GenerateResponse{
-				Result: &content,
-			}, nil
-		}
+	if len(resBody.Results) == 0 && len(resBody.Generations) == 0 {
+		return nil, fmt.Errorf("received empty response from AWS Bedrock")
 	}
+
+	var content string
+	if len(resBody.Results) > 0 && len(resBody.Results[0].CompletionReason) > 0 {
+		content = resBody.Results[0].OutputText
+	} else if len(resBody.Generations) > 0 {
+		content = resBody.Generations[0].Text
+	}
+
+	if content != "" {
+		return &generativemodels.GenerateResponse{
+			Result: &content,
+		}, nil
+	}
+
 	return &generativemodels.GenerateResponse{
 		Result: nil,
 	}, nil
@@ -271,17 +257,16 @@ func (v *aws) parseSagemakerResponse(bodyBytes []byte, res *http.Response) (*gen
 
 	if res.StatusCode != 200 || resBody.Message != nil {
 		if resBody.Message != nil {
-			return nil, fmt.Errorf("connection to AWS failed with status: %v error: %s",
+			return nil, fmt.Errorf("connection to AWS Sagemaker failed with status: %v error: %s",
 				res.StatusCode, *resBody.Message)
 		}
-		return nil, fmt.Errorf("connection to AWS failed with status: %d", res.StatusCode)
+		return nil, fmt.Errorf("connection to AWS Sagemaker failed with status: %d", res.StatusCode)
 	}
 
 	if len(resBody.Generations) == 0 {
-		return nil, errors.Errorf("empty embeddings response")
+		return nil, fmt.Errorf("received empty response from AWS Sagemaker")
 	}
 
-	// todo fix this ID check, just a temp thing
 	if len(resBody.Generations) > 0 && len(resBody.Generations[0].Id) > 0 {
 		content := resBody.Generations[0].Text
 		if content != "" {
@@ -381,7 +366,7 @@ type bedrockAnthropicGenerateRequest struct {
 	MaxTokensToSample int      `json:"max_tokens_to_sample,omitempty"`
 	Temperature       float64  `json:"temperature,omitempty"`
 	TopK              int      `json:"top_k,omitempty"`
-	TopP              float64  `json:"top_p,omitempty"`
+	TopP              *float64 `json:"top_p,omitempty"`
 	StopSequences     []string `json:"stop_sequences,omitempty"`
 	AnthropicVersion  string   `json:"anthropic_version,omitempty"`
 }
@@ -390,7 +375,7 @@ type bedrockAI21GenerateRequest struct {
 	Prompt           string   `json:"prompt,omitempty"`
 	MaxTokens        int      `json:"maxTokens,omitempty"`
 	Temperature      float64  `json:"temperature,omitempty"`
-	TopP             float64  `json:"top_p,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty"`
 	StopSequences    []string `json:"stop_sequences,omitempty"`
 	CountPenalty     penalty  `json:"countPenalty,omitempty"`
 	PresencePenalty  penalty  `json:"presencePenalty,omitempty"`
@@ -419,9 +404,10 @@ type textGenerationConfig struct {
 }
 
 type bedrockGenerateResponse struct {
-	InputTextTokenCount int      `json:"InputTextTokenCount,omitempty"`
-	Results             []Result `json:"results,omitempty"`
-	Message             *string  `json:"message,omitempty"`
+	InputTextTokenCount int                 `json:"InputTextTokenCount,omitempty"`
+	Results             []Result            `json:"results,omitempty"`
+	Generations         []BedrockGeneration `json:"generations,omitempty"`
+	Message             *string             `json:"message,omitempty"`
 }
 
 type sagemakerGenerateResponse struct {
@@ -432,6 +418,12 @@ type sagemakerGenerateResponse struct {
 type Generation struct {
 	Id   string `json:"id,omitempty"`
 	Text string `json:"text,omitempty"`
+}
+
+type BedrockGeneration struct {
+	Id           string `json:"id,omitempty"`
+	Text         string `json:"text,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 type Result struct {

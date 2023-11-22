@@ -37,58 +37,32 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
 					"region":  "us-east-1",
-					"model":   "amazon.titan-e1t-medium",
+					"model":   "amazon.titan-embed-text-v1",
 				},
 			},
 			wantService: "bedrock",
 			wantRegion:  "us-east-1",
-			wantModel:   "amazon.titan-e1t-medium",
+			wantModel:   "amazon.titan-embed-text-v1",
 			wantErr:     nil,
-		},
-		{
-			name: "happy flow - Sagemaker",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"service":       "bedrock",
-					"region":        "us-east-1",
-					"endpoint":      "some-endpoint-with-model",
-					"targetModel":   "targetModel",
-					"targetVariant": "targetVariant",
-				},
-			},
-			wantService:       "bedrock",
-			wantRegion:        "us-east-1",
-			wantEndpoint:      "some-endpoint-with-model",
-			wantTargetModel:   "targetModel",
-			wantTargetVariant: "targetVariant",
-			wantErr:           nil,
 		},
 		{
 			name: "empty service",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"region": "us-east-1",
-					"model":  "amazon.titan-e1t-medium",
+					"model":  "amazon.titan-embed-text-v1",
 				},
 			},
-			wantErr: errors.Errorf("wrong service, available services are: [bedrock sagemaker]"),
+			wantService: "bedrock",
+			wantRegion:  "us-east-1",
+			wantModel:   "amazon.titan-embed-text-v1",
 		},
 		{
 			name: "empty region - Bedrock",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"service": "bedrock",
-					"model":   "amazon.titan-e1t-medium",
-				},
-			},
-			wantErr: errors.Errorf("region cannot be empty"),
-		},
-		{
-			name: "empty region - Sagemaker",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"service":  "sagemaker",
-					"endpoint": "some-endpoint-with-model",
+					"model":   "amazon.titan-embed-text-v1",
 				},
 			},
 			wantErr: errors.Errorf("region cannot be empty"),
@@ -102,18 +76,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-e1t-medium amazon.titan-embed-g1-text-02 cohere.embed-english-v3 cohere.embed-multilingual-v3]"),
-		},
-		{
-			name: "wrong endpoint",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"service": "sagemaker",
-					"region":  "us-west-1",
-					"model":   "",
-				},
-			},
-			wantErr: errors.Errorf("endpoint cannot be empty"),
+			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-embed-text-v1 cohere.embed-english-v3 cohere.embed-multilingual-v3]"),
 		},
 		{
 			name: "all wrong",
@@ -124,7 +87,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "",
 				},
 			},
-			wantErr: errors.Errorf("wrong service, available services are: [bedrock sagemaker], " +
+			wantErr: errors.Errorf("wrong service, available services are: [bedrock], " +
 				"region cannot be empty"),
 		},
 	}

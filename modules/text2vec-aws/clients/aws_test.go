@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -281,7 +282,7 @@ func TestVectorize(t *testing.T) {
 		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_AMAZON")
 		awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_AMAZON")
 
-		aws := New(awsAccessKeyID, awsSecretAccessKey, nil)
+		aws := New(awsAccessKeyID, awsSecretAccessKey, 60*time.Second, nil)
 
 		_, err := aws.Vectorize(ctx, input, config)
 		if err != nil {
@@ -300,7 +301,7 @@ func TestVectorize(t *testing.T) {
 		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_COHERE")
 		awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_COHERE")
 
-		aws := New(awsAccessKeyID, awsSecretAccessKey, nil)
+		aws := New(awsAccessKeyID, awsSecretAccessKey, 60*time.Second, nil)
 
 		_, err := aws.Vectorize(ctx, input, config)
 		if err != nil {
