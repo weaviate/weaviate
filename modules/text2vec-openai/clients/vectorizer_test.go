@@ -432,3 +432,50 @@ func Test_getModelString(t *testing.T) {
 		}
 	})
 }
+
+func Test_openAIApiErrorDecode(t *testing.T) {
+	t.Run("getModelStringQuery", func(t *testing.T) {
+		type args struct {
+			response []byte
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Error code: missing property",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
+				},
+				want: "",
+			},
+			{
+				name: "Error code: as int",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
+				},
+				want: "500",
+			},
+			{
+				name: "Error code as string",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
+				},
+				want: "500",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var got *openAIApiError
+				err := json.Unmarshal(tt.args.response, &got)
+				if err != nil {
+					t.Fatalf("failed to unmarshal response: %v", err)
+				}
+				if got.Code.String() != tt.want {
+					t.Errorf("vectorizer.getModelString() = %v, want %v", got.Code, tt.want)
+				}
+			})
+		}
+	})
+}
