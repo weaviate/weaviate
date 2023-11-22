@@ -20,7 +20,6 @@ import (
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
@@ -30,23 +29,10 @@ import (
 const maxMsgSize = 104858000 // 10mb, needs to be synchronized with clients
 
 func CreateGRPCServer(state *state.State) *GRPCServer {
-	o := []grpc.ServerOption{
+	s := grpc.NewServer(
 		grpc.MaxRecvMsgSize(maxMsgSize),
 		grpc.MaxSendMsgSize(maxMsgSize),
-	}
-
-	// Add TLS creds for the GRPC connection, if defined.
-	if len(state.ServerConfig.Config.GRPC.CertFile) > 0 || len(state.ServerConfig.Config.GRPC.KeyFile) > 0 {
-		c, err := credentials.NewServerTLSFromFile(state.ServerConfig.Config.GRPC.CertFile,
-			state.ServerConfig.Config.GRPC.KeyFile)
-		if err != nil {
-			state.Logger.WithField("action", "grpc_startup").
-				Fatalf("grpc server TLS credential error: %s", err)
-		}
-		o = append(o, grpc.Creds(c))
-	}
-
-	s := grpc.NewServer(o...)
+	)
 	weaviateV0 := v0.NewService()
 	weaviateV1 := v1.NewService(
 		state.Traverser,
