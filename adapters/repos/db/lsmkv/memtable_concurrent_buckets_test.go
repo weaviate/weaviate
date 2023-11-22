@@ -18,6 +18,7 @@ import (
 type Request struct {
 	key        []byte
 	value      uint64
+	isDeletion bool
 	ResponseCh chan Response
 }
 
@@ -119,7 +120,7 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 		operations[i] = make([]*Request, operationsPerClient)
 		keyIndex := rand.Intn(len(keys))
 		for j := 0; j < operationsPerClient; j++ {
-			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j)}
+			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j), isDeletion: rand.Intn(2) == 0}
 			operationsPerKey[string(keys[keyIndex])]++
 			keyIndex = (keyIndex + 1) % len(keys)
 		}
@@ -139,8 +140,13 @@ func worker(id int, dirName string, requests <-chan Request, response chan<- []*
 		WithStrategy(StrategyRoaringSet))
 
 	for req := range requests {
-		err := b.RoaringSetAddOne(req.key, req.value)
-		req.ResponseCh <- Response{Error: err}
+		if req.isDeletion {
+			err := b.RoaringSetRemoveOne(req.key, req.value)
+			req.ResponseCh <- Response{Error: err}
+		} else {
+			err := b.RoaringSetAddOne(req.key, req.value)
+			req.ResponseCh <- Response{Error: err}
+		}
 
 	}
 	// Grab the nodes and send them back for further merging
