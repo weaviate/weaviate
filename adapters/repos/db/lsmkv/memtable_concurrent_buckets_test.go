@@ -25,7 +25,7 @@ type Response struct {
 	Error error
 }
 
-func TestMemtableConcurrent(t *testing.T) {
+func TestMemtableConcurrentInsert(t *testing.T) {
 	const numKeys = 1000000
 	const operationsPerClient = 1000
 	const numClients = 10000
@@ -63,6 +63,7 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClient
 
 	requestsChannels := make([]chan Request, numChannels)
 	responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
+	operations := generateOperations(numKeys, operationsPerClient, numClients)
 
 	keys := make([][]byte, numKeys)
 	for i := range keys {
@@ -87,7 +88,7 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClient
 	// Start client goroutines
 	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, keys, operationsPerClient, requestsChannels, &wgClients, workerAssignment, nil)
+		go client(i, numWorkers, operations[i], requestsChannels, &wgClients, workerAssignment)
 	}
 
 	wgClients.Wait() // Wait for all clients to finish
@@ -108,6 +109,24 @@ func RunExperiment(t *testing.T, numKeys int, operationsPerClient int, numClient
 	fmt.Println("Insert:", times.Insert)
 
 	return buckets
+}
+
+func generateOperations(numKeys int, operationsPerClient int, numClients int) [][]*Request {
+	keys := make([][]byte, numKeys)
+	operations := make([][]*Request, numClients)
+
+	for i := range keys {
+		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
+	}
+	for i := 0; i < numClients; i++ {
+		operations[i] = make([]*Request, operationsPerClient)
+		keyIndex := rand.Intn(len(keys))
+		for j := 0; j < operationsPerClient; j++ {
+			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j)}
+			keyIndex = (keyIndex + 1) % len(keys)
+		}
+	}
+	return operations
 }
 
 // Worker goroutine: adds to the RoaringSet
@@ -139,15 +158,12 @@ func hashKey(key []byte, numWorkers int) int {
 	return int(hasher.Sum32()) % numWorkers
 }
 
-func client(i int, numWorkers int, keys [][]byte, operationsPerClient int, requests []chan Request, wg *sync.WaitGroup, workerAssignment string, threadOperations []*Request) {
+func client(i int, numWorkers int, threadOperations []*Request, requests []chan Request, wg *sync.WaitGroup, workerAssignment string) {
 	defer wg.Done()
-	keyIndex := 0
-	if keys != nil {
-		keyIndex = rand.Intn(len(keys))
-	}
+
 	responseCh := make(chan Response)
 
-	for j := 0; j < operationsPerClient; j++ {
+	for j := 0; j < len(threadOperations); j++ {
 
 		workerID := 0
 		if workerAssignment == "single-channel" {
@@ -157,29 +173,18 @@ func client(i int, numWorkers int, keys [][]byte, operationsPerClient int, reque
 		} else if workerAssignment == "round-robin" {
 			workerID = i % numWorkers
 		} else if workerAssignment == "hash" {
-			if keys == nil {
-				workerID = hashKey(threadOperations[j].key, numWorkers)
-			} else {
-				workerID = hashKey(keys[keyIndex], numWorkers)
-			}
+			workerID = hashKey(threadOperations[j].key, numWorkers)
 		} else {
 			panic("invalid worker assignment")
 		}
 
-		if threadOperations != nil {
-			operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, ResponseCh: responseCh}
-			requests[workerID] <- operationWithChannel
-		} else {
-			requests[workerID] <- Request{key: keys[keyIndex], value: uint64(i*numWorkers + j), ResponseCh: responseCh}
-		}
+		operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, ResponseCh: responseCh}
+		requests[workerID] <- operationWithChannel
 
 		err := <-responseCh
 
 		if err.Error != nil {
 			fmt.Printf("err: %v", err)
-		}
-		if keys != nil {
-			keyIndex = (keyIndex + 1) % len(keys)
 		}
 	}
 }

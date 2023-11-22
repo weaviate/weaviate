@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"runtime"
 	"sync"
@@ -72,7 +71,7 @@ func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numC
 	// Start client goroutines
 	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, nil, operationsPerClient, requestsChannels, &wgClients, workerAssignment, operations[i])
+		go client(i, numWorkers, operations[i], requestsChannels, &wgClients, workerAssignment)
 	}
 
 	wgClients.Wait() // Wait for all clients to finish
@@ -123,24 +122,6 @@ func RunMergeExperiment(t *testing.T, numKeys int, operationsPerClient int, numC
 	fmt.Println("\tCompare buckets:", int(time.Since(compareTime).Milliseconds()))
 
 	return buckets
-}
-
-func generateOperations(numKeys int, operationsPerClient int, numClients int) [][]*Request {
-	keys := make([][]byte, numKeys)
-	operations := make([][]*Request, numClients)
-
-	for i := range keys {
-		keys[i] = []byte(fmt.Sprintf("key-%04d", i))
-	}
-	for i := 0; i < numClients; i++ {
-		operations[i] = make([]*Request, operationsPerClient)
-		keyIndex := rand.Intn(len(keys))
-		for j := 0; j < operationsPerClient; j++ {
-			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j)}
-			keyIndex = (keyIndex + 1) % len(keys)
-		}
-	}
-	return operations
 }
 
 func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.BinarySearchNode, error) {
