@@ -82,6 +82,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	var (
 		found   [][]*Result
 		weights []float64
+		names   []string
 	)
 
 	if params.Query != "" {
@@ -95,6 +96,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 			found = append(found, res)
 			weights = append(weights, 1-alpha)
+			names = append(names, "keyword")
 		}
 
 		if alpha > 0 {
@@ -105,6 +107,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 			found = append(found, res)
 			weights = append(weights, alpha)
+			names = append(names, "vector")
 		}
 	} else {
 		ss := params.SubSearches
@@ -127,6 +130,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 			found = append(found, res)
 			weights = append(weights, weight)
+			names = append(names, subsearch.Type)
 		}
 	}
 	if len(weights) != len(found) {
@@ -135,7 +139,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 	var fused []*Result
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
-		fused = FusionRanked(weights, found)
+		fused = FusionRanked(weights, found, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
 		fused = FusionRelativeScore(weights, found)
 	} else {
@@ -254,8 +258,6 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		sr.ExplainScore = fmt.Sprintf("(vector) %v %v ",
-			truncateVectorString(10, vector), res[i].ExplainScore())
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
@@ -273,8 +275,6 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		sr.ExplainScore = fmt.Sprintf("(vector) %v %v ",
-			truncateVectorString(10, sp.Vector), res[i].ExplainScore())
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
