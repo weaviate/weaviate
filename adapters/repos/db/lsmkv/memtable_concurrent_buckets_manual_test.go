@@ -11,15 +11,18 @@ func TestMemtableConcurrentMergeManual(t *testing.T) {
 
 	numWorkers := runtime.NumCPU()
 
+	BRoaringSetRemoveOne := func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetRemoveOne(key, value) }
+	BRoaringSetAddOne := func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetAddOne(key, value) }
+
 	operations := [][]*Request{
-		{{key: []byte("a"), value: 1, isDeletion: false}, {key: []byte("a"), value: 1, isDeletion: false}},
-		{{key: []byte("a"), value: 1, isDeletion: true}},
-		{{key: []byte("a"), value: 1, isDeletion: true}},
-		{{key: []byte("a"), value: 1, isDeletion: true}},
-		{{key: []byte("a"), value: 1, isDeletion: true}},
-		{{key: []byte("a"), value: 1, isDeletion: true}},
-		{{key: []byte("a"), value: 1, isDeletion: true}},
-		{{key: []byte("a"), value: 1, isDeletion: false}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetRemoveOne}, {key: []byte("a"), value: 1, operation: BRoaringSetRemoveOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
+		{{key: []byte("a"), value: 1, operation: BRoaringSetRemoveOne}},
 	}
 	numClients := len(operations)
 

@@ -107,15 +107,8 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 			if i >= len(operations[j]) {
 				continue
 			}
-			if operations[j][i].isDeletion {
-				//fmt.Println("Removing", string(operations[j][i].key), operations[j][i].value)
-				err := b.RoaringSetRemoveOne(operations[j][i].key, operations[j][i].value)
-				require.Nil(t, err)
-			} else {
-				//fmt.Println("Adding", string(operations[j][i].key), operations[j][i].value)
-				err := b.RoaringSetAddOne(operations[j][i].key, operations[j][i].value)
-				require.Nil(t, err)
-			}
+			err := operations[j][i].operation(b, operations[j][i].key, operations[j][i].value)
+			require.Nil(t, err)
 		}
 	}
 

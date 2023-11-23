@@ -15,10 +15,12 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+type bucketFunc func(*Bucket, []byte, uint64) error
+
 type Request struct {
 	key        []byte
 	value      uint64
-	isDeletion bool
+	operation  bucketFunc
 	ResponseCh chan Response
 }
 
@@ -120,7 +122,14 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 		operations[i] = make([]*Request, operationsPerClient)
 		keyIndex := rand.Intn(len(keys))
 		for j := 0; j < operationsPerClient; j++ {
-			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j), isDeletion: rand.Intn(2) == 0}
+			var funct bucketFunc
+
+			if rand.Intn(2) == 0 {
+				funct = func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetRemoveOne(key, value) }
+			} else {
+				funct = func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetRemoveOne(key, value) }
+			}
+			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j), operation: funct}
 			operationsPerKey[string(keys[keyIndex])]++
 			keyIndex = (keyIndex + 1) % len(keys)
 		}
@@ -140,15 +149,8 @@ func worker(id int, dirName string, requests <-chan Request, response chan<- []*
 		WithStrategy(StrategyRoaringSet))
 
 	for req := range requests {
-		if req.isDeletion {
-			//fmt.Println(id, "Removing", string(req.key), req.value)
-			err := b.RoaringSetRemoveOne(req.key, req.value)
-			req.ResponseCh <- Response{Error: err}
-		} else {
-			//fmt.Println(id, "Adding", string(req.key), req.value)
-			err := b.RoaringSetAddOne(req.key, req.value)
-			req.ResponseCh <- Response{Error: err}
-		}
+		err := req.operation(b, req.key, req.value)
+		req.ResponseCh <- Response{Error: err}
 
 	}
 	// Grab the nodes and send them back for further merging
@@ -186,7 +188,7 @@ func client(i int, numWorkers int, threadOperations []*Request, requests []chan 
 			panic("invalid worker assignment")
 		}
 
-		operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, isDeletion: threadOperations[j].isDeletion, ResponseCh: responseCh}
+		operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, operation: threadOperations[j].operation, ResponseCh: responseCh}
 		requests[workerID] <- operationWithChannel
 
 		err := <-responseCh
