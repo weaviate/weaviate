@@ -40,6 +40,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+var EnableLazyLoadShards = false
+
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
 	shard     *Shard
@@ -50,19 +52,23 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*LazyLoadShard, error) {
-	l := &LazyLoadShard{
-		shardOpts: &deferredShardOpts{
-			promMetrics: promMetrics,
+) (ShardLike, error) {
+	if EnableLazyLoadShards {
+		l := &LazyLoadShard{
+			shardOpts: &deferredShardOpts{
+				promMetrics: promMetrics,
 
-			name:             shardName,
-			index:            index,
-			class:            class,
-			jobQueueCh:       jobQueueCh,
-			indexCheckpoints: indexCheckpoints,
-		},
+				name:             shardName,
+				index:            index,
+				class:            class,
+				jobQueueCh:       jobQueueCh,
+				indexCheckpoints: indexCheckpoints,
+			},
+		}
+		return l, nil
+	} else {
+		return NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
 	}
-	return l, nil
 }
 
 type deferredShardOpts struct {
@@ -75,7 +81,7 @@ type deferredShardOpts struct {
 }
 
 func (l *LazyLoadShard) MustLoad() {
-		/* Sigh
+	/* Sigh
 	if l.loaded {
 		return nil
 	}
@@ -97,7 +103,7 @@ func (l *LazyLoadShard) MustLoad() {
 }
 
 func (l *LazyLoadShard) MustLoadCtx(ctx context.Context) {
-		/* Sigh
+	/* Sigh
 	if l.loaded {
 		return nil
 	}
@@ -369,6 +375,12 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
+		return nil
+	}
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
