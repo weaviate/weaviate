@@ -248,10 +248,11 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewLazyLoadShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh, nil)
+	shd_i, err := NewLazyLoadShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh, nil)
 	if err != nil {
 		panic(err)
 	}
+	shd := shd_i.(*LazyLoadShard)
 
 	idx.shards.Store(shardName, shd)
 
