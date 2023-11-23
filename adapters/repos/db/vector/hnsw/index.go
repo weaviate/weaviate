@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -160,7 +161,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       VectorForID
-	shardedNodeLocks       shardedNodeLocks
+	shardedNodeLocks       *vector.ShardedLocks
 }
 
 type CommitLogger interface {
@@ -269,7 +270,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     newShardedNodeLocks(),
+		shardedNodeLocks:     vector.NewDefaultShardedLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
