@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -53,6 +54,10 @@ func FromEnv(config *Config) error {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
+	}
+
+	if enabled(os.Getenv("NO_LAZY_SHARD_LOADER")) {
+		db.EnableLazyLoadShards = false
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
