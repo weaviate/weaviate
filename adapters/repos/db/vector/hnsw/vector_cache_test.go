@@ -12,6 +12,9 @@
 package hnsw
 
 import (
+	"context"
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +42,33 @@ func TestVectorCacheGrowth(t *testing.T) {
 	size2ndGrow := vectorCache.len()
 	assert.Equal(t, size1stGrow, size2ndGrow)
 	assert.Equal(t, expectedCount, vectorCache.countVectors())
+}
+
+func TestCache_ParallelGrowth(t *testing.T) {
+	// no asserts
+	// ensures there is no "index out of range" panic on get
+
+	logger, _ := test.NewNullLogger()
+	var vecForId VectorForID = func(context.Context, uint64) ([]float32, error) { return nil, nil }
+	vectorCache := newShardedLockCache(vecForId, 1_000_000, logger, false, time.Second)
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	count := 10_000
+	maxNode := 100_000
+
+	wg := new(sync.WaitGroup)
+	wg.Add(count)
+	for i := 0; i < count; i++ {
+		node := uint64(r.Intn(maxNode))
+		go func(node uint64) {
+			defer wg.Done()
+
+			vectorCache.grow(node)
+			vectorCache.get(context.Background(), node)
+		}(node)
+	}
+
+	wg.Wait()
 }
 
 func TestCacheCleanup(t *testing.T) {
@@ -86,8 +116,8 @@ func TestCacheCleanup(t *testing.T) {
 }
 
 func countCached(c *shardedLockCache) int {
-	c.obtainAllLocks()
-	defer c.releaseAllLocks()
+	c.shardedLocks.LockAll()
+	defer c.shardedLocks.UnlockAll()
 
 	count := 0
 	for _, vec := range c.cache {
