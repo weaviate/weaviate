@@ -375,8 +375,7 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+
 
 	if !l.loaded {
 		return nil
