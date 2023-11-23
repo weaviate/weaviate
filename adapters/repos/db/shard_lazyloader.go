@@ -40,7 +40,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var EnableLazyLoadShards = false
+var EnableLazyLoadShards = true
 
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
