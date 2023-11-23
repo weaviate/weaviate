@@ -187,7 +187,7 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode, t *testing.T) 
 				if smallestNode == nil || bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) < 0 {
 					smallestNode = metaNodes[i][index]
 					smallestNodeIndex = i
-				} else if smallestNode != nil && bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) == 0 {
+				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].Key, smallestNode.Key) {
 					smallestNode.Value.Additions.Or(metaNodes[i][index].Value.Additions)
 					smallestNode.Value.Deletions.Or(metaNodes[i][index].Value.Deletions)
 					indices[i]++
