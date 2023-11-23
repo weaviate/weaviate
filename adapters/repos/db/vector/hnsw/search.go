@@ -161,13 +161,13 @@ func (h *hnsw) shouldRescore() bool {
 	return h.compressed.Load() && !h.doNotRescore
 }
 
-func (h *hnsw) searchLayerByVector(queryVector []float32,
+func (h *hnsw) searchLayerByVector(queryVector []float32, compressedQueryVector []byte,
 	entrypoints *priorityqueue.Queue, ef int, level int,
 	allowList helpers.AllowList) (*priorityqueue.Queue, error,
 ) {
 	var byteDistancer *ssdhelpers.PQDistancer
 	if h.compressed.Load() {
-		byteDistancer = h.pq.NewDistancer(queryVector)
+		byteDistancer = h.pq.NewDistancer(queryVector, compressedQueryVector)
 		defer h.pq.ReturnDistancer(byteDistancer)
 	}
 	return h.searchLayerByVectorWithDistancer(queryVector, entrypoints, ef, level, allowList, byteDistancer)
@@ -184,8 +184,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
-	if h.compressed.Load() {
-		byteDistancer = h.pq.NewDistancer(queryVector)
+	if h.compressed.Load() && byteDistancer == nil {
+		byteDistancer = h.pq.NewDistancer(queryVector, nil)
 		defer h.pq.ReturnDistancer(byteDistancer)
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
@@ -510,8 +510,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	var byteDistancer *ssdhelpers.PQDistancer
 	if h.compressed.Load() {
-		byteDistancer = h.pq.NewDistancer(searchVec)
-		defer h.pq.ReturnDistancer(byteDistancer)
+		byteDistancer = h.pq.NewDistancer(searchVec, nil)
 	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {

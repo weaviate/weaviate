@@ -41,18 +41,23 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
-func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+func (h *hnsw) addBatch(ctx context.Context, ids []uint64, vectors [][]float32, compressedVectors [][]byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(ids) != len(vectors) {
+	compressed := len(compressedVectors) != 0
+	if (!compressed && len(ids) != len(vectors)) || (compressed && len(ids) != len(compressedVectors)) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		if compressed {
+			atomic.StoreInt32(&h.dims, int32(len(compressedVectors[0])))
+		} else {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		}
 	})
 	levels := make([]int, len(ids))
 	maxId := uint64(0)
@@ -84,25 +89,31 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			return err
 		}
 
-		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
 			level: levels[i],
 		}
 		globalBefore := time.Now()
-		if len(vector) == 0 {
+		var vector []float32
+		var compressedVector []byte
+		if compressed {
+			compressedVector = compressedVectors[i]
+		} else {
+			vector = vectors[i]
+		}
+		if (compressed && len(compressedVector) == 0) || (!compressed && len(vector) == 0) {
 			return errors.Errorf("insert called with nil-vector")
 		}
 
 		h.metrics.InsertVector()
 
-		if h.distancerProvider.Type() == "cosine-dot" {
+		if !compressed && h.distancerProvider.Type() == "cosine-dot" {
 			// cosine-dot requires normalized vectors, as the dot product and cosine
 			// similarity are only identical if the vector is normalized
 			vector = distancer.Normalize(vector)
 		}
 
-		err := h.addOne(vector, node)
+		err := h.addOne(vector, compressedVector, node)
 		if err != nil {
 			return err
 		}
@@ -112,7 +123,11 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
-func (h *hnsw) addOne(vector []float32, node *vertex) error {
+func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	return h.addBatch(ctx, ids, vectors, nil)
+}
+
+func (h *hnsw) addOne(vector []float32, compressedVector []byte, node *vertex) error {
 	h.compressActionLock.RLock()
 	h.deleteVsInsertLock.RLock()
 
@@ -173,9 +188,11 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	h.shardedNodeLocks.Unlock(nodeId)
 
 	if h.compressed.Load() {
-		compressed := h.pq.Encode(vector)
-		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.Preload(node.id, compressed)
+		if compressedVector == nil {
+			compressedVector = h.pq.Encode(vector)
+		}
+		h.storeCompressedVector(node.id, compressedVector)
+		h.compressedVectorsCache.Preload(node.id, compressedVector)
 	} else {
 		h.cache.Preload(node.id, vector)
 	}
@@ -185,7 +202,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 
 	var err error
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
-		entryPointID, vector)
+		entryPointID, vector, compressedVector)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
 	}
@@ -194,7 +211,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(node, entryPointID, vector,
+	if err := h.findAndConnectNeighbors(node, entryPointID, vector, compressedVector,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
@@ -270,13 +287,16 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 }
 
 func (h *hnsw) CompressVector(vector []float32) []byte {
+	if h.compressed.Load() {
+		return h.pq.Encode(vector)
+	}
 	return nil
 }
 
 func (h *hnsw) AddCompressed(id uint64, vector []byte) error {
-	return nil
+	return h.AddCompressedBatch(context.TODO(), []uint64{id}, [][]byte{vector})
 }
 
-func (h *hnsw) AddCompressedBatch(ctx context.Context, id []uint64, vector [][]byte) error {
-	return nil
+func (h *hnsw) AddCompressedBatch(ctx context.Context, ids []uint64, vectors [][]byte) error {
+	return h.addBatch(ctx, ids, nil, vectors)
 }

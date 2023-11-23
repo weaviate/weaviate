@@ -312,24 +312,38 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []
 
 type PQDistancer struct {
 	x   []float32
+	a   []byte
 	pq  *ProductQuantizer
 	lut *DistanceLookUpTable
 }
 
-func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
-	lut := pq.CenterAt(a)
+func (pq *ProductQuantizer) NewDistancer(x []float32, a []byte) *PQDistancer {
+	if a == nil {
+		lut := pq.CenterAt(x)
+		return &PQDistancer{
+			x:   x,
+			pq:  pq,
+			lut: lut,
+		}
+	}
 	return &PQDistancer{
-		x:   a,
-		pq:  pq,
-		lut: lut,
+		x:  x,
+		a:  a,
+		pq: pq,
 	}
 }
 
 func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
+	if d.lut == nil {
+		return
+	}
 	pq.dlutPool.Return(d.lut)
 }
 
 func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
+	if d.lut == nil {
+		return d.pq.DistanceBetweenCompressedVectors(x, d.a), true, nil
+	}
 	return d.pq.Distance(x, d.lut), true, nil
 }
 

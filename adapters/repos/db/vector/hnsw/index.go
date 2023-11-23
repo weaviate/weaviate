@@ -390,13 +390,21 @@ func New(cfg Config, uc ent.UserConfig,
 // }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32,
+	entryPointID uint64, nodeVec []float32, compressedNodeVec []byte,
 ) (uint64, error) {
+	compressed := h.compressed.Load()
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
 		eps := priorityqueue.NewMin(1)
-		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		var dist float32
+		var ok bool
+		var err error
+		if compressed {
+			dist, ok, err = h.distBetweenNodeAndCompressedVec(entryPointID, compressedNodeVec)
+		} else {
+			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		}
 		if err != nil {
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
@@ -406,7 +414,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
+		res, err := h.searchLayerByVector(nodeVec, compressedNodeVec, eps, 1, level, nil)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
@@ -508,6 +516,26 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 	}
 
 	return h.distancerProvider.SingleDist(vecA, vecB)
+}
+
+func (h *hnsw) distBetweenNodeAndCompressedVec(node uint64, vecB []byte) (float32, bool, error) {
+	v1, err := h.compressedVectorsCache.Get(context.Background(), node)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", node)
+		}
+	}
+	if len(v1) == 0 {
+		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", node)
+	}
+
+	return h.pq.DistanceBetweenCompressedVectors(vecB, v1), true, nil
 }
 
 func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {

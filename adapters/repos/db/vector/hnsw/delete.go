@@ -321,12 +321,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 
 	var neighborVec []float32
+	var compressedNeighborVec []byte
 	if h.compressed.Load() {
-		var vec []byte
-		vec, err = h.compressedVectorsCache.Get(context.Background(), neighbor)
-		if err == nil {
-			neighborVec = h.pq.Decode(vec)
-		}
+		compressedNeighborVec, err = h.compressedVectorsCache.Get(context.Background(), neighbor)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
@@ -351,7 +348,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	neighborNode.Unlock()
 
 	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
-		neighborLevel, currentEntrypoint, neighborVec)
+		neighborLevel, currentEntrypoint, neighborVec, compressedNeighborVec)
 	if err != nil {
 		return false, errors.Wrap(err, "find best entrypoint")
 	}
@@ -400,7 +397,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return false, err
 	}
 
-	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
+	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressedNeighborVec,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
