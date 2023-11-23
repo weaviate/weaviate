@@ -13,6 +13,7 @@ package test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -249,5 +250,73 @@ func Test_NodesAPI(t *testing.T) {
 
 		require.NotNil(t, nodeStatus.Stats)
 		assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
+	})
+
+	t.Run("validate compression status", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		objects := make([]*models.Object, 256)
+
+		for i := 0; i < 256; i++ {
+			objects[i] = &models.Object{
+				Class:  booksClass.Class,
+				Vector: []float32{float32(i % 32), float32(i), 3.0, 4.0},
+			}
+		}
+
+		_, err := helper.BatchClient(t).BatchObjectsCreate(
+			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+				Objects: objects,
+			},
+			), nil)
+		require.Nil(t, err)
+
+		t.Run("check disabled without pq", func(t *testing.T) {
+			resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := resp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			nodes := nodeStatusResp.Nodes
+			require.NotNil(t, nodes)
+			require.Len(t, nodes, 1)
+
+			nodeStatus := nodes[0]
+			require.NotNil(t, nodeStatus)
+
+			require.False(t, nodeStatus.Shards[0].Compressed)
+		})
+
+		t.Run("check enabled with pq", func(t *testing.T) {
+			class := helper.GetClass(t, booksClass.Class)
+			cfg := class.VectorIndexConfig.(map[string]interface{})
+			cfg["pq"] = map[string]interface{}{
+				"enabled":  true,
+				"segments": 1,
+			}
+			class.VectorIndexConfig = cfg
+			helper.UpdateClass(t, class)
+
+			checkThunk := func() interface{} {
+				resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+				require.Nil(t, err)
+
+				nodeStatusResp := resp.GetPayload()
+				require.NotNil(t, nodeStatusResp)
+
+				nodes := nodeStatusResp.Nodes
+				require.NotNil(t, nodes)
+				require.Len(t, nodes, 1)
+
+				nodeStatus := nodes[0]
+				require.NotNil(t, nodeStatus)
+				return nodeStatus.Shards[0].Compressed
+			}
+
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+		})
 	})
 }

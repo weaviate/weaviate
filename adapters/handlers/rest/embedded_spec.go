@@ -3980,6 +3980,11 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
+          "x-omitempty": true
+        },
         "name": {
           "description": "The name of the shard.",
           "type": "string",
@@ -9141,6 +9146,11 @@ func init() {
           "description": "The name of shard's class.",
           "type": "string",
           "x-omitempty": false
+        },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
+          "x-omitempty": true
         },
         "name": {
           "description": "The name of the shard.",

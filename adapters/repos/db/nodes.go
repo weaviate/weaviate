@@ -147,6 +147,7 @@ func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCou
 			ObjectCount:          objectCount,
 			VectorIndexingStatus: shard.GetStatus().String(),
 			VectorQueueLength:    shard.Queue().Size(),
+			Compressed:           shard.Queue().Index.Compressed(),
 		}
 		totalCount += objectCount
 		*status = append(*status, shardStatus)
