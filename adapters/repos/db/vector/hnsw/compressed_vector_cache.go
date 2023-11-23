@@ -19,10 +19,11 @@ import (
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector"
 )
 
 type compressedShardedLockCache struct {
-	shardedLocks        []sync.RWMutex
+	shardedLocks        *vector.ShardedLocks
 	cache               [][]byte
 	maxSize             int64
 	count               int64
@@ -34,7 +35,7 @@ type compressedShardedLockCache struct {
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
-	maintenanceLock sync.Mutex
+	maintenanceLock sync.RWMutex
 }
 
 func newCompressedShardedLockCache(vecForID CompressedVectorForID, maxSize int, logger logrus.FieldLogger) *compressedShardedLockCache {
@@ -45,21 +46,18 @@ func newCompressedShardedLockCache(vecForID CompressedVectorForID, maxSize int, 
 		cancel:          make(chan bool),
 		logger:          logger,
 		vectorForID:     vecForID,
-		shardedLocks:    make([]sync.RWMutex, shardFactor),
-		maintenanceLock: sync.Mutex{},
+		shardedLocks:    vector.NewDefaultShardedLocks(),
+		maintenanceLock: sync.RWMutex{},
 	}
 
-	for i := uint64(0); i < shardFactor; i++ {
-		vc.shardedLocks[i] = sync.RWMutex{}
-	}
 	vc.watchForDeletion()
 	return vc
 }
 
 func (c *compressedShardedLockCache) get(ctx context.Context, id uint64) ([]byte, error) {
-	c.shardedLocks[id%shardFactor].RLock()
+	c.shardedLocks.RLock(id)
 	vec := c.cache[id]
-	c.shardedLocks[id%shardFactor].RUnlock()
+	c.shardedLocks.RUnlock(id)
 
 	if vec != nil {
 		return vec, nil
@@ -75,8 +73,8 @@ func (c *compressedShardedLockCache) all() [][]byte {
 
 //nolint:unused
 func (c *compressedShardedLockCache) delete(ctx context.Context, id uint64) {
-	c.shardedLocks[id%shardFactor].Lock()
-	defer c.shardedLocks[id%shardFactor].Unlock()
+	c.shardedLocks.Lock(id)
+	defer c.shardedLocks.Unlock(id)
 
 	if int(id) >= len(c.cache) || c.cache[id] == nil {
 		return
@@ -97,9 +95,9 @@ func (c *compressedShardedLockCache) handleCacheMiss(ctx context.Context, id uin
 		atomic.StoreInt32(&c.dims, int32(len(vec)))
 	})
 
-	c.shardedLocks[id%shardFactor].Lock()
+	c.shardedLocks.Lock(id)
 	c.cache[id] = vec
-	c.shardedLocks[id%shardFactor].Unlock()
+	c.shardedLocks.Unlock(id)
 
 	return vec, nil
 }
@@ -110,9 +108,9 @@ func (c *compressedShardedLockCache) multiGet(ctx context.Context, ids []uint64)
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
-		c.shardedLocks[id%shardFactor].RLock()
+		c.shardedLocks.RLock(id)
 		vec := c.cache[id]
-		c.shardedLocks[id%shardFactor].RUnlock()
+		c.shardedLocks.RUnlock(id)
 
 		if vec == nil {
 			vecFromDisk, err := c.handleCacheMiss(ctx, id)
@@ -128,16 +126,16 @@ func (c *compressedShardedLockCache) multiGet(ctx context.Context, ids []uint64)
 
 //nolint:unused
 func (c *compressedShardedLockCache) prefetch(id uint64) {
-	c.shardedLocks[id%shardFactor].RLock()
-	defer c.shardedLocks[id%shardFactor].RUnlock()
+	c.shardedLocks.RLock(id)
+	defer c.shardedLocks.RUnlock(id)
 
 	prefetchFunc(uintptr(unsafe.Pointer(&c.cache[id])))
 }
 
 //nolint:unused
 func (c *compressedShardedLockCache) preload(id uint64, vec []byte) {
-	c.shardedLocks[id%shardFactor].RLock()
-	defer c.shardedLocks[id%shardFactor].RUnlock()
+	c.shardedLocks.RLock(id)
+	defer c.shardedLocks.RUnlock(id)
 
 	atomic.AddInt64(&c.count, 1)
 	c.trackDimensionsOnce.Do(func() {
@@ -148,15 +146,24 @@ func (c *compressedShardedLockCache) preload(id uint64, vec []byte) {
 }
 
 func (c *compressedShardedLockCache) grow(node uint64) {
+	c.maintenanceLock.RLock()
 	if node < uint64(len(c.cache)) {
+		c.maintenanceLock.RUnlock()
 		return
 	}
+	c.maintenanceLock.RUnlock()
 
 	c.maintenanceLock.Lock()
 	defer c.maintenanceLock.Unlock()
 
-	c.obtainAllLocks()
-	defer c.releaseAllLocks()
+	// make sure cache still needs growing
+	// (it could have grown while waiting for maintenance lock)
+	if node < uint64(len(c.cache)) {
+		return
+	}
+
+	c.shardedLocks.LockAll()
+	defer c.shardedLocks.UnlockAll()
 
 	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]byte, newSize)
@@ -178,10 +185,9 @@ func (c *compressedShardedLockCache) drop() {
 	c.cancel <- true
 }
 
-//nolint:unused
 func (c *compressedShardedLockCache) deleteAllVectors() {
-	c.obtainAllLocks()
-	defer c.releaseAllLocks()
+	c.shardedLocks.LockAll()
+	defer c.shardedLocks.UnlockAll()
 
 	for i := range c.cache {
 		c.cache[i] = nil
@@ -207,36 +213,7 @@ func (c *compressedShardedLockCache) watchForDeletion() {
 
 func (c *compressedShardedLockCache) replaceIfFull() {
 	if atomic.LoadInt64(&c.count) >= atomic.LoadInt64(&c.maxSize) {
-		c.maintenanceLock.Lock()
-		defer c.maintenanceLock.Unlock()
-
-		c.obtainAllLocks()
-		c.logger.WithField("action", "hnsw_delete_vector_cache").
-			Debug("deleting full vector cache")
-		for i := range c.cache {
-			c.cache[i] = nil
-		}
-		c.releaseAllLocks()
-		atomic.StoreInt64(&c.count, 0)
-	}
-}
-
-func (c *compressedShardedLockCache) obtainAllLocks() {
-	wg := &sync.WaitGroup{}
-	for i := uint64(0); i < shardFactor; i++ {
-		wg.Add(1)
-		go func(index uint64) {
-			defer wg.Done()
-			c.shardedLocks[index].Lock()
-		}(i)
-	}
-
-	wg.Wait()
-}
-
-func (c *compressedShardedLockCache) releaseAllLocks() {
-	for i := uint64(0); i < shardFactor; i++ {
-		c.shardedLocks[i].Unlock()
+		c.deleteAllVectors()
 	}
 }
 
