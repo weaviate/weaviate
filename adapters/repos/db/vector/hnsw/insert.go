@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -24,18 +23,17 @@ import (
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
-	if h.isEmpty() {
+	dims := int(atomic.LoadInt32(&h.dims))
+
+	// no vectors exist
+	if dims == 0 {
 		return nil
 	}
-	// check if vector length is the same as existing nodes
-	existingNodeVector, err := h.cache.get(context.Background(), h.entryPointID)
-	if err != nil {
-		return err
-	}
 
-	if len(existingNodeVector) != len(vector) {
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
 		return fmt.Errorf("new node has a vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), len(existingNodeVector))
+			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
 	return nil

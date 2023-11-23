@@ -279,6 +279,10 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressedVectorsCache = newCompressedShardedLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger)
 	}
 
+	if err := index.init(cfg); err != nil {
+		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
 	// TODO common_cycle_manager move to poststartup?
 	id := strings.Join([]string{
 		"hnsw", "tombstone_cleanup",
@@ -286,10 +290,6 @@ func New(cfg Config, uc ent.UserConfig,
 	}, "/")
 	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
-
-	if err := index.init(cfg); err != nil {
-		return nil, errors.Wrapf(err, "init index %q", index.id)
-	}
 
 	return index, nil
 }
