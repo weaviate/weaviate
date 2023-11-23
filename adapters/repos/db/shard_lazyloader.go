@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -34,13 +35,14 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
 )
 
-var EnableLazyLoadShards = true
+
 
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
@@ -53,7 +55,9 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (ShardLike, error) {
-	if EnableLazyLoadShards {
+	if os.Getenv("NO_LAZY_SHARD_LOADER") == "true"  || os.Getenv("NO_LAZY_SHARD_LOADER") == "1" || os.Getenv("NO_LAZY_SHARD_LOADER") == "on" || os.Getenv("NO_LAZY_SHARD_LOADER") == "enabled"{
+		return NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
+		} else {
 		l := &LazyLoadShard{
 			shardOpts: &deferredShardOpts{
 				promMetrics: promMetrics,
@@ -66,8 +70,6 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			},
 		}
 		return l, nil
-	} else {
-		return NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
 	}
 }
 
