@@ -46,10 +46,10 @@ type embeddingData struct {
 }
 
 type openAIApiError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Param   string `json:"param"`
-	Code    string `json:"code"`
+	Message string      `json:"message"`
+	Type    string      `json:"type"`
+	Param   string      `json:"param"`
+	Code    json.Number `json:"code"`
 }
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
