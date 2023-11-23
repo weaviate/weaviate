@@ -638,7 +638,7 @@ func TestIndexQueue(t *testing.T) {
 		require.False(t, q.paused.Load())
 
 		indexed := make(chan struct{})
-		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+		idx.addCompressedBatchFn = func(id []uint64, vector [][]byte) error {
 			close(indexed)
 			return nil
 		}
@@ -736,7 +736,9 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 type mockBatchIndexer struct {
 	sync.Mutex
 	addBatchFn            func(id []uint64, vector [][]float32) error
+	addCompressedBatchFn  func(id []uint64, vector [][]byte) error
 	vectors               map[uint64][]float32
+	compressedVectors     map[uint64][]byte
 	containsNodeFn        func(id uint64) bool
 	deleteFn              func(ids ...uint64) error
 	distancerProvider     distancer.Provider
@@ -761,6 +763,25 @@ func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector []
 
 	for i, id := range ids {
 		m.vectors[id] = vector[i]
+	}
+
+	return
+}
+
+func (m *mockBatchIndexer) AddCompressedBatch(ctx context.Context, ids []uint64, vector [][]byte) (err error) {
+	m.Lock()
+	defer m.Unlock()
+
+	if m.addCompressedBatchFn != nil {
+		err = m.addCompressedBatchFn(ids, vector)
+	}
+
+	if m.compressedVectors == nil {
+		m.compressedVectors = make(map[uint64][]byte)
+	}
+
+	for i, id := range ids {
+		m.compressedVectors[id] = vector[i]
 	}
 
 	return
@@ -944,4 +965,13 @@ func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
 	}
 
 	return nil
+}
+
+func (m *mockBatchIndexer) CompressVector(vector []float32) []byte {
+	compressed := make([]byte, len(vector))
+	for i, v := range vector {
+		compressed[i] = byte(v)
+	}
+
+	return compressed
 }

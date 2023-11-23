@@ -329,6 +329,7 @@ type job struct {
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
 	var ids []uint64
 	var vectors [][]float32
+	var compressed [][]byte
 	var deleted []uint64
 
 	for job := range ch {
@@ -338,7 +339,11 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 				deleted = append(deleted, c.data[i].id)
 			} else {
 				ids = append(ids, c.data[i].id)
-				vectors = append(vectors, c.data[i].vector)
+				if len(c.data[i].compressed) != 0 {
+					compressed = append(compressed, c.data[i].compressed)
+				} else {
+					vectors = append(vectors, c.data[i].vector)
+				}
 			}
 		}
 
@@ -347,7 +352,11 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 		if len(ids) > 0 {
 		LOOP:
 			for {
-				err = job.indexer.AddBatch(job.ctx, ids, vectors)
+				if len(compressed) > 0 {
+					err = job.indexer.AddCompressedBatch(job.ctx, ids, compressed)
+				} else {
+					err = job.indexer.AddBatch(job.ctx, ids, vectors)
+				}
 				if err == nil {
 					break LOOP
 				}
@@ -386,5 +395,6 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 		ids = ids[:0]
 		vectors = vectors[:0]
 		deleted = deleted[:0]
+		compressed = compressed[:0]
 	}
 }

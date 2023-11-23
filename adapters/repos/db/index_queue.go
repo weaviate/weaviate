@@ -45,6 +45,9 @@ type IndexQueue struct {
 	// indexCh is the channel used to send vectors to the shared indexing workers.
 	indexCh chan job
 
+	// compressorCh is the channel used to compress vectors in the background.
+	compressorCh chan *compressorTask
+
 	// context used to close pending tasks
 	// if canceled, prevents new vectors from being added to the queue.
 	ctx      context.Context
@@ -67,8 +70,9 @@ type IndexQueue struct {
 }
 
 type vectorDescriptor struct {
-	id     uint64
-	vector []float32
+	id         uint64
+	vector     []float32
+	compressed []byte
 }
 
 type IndexQueueOptions struct {
@@ -93,6 +97,7 @@ type IndexQueueOptions struct {
 
 type batchIndexer interface {
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
+	AddCompressedBatch(ctx context.Context, id []uint64, vector [][]byte) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
@@ -105,6 +110,7 @@ type batchIndexer interface {
 	Compressed() bool
 	AlreadyIndexed() uint64
 	TurnOnCompression(callback func()) error
+	CompressVector(vector []float32) []byte
 }
 
 type shardStatusUpdater interface {
@@ -148,9 +154,13 @@ func NewIndexQueue(
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		checkpoints:       checkpoints,
+		compressorCh:      make(chan *compressorTask),
 	}
 
 	q.queue = newVectorQueue(&q)
+	if index.Compressed() {
+		q.queue.curBatch.mustCompress = true
+	}
 
 	q.ctx, q.cancelFn = context.WithCancel(context.Background())
 
@@ -165,6 +175,24 @@ func NewIndexQueue(
 		q.indexer()
 	}()
 
+	// when compression is enabled
+	// these workers will occupy 25% of the available CPU cores
+	// to compress vectors in the background.
+	// TODO: test this with multiple shards
+	w := runtime.GOMAXPROCS(0) / 4
+	if w == 0 {
+		w = 1
+	}
+
+	for i := 0; i < w; i++ {
+		q.wg.Add(1)
+		go func() {
+			defer q.wg.Done()
+
+			q.compressor()
+		}()
+	}
+
 	return &q, nil
 }
 
@@ -178,6 +206,8 @@ func (q *IndexQueue) Close() error {
 
 	// prevent new jobs from being added
 	q.cancelFn()
+
+	close(q.compressorCh)
 
 	q.wg.Wait()
 
@@ -205,6 +235,38 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	q.lastPushed.Store(&now)
 
 	q.queue.Add(vectors)
+	return nil
+}
+
+func (q *IndexQueue) compressVectors(vectors []vectorDescriptor) error {
+	start := time.Now()
+
+	var tasks sync.WaitGroup
+	for i := range vectors {
+		if len(vectors[i].compressed) > 0 {
+			continue
+		}
+
+		tasks.Add(1)
+		t := &compressorTask{
+			vector: &vectors[i],
+			wg:     &tasks,
+		}
+
+		select {
+		case <-q.ctx.Done():
+			return q.ctx.Err()
+		case q.compressorCh <- t:
+		}
+	}
+
+	tasks.Wait()
+
+	for i := range vectors {
+		vectors[i].vector = nil
+	}
+
+	q.Logger.WithField("took", time.Since(start)).WithField("vectors", len(vectors)).Debug("compressed vectors")
 	return nil
 }
 
@@ -377,7 +439,7 @@ func (q *IndexQueue) indexer() {
 				q.pushToWorkers(2*workerNb, false)
 			} else {
 				// send only one batch at a time and wait for it to be indexed
-				// to avoid competing for resources with the Push() method.
+				// to avoid competing for resources with the inverted index method.
 				// This ensures the resources are used for queueing vectors in priority,
 				// then for indexing them.
 				q.pushToWorkers(1, true)
@@ -413,6 +475,18 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 
 	if wait {
 		q.queue.wait(q.ctx)
+	}
+}
+
+type compressorTask struct {
+	vector *vectorDescriptor
+	wg     *sync.WaitGroup
+}
+
+func (q *IndexQueue) compressor() {
+	for task := range q.compressorCh {
+		task.vector.compressed = q.Index.CompressVector(task.vector.vector)
+		task.wg.Done()
 	}
 }
 
@@ -498,10 +572,14 @@ func (q *IndexQueue) checkCompressionSettings() {
 
 	if q.Index.AlreadyIndexed() > uint64(shouldCompressAt) {
 		q.pauseIndexing()
-		err := q.Index.TurnOnCompression(q.resumeIndexing)
+		err := q.Index.TurnOnCompression(func() {
+			q.queue.Compress()
+			q.resumeIndexing()
+		})
 		if err != nil {
 			q.Logger.WithError(err).Error("failed to turn on compression")
 		}
+
 	}
 }
 
@@ -596,7 +674,8 @@ type vectorQueue struct {
 	curBatch   struct {
 		sync.Mutex
 
-		c *chunk
+		c            *chunk
+		mustCompress bool
 	}
 	fullChunks struct {
 		sync.Mutex
@@ -676,10 +755,37 @@ func (q *vectorQueue) wait(ctx context.Context) {
 	}
 }
 
+func (q *vectorQueue) Compress() {
+	q.curBatch.Lock()
+	q.curBatch.mustCompress = true
+	if q.curBatch.c != nil {
+		_ = q.IndexQueue.compressVectors(q.curBatch.c.data[:q.curBatch.c.cursor])
+	}
+	q.curBatch.Unlock()
+
+	q.fullChunks.Lock()
+	e := q.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		if c.borrowed {
+			e = e.Next()
+			continue
+		}
+
+		q.IndexQueue.compressVectors(c.data)
+		e = e.Next()
+	}
+	q.fullChunks.Unlock()
+}
+
 func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 	var full []*chunk
 
 	q.curBatch.Lock()
+	if q.curBatch.mustCompress {
+		q.IndexQueue.compressVectors(vectors)
+	}
+
 	f := q.ensureHasSpace()
 	if f != nil {
 		full = append(full, f)
