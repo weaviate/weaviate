@@ -375,8 +375,6 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-
-
 	if !l.loaded {
 		return nil
 	}

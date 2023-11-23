@@ -280,7 +280,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	go index.ForEachShard(func(name string, shard ShardLike) error {
 		shard.Load(context.Background())
-		time.Sleep(1*time.Second)
+		time.Sleep(1 * time.Second)
 		return nil
 	})
 
