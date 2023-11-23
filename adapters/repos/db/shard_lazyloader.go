@@ -41,8 +41,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-
-
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
 	shard     *Shard
@@ -54,9 +52,9 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (ShardLike, error) {
-	if os.Getenv("NO_LAZY_SHARD_LOADER") == "true"  || os.Getenv("NO_LAZY_SHARD_LOADER") == "1" || os.Getenv("NO_LAZY_SHARD_LOADER") == "on" || os.Getenv("NO_LAZY_SHARD_LOADER") == "enabled"{
+	if os.Getenv("NO_LAZY_SHARD_LOADER") == "true" || os.Getenv("NO_LAZY_SHARD_LOADER") == "1" || os.Getenv("NO_LAZY_SHARD_LOADER") == "on" || os.Getenv("NO_LAZY_SHARD_LOADER") == "enabled" {
 		return NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
-		} else {
+	} else {
 		l := &LazyLoadShard{
 			shardOpts: &deferredShardOpts{
 				promMetrics: promMetrics,
