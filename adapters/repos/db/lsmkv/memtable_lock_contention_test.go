@@ -74,7 +74,7 @@ func TestMemtableLockContention(t *testing.T) {
 	}
 	wg.Wait()
 
-	fmt.Println("Total size:", b.active.size)
+	fmt.Println("Total size:", b.active.Size())
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
 

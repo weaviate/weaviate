@@ -34,8 +34,8 @@ import (
 type Bucket struct {
 	dir      string
 	rootDir  string
-	active   *Memtable
-	flushing *Memtable
+	active   *MemtableThreaded
+	flushing *MemtableThreaded
 	disk     *SegmentGroup
 	logger   logrus.FieldLogger
 
@@ -750,7 +750,7 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 // meant to be called from situations where a lock is already held, does not
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
-	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
+	mt, err := newMemtableThreaded(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
 		time.Now().UnixNano())), b.strategy, b.secondaryIndices, b.metrics)
 	if err != nil {
 		return err
@@ -859,7 +859,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.commitlog.Size()
+	commitLogSize := b.active.Commitlog().Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
@@ -958,7 +958,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
-	path := b.flushing.path
+	path := b.flushing.Path()
 	if err := b.disk.add(path + ".db"); err != nil {
 		return err
 	}

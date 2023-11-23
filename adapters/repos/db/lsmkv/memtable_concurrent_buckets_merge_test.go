@@ -115,7 +115,7 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
 
-	nodes := b.active.roaringSet.FlattenInOrder()
+	nodes := b.active.RoaringSet().FlattenInOrder()
 
 	times.Flatten = int(time.Since(startTime).Milliseconds())
 

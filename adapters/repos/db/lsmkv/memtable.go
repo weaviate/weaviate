@@ -349,3 +349,29 @@ func (m *Memtable) writeWAL() error {
 
 	return m.commitlog.flushBuffers()
 }
+
+func (m *Memtable) Commitlog() *commitLogger {
+	//m.RLock()
+	//defer m.RUnlock()
+	return m.commitlog
+}
+
+func (m *Memtable) RoaringSet() *roaringset.BinarySearchTree {
+	m.RLock()
+	defer m.RUnlock()
+	return m.roaringSet
+}
+
+func (m *Memtable) Path() string {
+	return m.path
+}
+
+func (m *Memtable) SecondaryIndices() uint16 {
+	return m.secondaryIndices
+}
+
+func (m *Memtable) SetPath(path string) {
+	m.Lock()
+	defer m.Unlock()
+	m.path = path
+}

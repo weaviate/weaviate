@@ -48,7 +48,7 @@ func (b *Bucket) FlushMemtable() error {
 	}
 	b.flushLock.Unlock()
 
-	stat, err := b.active.commitlog.file.Stat()
+	stat, err := b.active.Commitlog().file.Stat()
 	if err != nil {
 		b.logger.WithField("action", "lsm_wal_stat").
 			WithField("path", b.dir).

@@ -24,13 +24,13 @@ import (
 type commitloggerParser struct {
 	path         string
 	strategy     string
-	memtable     *Memtable
+	memtable     *MemtableThreaded
 	reader       io.Reader
 	metrics      *Metrics
 	replaceCache map[string]segmentReplaceNode
 }
 
-func newCommitLoggerParser(path string, activeMemtable *Memtable,
+func newCommitLoggerParser(path string, activeMemtable *MemtableThreaded,
 	strategy string, metrics *Metrics,
 ) *commitloggerParser {
 	return &commitloggerParser{
@@ -96,7 +96,7 @@ func (p *commitloggerParser) doReplace() error {
 
 	for _, node := range p.replaceCache {
 		var opts []SecondaryKeyOption
-		if p.memtable.secondaryIndices > 0 {
+		if p.memtable.SecondaryIndices() > 0 {
 			for i, secKey := range node.secondaryKeys {
 				opts = append(opts, WithSecondaryKey(i, secKey))
 			}
@@ -120,7 +120,7 @@ func (p *commitloggerParser) doReplace() error {
 // final memtable yet. A second step is required to parse from the cache into
 // the actual memtable.
 func (p *commitloggerParser) parseReplaceNode() error {
-	n, err := ParseReplaceNode(p.reader, p.memtable.secondaryIndices)
+	n, err := ParseReplaceNode(p.reader, p.memtable.SecondaryIndices())
 	if err != nil {
 		return err
 	}

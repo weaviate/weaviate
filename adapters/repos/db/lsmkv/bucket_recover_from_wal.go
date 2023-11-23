@@ -75,7 +75,7 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 			Info("successfully recovered from write-ahead-log")
 	}
 
-	if b.active.size > 0 {
+	if b.active.Size() > 0 {
 		if err := b.FlushAndSwitch(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
 		}
@@ -95,8 +95,8 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 func (b *Bucket) parseWALIntoMemtable(fname string) error {
 	// pause commit logging while reading the old log to avoid creating a
 	// duplicate of the log
-	b.active.commitlog.pause()
-	defer b.active.commitlog.unpause()
+	b.active.Commitlog().pause()
+	defer b.active.Commitlog().unpause()
 
 	err := newCommitLoggerParser(fname, b.active, b.strategy, b.metrics).Do()
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
