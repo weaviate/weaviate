@@ -294,7 +294,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.4, 0.6},
-			[][]*hybrid.Result{resultSet1, resultSet2})
+			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -310,7 +310,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.8, 0.2},
-			[][]*hybrid.Result{resultSet1, resultSet2})
+			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -326,7 +326,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Vector Only", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.0, 1.0},
-			[][]*hybrid.Result{resultSet1, resultSet2})
+			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -342,7 +342,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("BM25 only", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{1.0, 0.0},
-			[][]*hybrid.Result{resultSet1, resultSet2})
+			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -406,7 +406,7 @@ func TestRFJourney(t *testing.T) {
 		})
 	}
 
-	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid})
+	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
 	fmt.Println("--- Start results for Fusion Reciprocal (", len(res), ")---")
 	for _, r := range res {
 
@@ -787,7 +787,7 @@ func TestStability(t *testing.T) {
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.4, 0.6},
-			[][]*hybrid.Result{resultSet1, resultSet2})
+			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})

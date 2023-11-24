@@ -179,8 +179,11 @@ type Monitoring struct {
 	Group   bool   `json:"group_classes" yaml:"group_classes"`
 }
 
+// Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port int `json:"port" yaml:"port"`
+	Port     int    `json:"port" yaml:"port"`
+	CertFile string `json:"certFile" yaml:"certFile"`
+	KeyFile  string `json:"keyFile" yaml:"keyFile"`
 }
 
 type Profiling struct {
@@ -252,7 +255,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key"
 )
 
 func (r ResourceUsage) Validate() error {
