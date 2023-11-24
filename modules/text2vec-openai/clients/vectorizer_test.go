@@ -433,7 +433,7 @@ func Test_getModelString(t *testing.T) {
 	})
 }
 
-func Test_openAIApiErrorDecode(t *testing.T) {
+func TestOpenAIApiErrorDecode(t *testing.T) {
 	t.Run("getModelStringQuery", func(t *testing.T) {
 		type args struct {
 			response []byte
