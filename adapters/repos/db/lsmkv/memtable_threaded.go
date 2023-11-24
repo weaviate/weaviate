@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"hash/fnv"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -154,7 +155,12 @@ func threadHashKey(key []byte, numWorkers int) int {
 func newMemtableThreaded(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics,
 ) (*MemtableThreaded, error) {
-	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, "hash")
+	workerAssignment := os.Getenv("MEMTABLE_WORKER_ASSIGNMENT")
+	if len(workerAssignment) == 0 {
+		workerAssignment = "hash"
+	}
+
+	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment)
 }
 
 func newMemtableThreadedDebug(path string, strategy string,

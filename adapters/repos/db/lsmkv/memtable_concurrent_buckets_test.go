@@ -106,8 +106,9 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 
 	times.Copy = int(time.Since(startTime).Milliseconds())
 
-	fmt.Println("Setup:", times.Setup)
-	fmt.Println("Insert:", times.Insert)
+	fmt.Println("Results:", times.Setup)
+	fmt.Println("\tSetup:", times.Setup)
+	fmt.Println("\tInsert:", times.Insert)
 
 	return buckets, times
 }
