@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -162,7 +163,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       common.VectorForID[float32]
-	shardedNodeLocks       shardedNodeLocks
+	shardedNodeLocks       *vector.ShardedLocks
 }
 
 type CommitLogger interface {
@@ -264,7 +265,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     newShardedNodeLocks(),
+		shardedNodeLocks:     vector.NewDefaultShardedLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -274,6 +275,10 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
+	if err := index.init(cfg); err != nil {
+		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
 	// TODO common_cycle_manager move to poststartup?
 	id := strings.Join([]string{
 		"hnsw", "tombstone_cleanup",
@@ -281,10 +286,6 @@ func New(cfg Config, uc ent.UserConfig,
 	}, "/")
 	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
-
-	if err := index.init(cfg); err != nil {
-		return nil, errors.Wrapf(err, "init index %q", index.id)
-	}
 
 	return index, nil
 }

@@ -19,12 +19,13 @@ import (
 	"unsafe"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
-	shardedLocks     []sync.RWMutex
+	shardedLocks     *vector.ShardedLocks
 	cache            [][]T
 	vectorForID      common.VectorForID[T]
 	normalizeOnRead  bool
@@ -36,10 +37,8 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
-	maintenanceLock sync.Mutex
+	maintenanceLock sync.RWMutex
 }
-
-var shardFactor = uint64(512)
 
 const (
 	InitialSize             = 1000
@@ -67,14 +66,11 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     make([]sync.RWMutex, shardFactor),
-		maintenanceLock:  sync.Mutex{},
+		shardedLocks:     vector.NewDefaultShardedLocks(),
+		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
 
-	for i := uint64(0); i < shardFactor; i++ {
-		vc.shardedLocks[i] = sync.RWMutex{}
-	}
 	vc.watchForDeletion()
 	return vc
 }
@@ -90,14 +86,11 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     make([]sync.RWMutex, shardFactor),
-		maintenanceLock:  sync.Mutex{},
+		shardedLocks:     vector.NewDefaultShardedLocks(),
+		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
 
-	for i := uint64(0); i < shardFactor; i++ {
-		vc.shardedLocks[i] = sync.RWMutex{}
-	}
 	vc.watchForDeletion()
 	return vc
 }
@@ -113,14 +106,11 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     make([]sync.RWMutex, shardFactor),
-		maintenanceLock:  sync.Mutex{},
+		shardedLocks:     vector.NewDefaultShardedLocks(),
+		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
 
-	for i := uint64(0); i < shardFactor; i++ {
-		vc.shardedLocks[i] = sync.RWMutex{}
-	}
 	vc.watchForDeletion()
 	return vc
 }
@@ -130,9 +120,9 @@ func (s *shardedLockCache[T]) All() [][]T {
 }
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
-	s.shardedLocks[id%shardFactor].RLock()
+	s.shardedLocks.RLock(id)
 	vec := s.cache[id]
-	s.shardedLocks[id%shardFactor].RUnlock()
+	s.shardedLocks.RUnlock(id)
 
 	if vec != nil {
 		return vec, nil
@@ -142,8 +132,8 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 }
 
 func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
-	s.shardedLocks[id%shardFactor].Lock()
-	defer s.shardedLocks[id%shardFactor].Unlock()
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
 
 	if int(id) >= len(s.cache) || s.cache[id] == nil {
 		return
@@ -160,9 +150,9 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	s.shardedLocks[id%shardFactor].Lock()
+	s.shardedLocks.Lock(id)
 	s.cache[id] = vec
-	s.shardedLocks[id%shardFactor].Unlock()
+	s.shardedLocks.Unlock(id)
 
 	return vec, nil
 }
@@ -172,9 +162,9 @@ func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
-		s.shardedLocks[id%shardFactor].RLock()
+		s.shardedLocks.RLock(id)
 		vec := s.cache[id]
-		s.shardedLocks[id%shardFactor].RUnlock()
+		s.shardedLocks.RUnlock(id)
 
 		if vec == nil {
 			vecFromDisk, err := s.handleCacheMiss(ctx, id)
@@ -194,30 +184,39 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 }
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
-	s.shardedLocks[id%shardFactor].RLock()
-	defer s.shardedLocks[id%shardFactor].RUnlock()
+	s.shardedLocks.RLock(id)
+	defer s.shardedLocks.RUnlock(id)
 
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
-	s.shardedLocks[id%shardFactor].Lock()
-	defer s.shardedLocks[id%shardFactor].Unlock()
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
 
 	atomic.AddInt64(&s.count, 1)
-
 	s.cache[id] = vec
 }
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
+	s.maintenanceLock.RLock()
 	if node < uint64(len(s.cache)) {
+		s.maintenanceLock.RUnlock()
 		return
 	}
+	s.maintenanceLock.RUnlock()
+
 	s.maintenanceLock.Lock()
 	defer s.maintenanceLock.Unlock()
 
-	s.obtainAllLocks()
-	defer s.releaseAllLocks()
+	// make sure cache still needs growing
+	// (it could have grown while waiting for maintenance lock)
+	if node < uint64(len(s.cache)) {
+		return
+	}
+
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 
 	newSize := node + MinimumIndexGrowthDelta
 	newCache := make([][]T, newSize)
@@ -226,6 +225,9 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 }
 
 func (s *shardedLockCache[T]) Len() int32 {
+	s.maintenanceLock.RLock()
+	defer s.maintenanceLock.RUnlock()
+
 	return int32(len(s.cache))
 }
 
@@ -241,8 +243,8 @@ func (s *shardedLockCache[T]) Drop() {
 }
 
 func (s *shardedLockCache[T]) deleteAllVectors() {
-	s.obtainAllLocks()
-	defer s.releaseAllLocks()
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")
@@ -272,28 +274,7 @@ func (s *shardedLockCache[T]) watchForDeletion() {
 
 func (s *shardedLockCache[T]) replaceIfFull() {
 	if atomic.LoadInt64(&s.count) >= atomic.LoadInt64(&s.maxSize) {
-		s.maintenanceLock.Lock()
 		s.deleteAllVectors()
-		s.maintenanceLock.Unlock()
-	}
-}
-
-func (s *shardedLockCache[T]) obtainAllLocks() {
-	wg := &sync.WaitGroup{}
-	for i := uint64(0); i < shardFactor; i++ {
-		wg.Add(1)
-		go func(index uint64) {
-			defer wg.Done()
-			s.shardedLocks[index].Lock()
-		}(i)
-	}
-
-	wg.Wait()
-}
-
-func (s *shardedLockCache[T]) releaseAllLocks() {
-	for i := uint64(0); i < shardFactor; i++ {
-		s.shardedLocks[i].Unlock()
 	}
 }
 
