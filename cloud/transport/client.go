@@ -14,7 +14,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 
@@ -40,7 +39,6 @@ func NewClient(r rpcAddressResolver) *Client {
 // Join joins this node to an existing cluster identified by its leader's address.
 // If a new leader has been elected, the request is redirected to the new leader.
 func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	// log.Printf("client join: %s %+v\n", leaderAddr, req)
 	addr, err := cl.rpc.Address(leaderAddr)
 	if err != nil {
 		return nil, err
@@ -57,7 +55,6 @@ func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeer
 
 // Notify informs a remote node rAddr of this node's readiness to join.
 func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
-	// log.Printf("client notify: %s %+v\n", rAddr, req)
 	addr, err := cl.rpc.Address(rAddr)
 	if err != nil {
 		return nil, err
@@ -75,7 +72,6 @@ func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerR
 // Remove removes this node from an existing cluster identified by its leader's address.
 // If a new leader has been elected, the request is redirected to the new leader.
 func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	//log.Printf("client remove: %s %+v\n", leaderAddress, req)
 	addr, err := cl.rpc.Address(leaderAddress)
 	if err != nil {
 		return nil, err
@@ -91,8 +87,6 @@ func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.Rem
 }
 
 func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	log.Printf("client apply on remote node: %s req-type: %v class: %v\n", leaderAddr, req.Type, req.Class)
-
 	ctx := context.Background()
 	addr, err := cl.rpc.Address(leaderAddr)
 	if err != nil {
