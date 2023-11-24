@@ -14,11 +14,11 @@ package store
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,7 +33,7 @@ type members interface {
 }
 
 type executor interface {
-	Execute(cmd *command.ApplyRequest) error
+	Execute(cmd *cmd.ApplyRequest) error
 }
 
 type Cluster struct {
@@ -42,18 +42,19 @@ type Cluster struct {
 	address    string
 	ln         net.Listener
 	grpcServer *grpc.Server
+	log        *slog.Logger
 }
 
-func NewCluster(ms members, ex executor, address string) Cluster {
+func NewCluster(ms members, ex executor, address string, l *slog.Logger) Cluster {
 	return Cluster{
 		members:  ms,
 		executor: ex,
 		address:  address,
+		log:      l,
 	}
 }
 
 func (c *Cluster) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	// log.Printf("server: join peer %+v\n", req)
 	err := c.members.Join(req.Id, req.Address, req.Voter)
 	if err == nil {
 		return &cmd.JoinPeerResponse{}, nil
@@ -63,7 +64,6 @@ func (c *Cluster) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.Jo
 }
 
 func (c *Cluster) RemovePeer(_ context.Context, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	log.Printf("server: remove peer %+v\n", req)
 	err := c.members.Remove(req.Id)
 	if err == nil {
 		return &cmd.RemovePeerResponse{}, nil
@@ -89,10 +89,10 @@ func (c *Cluster) Leader() string {
 }
 
 func (c *Cluster) Open() error {
-	log.Printf("server listening at %v", c.address)
+	c.log.Info("starting cloud rpc server ...", "address", c.address)
 	ln, err := net.Listen("tcp", c.address)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		return fmt.Errorf("server tcp net.listen: %v", err)
 	}
 	c.ln = ln
 	go c.serve()
@@ -100,7 +100,6 @@ func (c *Cluster) Open() error {
 }
 
 func (c *Cluster) Shutdown() {
-	log.Printf("server shutdown")
 	c.grpcServer.Stop()
 }
 
@@ -108,7 +107,8 @@ func (c *Cluster) serve() error {
 	c.grpcServer = grpc.NewServer()
 	cmd.RegisterClusterServiceServer(c.grpcServer, c)
 	if err := c.grpcServer.Serve(c.ln); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		c.log.Error("serving incoming requests", "error", err)
+		panic("error accepting incoming requests")
 	}
 	return nil
 }
