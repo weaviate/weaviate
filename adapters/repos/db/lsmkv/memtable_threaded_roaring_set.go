@@ -20,6 +20,43 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
+func ThreadedRoaringSetRemoveOne(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetRemoveOne(request.key, request.value)}
+}
+
+func ThreadedRoaringSetAddOne(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetAddOne(request.key, request.value)}
+}
+
+func ThreadedRoaringSetAddList(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetAddList(request.key, request.values)}
+}
+
+func ThreadedRoaringSetRemoveList(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetRemoveList(request.key, request.values)}
+}
+
+func ThreadedRoaringSetAddBitmap(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetAddBitmap(request.key, request.bm)}
+}
+
+func ThreadedRoaringSetRemoveBitmap(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetRemoveBitmap(request.key, request.bm)}
+}
+
+func ThreadedRoaringSetGet(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	bitmap, err := m.roaringSetGet(request.key)
+	return ThreadedBitmapResponse{error: err, bitmap: bitmap}
+}
+
+func ThreadedRoaringSetAddRemoveBitmaps(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{error: m.roaringSetAddRemoveBitmaps(request.key, request.additions, request.deletions)}
+}
+
+func ThreadedRoaringSetFlattenInOrder(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{nodes: m.RoaringSet().FlattenInOrder()}
+}
+
 func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) ThreadedBitmapResponse {
 	if data.operationName == "ThreadedRoaringSetFlattenInOrder" {
 		// send request to all workers
@@ -33,7 +70,53 @@ func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) Threaded
 		}
 		merged, err := mergeRoaringSets(nodes)
 		return ThreadedBitmapResponse{nodes: merged, error: err}
+		// TODO: everything below this line is a terrible idea
+	} else if data.operationName == "ThreadedNewCollectionCursor" {
+		// send request to all workers
+		var cursors []innerCursorCollection
+		for _, channel := range m.requestsChannels {
+			responseChannel := make(chan ThreadedBitmapResponse)
+			data.response = responseChannel
+			channel <- data
+			response := <-responseChannel
+			cursors = append(cursors, response.innerCursorCollection)
+		}
+		return ThreadedBitmapResponse{innerCursorCollection: cursors[0]}
+	} else if data.operationName == "ThreadedNewRoaringSetCursor" {
+		// send request to all workers
+		var cursors []roaringset.InnerCursor
+		for _, channel := range m.requestsChannels {
+			responseChannel := make(chan ThreadedBitmapResponse)
+			data.response = responseChannel
+			channel <- data
+			response := <-responseChannel
+			cursors = append(cursors, response.innerCursorRoaringSet)
+		}
+		return ThreadedBitmapResponse{innerCursorRoaringSet: cursors[0]}
+	} else if data.operationName == "ThreadedNewMapCursor" {
+		// send request to all workers
+		var cursors []innerCursorMap
+		for _, channel := range m.requestsChannels {
+			responseChannel := make(chan ThreadedBitmapResponse)
+			data.response = responseChannel
+			channel <- data
+			response := <-responseChannel
+			cursors = append(cursors, response.innerCursorMap)
+		}
+		return ThreadedBitmapResponse{innerCursorMap: cursors[0]}
+	} else if data.operationName == "ThreadedNewCursor" {
+		// send request to all workers
+		var cursors []innerCursorReplace
+		for _, channel := range m.requestsChannels {
+			responseChannel := make(chan ThreadedBitmapResponse)
+			data.response = responseChannel
+			channel <- data
+			response := <-responseChannel
+			cursors = append(cursors, response.innerCursorReplace)
+		}
+		return ThreadedBitmapResponse{innerCursorReplace: cursors[0]}
 	}
+
 	key := data.key
 	workerID := 0
 	if m.workerAssignment == "single-channel" {

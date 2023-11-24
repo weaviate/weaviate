@@ -148,7 +148,7 @@ func worker(id int, dirName string, requests <-chan Request, response chan<- []*
 
 	}
 	// Grab the nodes and send them back for further merging
-	nodes := b.active.RoaringSet().FlattenInOrder()
+	nodes := b.active.getNodesRoaringSet()
 	response <- nodes
 	close(response)
 	fmt.Println("Worker", id, "size:", len(nodes))
