@@ -434,47 +434,45 @@ func Test_getModelString(t *testing.T) {
 }
 
 func TestOpenAIApiErrorDecode(t *testing.T) {
-	t.Run("getModelStringQuery", func(t *testing.T) {
-		type args struct {
-			response []byte
-		}
-		tests := []struct {
-			name string
-			args args
-			want string
-		}{
-			{
-				name: "Error code: missing property",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
-				},
-				want: "",
+	type args struct {
+		response []byte
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "Error code: missing property",
+			args: args{
+				response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
 			},
-			{
-				name: "Error code: as int",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
-				},
-				want: "500",
+			want: "",
+		},
+		{
+			name: "Error code: as int",
+			args: args{
+				response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
 			},
-			{
-				name: "Error code as string",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
-				},
-				want: "500",
+			want: "500",
+		},
+		{
+			name: "Error code: as string",
+			args: args{
+				response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
 			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				var got *openAIApiError
-				err := json.Unmarshal(tt.args.response, &got)
-				require.NoError(t, err)
+			want: "500",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *openAIApiError
+			err := json.Unmarshal(tt.args.response, &got)
+			require.NoError(t, err)
 
-				if got.Code.String() != tt.want {
-					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
-				}
-			})
-		}
-	})
+			if got.Code.String() != tt.want {
+				t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
+			}
+		})
+	}
 }
