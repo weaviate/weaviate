@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -24,18 +23,17 @@ import (
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
-	if h.isEmpty() {
+	dims := int(atomic.LoadInt32(&h.dims))
+
+	// no vectors exist
+	if dims == 0 {
 		return nil
 	}
-	// check if vector length is the same as existing nodes
-	existingNodeVector, err := h.cache.Get(context.Background(), h.entryPointID)
-	if err != nil {
-		return err
-	}
 
-	if len(existingNodeVector) != len(vector) {
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
 		return fmt.Errorf("new node has a vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), len(existingNodeVector))
+			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
 	return nil
@@ -60,11 +58,10 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
 	h.RLock()
-	previousSize := uint64(len(h.nodes))
-	if maxId >= previousSize {
+	if maxId >= uint64(len(h.nodes)) {
 		h.RUnlock()
 		h.Lock()
-		if maxId >= previousSize {
+		if maxId >= uint64(len(h.nodes)) {
 			err := h.growIndexToAccomodateNode(maxId, h.logger)
 			if err != nil {
 				h.Unlock()
