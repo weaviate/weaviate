@@ -313,31 +313,31 @@ func (v *aws) generateForPrompt(textProperties map[string]string, prompt string)
 }
 
 func (v *aws) getAwsAccessKey(ctx context.Context) (string, error) {
-	if len(v.awsAccessKey) > 0 {
-		return v.awsAccessKey, nil
-	}
 	awsAccessKey := ctx.Value("X-Aws-Access-Key")
 	if awsAccessKeyHeader, ok := awsAccessKey.([]string); ok &&
 		len(awsAccessKeyHeader) > 0 && len(awsAccessKeyHeader[0]) > 0 {
 		return awsAccessKeyHeader[0], nil
 	}
+	if len(v.awsAccessKey) > 0 {
+		return v.awsAccessKey, nil
+	}
 	return "", errors.New("no access key found " +
-		"neither in request header: X-Aws-Access-Key " +
-		"nor in environment variable under AWS_ACCESS_KEY_ID")
+		"neither in request header: X-AWS-Access-Key " +
+		"nor in environment variable under AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY")
 }
 
 func (v *aws) getAwsAccessSecret(ctx context.Context) (string, error) {
-	if len(v.awsSecretKey) > 0 {
-		return v.awsSecretKey, nil
-	}
-	awsAccessSecret := ctx.Value("X-Aws-Access-Secret")
+	awsAccessSecret := ctx.Value("X-Aws-Secret-Key")
 	if awsAccessSecretHeader, ok := awsAccessSecret.([]string); ok &&
 		len(awsAccessSecretHeader) > 0 && len(awsAccessSecretHeader[0]) > 0 {
 		return awsAccessSecretHeader[0], nil
 	}
+	if len(v.awsSecretKey) > 0 {
+		return v.awsSecretKey, nil
+	}
 	return "", errors.New("no secret found " +
-		"neither in request header: X-Aws-Access-Secret " +
-		"nor in environment variable under AWS_SECRET_ACCESS_KEY")
+		"neither in request header: X-Aws-Secret-Key " +
+		"nor in environment variable under AWS_SECRET_ACCESS_KEY or AWS_SECRET_KEY")
 }
 
 func (v *aws) isAmazonModel(model string) bool {

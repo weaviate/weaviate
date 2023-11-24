@@ -28,6 +28,13 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
 )
 
+type operationType string
+
+var (
+	vectorizeObject operationType = "vectorize_object"
+	vectorizeQuery  operationType = "vectorize_query"
+)
+
 func buildBedrockUrl(service, region, model string) string {
 	serviceName := service
 	if strings.HasPrefix(model, "cohere") {
@@ -67,16 +74,16 @@ func New(awsAccessKey string, awsSecret string, timeout time.Duration, logger lo
 func (v *aws) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config)
+	return v.vectorize(ctx, input, vectorizeObject, config)
 }
 
 func (v *aws) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config)
+	return v.vectorize(ctx, input, vectorizeQuery, config)
 }
 
-func (v *aws) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *aws) vectorize(ctx context.Context, input []string, operation operationType, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	service := v.getService(config)
 	region := v.getRegion(config)
 	model := v.getModel(config)
@@ -99,7 +106,7 @@ func (v *aws) vectorize(ctx context.Context, input []string, config ent.Vectoriz
 		endpointUrl = v.buildBedrockUrlFn(service, region, model)
 		host, path, _ = extractHostAndPath(endpointUrl)
 
-		req, err := createRequestBody(model, input)
+		req, err := createRequestBody(model, input, operation)
 		if err != nil {
 			return nil, err
 		}
@@ -270,31 +277,31 @@ func (v *aws) isBedrock(service string) bool {
 }
 
 func (v *aws) getAwsAccessKey(ctx context.Context) (string, error) {
-	if len(v.awsAccessKey) > 0 {
-		return v.awsAccessKey, nil
-	}
 	awsAccessKey := ctx.Value("X-Aws-Access-Key")
 	if awsAccessKeyHeader, ok := awsAccessKey.([]string); ok &&
 		len(awsAccessKeyHeader) > 0 && len(awsAccessKeyHeader[0]) > 0 {
 		return awsAccessKeyHeader[0], nil
 	}
+	if len(v.awsAccessKey) > 0 {
+		return v.awsAccessKey, nil
+	}
 	return "", errors.New("no access key found " +
-		"neither in request header: X-Aws-Access-Key " +
-		"nor in environment variable under AWS_ACCESS_KEY_ID")
+		"neither in request header: X-AWS-Access-Key " +
+		"nor in environment variable under AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY")
 }
 
 func (v *aws) getAwsAccessSecret(ctx context.Context) (string, error) {
-	if len(v.awsSecret) > 0 {
-		return v.awsSecret, nil
-	}
-	awsSecretKey := ctx.Value("X-Aws-Access-Secret")
+	awsSecretKey := ctx.Value("X-Aws-Secret-Key")
 	if awsAccessSecretHeader, ok := awsSecretKey.([]string); ok &&
 		len(awsAccessSecretHeader) > 0 && len(awsAccessSecretHeader[0]) > 0 {
 		return awsAccessSecretHeader[0], nil
 	}
+	if len(v.awsSecret) > 0 {
+		return v.awsSecret, nil
+	}
 	return "", errors.New("no secret found " +
-		"neither in request header: X-Aws-Access-Secret " +
-		"nor in environment variable under AWS_SECRET_ACCESS_KEY")
+		"neither in request header: X-AWS-Secret-Key " +
+		"nor in environment variable under AWS_SECRET_ACCESS_KEY or AWS_SECRET_KEY")
 }
 
 func (v *aws) getModel(config ent.VectorizationConfig) string {
@@ -362,7 +369,7 @@ func extractHostAndPath(endpointUrl string) (string, string, error) {
 	return u.Host, u.Path, nil
 }
 
-func createRequestBody(model string, texts []string) (interface{}, error) {
+func createRequestBody(model string, texts []string, operation operationType) (interface{}, error) {
 	modelParts := strings.Split(model, ".")
 	if len(modelParts) == 0 {
 		return nil, fmt.Errorf("invalid model: %s", model)
@@ -376,9 +383,13 @@ func createRequestBody(model string, texts []string) (interface{}, error) {
 			InputText: texts[0],
 		}, nil
 	case "cohere":
+		inputType := "search_document"
+		if operation == vectorizeQuery {
+			inputType = "search_query"
+		}
 		return bedrockCohereEmbeddingRequest{
 			Texts:     texts,
-			InputType: "search_document",
+			InputType: inputType,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown model provider: %s", modelProvider)
