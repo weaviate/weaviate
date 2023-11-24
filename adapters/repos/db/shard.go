@@ -206,7 +206,6 @@ func (s *Shard) Load(ctx context.Context) error {
 }
 
 func (s *Shard) MustLoad() {
-	return
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

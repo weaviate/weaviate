@@ -98,7 +98,6 @@ func (l *LazyLoadShard) MustLoad() {
 	}
 	l.shard = shard
 	l.loaded = true
-	return
 }
 
 func (l *LazyLoadShard) MustLoadCtx(ctx context.Context) {
@@ -120,7 +119,6 @@ func (l *LazyLoadShard) MustLoadCtx(ctx context.Context) {
 	}
 	l.shard = shard
 	l.loaded = true
-	return
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
