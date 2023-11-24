@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
@@ -161,7 +160,6 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) err
 }
 
 func (st *Service) Execute(req *cmd.ApplyRequest) error {
-	log.Printf("execute command: %v\n on class %v", req.Type, req.Class)
 	if st.store.IsLeader() {
 		return st.store.Execute(req)
 	}
