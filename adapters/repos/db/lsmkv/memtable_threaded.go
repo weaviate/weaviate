@@ -58,6 +58,10 @@ func ThreadedRoaringSetAddRemoveBitmaps(m *Memtable, request ThreadedBitmapReque
 	return ThreadedBitmapResponse{error: m.roaringSetAddRemoveBitmaps(request.key, request.additions, request.deletions)}
 }
 
+func ThreadedRoaringSetFlattenInOrder(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+	return ThreadedBitmapResponse{nodes: m.RoaringSet().FlattenInOrder()}
+}
+
 type MemtableThreaded struct {
 	baseline         *Memtable
 	wgWorkers        sync.WaitGroup
@@ -65,13 +69,13 @@ type MemtableThreaded struct {
 	numClients       int
 	numWorkers       int
 	requestsChannels []chan ThreadedBitmapRequest
-	responseChannels []chan []*roaringset.BinarySearchNode
 	workerAssignment string
 	commitLogger     *commitLogger
 }
 
 type ThreadedBitmapRequest struct {
 	operation      ThreadedMemtableFunc
+	operationName  string
 	key            []byte
 	value          uint64
 	values         []uint64
@@ -85,20 +89,10 @@ type ThreadedBitmapRequest struct {
 type ThreadedBitmapResponse struct {
 	error  error
 	bitmap roaringset.BitmapLayer
+	nodes  []*roaringset.BinarySearchNode
 }
 
-type ThreadedRequest struct {
-	data       interface{}
-	operation  ThreadedMemtableFunc
-	ResponseCh chan ThreadedBitmapResponse
-}
-
-type ThreadedResponse struct {
-	result interface{}
-	Error  error
-}
-
-func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest, response chan<- []*roaringset.BinarySearchNode, wg *sync.WaitGroup) {
+func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest, wg *sync.WaitGroup) {
 	defer wg.Done()
 	// One bucket per worker, initialization is done in the worker thread
 	m, err := newMemtable(dirName, StrategyRoaringSet, 0, nil)
@@ -108,13 +102,14 @@ func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest,
 	}
 
 	for req := range requests {
+		//fmt.Println("Worker", id, "received request", req.operationName)
+		if req.operationName == "Flush" {
+			break
+		}
 		req.response <- req.operation(m, req)
 	}
-	// Grab the nodes and send them back for further merging
-	nodes := m.RoaringSet().FlattenInOrder()
-	response <- nodes
-	close(response)
-	fmt.Println("Worker", id, "size:", len(nodes))
+
+	fmt.Println("Worker", id, "size:")
 
 }
 
@@ -128,7 +123,13 @@ func threadHashKey(key []byte, numWorkers int) int {
 func newMemtableThreaded(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics,
 ) (*MemtableThreaded, error) {
-	if strategy != StrategyRoaringSet {
+	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, "hash")
+}
+
+func newMemtableThreadedDebug(path string, strategy string,
+	secondaryIndices uint16, metrics *Metrics, workerAssignment string,
+) (*MemtableThreaded, error) {
+	if strategy != StrategyRoaringSet || workerAssignment == "baseline" {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
 
 		if err != nil {
@@ -151,7 +152,6 @@ func newMemtableThreaded(path string, strategy string,
 		numWorkers := runtime.NumCPU()
 		numChannels := numWorkers
 		requestsChannels := make([]chan ThreadedBitmapRequest, numChannels)
-		responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
 
 		for i := 0; i < numChannels; i++ {
 			requestsChannels[i] = make(chan ThreadedBitmapRequest)
@@ -161,8 +161,7 @@ func newMemtableThreaded(path string, strategy string,
 		wgWorkers.Add(numWorkers)
 		for i := 0; i < numWorkers; i++ {
 			dirName := path
-			responseChannels[i] = make(chan []*roaringset.BinarySearchNode)
-			go threadWorker(i, dirName, requestsChannels[i%numChannels], responseChannels[i], &wgWorkers)
+			go threadWorker(i, dirName, requestsChannels[i%numChannels], &wgWorkers)
 		}
 
 		m := &MemtableThreaded{
@@ -170,9 +169,8 @@ func newMemtableThreaded(path string, strategy string,
 			numClients:       0,
 			numWorkers:       numWorkers,
 			requestsChannels: requestsChannels,
-			responseChannels: responseChannels,
 			baseline:         nil,
-			workerAssignment: "hash",
+			workerAssignment: workerAssignment,
 			commitLogger:     cl,
 		}
 

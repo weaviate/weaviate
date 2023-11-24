@@ -15,6 +15,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -60,4 +61,17 @@ func (m *MemtableThreaded) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key,
 		return m.baseline.flushDataRoaringSet(f)
 	}
 	return nil, errors.Errorf("baseline is nil")
+}
+
+func (m *MemtableThreaded) getNodesRoaringSet() []*roaringset.BinarySearchNode {
+	if m.baseline != nil {
+		return m.baseline.RoaringSet().FlattenInOrder()
+	} else {
+		output := m.roaringOperation(ThreadedBitmapRequest{
+			operation:     ThreadedRoaringSetFlattenInOrder,
+			operationName: "ThreadedRoaringSetFlattenInOrder",
+		})
+		return output.nodes
+	}
+
 }

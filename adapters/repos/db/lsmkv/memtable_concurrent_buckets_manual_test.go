@@ -11,23 +11,24 @@ func TestMemtableConcurrentMergeManual(t *testing.T) {
 
 	numWorkers := runtime.NumCPU()
 
-	BRoaringSetRemoveOne := func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetRemoveOne(key, value) }
-	BRoaringSetAddOne := func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetAddOne(key, value) }
-
 	operations := [][]*Request{
-		{{key: []byte("a"), value: 1, operation: BRoaringSetRemoveOne}, {key: []byte("a"), value: 1, operation: BRoaringSetRemoveOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetAddOne}},
-		{{key: []byte("a"), value: 1, operation: BRoaringSetRemoveOne}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetRemoveOne"}, {key: []byte("a"), value: 1, operation: "ThreadedRoaringSetRemoveOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetAddOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetAddOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetAddOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetAddOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetAddOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetAddOne"}},
+		{{key: []byte("a"), value: 1, operation: "ThreadedRoaringSetRemoveOne"}},
 	}
 	numClients := len(operations)
 
 	correctOrder, err := createSimpleBucket(operations, t)
 	require.Nil(t, err)
+
+	t.Run("baseline", func(t *testing.T) {
+		RunMergeExperiment(t, numClients, numWorkers, "baseline", operations, correctOrder)
+	})
 
 	t.Run("single-channel", func(t *testing.T) {
 		RunMergeExperiment(t, numClients, numWorkers, "single-channel", operations, correctOrder)

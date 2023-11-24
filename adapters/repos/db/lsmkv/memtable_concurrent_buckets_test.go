@@ -15,12 +15,10 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-type bucketFunc func(*Bucket, []byte, uint64) error
-
 type Request struct {
 	key        []byte
 	value      uint64
-	operation  bucketFunc
+	operation  string
 	ResponseCh chan Response
 }
 
@@ -53,32 +51,30 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 	})
 }
 
-func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([][]*roaringset.BinarySearchNode, Times) {
+func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([]*roaringset.BinarySearchNode, Times) {
 
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
 		numChannels = 1
 	}
 
+	path := t.TempDir()
+	strategy := StrategyRoaringSet
+
+	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	times := Times{}
 	startTime := time.Now()
 
 	var wgClients sync.WaitGroup
-	var wgWorkers sync.WaitGroup
 
 	requestsChannels := make([]chan Request, numChannels)
-	responseChannels := make([]chan []*roaringset.BinarySearchNode, numWorkers)
 
 	for i := 0; i < numChannels; i++ {
 		requestsChannels[i] = make(chan Request)
-	}
-
-	// Start worker goroutines
-	wgWorkers.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		dirName := t.TempDir()
-		responseChannels[i] = make(chan []*roaringset.BinarySearchNode)
-		go worker(i, dirName, requestsChannels[i%numChannels], responseChannels[i], &wgWorkers)
 	}
 
 	times.Setup = int(time.Since(startTime).Milliseconds())
@@ -87,21 +83,14 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	// Start client goroutines
 	wgClients.Add(numClients)
 	for i := 0; i < numClients; i++ {
-		go client(i, numWorkers, operations[i], requestsChannels, &wgClients, workerAssignment)
+		go client(i, numWorkers, operations[i], m, &wgClients, workerAssignment)
 	}
 
 	wgClients.Wait() // Wait for all clients to finish
 	for _, ch := range requestsChannels {
 		close(ch)
 	}
-
-	buckets := make([][]*roaringset.BinarySearchNode, numWorkers)
-	for i := 0; i < numWorkers; i++ {
-		bucket := <-responseChannels[i]
-		buckets[i] = bucket
-	}
-
-	wgWorkers.Wait() // Wait for all workers to finish
+	buckets := m.getNodesRoaringSet()
 
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	fmt.Println("Setup:", times.Setup)
@@ -122,12 +111,12 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 		operations[i] = make([]*Request, operationsPerClient)
 		keyIndex := rand.Intn(len(keys))
 		for j := 0; j < operationsPerClient; j++ {
-			var funct bucketFunc
+			var funct string
 
 			if rand.Intn(2) == 0 {
-				funct = func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetRemoveOne(key, value) }
+				funct = "ThreadedRoaringSetAddOne"
 			} else {
-				funct = func(b *Bucket, key []byte, value uint64) error { return b.RoaringSetRemoveOne(key, value) }
+				funct = "ThreadedRoaringSetRemoveOne"
 			}
 			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j), operation: funct}
 			operationsPerKey[string(keys[keyIndex])]++
@@ -149,8 +138,13 @@ func worker(id int, dirName string, requests <-chan Request, response chan<- []*
 		WithStrategy(StrategyRoaringSet))
 
 	for req := range requests {
-		err := req.operation(b, req.key, req.value)
-		req.ResponseCh <- Response{Error: err}
+		if req.operation == "ThreadedRoaringSetAddOne" {
+			err := b.RoaringSetAddOne(req.key, req.value)
+			req.ResponseCh <- Response{Error: err}
+		} else if req.operation == "ThreadedRoaringSetRemoveOne" {
+			err := b.RoaringSetRemoveOne(req.key, req.value)
+			req.ResponseCh <- Response{Error: err}
+		}
 
 	}
 	// Grab the nodes and send them back for further merging
@@ -168,33 +162,20 @@ func hashKey(key []byte, numWorkers int) int {
 	return int(hasher.Sum32()) % numWorkers
 }
 
-func client(i int, numWorkers int, threadOperations []*Request, requests []chan Request, wg *sync.WaitGroup, workerAssignment string) {
+func client(i int, numWorkers int, threadOperations []*Request, m *MemtableThreaded, wg *sync.WaitGroup, workerAssignment string) {
 	defer wg.Done()
 
-	responseCh := make(chan Response)
-
 	for j := 0; j < len(threadOperations); j++ {
-
-		workerID := 0
-		if workerAssignment == "single-channel" {
-			workerID = 0
-		} else if workerAssignment == "random" {
-			workerID = rand.Intn(numWorkers)
-		} else if workerAssignment == "round-robin" {
-			workerID = i % numWorkers
-		} else if workerAssignment == "hash" {
-			workerID = hashKey(threadOperations[j].key, numWorkers)
-		} else {
-			panic("invalid worker assignment")
-		}
-
-		operationWithChannel := Request{key: threadOperations[j].key, value: threadOperations[j].value, operation: threadOperations[j].operation, ResponseCh: responseCh}
-		requests[workerID] <- operationWithChannel
-
-		err := <-responseCh
-
-		if err.Error != nil {
-			fmt.Printf("err: %v", err)
+		if threadOperations[j].operation == "ThreadedRoaringSetAddOne" {
+			err := m.roaringSetAddOne(threadOperations[j].key, threadOperations[j].value)
+			if err != nil {
+				panic(err)
+			}
+		} else if threadOperations[j].operation == "ThreadedRoaringSetRemoveOne" {
+			err := m.roaringSetRemoveOne(threadOperations[j].key, threadOperations[j].value)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 }

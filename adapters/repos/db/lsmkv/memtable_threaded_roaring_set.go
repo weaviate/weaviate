@@ -12,16 +12,27 @@
 package lsmkv
 
 import (
+	"bytes"
+	"fmt"
 	"math/rand"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
 func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) ThreadedBitmapResponse {
-	if data.key == nil {
-		return ThreadedBitmapResponse{error: errors.Errorf("key is nil")}
+	if data.operationName == "ThreadedRoaringSetFlattenInOrder" {
+		// send request to all workers
+		var nodes [][]*roaringset.BinarySearchNode
+		for _, channel := range m.requestsChannels {
+			responseChannel := make(chan ThreadedBitmapResponse)
+			data.response = responseChannel
+			channel <- data
+			response := <-responseChannel
+			nodes = append(nodes, response.nodes)
+		}
+		merged, err := mergeRoaringSets(nodes)
+		return ThreadedBitmapResponse{nodes: merged, error: err}
 	}
 	key := data.key
 	workerID := 0
@@ -45,9 +56,10 @@ func (m *MemtableThreaded) roaringSetAddOne(key []byte, value uint64) error {
 		return m.baseline.roaringSetAddOne(key, value)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetAddOne,
-			key:       key,
-			value:     value,
+			operation:     ThreadedRoaringSetAddOne,
+			operationName: "ThreadedRoaringSetAddOne",
+			key:           key,
+			value:         value,
 		})
 		return output.error
 	}
@@ -59,9 +71,10 @@ func (m *MemtableThreaded) roaringSetAddList(key []byte, values []uint64) error 
 		return m.baseline.roaringSetAddList(key, values)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetAddList,
-			key:       key,
-			values:    values,
+			operation:     ThreadedRoaringSetAddList,
+			operationName: "ThreadedRoaringSetAddList",
+			key:           key,
+			values:        values,
 		})
 		return output.error
 	}
@@ -72,9 +85,10 @@ func (m *MemtableThreaded) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) err
 		return m.baseline.roaringSetAddBitmap(key, bm)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetAddBitmap,
-			key:       key,
-			bm:        bm,
+			operation:     ThreadedRoaringSetAddBitmap,
+			operationName: "ThreadedRoaringSetAddBitmap",
+			key:           key,
+			bm:            bm,
 		})
 		return output.error
 	}
@@ -83,8 +97,16 @@ func (m *MemtableThreaded) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) err
 func (m *MemtableThreaded) roaringSetRemoveOne(key []byte, value uint64) error {
 	if m.baseline != nil {
 		return m.baseline.roaringSetRemoveOne(key, value)
+	} else {
+		output := m.roaringOperation(ThreadedBitmapRequest{
+			operation:     ThreadedRoaringSetRemoveOne,
+			operationName: "ThreadedRoaringSetRemoveOne",
+			key:           key,
+			value:         value,
+		})
+		return output.error
 	}
-	return errors.Errorf("baseline is nil")
+
 }
 
 func (m *MemtableThreaded) roaringSetRemoveList(key []byte, values []uint64) error {
@@ -92,9 +114,10 @@ func (m *MemtableThreaded) roaringSetRemoveList(key []byte, values []uint64) err
 		return m.baseline.roaringSetRemoveList(key, values)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetRemoveList,
-			key:       key,
-			values:    values,
+			operation:     ThreadedRoaringSetRemoveList,
+			operationName: "ThreadedRoaringSetRemoveList",
+			key:           key,
+			values:        values,
 		})
 		return output.error
 	}
@@ -105,9 +128,10 @@ func (m *MemtableThreaded) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) 
 		return m.baseline.roaringSetRemoveBitmap(key, bm)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetRemoveBitmap,
-			key:       key,
-			bm:        bm,
+			operation:     ThreadedRoaringSetRemoveBitmap,
+			operationName: "ThreadedRoaringSetRemoveBitmap",
+			key:           key,
+			bm:            bm,
 		})
 		return output.error
 	}
@@ -118,10 +142,11 @@ func (m *MemtableThreaded) roaringSetAddRemoveBitmaps(key []byte, additions *sro
 		return m.baseline.roaringSetAddRemoveBitmaps(key, additions, deletions)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetAddRemoveBitmaps,
-			key:       key,
-			additions: additions,
-			deletions: deletions,
+			operation:     ThreadedRoaringSetAddRemoveBitmaps,
+			operationName: "ThreadedRoaringSetAddRemoveBitmaps",
+			key:           key,
+			additions:     additions,
+			deletions:     deletions,
 		})
 		return output.error
 	}
@@ -132,8 +157,9 @@ func (m *MemtableThreaded) roaringSetGet(key []byte) (roaringset.BitmapLayer, er
 		return m.baseline.roaringSetGet(key)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation: ThreadedRoaringSetGet,
-			key:       key,
+			operation:     ThreadedRoaringSetGet,
+			operationName: "ThreadedRoaringSetGet",
+			key:           key,
 		})
 		return output.bitmap, output.error
 	}
@@ -143,9 +169,7 @@ func (m *MemtableThreaded) roaringSetAdjustMeta(entriesChanged int) {
 	if m.baseline != nil {
 		m.baseline.roaringSetAdjustMeta(entriesChanged)
 	} else {
-		for _, channel := range m.responseChannels {
-			channel <- nil
-		}
+
 	}
 }
 
@@ -155,4 +179,43 @@ func (m *MemtableThreaded) roaringSetAddCommitLog(key []byte, additions *sroar.B
 	} else {
 		return nil
 	}
+}
+
+func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset.BinarySearchNode, error) {
+	numBuckets := len(metaNodes)
+	indices := make([]int, numBuckets)
+	totalSize := 0
+	for i := 0; i < numBuckets; i++ {
+		totalSize += len(metaNodes[i])
+	}
+
+	flat := make([]*roaringset.BinarySearchNode, totalSize)
+	mergedNodesIndex := 0
+
+	for {
+		var smallestNode *roaringset.BinarySearchNode
+		var smallestNodeIndex int
+		for i := 0; i < numBuckets; i++ {
+			index := indices[i]
+			if index < len(metaNodes[i]) {
+				if smallestNode == nil || bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) < 0 {
+					smallestNode = metaNodes[i][index]
+					smallestNodeIndex = i
+				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].Key, smallestNode.Key) {
+					smallestNode.Value.Additions.Or(metaNodes[i][index].Value.Additions)
+					smallestNode.Value.Deletions.Or(metaNodes[i][index].Value.Deletions)
+					indices[i]++
+				}
+			}
+		}
+		if smallestNode == nil {
+			break
+		}
+		flat[mergedNodesIndex] = smallestNode
+		mergedNodesIndex++
+		indices[smallestNodeIndex]++
+	}
+
+	fmt.Printf("Merged %d nodes into %d nodes", totalSize, mergedNodesIndex)
+	return flat[:mergedNodesIndex], nil
 }

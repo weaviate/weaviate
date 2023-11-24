@@ -3,18 +3,15 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"runtime"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func TestMemtableConcurrentMerge(t *testing.T) {
@@ -44,21 +41,18 @@ func TestMemtableConcurrentMerge(t *testing.T) {
 	})
 }
 
-func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) [][]*roaringset.BinarySearchNode {
+func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) []*roaringset.BinarySearchNode {
 
-	buckets, times := RunExperiment(t, numClients, numWorkers, workerAssignment, operations)
+	nodes, times := RunExperiment(t, numClients, numWorkers, workerAssignment, operations)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 
 	//dirName := "multi_thread/segment"
 	dirName := t.TempDir()
 	startTime := time.Now()
-	nodes, err := mergeRoaringSets(buckets, t)
 
-	times.Merge = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
 
-	require.Nil(t, err)
 	require.Nil(t, writeBucket(nodes, dirName))
 
 	times.Shutdown = int(time.Since(startTime).Milliseconds())
@@ -77,7 +71,7 @@ func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssi
 
 	fmt.Println("\tCompare buckets:", int(time.Since(compareTime).Milliseconds()))
 
-	return buckets
+	return nodes
 }
 
 func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.BinarySearchNode, error) {
@@ -85,12 +79,9 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 	times := Times{}
 	startTime := time.Now()
 
-	ctx := context.Background()
 	//dirName := "single_thread"
 	dirName := t.TempDir()
-	b, _ := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyRoaringSet))
+	m, _ := newMemtable(dirName, StrategyRoaringSet, 0, nil)
 
 	times.Setup = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
@@ -107,15 +98,20 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 			if i >= len(operations[j]) {
 				continue
 			}
-			err := operations[j][i].operation(b, operations[j][i].key, operations[j][i].value)
-			require.Nil(t, err)
+			if operations[j][i].operation == "ThreadedRoaringSetAddOne" {
+				err := m.roaringSetAddOne(operations[j][i].key, operations[j][i].value)
+				require.Nil(t, err)
+			} else if operations[j][i].operation == "ThreadedRoaringSetRemoveOne" {
+				err := m.roaringSetRemoveOne(operations[j][i].key, operations[j][i].value)
+				require.Nil(t, err)
+			}
 		}
 	}
 
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
 
-	nodes := b.active.RoaringSet().FlattenInOrder()
+	nodes := m.RoaringSet().FlattenInOrder()
 
 	times.Flatten = int(time.Since(startTime).Milliseconds())
 
@@ -123,11 +119,6 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 	fmt.Println("\tSetup:", times.Setup)
 	fmt.Println("\tInsert:", times.Insert)
 	fmt.Println("\tFlatten:", times.Flatten)
-
-	err := b.Shutdown(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	return nodes, nil
 }
@@ -158,45 +149,6 @@ func compareBuckets(b1 []*roaringset.BinarySearchNode, b2 []*roaringset.BinarySe
 
 	}
 	return true
-}
-
-func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode, t *testing.T) ([]*roaringset.BinarySearchNode, error) {
-	numBuckets := len(metaNodes)
-	indices := make([]int, numBuckets)
-	totalSize := 0
-	for i := 0; i < numBuckets; i++ {
-		totalSize += len(metaNodes[i])
-	}
-
-	flat := make([]*roaringset.BinarySearchNode, totalSize)
-	mergedNodesIndex := 0
-
-	for {
-		var smallestNode *roaringset.BinarySearchNode
-		var smallestNodeIndex int
-		for i := 0; i < numBuckets; i++ {
-			index := indices[i]
-			if index < len(metaNodes[i]) {
-				if smallestNode == nil || bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) < 0 {
-					smallestNode = metaNodes[i][index]
-					smallestNodeIndex = i
-				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].Key, smallestNode.Key) {
-					smallestNode.Value.Additions.Or(metaNodes[i][index].Value.Additions)
-					smallestNode.Value.Deletions.Or(metaNodes[i][index].Value.Deletions)
-					indices[i]++
-				}
-			}
-		}
-		if smallestNode == nil {
-			break
-		}
-		flat[mergedNodesIndex] = smallestNode
-		mergedNodesIndex++
-		indices[smallestNodeIndex]++
-	}
-
-	fmt.Printf("Merged %d nodes into %d nodes", totalSize, mergedNodesIndex)
-	return flat[:mergedNodesIndex], nil
 }
 
 func writeBucket(flat []*roaringset.BinarySearchNode, path string) error {
