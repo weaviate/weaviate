@@ -308,6 +308,14 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+	config.GRPC.CertFile = ""
+	if v := os.Getenv("GRPC_CERT_FILE"); v != "" {
+		config.GRPC.CertFile = v
+	}
+	config.GRPC.KeyFile = ""
+	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
+		config.GRPC.KeyFile = v
+	}
 
 	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
 
