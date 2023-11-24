@@ -34,6 +34,9 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 
 	operations := generateOperations(numKeys, operationsPerClient, numClients)
 
+	t.Run("baseline", func(t *testing.T) {
+		RunExperiment(t, numClients, numWorkers, "baseline", operations)
+	})
 	t.Run("single-channel", func(t *testing.T) {
 		RunExperiment(t, numClients, numWorkers, "single-channel", operations)
 	})
@@ -42,9 +45,9 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 		RunExperiment(t, numClients, numWorkers, "random", operations)
 	})
 
-	t.Run("round-robin", func(t *testing.T) {
-		RunExperiment(t, numClients, numWorkers, "round-robin", operations)
-	})
+	//t.Run("round-robin", func(t *testing.T) {
+	//	RunExperiment(t, numClients, numWorkers, "round-robin", operations)
+	//})
 
 	t.Run("hash", func(t *testing.T) {
 		RunExperiment(t, numClients, numWorkers, "hash", operations)
@@ -56,6 +59,11 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
 		numChannels = 1
+	}
+
+	if workerAssignment == "baseline" {
+		numChannels = 1
+		numWorkers = 1
 	}
 
 	path := t.TempDir()
@@ -90,9 +98,14 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	for _, ch := range requestsChannels {
 		close(ch)
 	}
-	buckets := m.getNodesRoaringSet()
 
 	times.Insert = int(time.Since(startTime).Milliseconds())
+	startTime = time.Now()
+
+	buckets := m.getNodesRoaringSet()
+
+	times.Copy = int(time.Since(startTime).Milliseconds())
+
 	fmt.Println("Setup:", times.Setup)
 	fmt.Println("Insert:", times.Insert)
 

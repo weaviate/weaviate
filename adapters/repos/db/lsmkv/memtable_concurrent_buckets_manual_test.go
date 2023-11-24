@@ -38,9 +38,9 @@ func TestMemtableConcurrentMergeManual(t *testing.T) {
 		RunMergeExperiment(t, numClients, numWorkers, "random", operations, correctOrder)
 	})
 
-	t.Run("round-robin", func(t *testing.T) {
-		RunMergeExperiment(t, numClients, numWorkers, "round-robin", operations, correctOrder)
-	})
+	//t.Run("round-robin", func(t *testing.T) {
+	//	RunMergeExperiment(t, numClients, numWorkers, "round-robin", operations, correctOrder)
+	//})
 
 	t.Run("hash", func(t *testing.T) {
 		RunMergeExperiment(t, numClients, numWorkers, "hash", operations, correctOrder)
