@@ -294,6 +294,10 @@ func (s *Shard) reinit(ctx context.Context) error {
 			s.index.vectorIndexUserConfig)
 	}
 
+	if err := s.initNonVector(ctx, nil); err != nil {
+		return fmt.Errorf("init non-vector: %w", err)
+	}
+
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
@@ -302,10 +306,6 @@ func (s *Shard) reinit(ctx context.Context) error {
 		}
 
 		defer s.vectorIndex.PostStartup()
-	}
-
-	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("init non-vector: %w", err)
 	}
 
 	return nil

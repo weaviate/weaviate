@@ -120,10 +120,10 @@ func (h *hnsw) restoreFromDisk() error {
 	h.shardedNodeLocks.LockAll()
 	h.nodes = state.Nodes
 	h.shardedNodeLocks.UnlockAll()
-	h.Unlock()
 
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
+	h.Unlock()
 
 	h.tombstoneLock.Lock()
 	h.tombstones = state.Tombstones
@@ -132,6 +132,8 @@ func (h *hnsw) restoreFromDisk() error {
 	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
+		h.dims = int32(state.PQData.Dimensions)
+
 		err := h.initCompressedStore()
 		if err != nil {
 			return err
@@ -153,6 +155,12 @@ func (h *hnsw) restoreFromDisk() error {
 	} else {
 		// make sure the cache fits the current size
 		h.cache.grow(uint64(len(h.nodes)))
+
+		if len(h.nodes) > 0 {
+			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
+				h.dims = int32(len(vec))
+			}
+		}
 	}
 
 	// make sure the visited list pool fits the current size
