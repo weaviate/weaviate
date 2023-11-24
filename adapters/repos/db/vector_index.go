@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -42,6 +43,8 @@ type VectorIndex interface {
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
+	PQDistancer(x []float32) *ssdhelpers.PQDistancer
+	ReturnDistancer(distancer *ssdhelpers.PQDistancer)
 	ShouldCompress() (bool, int)
 	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
 	Compressed() bool

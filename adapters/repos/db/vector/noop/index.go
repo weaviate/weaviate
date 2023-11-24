@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -103,6 +104,12 @@ func (i *Index) Dump(labels ...string) {
 func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 	return 0, true, nil
 }
+
+func (i *Index) PQDistancer(x []float32) *ssdhelpers.PQDistancer {
+	return nil
+}
+
+func (i *Index) ReturnDistancer(distancer *ssdhelpers.PQDistancer) {}
 
 func (i *Index) ContainsNode(id uint64) bool {
 	return false

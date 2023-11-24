@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -893,6 +894,12 @@ func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, bool
 	}
 	return res, true, nil
 }
+
+func (m *mockBatchIndexer) PQDistancer(x []float32) *ssdhelpers.PQDistancer {
+	return nil
+}
+
+func (m *mockBatchIndexer) ReturnDistancer(distancer *ssdhelpers.PQDistancer) {}
 
 func (m *mockBatchIndexer) ContainsNode(id uint64) bool {
 	m.Lock()

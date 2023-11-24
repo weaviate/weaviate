@@ -712,6 +712,21 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 	return h.distancerProvider.SingleDist(x, y)
 }
 
+func (h *hnsw) PQDistancer(x []float32) *ssdhelpers.PQDistancer {
+	if !h.compressed.Load() {
+		return nil
+	}
+	compressed := h.pq.Encode(x)
+	return h.pq.NewDistancer(x, compressed)
+}
+
+func (h *hnsw) ReturnDistancer(distancer *ssdhelpers.PQDistancer) {
+	if !h.compressed.Load() {
+		return
+	}
+	h.pq.ReturnDistancer(distancer)
+}
+
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
 	defer h.RUnlock()

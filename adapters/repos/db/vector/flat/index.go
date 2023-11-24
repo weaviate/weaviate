@@ -516,6 +516,12 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	return index.distancerProvider.SingleDist(x, y)
 }
 
+func (index *flat) PQDistancer(x []float32) *ssdhelpers.PQDistancer {
+	return nil
+}
+
+func (index *flat) ReturnDistancer(distancer *ssdhelpers.PQDistancer) {}
+
 func (index *flat) ContainsNode(id uint64) bool {
 	return true
 }

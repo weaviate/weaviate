@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -105,6 +106,8 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	PQDistancer(x []float32) *ssdhelpers.PQDistancer
+	ReturnDistancer(distancer *ssdhelpers.PQDistancer)
 	ShouldCompress() (bool, int)
 	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
 	Compressed() bool
@@ -598,7 +601,25 @@ func (q *IndexQueue) resumeIndexing() {
 	q.Logger.Debug("indexing resumed")
 }
 
+func (q *IndexQueue) distanceFromSnapshot(queryVec []float32, descriptor vectorDescriptor, pqDistancer *ssdhelpers.PQDistancer) (float32, error) {
+	if q.Index.Compressed() {
+		v := descriptor.compressed
+		dist, _, err := pqDistancer.Distance(v)
+		return dist, err
+	} else {
+		v := descriptor.vector
+		if q.Index.DistancerProvider().Type() == "cosine-dot" {
+			v = distancer.Normalize(v)
+		}
+
+		dist, _, err := q.Index.DistanceBetweenVectors(queryVec, v)
+		return dist, err
+	}
+}
+
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
+	pqDistancer := q.Index.PQDistancer(vector)
+	defer q.Index.ReturnDistancer(pqDistancer)
 	for i := range snapshot {
 		// skip indexed data
 		if _, ok := seen[snapshot[i].id]; ok {
@@ -610,14 +631,7 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 			continue
 		}
 
-		v := snapshot[i].vector
-		if q.Index.DistancerProvider().Type() == "cosine-dot" {
-			// cosine-dot requires normalized vectors, as the dot product and cosine
-			// similarity are only identical if the vector is normalized
-			v = distancer.Normalize(v)
-		}
-
-		dist, _, err := q.Index.DistanceBetweenVectors(vector, v)
+		dist, err := q.distanceFromSnapshot(vector, snapshot[i], pqDistancer)
 		if err != nil {
 			return err
 		}
