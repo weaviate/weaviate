@@ -242,7 +242,7 @@ func TestCreateRequestBody(t *testing.T) {
 
 	t.Run("Create request for Amazon embedding model", func(t *testing.T) {
 		model := "amazon.titan-e1t-medium"
-		req, _ := createRequestBody(model, input)
+		req, _ := createRequestBody(model, input, vectorizeObject)
 		_, ok := req.(bedrockEmbeddingsRequest)
 		if !ok {
 			t.Fatalf("Expected req to be a bedrockEmbeddingsRequest, got %T", req)
@@ -251,7 +251,7 @@ func TestCreateRequestBody(t *testing.T) {
 
 	t.Run("Create request for Cohere embedding model", func(t *testing.T) {
 		model := "cohere.embed-english-v3"
-		req, _ := createRequestBody(model, input)
+		req, _ := createRequestBody(model, input, vectorizeObject)
 		_, ok := req.(bedrockCohereEmbeddingRequest)
 		if !ok {
 			t.Fatalf("Expected req to be a bedrockCohereEmbeddingRequest, got %T", req)
@@ -260,7 +260,7 @@ func TestCreateRequestBody(t *testing.T) {
 
 	t.Run("Create request for unknown embedding model", func(t *testing.T) {
 		model := "unknown.model"
-		_, err := createRequestBody(model, input)
+		_, err := createRequestBody(model, input, vectorizeObject)
 		if err == nil {
 			t.Errorf("Expected an error for unknown model, got nil")
 		}
