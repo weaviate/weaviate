@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/hashicorp/raft"
 )
@@ -27,7 +26,6 @@ type snapshot struct {
 }
 
 func (s *schema) Restore(r io.Reader) error {
-	log.Println("restoring snapshot")
 	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %v", err)
@@ -52,10 +50,17 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 		return fmt.Errorf("encode: %w", err)
 	}
 
-	log.Printf("snapshot persistence completed successfully: %s\n", sink.ID())
 	return nil
 }
 
 // Release is invoked when we are finished with the snapshot.
 func (s *schema) Release() {
+}
+
+func snapshotIndex(ss *raft.FileSnapshotStore) uint64 {
+	ls, err := ss.List()
+	if err != nil || len(ls) == 0 {
+		return 0
+	}
+	return ls[0].Index
 }
