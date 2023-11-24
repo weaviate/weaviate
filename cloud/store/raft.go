@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -45,7 +44,7 @@ const (
 
 // Open opens this store and marked as such.
 func (st *Store) Open(loadDB func() error) (err error) {
-	fmt.Println("bootstrapping started")
+	st.log.Info("bootstrapping started")
 	if st.open.Load() { // store already opened
 		return nil
 	}
@@ -76,21 +75,23 @@ func (st *Store) Open(loadDB func() error) (err error) {
 	address := fmt.Sprintf("%s:%d", st.host, st.raftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
-		return fmt.Errorf("net.ResolveTCPAddr address=%v error=%w", address, err)
+		return fmt.Errorf("net.ResolveTCPAddr address=%v: %w", address, err)
 	}
 
 	transport, err := raft.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
-	log.Printf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v\n", address, tcpAddr, tcpMaxPool, tcpTimeout)
+
+	st.log.Info("raft tcp transport", "address", address, "tcpMaxPool", tcpMaxPool, "tcpTimeout", tcpTimeout)
 
 	rLog := rLog{logStore}
 	st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
-	if st.initialLastAppliedIndex == 0 {
+
+	if st.initialLastAppliedIndex == snapshotIndex(snapshotStore) {
 		st.loadDatabase()
 	}
 
@@ -100,7 +101,8 @@ func (st *Store) Open(loadDB func() error) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
 
-	log.Printf("starting raft applied_index %d last_index %d %d\n", st.raft.AppliedIndex(), st.raft.LastIndex(), st.initialLastAppliedIndex)
+	st.log.Info("starting raft", "applied_index", st.raft.AppliedIndex(), "last_index",
+		st.raft.LastIndex(), "last_log_index", st.initialLastAppliedIndex)
 
 	go func() {
 		lastLeader := "Unknown"
@@ -110,8 +112,7 @@ func (st *Store) Open(loadDB func() error) (err error) {
 			leader := st.Leader()
 			if leader != lastLeader {
 				lastLeader = leader
-				log.Printf("Current Leader: %v\n", lastLeader)
-				// log.Printf("+%v", st.raft.Stats())
+				st.log.Info("current Leader", "address", lastLeader)
 			}
 		}
 	}()
@@ -123,23 +124,22 @@ func (st *Store) Open(loadDB func() error) (err error) {
 // It returns a value which will be made available in the
 // ApplyFuture returned by Raft.Apply method if that
 // method was called on the same Raft node as the FSM.
-
 func (st *Store) Apply(l *raft.Log) interface{} {
-	log.Println("apply", l.Type, l.Index) //, st.raft.AppliedIndex(), st.raft.LastIndex())
+	st.log.Debug("apply command", "type", l.Type, "index", l.Index)
 	if l.Type != raft.LogCommand {
-		log.Printf("%v is not a log command\n", l.Type)
+		st.log.Info("not a valid command", "type", l.Type, "index", l.Index)
 		return nil
 	}
 	ret := Response{}
 	cmd := command.ApplyRequest{}
 
 	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
-		log.Printf("apply: unmarshal command %v\n", err)
-		return nil
+		st.log.Error("decode command: ", "error", err.Error())
+		panic("error proto unmarshalling log data")
 	}
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
-		if l.Index >= st.initialLastAppliedIndex && !st.dbLoaded.Load() {
+		if l.Index >= st.initialLastAppliedIndex {
 			st.loadDatabase()
 		}
 	}()
@@ -147,8 +147,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS:
 		req := command.AddClassRequest{}
 		if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
-			log.Printf("unmarshal sub command: %v", err)
-			return Response{Error: err}
+			return Response{Error: fmt.Errorf("decode sub command: %w", err)}
 		}
 		if req.State == nil {
 			return fmt.Errorf("nil sharding state")
@@ -223,21 +222,21 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			return Response{Error: err}
 		}
 		if err := st.schema.deleteTenants(cmd.Class, req); err != nil {
-			log.Printf("delete tenants from class %q: %v", cmd.Class, err)
+			st.log.Error("delete tenants from class", "class", cmd.Class, "error", err)
 		}
 		if !schemaOnly {
 			st.db.DeleteTenants(cmd.Class, req)
 		}
 
 	default:
-		log.Printf("unknown command %v\n", &cmd)
+		st.log.Error("unknown command", "type", cmd.Type, "class", cmd.Class)
 	}
 
 	return ret
 }
 
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
-	log.Println("persisting snapshot")
+	st.log.Info("persisting snapshot")
 	return st.schema, nil
 }
 
@@ -245,18 +244,15 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 // concurrently with any other command. The FSM must discard all previous
 // state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
-	log.Println("restoring snapshot")
+	st.log.Info("restoring snapshot")
 	defer func() {
 		if err := rc.Close(); err != nil {
-			log.Printf("restore snapshot: close reader: %v\n", err)
+			st.log.Error("restore snapshot: close reader", "error", err)
 		}
 	}()
 
 	if err := st.schema.Restore(rc); err != nil {
 		return fmt.Errorf("restore snapshot: %w", err)
-	}
-	if !st.dbLoaded.Load() && st.initialLastAppliedIndex == st.raft.AppliedIndex() {
-		st.loadDatabase()
 	}
 
 	// TODO-RAFT START
@@ -313,7 +309,6 @@ func (st *Store) Remove(id string) error {
 // which includes this node.
 
 func (st *Store) Notify(id, addr string) (err error) {
-	log.Printf("received ntf from node=%v addr=%v \n", id, addr)
 	if !st.open.Load() {
 		return ErrNotOpen
 	}
@@ -327,7 +322,7 @@ func (st *Store) Notify(id, addr string) (err error) {
 
 	st.candidates[id] = addr
 	if len(st.candidates) < st.bootstrapExpect {
-		log.Printf("expected candidates %d has %d\n", st.bootstrapExpect, len(st.candidates))
+		st.log.Debug("number of candidates", "expect", st.bootstrapExpect, "got", st.candidates)
 		return nil
 	}
 	candidates := make([]raft.Server, 0, len(st.candidates))
@@ -342,9 +337,7 @@ func (st *Store) Notify(id, addr string) (err error) {
 		i++
 	}
 
-	log.Printf("starting bootstrapping with %d candidates\n", len(candidates))
-	log.Println(candidates)
-	log.Println("-----------------------------")
+	st.log.Info("starting bootstrapping", "candidates", candidates)
 
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
@@ -383,6 +376,7 @@ func (st *Store) raftConfig() (raft.Configuration, error) {
 }
 
 func (st *Store) configureRaft() *raft.Config {
+	// TODO-RAFT extend configuration
 	cfg := raft.DefaultConfig()
 	if st.raftHeartbeatTimeout != 0 {
 		cfg.HeartbeatTimeout = st.raftHeartbeatTimeout
@@ -391,19 +385,24 @@ func (st *Store) configureRaft() *raft.Config {
 		cfg.ElectionTimeout = st.raftElectionTimeout
 	}
 	cfg.LocalID = raft.ServerID(st.nodeID)
-	cfg.SnapshotThreshold = 250 // TODO remove
+	cfg.SnapshotThreshold = 1024
+	cfg.LogLevel = st.logLevel
 	return cfg
 }
 
 func (st *Store) loadDatabase() {
+	if st.dbLoaded.Load() {
+		return
+	}
 	for _, cls := range st.schema.Classes {
 		st.parser.ParseClass(&cls.Class)
 		cls.Sharding.SetLocalName(st.nodeID)
 	}
 
 	if err := st.loadDB(); err != nil {
-		log.Fatalf("could not restore database: %v", err)
+		st.log.Error("cannot restore database", "error", err.Error())
+		panic("error restoring database")
 	}
 	st.dbLoaded.Store(true)
-	log.Println("database has been successfully loaded")
+	st.log.Info("database has been successfully loaded")
 }
