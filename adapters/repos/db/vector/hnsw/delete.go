@@ -87,9 +87,9 @@ func (h *hnsw) Delete(ids ...uint64) error {
 
 func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	h.resetLock.Lock()
+	defer h.resetLock.Unlock()
 	h.Lock()
 	defer h.Unlock()
-	defer h.resetLock.Unlock()
 
 	empty = func() bool {
 		h.shardedNodeLocks.RLock(h.entryPointID)
@@ -97,7 +97,9 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 
 		return h.isEmptyUnlocked()
 	}()
-
+	// It can happen that between calls of isEmptyUnlocked and resetUnlocked
+	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
+	// This is acceptable in order to avoid long Locking of all striped locks
 	if empty {
 		h.shardedNodeLocks.LockAll()
 		defer h.shardedNodeLocks.UnlockAll()
@@ -109,17 +111,19 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 
 func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (onlyNode bool, err error) {
 	h.resetLock.Lock()
-	h.Lock()
 	defer h.resetLock.Unlock()
+	h.Lock()
 	defer h.Unlock()
 
 	onlyNode = func() bool {
-		h.shardedNodeLocks.LockAll()
-		defer h.shardedNodeLocks.UnlockAll()
+		h.shardedNodeLocks.RLockAll()
+		defer h.shardedNodeLocks.RUnlockAll()
 
 		return h.isOnlyNodeUnlocked(needle, denyList)
 	}()
-
+	// It can happen that between calls of isOnlyNodeUnlocked and resetUnlocked
+	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
+	// This is acceptable in order to avoid long Locking of all striped locks
 	if onlyNode {
 		h.shardedNodeLocks.LockAll()
 		defer h.shardedNodeLocks.UnlockAll()
