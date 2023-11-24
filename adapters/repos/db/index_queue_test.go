@@ -687,6 +687,29 @@ func TestIndexQueue(t *testing.T) {
 		err = index.UpdateUserConfig(uc, func() {})
 		require.Nil(t, err)
 	})
+
+	t.Run("sending batch with deleted ids to worker", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			t.Fatal("should not have been called")
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 100 * time.Second,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		pushVector(t, ctx, q, 0, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+
+		err = q.Delete(0, 1)
+		require.NoError(t, err)
+
+		q.pushToWorkers(-1, true)
+	})
 }
 
 func BenchmarkPush(b *testing.B) {

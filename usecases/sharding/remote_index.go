@@ -249,7 +249,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
 	replEnabled bool,
-) ([]*storobj.Object, []float32, error) {
+) ([]*storobj.Object, []float32, string, error) {
 	type pair struct {
 		first  []*storobj.Object
 		second []float32
@@ -262,12 +262,12 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 		}
 		return pair{objs, scores}, err
 	}
-	rr, err := ri.queryReplicas(ctx, shard, f)
+	rr, node, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, node, err
 	}
 	r := rr.(pair)
-	return r.first, r.second, err
+	return r.first, r.second, node, err
 }
 
 func (ri *RemoteIndex) Aggregate(
@@ -282,7 +282,7 @@ func (ri *RemoteIndex) Aggregate(
 		}
 		return r, nil
 	}
-	rr, err := ri.queryReplicas(ctx, shard, f)
+	rr, _, err := ri.queryReplicas(ctx, shard, f)
 	if err != nil {
 		return nil, err
 	}
@@ -369,34 +369,36 @@ func (ri *RemoteIndex) queryReplicas(
 	ctx context.Context,
 	shard string,
 	do func(nodeName, host string) (interface{}, error),
-) (resp interface{}, err error) {
-	nodes, err := ri.stateGetter.ShardReplicas(ri.class, shard)
-	if err != nil || len(nodes) == 0 {
-		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
+) (resp interface{}, node string, err error) {
+	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
+	if err != nil || len(replicas) == 0 {
+		return nil,
+			"",
+			fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
 	}
 
-	queryOne := func(node string) (interface{}, error) {
-		host, ok := ri.nodeResolver.NodeHostname(node)
+	queryOne := func(replica string) (interface{}, error) {
+		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
-			return nil, errors.Errorf("resolve node name %q to host", node)
+			return nil, errors.Errorf("resolve node name %q to host", replica)
 		}
-		return do(node, host)
+		return do(replica, host)
 	}
 
-	queryUntil := func(replicas []string) (resp interface{}, err error) {
-		for _, shard := range replicas {
+	queryUntil := func(replicas []string) (resp interface{}, node string, err error) {
+		for _, node = range replicas {
 			if errC := ctx.Err(); errC != nil {
-				return nil, errC
+				return nil, node, errC
 			}
-			if resp, err = queryOne(shard); err == nil {
-				return resp, nil
+			if resp, err = queryOne(node); err == nil {
+				return resp, node, nil
 			}
 		}
 		return
 	}
-	first := rand.Intn(len(nodes))
-	if resp, err = queryUntil(nodes[first:]); err != nil && first != 0 {
-		return queryUntil(nodes[:first])
+	first := rand.Intn(len(replicas))
+	if resp, node, err = queryUntil(replicas[first:]); err != nil && first != 0 {
+		return queryUntil(replicas[:first])
 	}
 	return
 }

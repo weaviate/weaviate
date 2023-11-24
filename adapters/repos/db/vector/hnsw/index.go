@@ -163,7 +163,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       common.VectorForID[float32]
-	shardedNodeLocks       shardedNodeLocks
+	shardedNodeLocks       *common.ShardedLocks
 }
 
 type CommitLogger interface {
@@ -265,7 +265,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     newShardedNodeLocks(),
+		shardedNodeLocks:     common.NewDefaultShardedLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -275,6 +275,10 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
+	if err := index.init(cfg); err != nil {
+		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
 	// TODO common_cycle_manager move to poststartup?
 	id := strings.Join([]string{
 		"hnsw", "tombstone_cleanup",
@@ -282,10 +286,6 @@ func New(cfg Config, uc ent.UserConfig,
 	}, "/")
 	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
-
-	if err := index.init(cfg); err != nil {
-		return nil, errors.Wrapf(err, "init index %q", index.id)
-	}
 
 	return index, nil
 }
