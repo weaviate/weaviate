@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -60,6 +61,7 @@ func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Sto
 	raftUrl := newRandomHostURL(t)
 	t.Logf("node: %s, nodeUrl: %s:%d", node, nodeUrl.host, nodeUrl.port)
 	t.Logf("raft: %s, raftUrl: %s:%d", node, raftUrl.host, raftUrl.port)
+	logger := slog.Default()
 
 	root := t.TempDir()
 	clusterstate := newFakeClusterState()
@@ -74,12 +76,14 @@ func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Sto
 		RaftHeartbeatTimeout: 500 * time.Millisecond,
 		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
 		BootstrapExpect:      1,
+		Logger:               logger,
+		LogLevel:             "info",
 	})
 	err := raftStore.Open(func() error { return nil })
 	require.Nil(t, err)
 
 	// Start a raft cluster using the created store
-	raftCluster := ctrans.NewCluster(&raftStore, clusterstate, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port))
+	raftCluster := ctrans.NewCluster(&raftStore, clusterstate, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port), logger)
 	err = raftCluster.Open()
 	require.Nil(t, err)
 
@@ -93,7 +97,7 @@ func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Sto
 	bootstrapCtx, bCancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer bCancel()
 	nodeBootstrapper := store.NewBootstrapper(clusterClient, node, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port))
-	err = nodeBootstrapper.Do(bootstrapCtx, []string{fmt.Sprintf("%s:%d", raftUrl.host, raftUrl.port)})
+	err = nodeBootstrapper.Do(bootstrapCtx, []string{fmt.Sprintf("%s:%d", raftUrl.host, raftUrl.port)}, logger)
 	require.Nil(t, err)
 
 	// Allow time to elect leader

@@ -14,7 +14,7 @@ package store
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"math/rand"
 	"time"
 
@@ -51,7 +51,7 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string) *Bootstrapper {
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, servers []string) error {
+func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger) error {
 	// TODO handle empty server list
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	defer ticker.Stop()
@@ -62,12 +62,12 @@ func (b *Bootstrapper) Do(ctx context.Context, servers []string) error {
 		case <-ticker.C:
 			// try to join an existing cluster
 			if leader, err := b.join(ctx, servers); err == nil {
-				log.Printf("successfully joined cluster with leader %v\n", leader)
+				lg.Info("successfully joined cluster", "leader", leader)
 				return nil
 			}
 			// notify other servers about readiness of this node to be joined
 			if err := b.notify(ctx, servers); err != nil {
-				log.Printf("notify all peers: %v: %v", servers, err)
+				lg.Error("notify all peers", "servers", servers, "err", err)
 			}
 		}
 	}
