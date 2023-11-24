@@ -151,6 +151,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			index.vectorIndexUserConfig)
 	}
 
+	if err := s.initNonVector(ctx, class); err != nil {
+		return nil, errors.Wrapf(err, "init shard %q", s.ID())
+	}
+
 	if hnswUserConfig.Skip {
 		s.vectorIndex = noop.NewIndex()
 	} else {
@@ -159,10 +163,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 
 		defer s.vectorIndex.PostStartup()
-	}
-
-	if err := s.initNonVector(ctx, class); err != nil {
-		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
 	var err error
