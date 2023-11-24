@@ -15,7 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -60,8 +60,10 @@ type Config struct {
 	RaftHeartbeatTimeout time.Duration
 	RaftElectionTimeout  time.Duration
 
-	DB     DB
-	Parser Parser
+	DB       DB
+	Parser   Parser
+	Logger   *slog.Logger
+	LogLevel string
 }
 
 type Store struct {
@@ -75,11 +77,13 @@ type Store struct {
 	raftElectionTimeout  time.Duration
 	raftApplyTimeout     time.Duration
 
-	nodeID string
-	host   string
-	schema *schema
-	db     DB
-	parser Parser
+	nodeID   string
+	host     string
+	schema   *schema
+	db       DB
+	parser   Parser
+	log      *slog.Logger
+	logLevel string
 
 	bootstrapped atomic.Bool
 
@@ -108,6 +112,8 @@ func New(cfg Config) Store {
 		schema:               NewSchema(cfg.NodeID, cfg.DB),
 		db:                   cfg.DB,
 		parser:               cfg.Parser,
+		log:                  cfg.Logger,
+		logLevel:             cfg.LogLevel,
 	}
 }
 
@@ -117,7 +123,7 @@ func (f *Store) SetDB(db DB) {
 }
 
 func (st *Store) Execute(req *cmd.ApplyRequest) error {
-	log.Printf("server apply: %s %+v\n", req.Type, req.Class)
+	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
 
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
@@ -148,7 +154,7 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 			if st.dbLoaded.Load() {
 				return nil
 			} else {
-				log.Println("waiting for database to be restored")
+				st.log.Info("waiting for database to be restored")
 			}
 		}
 	}
