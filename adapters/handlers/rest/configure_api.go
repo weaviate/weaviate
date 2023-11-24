@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -218,14 +219,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
 	schemaTxPersistence := txstore.NewStore(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	// schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
-	// if err := schemaTxPersistence.Open(); err != nil {
-	// 	appState.Logger.
-	// 		WithField("action", "startup").WithError(err).
-	// 		Fatal("could not open tx repo")
-	// 	os.Exit(1)
-
-	// }
 
 	// TODO-RAFT START
 	//
@@ -246,11 +239,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 		BootstrapExpect: appState.ServerConfig.Config.Raft.BootstrapExpect,
 		DB:              nil,
 		Parser:          schema.NewParser(appState.Cluster, enthnsw.ParseAndValidateConfig),
+		Logger:          sLogger(),
+		LogLevel:        logLevel(),
 	}
 
 	fsm := schemav2.New(rConfig)
 	appState.MetaStore = schemav2.NewService(&fsm, cl)
-	cluster := ctrans.NewCluster(&fsm, appState.MetaStore, rpcAddr)
+	cluster := ctrans.NewCluster(&fsm, appState.MetaStore, rpcAddr, rConfig.Logger)
 	if err := cluster.Open(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
@@ -300,12 +295,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 
 	// TODO-RAFT START
 
-	candidateList, err := resolveRaftAddresses(appState)
-	if err != nil {
+	candidateList := resolveRaftAddresses(appState)
+	if len(candidateList) == 0 {
 		appState.Logger.
 			WithField("action", "startup").
+			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
 			WithError(err).
-			Fatal("cannot resolve raft addresses using memberlist")
+			Fatal("cannot resolve raft addresses using member list")
 	}
 
 	err = fsm.Open(func() error { return vectorRepo.WaitForStartup(ctx) })
@@ -317,11 +313,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	}
 
 	bs := schemav2.NewBootstrapper(cl, nodeName, raftAddr)
-	bCtx, bCancel := context.WithTimeout(ctx, time.Second*60)
+	bTimeout := time.Second * 60
+	bCtx, bCancel := context.WithTimeout(ctx, bTimeout)
 	defer bCancel()
-	if err := bs.Do(bCtx, candidateList); err != nil {
+	if err := bs.Do(bCtx, candidateList, rConfig.Logger); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
+			WithField("timeout", bTimeout).
 			WithError(err).
 			Fatal("could not open fsm store")
 	}
@@ -434,7 +432,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 // resolveRaftAddresses try to resolve as many addresses as possible
 // It iterate over Config.Raft.Join and resolve their names
 // The return slice might contain less the addresses
-func resolveRaftAddresses(appState *state.State) ([]string, error) {
+func resolveRaftAddresses(appState *state.State) []string {
 	node2port := make(map[string]string, len(appState.ServerConfig.Config.Raft.Join))
 	candidates := make([]string, 0, len(appState.ServerConfig.Config.Raft.Join))
 	for _, raftNamePort := range appState.ServerConfig.Config.Raft.Join {
@@ -452,7 +450,7 @@ func resolveRaftAddresses(appState *state.State) ([]string, error) {
 		}
 		candidates = append(candidates, strings.Split(gHostPort, ":")[0]+":"+raftPort)
 	}
-	return candidates, nil
+	return candidates
 }
 
 func configureAPI(api *operations.WeaviateAPI, isLocalhost bool) http.Handler {
@@ -593,50 +591,8 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 			Error("could not init cluster state")
 		logger.Exit(1)
 	}
-	//
 
 	appState.Cluster = clusterState
-	//----  TODO-RAFT REMOVE
-	// fmt.Println(schemaUC2.Handler{})
-	// nodeName := clusterState.LocalName()
-	// nodeAddr, _ := clusterState.NodeHostname(nodeName)
-	// addrs := strings.Split(nodeAddr, ":")
-
-	// rconfig := schemav2.Config{
-	// 	WorkDir:  filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
-	// 	NodeID:   clusterState.LocalName(),
-	// 	Host:     addrs[0],
-	// 	RaftPort: "1" + addrs[1],
-	// }
-	// fsm := schemav2.New(rconfig)
-	// boostrapper := addrs[1] == "7101"
-	// candidateList := []schemav2.Candidate{
-	// 	{ID: "node3", Address: addrs[0] + ":17105", NonVoter: false},
-	// 	{ID: "node4", Address: addrs[0] + ":17107", NonVoter: false},
-	// }
-	// raftNode, err := fsm.Open(boostrapper, candidateList)
-	// if err != nil {
-	// 	fmt.Printf("fsm.open %v", err.Error())
-	// 	os.Exit(1)
-	// }
-	// cAddr := addrs[0] + ":2" + addrs[1]
-	// cluster := schemav2.NewCluster(raftNode, cAddr)
-	// if err := cluster.Open(); err != nil {
-	// 	fmt.Printf("cluster.open %v", err.Error())
-	// 	os.Exit(1)
-	// }
-	// if !boostrapper {
-	// 	serverAddress := addrs[0] + ":2" + "7101"
-	// 	raftAddress := addrs[0] + ":1" + addrs[1]
-	// 	cl := schemav2.NewClient(cluster)
-	// 	joinReq := proto.JoinPeerRequest{Id: nodeName, Address: raftAddress, Voter: true}
-	// 	err := cl.Join(serverAddress, &joinReq)
-	// 	if err != nil {
-	// 		fmt.Printf("cluster.join %v", err.Error())
-	// 		os.Exit(1)
-	// 	}
-	// }
-	//-------
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
@@ -665,6 +621,40 @@ func logger() *logrus.Logger {
 	}
 
 	return logger
+}
+
+// sLogger returns an initialized standard logger
+// This logger should replace logrus in future
+func sLogger() *slog.Logger {
+	opts := slog.HandlerOptions{}
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug":
+		opts.Level = slog.LevelDebug
+	case "warn":
+		opts.Level = slog.LevelWarn
+	case "error":
+		opts.Level = slog.LevelError
+	default:
+		opts.Level = slog.LevelInfo
+	}
+
+	var handler slog.Handler
+	if os.Getenv("LOG_FORMAT") == "text" {
+		handler = slog.NewTextHandler(os.Stderr, &opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stderr, &opts)
+	}
+
+	return slog.New(handler)
+}
+
+func logLevel() string {
+	switch level := os.Getenv("LOG_LEVEL"); level {
+	case "trace", "debug", "warn", "error":
+		return level
+	default:
+		return "info"
+	}
 }
 
 type dummyLock struct{}
