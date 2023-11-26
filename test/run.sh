@@ -24,7 +24,7 @@ function main() {
               "Options:"\
               "--acceptance-only"\
               "--unit-and-integration-only"\
-              "--unit-only-integration-only" \
+              "--integration-only" \
               "--benchmark-only" \
               "--acceptance-module-tests-only"\
               "--help|-h"; exit 1;;
