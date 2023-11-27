@@ -1131,27 +1131,32 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		shardName := shardName
 
 		eg.Go(func() error {
-			var objs []*storobj.Object
-			var scores []float32
-			var err error
+			var (
+				objs     []*storobj.Object
+				scores   []float32
+				nodeName string
+				err      error
+			)
 
 			if shard := i.localShard(shardName); shard != nil {
+				nodeName = i.getSchema.NodeName()
 				objs, scores, err = shard.objectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 				if err != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
 				}
-				if i.replicationEnabled() {
-					storobj.AddOwnership(objs, i.getSchema.NodeName(), shardName)
-				}
 			} else {
-				objs, scores, err = i.remote.SearchShard(
+				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
+			}
+
+			if i.replicationEnabled() {
+				storobj.AddOwnership(objs, nodeName, shardName)
 			}
 
 			shardResultLock.Lock()
@@ -1300,26 +1305,31 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	for _, shardName := range shardNames {
 		shardName := shardName
 		eg.Go(func() error {
-			var res []*storobj.Object
-			var resDists []float32
-			var err error
+			var (
+				res      []*storobj.Object
+				resDists []float32
+				nodeName string
+				err      error
+			)
 
 			if shard := i.localShard(shardName); shard != nil {
+				nodeName = i.getSchema.NodeName()
 				res, resDists, err = shard.objectVectorSearch(
 					ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
-				if i.replicationEnabled() {
-					storobj.AddOwnership(res, i.getSchema.NodeName(), shardName)
-				}
+
 			} else {
-				res, resDists, err = i.remote.SearchShard(ctx,
+				res, resDists, nodeName, err = i.remote.SearchShard(ctx,
 					shardName, searchVector, limit, filters,
 					nil, sort, nil, groupBy, additional, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
+			}
+			if i.replicationEnabled() {
+				storobj.AddOwnership(res, nodeName, shardName)
 			}
 
 			m.Lock()
