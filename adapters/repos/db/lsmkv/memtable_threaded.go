@@ -166,7 +166,7 @@ func newMemtableThreaded(path string, strategy string,
 func newMemtableThreadedDebug(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics, workerAssignment string,
 ) (*MemtableThreaded, error) {
-	if workerAssignment == "baseline" {
+	if workerAssignment == "baseline" || strategy != StrategyRoaringSet {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
 
 		if err != nil {
@@ -197,7 +197,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 		// Start worker goroutines
 		wgWorkers.Add(numWorkers)
 		for i := 0; i < numWorkers; i++ {
-			dirName := path
+			dirName := path + fmt.Sprintf("_%d", i)
 			go threadWorker(i, dirName, requestsChannels[i%numChannels], &wgWorkers, strategy)
 		}
 
