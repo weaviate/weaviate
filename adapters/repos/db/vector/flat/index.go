@@ -86,7 +86,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		bqCache:           bqCache,
 	}
 	index.initBuckets(context.Background())
-	if uc.BQ.Enabled && uc.VectorCache {
+	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
@@ -124,9 +124,9 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 	compression := extractCompression(uc)
 	switch compression {
 	case compressionPQ:
-		return int64(uc.PQ.Rescore)
+		return int64(uc.PQ.RescoreLimit)
 	case compressionBQ:
-		return int64(uc.BQ.Rescore)
+		return int64(uc.BQ.RescoreLimit)
 	default:
 		return 0
 	}
@@ -677,8 +677,12 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
 		},
 		{
-			name:     "fullyOnDisk",
-			accessor: func(c flatent.UserConfig) interface{} { return c.VectorCache },
+			name:     "bq.cache",
+			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Cache },
+		},
+		{
+			name:     "pq.cache",
+			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Cache },
 		},
 		{
 			name:     "pq",

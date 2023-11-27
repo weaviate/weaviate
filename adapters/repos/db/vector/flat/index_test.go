@@ -75,18 +75,19 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	switch compression {
 	case CompressionPQ:
 		pq.Enabled = true
-		pq.Rescore = 100 * k
+		pq.RescoreLimit = 100 * k
+		pq.Cache = false
 	case CompressionBQ:
 		bq.Enabled = true
-		bq.Rescore = 100 * k
+		bq.RescoreLimit = 100 * k
+		bq.Cache = false
 	}
 	index, err := flat.New(flat.Config{
 		ID:               runId,
 		DistanceProvider: distancer,
 	}, flatent.UserConfig{
-		VectorCache: false,
-		PQ:          pq,
-		BQ:          bq,
+		PQ: pq,
+		BQ: bq,
 	}, store)
 	if err != nil {
 		return 0, 0, err
