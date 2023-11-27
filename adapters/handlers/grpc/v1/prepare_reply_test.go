@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -36,7 +38,10 @@ const (
 )
 
 func newStruct(t *testing.T, values map[string]interface{}) *structpb.Struct {
-	s, err := structpb.NewStruct(values)
+	b, err := json.Marshal(values)
+	require.Nil(t, err)
+	s := &structpb.Struct{}
+	err = protojson.Unmarshal(b, s)
 	require.Nil(t, err)
 	return s
 }
@@ -284,9 +289,10 @@ func TestGRPCReply(t *testing.T) {
 				{
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
-						TargetCollection:   className,
-						NonRefProperties:   newStruct(t, map[string]interface{}{}),
-						IntArrayProperties: []*pb.IntArrayProperties{{PropName: "nums", Values: []int64{1, 2, 3}}},
+						TargetCollection: className,
+						NonRefProperties: newStruct(t, map[string]interface{}{
+							"nums": []float64{1, 2, 3},
+						}),
 					},
 				},
 			},
@@ -355,40 +361,19 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: objClass,
-						ObjectProperties: []*pb.ObjectProperties{
-							{
-								PropName: "something",
-								Value: &pb.ObjectPropertiesValue{
-									NonRefProperties: newStruct(t, map[string]interface{}{
-										"name": "Bob",
-									}),
-									TextArrayProperties: []*pb.TextArrayProperties{{
-										PropName: "names",
-										Values:   []string{"Jo", "Jill"},
-									}},
-									ObjectProperties: []*pb.ObjectProperties{{
-										PropName: "else",
-										Value: &pb.ObjectPropertiesValue{
-											NonRefProperties: newStruct(t, map[string]interface{}{
-												"name": "Bill",
-											}),
-											TextArrayProperties: []*pb.TextArrayProperties{{
-												PropName: "names",
-												Values:   []string{"Jo", "Jill"},
-											}},
-										},
-									}},
-									ObjectArrayProperties: []*pb.ObjectArrayProperties{{
-										PropName: "objs",
-										Values: []*pb.ObjectPropertiesValue{{
-											NonRefProperties: newStruct(t, map[string]interface{}{
-												"name": "Bill",
-											}),
-										}},
-									}},
+						NonRefProperties: newStruct(t, map[string]interface{}{
+							"something": map[string]interface{}{
+								"name":  "Bob",
+								"names": []string{"Jo", "Jill"},
+								"else": map[string]interface{}{
+									"name":  "Bill",
+									"names": []string{"Jo", "Jill"},
+								},
+								"objs": []interface{}{
+									map[string]interface{}{"name": "Bill"},
 								},
 							},
-						},
+						}),
 					},
 				},
 			},

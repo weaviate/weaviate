@@ -110,23 +110,42 @@ func TestGRPC(t *testing.T) {
 				title, ok := res.Properties.NonRefProperties.AsMap()["title"]
 				require.True(t, ok)
 
-				objProps := res.Properties.ObjectProperties
-				require.Len(t, objProps, 1)
-				isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
+				metaRaw := res.Properties.NonRefProperties.AsMap()["meta"]
+				require.NotNil(t, metaRaw)
+				meta, ok := metaRaw.(map[string]interface{})
+				require.True(t, ok)
+				isbn, ok := meta["isbn"]
 				require.True(t, ok)
 
-				nestedObjProps := objProps[0].Value.ObjectProperties
-				require.Len(t, nestedObjProps, 1)
-				nestedObj := nestedObjProps[0].Value.NonRefProperties.AsMap()
-
-				nestedObjArrayProps := objProps[0].Value.ObjectArrayProperties
-				require.Len(t, nestedObjArrayProps, 1)
-				nestedObjEntry := nestedObjArrayProps[0].Values[0].NonRefProperties.AsMap()
-
-				objArrayProps := res.Properties.ObjectArrayProperties
-				require.Len(t, objArrayProps, 1)
-				tags := objArrayProps[0].Values[0].TextArrayProperties[0].Values
+				objRaw := meta["obj"]
+				require.NotNil(t, objRaw)
+				obj, ok := objRaw.(map[string]interface{})
 				require.True(t, ok)
+
+				objsRaw := meta["objs"]
+				require.NotNil(t, objsRaw)
+				objs, ok := objsRaw.([]interface{})
+				require.True(t, ok)
+
+				objEntry, ok := objs[0].(map[string]interface{})
+				require.True(t, ok)
+
+				reviewsRaw := res.Properties.NonRefProperties.AsMap()["reviews"]
+				require.NotNil(t, reviewsRaw)
+				reviews, ok := reviewsRaw.([]interface{})
+				require.True(t, ok)
+				require.Len(t, reviews, 1)
+
+				review := (reviews[0]).(map[string]interface{})
+				require.NotNil(t, review)
+
+				tags := review["tags"]
+				require.NotNil(t, tags)
+
+				strTags := make([]string, len(tags.([]interface{})))
+				for i, tag := range tags.([]interface{}) {
+					strTags[i] = tag.(string)
+				}
 
 				expectedTitle := ""
 				expectedIsbn := ""
@@ -148,9 +167,9 @@ func TestGRPC(t *testing.T) {
 				}
 				assert.Equal(t, expectedTitle, title)
 				assert.Equal(t, expectedIsbn, isbn)
-				assert.Equal(t, expectedTags, tags)
-				assert.Equal(t, map[string]interface{}{"text": "some text"}, nestedObj)
-				assert.Equal(t, map[string]interface{}{"text": "some text"}, nestedObjEntry)
+				assert.Equal(t, expectedTags, strTags)
+				assert.Equal(t, map[string]interface{}{"text": "some text"}, obj)
+				assert.Equal(t, map[string]interface{}{"text": "some text"}, objEntry)
 			}
 		})
 	}
