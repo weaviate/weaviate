@@ -55,8 +55,8 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("NO_LAZY_SHARD_LOADER")) {
-		config.EnableLazyLoadShards = false
+	if enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+		config.DisableLazyLoadShards = true
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
