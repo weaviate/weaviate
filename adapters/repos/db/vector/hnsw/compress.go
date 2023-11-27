@@ -19,8 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -108,22 +108,32 @@ func (h *hnsw) encodedVector(id uint64) ([]byte, error) {
 	return h.compressedVectorsCache.get(context.Background(), id)
 }
 
-func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
-	Id := make([]byte, 8)
-	binary.LittleEndian.PutUint64(Id, index)
-	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+func (h *hnsw) storeCompressedVector(id uint64, vector []byte) {
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, id)
+	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(key, vector)
 }
 
 func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
-	vec, err := h.vectorForID(ctx, id)
-	if err != nil {
-		return nil, errors.Wrap(err, "Getting vector for id")
-	}
-	if h.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vec = distancer.Normalize(vec)
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, id)
+
+	if vec, err := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Get(key); err == nil {
+		return vec, nil
+	} else if err != entlsmkv.NotFound {
+		return nil, fmt.Errorf("getting vector '%d' from compressed store: %w", id, err)
 	}
 
-	return h.pq.Encode(vec), nil
+	// not found, fallback to uncompressed source
+	h.logger.
+		WithField("action", "compress").
+		WithField("vector", id).
+		Warnf("Vector not found in compressed store")
+
+	vec, err := h.VectorForIDThunk(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("getting vector '%d' from store: %w", id, err)
+	}
+
+	return h.pq.Encode(h.normalizeVec(vec)), nil
 }
