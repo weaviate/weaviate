@@ -44,7 +44,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
 		err := s.VectorIndex().ValidateBeforeInsert(object.Vector)
 		if err != nil {
-			return errors.Wrapf(err, "Validate vector index for %v", uuid)
+			return errors.Wrapf(err, "Validate vector index for %s", object.ID())
 		}
 	}
 
