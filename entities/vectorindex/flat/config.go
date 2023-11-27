@@ -27,13 +27,13 @@ const (
 )
 
 type CompressionUserConfig struct {
-	Enabled bool `json:"enabled"`
-	Rescore int  `json:"rescore"`
+	Enabled      bool `json:"enabled"`
+	RescoreLimit int  `json:"rescoreLimit"`
+	Cache        bool `json:"cache"`
 }
 
 type UserConfig struct {
 	Distance              string                `json:"distance"`
-	VectorCache           bool                  `json:"vectorCache"`
 	VectorCacheMaxObjects int                   `json:"vectorCacheMaxObjects"`
 	PQ                    CompressionUserConfig `json:"pq"`
 	BQ                    CompressionUserConfig `json:"bq"`
@@ -51,13 +51,14 @@ func (u UserConfig) DistanceName() string {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-	u.VectorCache = DefaultVectorCache
+	u.PQ.Cache = DefaultVectorCache
+	u.BQ.Cache = DefaultVectorCache
 	u.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
 	u.Distance = vectorindexcommon.DefaultDistanceMetric
 	u.PQ.Enabled = DefaultCompressionEnabled
-	u.PQ.Rescore = DefaultCompressionRescore
+	u.PQ.RescoreLimit = DefaultCompressionRescore
 	u.BQ.Enabled = DefaultCompressionEnabled
-	u.BQ.Rescore = DefaultCompressionRescore
+	u.BQ.RescoreLimit = DefaultCompressionRescore
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -77,12 +78,6 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 
 	if err := vectorindexcommon.OptionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
-	}); err != nil {
-		return uc, err
-	}
-
-	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "vectorCache", func(v bool) {
-		uc.VectorCache = v
 	}); err != nil {
 		return uc, err
 	}
@@ -119,8 +114,14 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 			return err
 		}
 
+		if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "cache", func(v bool) {
+			uc.PQ.Cache = v
+		}); err != nil {
+			return err
+		}
+
 		if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescore", func(v int) {
-			uc.PQ.Rescore = v
+			uc.PQ.RescoreLimit = v
 		}); err != nil {
 			return err
 		}
@@ -138,8 +139,14 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 			return err
 		}
 
+		if err := vectorindexcommon.OptionalBoolFromMap(bqConfigMap, "cache", func(v bool) {
+			uc.BQ.Cache = v
+		}); err != nil {
+			return err
+		}
+
 		if err := vectorindexcommon.OptionalIntFromMap(bqConfigMap, "rescore", func(v int) {
-			uc.BQ.Rescore = v
+			uc.BQ.RescoreLimit = v
 		}); err != nil {
 			return err
 		}
