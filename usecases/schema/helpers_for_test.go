@@ -25,9 +25,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cloud"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
-	ctrans "github.com/weaviate/weaviate/cloud/transport"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -39,9 +39,8 @@ import (
 
 func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 	cfg := config.Config{}
-	raftCluster, raftClusterClient, raftStore, clusterstate := startRaftCluster(t)
-	raftStore.SetDB(db)
-	reader := raftStore.SchemaReader()
+	srv := startRaftCluster(t, db)
+	reader := srv.SchemaReader()
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
@@ -49,15 +48,14 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 		},
 	}
 	handler, err := NewHandler(
-		raftClusterClient, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		srv.Service, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterstate, &fakeScaleOutManager{},
-	)
+		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
-	return &handler, raftCluster.Shutdown
+	return &handler, func() { srv.Close(context.TODO()) }
 }
 
-func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Store, clusterState) {
+func startRaftCluster(t *testing.T, db store.DB) cloud.Service {
 	node := "node-1"
 	nodeUrl := newRandomHostURL(t)
 	raftUrl := newRandomHostURL(t)
@@ -69,42 +67,26 @@ func startRaftCluster(t *testing.T) (*ctrans.Cluster, *store.Service, *store.Sto
 	clusterstate := newFakeClusterState()
 
 	// First init the store
-	raftStore := store.New(store.Config{
+	cfg := store.Config{
 		WorkDir:              root,
 		NodeID:               node,
 		Host:                 nodeUrl.host,
 		RaftPort:             raftUrl.port,
+		RPCPort:              nodeUrl.port,
 		RaftElectionTimeout:  500 * time.Millisecond,
 		RaftHeartbeatTimeout: 500 * time.Millisecond,
 		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
 		BootstrapExpect:      1,
 		Logger:               logger,
 		LogLevel:             "info",
-	})
-	err := raftStore.Open(func() error { return nil })
+	}
+	srv := cloud.New(cfg)
+
+	servers := []string{fmt.Sprintf("%s:%d", raftUrl.host, raftUrl.port)}
+	err := srv.Open(context.TODO(), servers, db)
 	require.Nil(t, err)
 
-	// Start a raft cluster using the created store
-	raftCluster := ctrans.NewCluster(&raftStore, clusterstate, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port), logger)
-	err = raftCluster.Open()
-	require.Nil(t, err)
-
-	// Create a client to the cluster. Do not set isLocalhost to true or it will automatically determine the raft port to be nodePort+1, but
-	// it might be the otherway around depending on the node resolving we do above.
-	clusterClient := ctrans.NewClient(ctrans.NewRPCResolver(false, fmt.Sprintf("%d", nodeUrl.port)))
-	require.Nil(t, err)
-	raftClient := store.NewService(&raftStore, clusterClient)
-
-	// Bootstrap the cluster, give a 10 second timeout for the bootstrap
-	bootstrapCtx, bCancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer bCancel()
-	nodeBootstrapper := store.NewBootstrapper(clusterClient, node, fmt.Sprintf("%s:%d", nodeUrl.host, nodeUrl.port))
-	err = nodeBootstrapper.Do(bootstrapCtx, []string{fmt.Sprintf("%s:%d", raftUrl.host, raftUrl.port)}, logger)
-	require.Nil(t, err)
-
-	// Allow time to elect leader
-	time.Sleep(2 * time.Second)
-	return &raftCluster, raftClient, &raftStore, clusterstate
+	return srv
 }
 
 type randomHostURL struct {
@@ -131,6 +113,14 @@ func newRandomHostURL(t *testing.T) randomHostURL {
 
 type fakeDB struct {
 	mock.Mock
+}
+
+func (f *fakeDB) Open(context.Context) error {
+	return nil
+}
+
+func (f *fakeDB) Close(context.Context) error {
+	return nil
 }
 
 func (f *fakeDB) AddClass(cmd command.AddClassRequest) error {
@@ -410,6 +400,14 @@ func (f *fakeMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, ol
 }
 
 func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
+	return nil
+}
+
+func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
+	return nil
+}
+
+func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 	return nil
 }
 
