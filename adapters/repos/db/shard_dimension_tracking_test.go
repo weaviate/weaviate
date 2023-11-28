@@ -39,7 +39,10 @@ func Benchmark_Migration(b *testing.B) {
 
 			shardState := singleShardState()
 			logger := logrus.New()
-			schemaGetter := &fakeSchemaGetter{shardState: shardState}
+			schemaGetter := &fakeSchemaGetter{
+				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+				shardState: shardState,
+			}
 			repo, err := New(logger, Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
@@ -101,7 +104,10 @@ func Test_Migration(t *testing.T) {
 
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
@@ -166,7 +172,10 @@ func Test_DimensionTracking(t *testing.T) {
 
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
