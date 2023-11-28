@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package transport
 
 import (
 	"context"
@@ -102,13 +102,13 @@ func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyRes
 	return c.Apply(ctx, req)
 }
 
-func NewRPCResolver(isLocalHost bool, rpcPort string) rpcAddressResolver {
+func NewRPCResolver(isLocalHost bool, rpcPort int) rpcAddressResolver {
 	return &rpcResolver{isLocalCluster: isLocalHost, rpcPort: rpcPort}
 }
 
 type rpcResolver struct {
 	isLocalCluster bool
-	rpcPort        string
+	rpcPort        int
 }
 
 // rpcAddressFromRAFT returns the RPC address based on the provided RAFT address.
@@ -121,7 +121,7 @@ func (cl *rpcResolver) Address(raftAddr string) (string, error) {
 		return "", err
 	}
 	if !cl.isLocalCluster {
-		return fmt.Sprintf("%s:%s", host, cl.rpcPort), nil
+		return fmt.Sprintf("%s:%d", host, cl.rpcPort), nil
 	}
 	iPort, err := strconv.Atoi(port)
 	if err != nil {
