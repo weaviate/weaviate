@@ -67,6 +67,10 @@ type ThreadedMemtableResponse struct {
 	innerCursorMap        innerCursorMap
 	innerCursorReplace    innerCursorReplace
 	innerCursorRoaringSet roaringset.InnerCursor
+	cursorSet             *CursorSet
+	cursorMap             *CursorMap
+	cursorReplace         *CursorReplace
+	cursorRoaringSet      *roaringset.CombinedCursorLayer
 	size                  uint64
 	duration              time.Duration
 	countStats            *countStats

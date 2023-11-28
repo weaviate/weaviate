@@ -112,7 +112,6 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 		}
 		merged, err := mergeRoaringSets(nodes)
 		return ThreadedMemtableResponse{nodes: merged, error: err}
-		// TODO: everything below this line is a terrible idea
 	} else if operationName == "NewCollectionCursor" {
 		// send request to all workers
 		var cursors []innerCursorCollection
@@ -123,7 +122,12 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			response := <-responseChannel
 			cursors = append(cursors, response.innerCursorCollection)
 		}
-		return ThreadedMemtableResponse{innerCursorCollection: cursors[0]}
+		set := &CursorSet{
+			unlock: func() {
+			},
+			innerCursors: cursors,
+		}
+		return ThreadedMemtableResponse{cursorSet: set}
 	} else if operationName == "NewRoaringSetCursor" {
 		// send request to all workers
 		var cursors []roaringset.InnerCursor
@@ -134,7 +138,8 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			response := <-responseChannel
 			cursors = append(cursors, response.innerCursorRoaringSet)
 		}
-		return ThreadedMemtableResponse{innerCursorRoaringSet: cursors[0]}
+		set := roaringset.NewCombinedCursorLayer(cursors, false)
+		return ThreadedMemtableResponse{cursorRoaringSet: set}
 	} else if operationName == "NewMapCursor" {
 		// send request to all workers
 		var cursors []innerCursorMap
@@ -145,7 +150,12 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			response := <-responseChannel
 			cursors = append(cursors, response.innerCursorMap)
 		}
-		return ThreadedMemtableResponse{innerCursorMap: cursors[0]}
+		mapCursor := &CursorMap{
+			unlock: func() {
+			},
+			innerCursors: cursors,
+		}
+		return ThreadedMemtableResponse{cursorMap: mapCursor}
 	} else if operationName == "NewCursor" {
 		// send request to all workers
 		var cursors []innerCursorReplace
@@ -156,7 +166,12 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			response := <-responseChannel
 			cursors = append(cursors, response.innerCursorReplace)
 		}
-		return ThreadedMemtableResponse{innerCursorReplace: cursors[0]}
+		cursor := &CursorReplace{
+			unlock: func() {
+			},
+			innerCursors: cursors,
+		}
+		return ThreadedMemtableResponse{cursorReplace: cursor}
 	}
 
 	key := data.key

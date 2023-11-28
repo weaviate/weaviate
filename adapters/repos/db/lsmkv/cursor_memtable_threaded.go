@@ -11,7 +11,57 @@
 
 package lsmkv
 
-import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+)
+
+func (c *CursorSet) first() ([]byte, []value, error) {
+	k, v := c.First()
+	value := newSetEncoder().Do(v)
+	return k, value, nil
+}
+
+func (c *CursorSet) seek(key []byte) ([]byte, []value, error) {
+	k, v := c.Seek(key)
+	value := newSetEncoder().Do(v)
+	return k, value, nil
+}
+
+func (c *CursorSet) next() ([]byte, []value, error) {
+	k, v := c.Next()
+	value := newSetEncoder().Do(v)
+	return k, value, nil
+}
+
+func (c *CursorMap) first() ([]byte, []MapPair, error) {
+	k, v := c.First()
+	return k, v, nil
+}
+
+func (c *CursorMap) seek(key []byte) ([]byte, []MapPair, error) {
+	k, v := c.Seek(key)
+	return k, v, nil
+}
+
+func (c *CursorMap) next() ([]byte, []MapPair, error) {
+	k, v := c.Next()
+	return k, v, nil
+}
+
+func (c *CursorReplace) first() ([]byte, []byte, error) {
+	k, v := c.First()
+	return k, v, nil
+}
+
+func (c *CursorReplace) seek(key []byte) ([]byte, []byte, error) {
+	k, v := c.Seek(key)
+	return k, v, nil
+}
+
+func (c *CursorReplace) next() ([]byte, []byte, error) {
+	k, v := c.Next()
+	return k, v, nil
+}
 
 func (m *MemtableThreaded) newCollectionCursor() innerCursorCollection {
 	if m.baseline != nil {
@@ -20,8 +70,7 @@ func (m *MemtableThreaded) newCollectionCursor() innerCursorCollection {
 		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewCollectionCursor,
 		}, true, "NewCollectionCursor")
-		// TODO: implement properly on roaringOperation
-		return output.innerCursorCollection
+		return output.cursorSet
 	}
 }
 
@@ -32,8 +81,7 @@ func (m *MemtableThreaded) newRoaringSetCursor() roaringset.InnerCursor {
 		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewRoaringSetCursor,
 		}, true, "NewRoaringSetCursor")
-		// TODO: implement properly on roaringOperation
-		return output.innerCursorRoaringSet
+		return output.cursorRoaringSet
 	}
 }
 
@@ -44,8 +92,7 @@ func (m *MemtableThreaded) newMapCursor() innerCursorMap {
 		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewMapCursor,
 		}, true, "NewMapCursor")
-		// TODO: implement properly on roaringOperation
-		return output.innerCursorMap
+		return output.cursorMap
 	}
 }
 
@@ -56,7 +103,6 @@ func (m *MemtableThreaded) newCursor() innerCursorReplace {
 		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewCursor,
 		}, true, "NewCursor")
-		// TODO: implement properly on roaringOperation
-		return output.innerCursorReplace
+		return output.cursorReplace
 	}
 }

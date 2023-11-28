@@ -25,6 +25,12 @@ type CombinedCursor struct {
 	keyOnly bool
 }
 
+type CombinedCursorLayer struct {
+	cursors []InnerCursor
+	states  []innerCursorState
+	keyOnly bool
+}
+
 type InnerCursor interface {
 	First() ([]byte, BitmapLayer, error)
 	Next() ([]byte, BitmapLayer, error)
@@ -127,6 +133,118 @@ func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte,
 }
 
 func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([]byte, []int, bool) {
+	var lowestKey []byte
+	ids := []int{}
+	allNotFound := true
+
+	for id, state := range states {
+		if state.err == lsmkv.NotFound {
+			continue
+		}
+		allNotFound = false
+		if state.key == nil {
+			continue
+		}
+		if lowestKey == nil {
+			lowestKey = state.key
+			ids = []int{id}
+		} else if cmp := bytes.Compare(lowestKey, state.key); cmp > 0 {
+			lowestKey = state.key
+			ids = []int{id}
+		} else if cmp == 0 {
+			ids = append(ids, id)
+		}
+	}
+
+	return lowestKey, ids, allNotFound
+}
+
+func NewCombinedCursorLayer(innerCursors []InnerCursor, keyOnly bool) *CombinedCursorLayer {
+	return &CombinedCursorLayer{cursors: innerCursors, keyOnly: keyOnly}
+}
+
+func (c *CombinedCursorLayer) First() ([]byte, BitmapLayer, error) {
+	states := c.runAll(func(ic InnerCursor) ([]byte, BitmapLayer, error) {
+		return ic.First()
+	})
+	return c.getResultFromStates(states)
+}
+
+func (c *CombinedCursorLayer) Next() ([]byte, BitmapLayer, error) {
+	// fallback to First if no previous calls of First or Seek
+	if c.states == nil {
+		return c.First()
+	}
+	return c.getResultFromStates(c.states)
+}
+
+func (c *CombinedCursorLayer) Seek(key []byte) ([]byte, BitmapLayer, error) {
+	states := c.runAll(func(ic InnerCursor) ([]byte, BitmapLayer, error) {
+		return ic.Seek(key)
+	})
+	return c.getResultFromStates(states)
+}
+
+func (c *CombinedCursorLayer) runAll(cursorRun cursorRun) []innerCursorState {
+	states := make([]innerCursorState, len(c.cursors))
+	for id, ic := range c.cursors {
+		states[id] = c.createState(cursorRun(ic))
+	}
+	return states
+}
+
+func (c *CombinedCursorLayer) createState(key []byte, layer BitmapLayer, err error) innerCursorState {
+	if err == lsmkv.NotFound {
+		return innerCursorState{err: err}
+	}
+	if err != nil {
+		panic(errors.Wrap(err, "unexpected error")) // TODO necessary?
+	}
+	state := innerCursorState{key: key}
+	state.layer = layer
+
+	return state
+}
+
+func (c *CombinedCursorLayer) getResultFromStates(states []innerCursorState) ([]byte, BitmapLayer, error) {
+	// NotFound is returned only by Seek call.
+	// If all cursors returned NotFound, combined Seek has no result, therefore inner cursors' states
+	// should not be updated to allow combined cursor to proceed with following Next calls
+
+	key, ids, allNotFound := c.getCursorIdsWithLowestKey(states)
+	if !allNotFound {
+		c.states = states
+	}
+	// only one of the cursors will have the layer
+	var layer BitmapLayer
+	for _, id := range ids {
+		layer = c.states[id].layer
+		// forward cursors used in final result
+		c.states[id] = c.createState(c.cursors[id].Next())
+	}
+
+	if key == nil && c.keyOnly {
+		return nil, layer, nil
+	}
+
+	if key == nil {
+		return nil, layer, nil
+	}
+
+	if layer.Additions.IsEmpty() && layer.Deletions.IsEmpty() {
+		// all values deleted, skip key
+		return c.Next()
+	}
+
+	// TODO remove keyOnly option, not used anyway
+	if !c.keyOnly {
+		return key, layer, nil
+	}
+
+	return key, layer, nil
+}
+
+func (c *CombinedCursorLayer) getCursorIdsWithLowestKey(states []innerCursorState) ([]byte, []int, bool) {
 	var lowestKey []byte
 	ids := []int{}
 	allNotFound := true
