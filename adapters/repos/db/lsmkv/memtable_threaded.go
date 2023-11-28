@@ -38,21 +38,20 @@ type MemtableThreaded struct {
 type ThreadedMemtableFunc func(*Memtable, ThreadedBitmapRequest) ThreadedBitmapResponse
 
 type ThreadedBitmapRequest struct {
-	operation      ThreadedMemtableFunc
-	operationName  string
-	key            []byte
-	value          uint64
-	valueBytes     []byte
-	values         []uint64
-	valuesValue    []value
-	bm             *sroar.Bitmap
-	additions      *sroar.Bitmap
-	deletions      *sroar.Bitmap
-	entriesChanged int
-	response       chan ThreadedBitmapResponse
-	pos            int
-	opts           []SecondaryKeyOption
-	pair           MapPair
+	operation ThreadedMemtableFunc
+	//operationName  string
+	key         []byte
+	value       uint64
+	valueBytes  []byte
+	values      []uint64
+	valuesValue []value
+	bm          *sroar.Bitmap
+	additions   *sroar.Bitmap
+	deletions   *sroar.Bitmap
+	response    chan ThreadedBitmapResponse
+	pos         int
+	opts        []SecondaryKeyOption
+	pair        MapPair
 }
 
 type ThreadedBitmapResponse struct {
@@ -135,10 +134,11 @@ func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest,
 
 	for req := range requests {
 		//fmt.Println("Worker", id, "received request", req.operationName)
-		if req.operationName == "Flush" {
-			break
+		if req.response != nil {
+			req.response <- req.operation(m, req)
+		} else {
+			req.operation(m, req)
 		}
-		req.response <- req.operation(m, req)
 	}
 
 	fmt.Println("Worker", id, "size:")
@@ -166,7 +166,7 @@ func newMemtableThreaded(path string, strategy string,
 func newMemtableThreadedDebug(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics, workerAssignment string,
 ) (*MemtableThreaded, error) {
-	if workerAssignment == "baseline" || strategy != StrategyRoaringSet {
+	if workerAssignment == "baseline" { //|| strategy != StrategyRoaringSet {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
 
 		if err != nil {
@@ -222,10 +222,9 @@ func (m *MemtableThreaded) get(key []byte) ([]byte, error) {
 		return m.baseline.get(key)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedGet,
-			operationName: "ThreadedGet",
-			key:           key,
-		})
+			operation: ThreadedGet,
+			key:       key,
+		}, true, "ThreadedGet")
 		return output.result, output.error
 	}
 }
@@ -235,11 +234,10 @@ func (m *MemtableThreaded) getBySecondary(pos int, key []byte) ([]byte, error) {
 		return m.baseline.getBySecondary(pos, key)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedGetBySecondary,
-			operationName: "ThreadedGetBySecondary",
-			key:           key,
-			pos:           pos,
-		})
+			operation: ThreadedGetBySecondary,
+			key:       key,
+			pos:       pos,
+		}, true, "ThreadedGetBySecondary")
 		return output.result, output.error
 	}
 }
@@ -249,12 +247,11 @@ func (m *MemtableThreaded) put(key, value []byte, opts ...SecondaryKeyOption) er
 		return m.baseline.put(key, value, opts...)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedPut,
-			operationName: "ThreadedPut",
-			key:           key,
-			valueBytes:    value,
-			opts:          opts,
-		})
+			operation:  ThreadedPut,
+			key:        key,
+			valueBytes: value,
+			opts:       opts,
+		}, false, "ThreadedPut")
 		return output.error
 	}
 }
@@ -264,11 +261,10 @@ func (m *MemtableThreaded) setTombstone(key []byte, opts ...SecondaryKeyOption) 
 		return m.baseline.setTombstone(key, opts...)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedSetTombstone,
-			operationName: "ThreadedSetTombstone",
-			key:           key,
-			opts:          opts,
-		})
+			operation: ThreadedSetTombstone,
+			key:       key,
+			opts:      opts,
+		}, false, "ThreadedSetTombstone")
 		return output.error
 	}
 }
@@ -278,10 +274,9 @@ func (m *MemtableThreaded) getCollection(key []byte) ([]value, error) {
 		return m.baseline.getCollection(key)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedGetCollection,
-			operationName: "ThreadedGetCollection",
-			key:           key,
-		})
+			operation: ThreadedGetCollection,
+			key:       key,
+		}, true, "ThreadedGetCollection")
 		return output.values, output.error
 	}
 }
@@ -291,10 +286,9 @@ func (m *MemtableThreaded) getMap(key []byte) ([]MapPair, error) {
 		return m.baseline.getMap(key)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedGetMap,
-			operationName: "ThreadedGetMap",
-			key:           key,
-		})
+			operation: ThreadedGetMap,
+			key:       key,
+		}, true, "ThreadedGetMap")
 		return output.mapNodes, output.error
 	}
 }
@@ -304,11 +298,10 @@ func (m *MemtableThreaded) append(key []byte, values []value) error {
 		return m.baseline.append(key, values)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedAppend,
-			operationName: "ThreadedAppend",
-			key:           key,
-			valuesValue:   values,
-		})
+			operation:   ThreadedAppend,
+			key:         key,
+			valuesValue: values,
+		}, false, "ThreadedAppend")
 		return output.error
 	}
 }
@@ -318,11 +311,10 @@ func (m *MemtableThreaded) appendMapSorted(key []byte, pair MapPair) error {
 		return m.baseline.appendMapSorted(key, pair)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedAppendMapSorted,
-			operationName: "ThreadedAppendMapSorted",
-			key:           key,
-			pair:          pair,
-		})
+			operation: ThreadedAppendMapSorted,
+			key:       key,
+			pair:      pair,
+		}, false, "ThreadedAppendMapSorted")
 		return output.error
 	}
 }
@@ -365,6 +357,7 @@ func (m *MemtableThreaded) writeWAL() error {
 	if m.baseline != nil {
 		return m.baseline.writeWAL()
 	}
+	//TODO: implement
 	return errors.Errorf("baseline is nil")
 }
 
@@ -372,6 +365,7 @@ func (m *MemtableThreaded) Commitlog() *commitLogger {
 	if m.baseline != nil {
 		return m.baseline.Commitlog()
 	}
+	//TODO: implement
 	return m.commitLogger
 }
 
@@ -386,6 +380,7 @@ func (m *MemtableThreaded) SecondaryIndices() uint16 {
 	if m.baseline != nil {
 		return m.baseline.SecondaryIndices()
 	}
+	//TODO: implement
 	return 0
 }
 

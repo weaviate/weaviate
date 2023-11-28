@@ -57,8 +57,8 @@ func ThreadedRoaringSetFlattenInOrder(m *Memtable, request ThreadedBitmapRequest
 	return ThreadedBitmapResponse{nodes: m.RoaringSet().FlattenInOrder()}
 }
 
-func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) ThreadedBitmapResponse {
-	if data.operationName == "ThreadedRoaringSetFlattenInOrder" {
+func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest, needOutput bool, operationName string) ThreadedBitmapResponse {
+	if operationName == "ThreadedRoaringSetFlattenInOrder" {
 		// send request to all workers
 		var nodes [][]*roaringset.BinarySearchNode
 		for _, channel := range m.requestsChannels {
@@ -71,7 +71,7 @@ func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) Threaded
 		merged, err := mergeRoaringSets(nodes)
 		return ThreadedBitmapResponse{nodes: merged, error: err}
 		// TODO: everything below this line is a terrible idea
-	} else if data.operationName == "ThreadedNewCollectionCursor" {
+	} else if operationName == "ThreadedNewCollectionCursor" {
 		// send request to all workers
 		var cursors []innerCursorCollection
 		for _, channel := range m.requestsChannels {
@@ -82,7 +82,7 @@ func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) Threaded
 			cursors = append(cursors, response.innerCursorCollection)
 		}
 		return ThreadedBitmapResponse{innerCursorCollection: cursors[0]}
-	} else if data.operationName == "ThreadedNewRoaringSetCursor" {
+	} else if operationName == "ThreadedNewRoaringSetCursor" {
 		// send request to all workers
 		var cursors []roaringset.InnerCursor
 		for _, channel := range m.requestsChannels {
@@ -93,7 +93,7 @@ func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) Threaded
 			cursors = append(cursors, response.innerCursorRoaringSet)
 		}
 		return ThreadedBitmapResponse{innerCursorRoaringSet: cursors[0]}
-	} else if data.operationName == "ThreadedNewMapCursor" {
+	} else if operationName == "ThreadedNewMapCursor" {
 		// send request to all workers
 		var cursors []innerCursorMap
 		for _, channel := range m.requestsChannels {
@@ -104,7 +104,7 @@ func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) Threaded
 			cursors = append(cursors, response.innerCursorMap)
 		}
 		return ThreadedBitmapResponse{innerCursorMap: cursors[0]}
-	} else if data.operationName == "ThreadedNewCursor" {
+	} else if operationName == "ThreadedNewCursor" {
 		// send request to all workers
 		var cursors []innerCursorReplace
 		for _, channel := range m.requestsChannels {
@@ -128,10 +128,16 @@ func (m *MemtableThreaded) roaringOperation(data ThreadedBitmapRequest) Threaded
 	} else {
 		panic("invalid worker assignment")
 	}
-	responseCh := make(chan ThreadedBitmapResponse)
-	data.response = responseCh
-	m.requestsChannels[workerID] <- data
-	return <-responseCh
+	if needOutput {
+		responseCh := make(chan ThreadedBitmapResponse)
+		data.response = responseCh
+		m.requestsChannels[workerID] <- data
+		return <-responseCh
+	} else {
+		data.response = nil
+		m.requestsChannels[workerID] <- data
+		return ThreadedBitmapResponse{}
+	}
 }
 
 func (m *MemtableThreaded) roaringSetAddOne(key []byte, value uint64) error {
@@ -139,11 +145,10 @@ func (m *MemtableThreaded) roaringSetAddOne(key []byte, value uint64) error {
 		return m.baseline.roaringSetAddOne(key, value)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetAddOne,
-			operationName: "ThreadedRoaringSetAddOne",
-			key:           key,
-			value:         value,
-		})
+			operation: ThreadedRoaringSetAddOne,
+			key:       key,
+			value:     value,
+		}, false, "ThreadedRoaringSetAddOne")
 		return output.error
 	}
 
@@ -154,11 +159,10 @@ func (m *MemtableThreaded) roaringSetAddList(key []byte, values []uint64) error 
 		return m.baseline.roaringSetAddList(key, values)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetAddList,
-			operationName: "ThreadedRoaringSetAddList",
-			key:           key,
-			values:        values,
-		})
+			operation: ThreadedRoaringSetAddList,
+			key:       key,
+			values:    values,
+		}, false, "ThreadedRoaringSetAddList")
 		return output.error
 	}
 }
@@ -168,11 +172,10 @@ func (m *MemtableThreaded) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) err
 		return m.baseline.roaringSetAddBitmap(key, bm)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetAddBitmap,
-			operationName: "ThreadedRoaringSetAddBitmap",
-			key:           key,
-			bm:            bm,
-		})
+			operation: ThreadedRoaringSetAddBitmap,
+			key:       key,
+			bm:        bm,
+		}, false, "ThreadedRoaringSetAddBitmap")
 		return output.error
 	}
 }
@@ -182,11 +185,10 @@ func (m *MemtableThreaded) roaringSetRemoveOne(key []byte, value uint64) error {
 		return m.baseline.roaringSetRemoveOne(key, value)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetRemoveOne,
-			operationName: "ThreadedRoaringSetRemoveOne",
-			key:           key,
-			value:         value,
-		})
+			operation: ThreadedRoaringSetRemoveOne,
+			key:       key,
+			value:     value,
+		}, false, "ThreadedRoaringSetRemoveOne")
 		return output.error
 	}
 
@@ -197,11 +199,10 @@ func (m *MemtableThreaded) roaringSetRemoveList(key []byte, values []uint64) err
 		return m.baseline.roaringSetRemoveList(key, values)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetRemoveList,
-			operationName: "ThreadedRoaringSetRemoveList",
-			key:           key,
-			values:        values,
-		})
+			operation: ThreadedRoaringSetRemoveList,
+			key:       key,
+			values:    values,
+		}, false, "ThreadedRoaringSetRemoveList")
 		return output.error
 	}
 }
@@ -211,11 +212,10 @@ func (m *MemtableThreaded) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) 
 		return m.baseline.roaringSetRemoveBitmap(key, bm)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetRemoveBitmap,
-			operationName: "ThreadedRoaringSetRemoveBitmap",
-			key:           key,
-			bm:            bm,
-		})
+			operation: ThreadedRoaringSetRemoveBitmap,
+			key:       key,
+			bm:        bm,
+		}, false, "ThreadedRoaringSetRemoveBitmap")
 		return output.error
 	}
 }
@@ -225,12 +225,11 @@ func (m *MemtableThreaded) roaringSetAddRemoveBitmaps(key []byte, additions *sro
 		return m.baseline.roaringSetAddRemoveBitmaps(key, additions, deletions)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetAddRemoveBitmaps,
-			operationName: "ThreadedRoaringSetAddRemoveBitmaps",
-			key:           key,
-			additions:     additions,
-			deletions:     deletions,
-		})
+			operation: ThreadedRoaringSetAddRemoveBitmaps,
+			key:       key,
+			additions: additions,
+			deletions: deletions,
+		}, false, "ThreadedRoaringSetAddRemoveBitmaps")
 		return output.error
 	}
 }
@@ -240,10 +239,9 @@ func (m *MemtableThreaded) roaringSetGet(key []byte) (roaringset.BitmapLayer, er
 		return m.baseline.roaringSetGet(key)
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedRoaringSetGet,
-			operationName: "ThreadedRoaringSetGet",
-			key:           key,
-		})
+			operation: ThreadedRoaringSetGet,
+			key:       key,
+		}, true, "ThreadedRoaringSetGet")
 		return output.bitmap, output.error
 	}
 }
@@ -252,7 +250,7 @@ func (m *MemtableThreaded) roaringSetAdjustMeta(entriesChanged int) {
 	if m.baseline != nil {
 		m.baseline.roaringSetAdjustMeta(entriesChanged)
 	} else {
-
+		//TODO: implement
 	}
 }
 
@@ -260,6 +258,7 @@ func (m *MemtableThreaded) roaringSetAddCommitLog(key []byte, additions *sroar.B
 	if m.baseline != nil {
 		return m.baseline.roaringSetAddCommitLog(key, additions, deletions)
 	} else {
+		//TODO: implement
 		return nil
 	}
 }

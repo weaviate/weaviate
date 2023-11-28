@@ -18,9 +18,9 @@ func (m *MemtableThreaded) newCollectionCursor() innerCursorCollection {
 		return m.baseline.newCollectionCursor()
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedNewCollectionCursor,
-			operationName: "ThreadedNewCollectionCursor",
-		})
+			operation: ThreadedNewCollectionCursor,
+		}, true, "ThreadedNewCollectionCursor")
+		//TODO: implement properly on roaringOperation
 		return output.innerCursorCollection
 	}
 }
@@ -30,9 +30,9 @@ func (m *MemtableThreaded) newRoaringSetCursor() roaringset.InnerCursor {
 		return m.baseline.newRoaringSetCursor()
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedNewRoaringSetCursor,
-			operationName: "ThreadedNewRoaringSetCursor",
-		})
+			operation: ThreadedNewRoaringSetCursor,
+		}, true, "ThreadedNewRoaringSetCursor")
+		//TODO: implement properly on roaringOperation
 		return output.innerCursorRoaringSet
 	}
 }
@@ -42,9 +42,9 @@ func (m *MemtableThreaded) newMapCursor() innerCursorMap {
 		return m.baseline.newMapCursor()
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedNewMapCursor,
-			operationName: "ThreadedNewMapCursor",
-		})
+			operation: ThreadedNewMapCursor,
+		}, true, "ThreadedNewMapCursor")
+		//TODO: implement properly on roaringOperation
 		return output.innerCursorMap
 	}
 }
@@ -54,9 +54,9 @@ func (m *MemtableThreaded) newCursor() innerCursorReplace {
 		return m.baseline.newCursor()
 	} else {
 		output := m.roaringOperation(ThreadedBitmapRequest{
-			operation:     ThreadedNewCursor,
-			operationName: "ThreadedNewCursor",
-		})
+			operation: ThreadedNewCursor,
+		}, true, "ThreadedNewCursor")
+		//TODO: implement properly on roaringOperation
 		return output.innerCursorReplace
 	}
 }
