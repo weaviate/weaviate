@@ -30,6 +30,7 @@ import (
 	ctrans "github.com/weaviate/weaviate/cloud/transport"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -50,7 +51,8 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 	handler, err := NewHandler(
 		raftClusterClient, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterstate, &fakeScaleOutManager{})
+		&fakeModuleConfig{}, clusterstate, &fakeScaleOutManager{},
+	)
 	require.Nil(t, err)
 	return &handler, raftCluster.Shutdown
 }
@@ -337,7 +339,11 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schemaConfig.VectorIndexConfig, error) {
+func (f fakeVectorConfig) DistanceName() string {
+	return common.DistanceCosine
+}
+
+func dummyParseVectorConfig(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig{raw: in}, nil
 }
 
