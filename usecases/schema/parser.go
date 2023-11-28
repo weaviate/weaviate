@@ -21,14 +21,14 @@ import (
 )
 
 type Parser struct {
-	clusterState     clusterState
-	hnswConfigParser VectorConfigParser
+	clusterState clusterState
+	configParser VectorConfigParser
 }
 
-func NewParser(clusterState clusterState, hnswConfigParser VectorConfigParser) *Parser {
+func NewParser(clusterState clusterState, configParser VectorConfigParser) *Parser {
 	return &Parser{
-		clusterState:     clusterState,
-		hnswConfigParser: hnswConfigParser,
+		clusterState: clusterState,
+		configParser: configParser,
 	}
 }
 
@@ -55,7 +55,7 @@ func (m *Parser) parseVectorIndexConfig(class *models.Class,
 			class.VectorIndexType)
 	}
 
-	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
+	parsed, err := m.configParser(class.VectorIndexConfig, class.VectorIndexType)
 	if err != nil {
 		return errors.Wrap(err, "parse vector index config")
 	}
