@@ -681,3 +681,11 @@ func (m *Migrator) AdjustFilterablePropSettings(ctx context.Context) error {
 	}
 	return f2sm.switchShardsToFallbackMode(ctx)
 }
+
+func (m *Migrator) WaitForStartup(ctx context.Context) error {
+	return m.db.WaitForStartup(ctx)
+}
+
+func (m *Migrator) Shutdown(ctx context.Context) error {
+	return m.db.Shutdown(ctx)
+}
