@@ -207,7 +207,7 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		if r.URL.String() == "/v1/.well-known/ready" {
 			code := http.StatusServiceUnavailable
-			if state.DB.StartupComplete() && state.Cluster.ClusterHealthScore() == 0 {
+			if state.CloudService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
 				code = http.StatusOK
 			}
 			w.WriteHeader(code)

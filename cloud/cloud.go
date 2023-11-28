@@ -67,3 +67,7 @@ func (c *Service) Close(ctx context.Context) (err error) {
 	c.rpcService.Close()
 	return
 }
+
+func (c *Service) Ready() bool {
+	return c.Service.Ready()
+}
