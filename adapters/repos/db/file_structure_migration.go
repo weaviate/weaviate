@@ -16,26 +16,15 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	entschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-const (
-	flatFSIndexFileRegex = `[_0-9A-Za-z]*_[A-Za-z0-9\-\_]{1,64}`
-	flatFSPQFileRegex    = `^[A-Z][A-Za-z0-9\_]*`
-	vectorIndexCommitLog = `hnsw.commitlog.d`
-)
-
-var validateIndexFileRegex *regexp.Regexp
-var validatePQFileRegex *regexp.Regexp
-
-func init() {
-	validateIndexFileRegex = regexp.MustCompile(flatFSIndexFileRegex)
-	validatePQFileRegex = regexp.MustCompile(flatFSPQFileRegex)
-}
+const vectorIndexCommitLog = `hnsw.commitlog.d`
 
 func (db *DB) migrateFileStructureIfNecessary() error {
 	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
@@ -67,7 +56,7 @@ func (db *DB) migrateToHierarchicalFS() error {
 		return err
 	}
 
-	for newRoot, parts := range plan {
+	for newRoot, parts := range plan.partsByShard {
 		for _, part := range parts {
 			newPath := path.Join(newRoot, part.newRelPath)
 			absDir, _ := filepath.Split(newPath)
@@ -75,13 +64,7 @@ func (db *DB) migrateToHierarchicalFS() error {
 				return fmt.Errorf("mkdir %q: %w", absDir, err)
 			}
 			if err = os.Rename(part.oldAbsPath, newPath); err != nil {
-				if os.IsExist(err) {
-					if err = os.RemoveAll(part.oldAbsPath); err != nil {
-						return fmt.Errorf("rm file %q: %w", part.oldAbsPath, err)
-					}
-				} else {
-					return fmt.Errorf("mv %s %s: %w", part.oldAbsPath, newPath, err)
-				}
+				return fmt.Errorf("mv %s %s: %w", part.oldAbsPath, newPath, err)
 			}
 		}
 	}
@@ -95,77 +78,224 @@ func (db *DB) migrateToHierarchicalFS() error {
 type migrationPart struct {
 	oldAbsPath string
 	newRelPath string
-	index      string
-	shard      string
 }
 
 type shardRoot = string
 
-type migrationPlan map[shardRoot][]migrationPart
+type migrationPlan struct {
+	rootPath     string
+	partsByShard map[shardRoot][]migrationPart
+}
 
-func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (migrationPlan, error) {
-	plan := make(migrationPlan, len(entries))
+func newMigrationPlan(rootPath string) *migrationPlan {
+	return &migrationPlan{rootPath: rootPath, partsByShard: make(map[string][]migrationPart)}
+}
+
+func (p *migrationPlan) append(class, shard, oldRootRelPath, newShardRelPath string) {
+	shardRoot := path.Join(p.rootPath, strings.ToLower(class), shard)
+	p.partsByShard[shardRoot] = append(p.partsByShard[shardRoot], migrationPart{
+		oldAbsPath: path.Join(p.rootPath, oldRootRelPath),
+		newRelPath: newShardRelPath,
+	})
+}
+
+func (p *migrationPlan) prepend(class, shard, oldRootRelPath, newShardRelPath string) {
+	shardRoot := path.Join(p.rootPath, strings.ToLower(class), shard)
+	p.partsByShard[shardRoot] = append([]migrationPart{{
+		oldAbsPath: path.Join(p.rootPath, oldRootRelPath),
+		newRelPath: newShardRelPath,
+	}}, p.partsByShard[shardRoot]...)
+}
+
+func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (*migrationPlan, error) {
+	fm := newFileMatcher(db.schemaGetter, db.config.RootPath)
+	plan := newMigrationPlan(db.config.RootPath)
+
 	for _, entry := range entries {
-		idxFile := validateIndexFileRegex.FindString(entry.Name())
-		if idxFile != "" {
-			parts := strings.Split(idxFile, "_")
-			if len(parts) > 1 {
-				idx, shard := parts[0], parts[1]
-				root := path.Join(db.config.RootPath, idx, shard)
-				plan[root] = append(plan[root],
-					migrationPart{
-						oldAbsPath: path.Join(db.config.RootPath, entry.Name()),
-						newRelPath: makeNewRelPath(entry.Name(), fmt.Sprintf("%s_%s", idx, shard)),
-						index:      idx,
-						shard:      shard,
-					})
+		if ok, cs := fm.isShardLsmDir(entry); ok {
+			// make sure lsm dir is moved first, otherwise os.Rename may fail
+			// if directory already exists (created by other files/dirs moved before)
+			plan.prepend(cs.class, cs.shard,
+				entry.Name(),
+				"lsm")
+		} else if ok, cs, suffix := fm.isShardFile(entry); ok {
+			plan.append(cs.class, cs.shard,
+				entry.Name(),
+				suffix)
+		} else if ok, cs := fm.isShardCommitLogDir(entry); ok {
+			plan.append(cs.class, cs.shard,
+				entry.Name(),
+				fmt.Sprintf("main.%s", vectorIndexCommitLog))
+		} else if ok, csp := fm.isShardGeoCommitLogDir(entry); ok {
+			plan.append(csp.class, csp.shard,
+				entry.Name(),
+				fmt.Sprintf("geo.%s.%s", csp.geoProp, vectorIndexCommitLog))
+		} else if ok, css := fm.isPqDir(entry); ok {
+			for _, cs := range css {
+				plan.append(cs.class, cs.shard,
+					path.Join(strings.ToLower(entry.Name()), cs.shard, "compressed_objects"),
+					path.Join("lsm", helpers.VectorsHNSWPQBucketLSM))
 			}
-		}
 
-		pqFile := validatePQFileRegex.FindString(entry.Name())
-		if pqFile != "" && entry.IsDir() {
-			oldIndexRoot := path.Join(db.config.RootPath, entry.Name())
-			newIndexRoot := path.Join(db.config.RootPath, strings.ToLower(entry.Name()))
-			err := os.Rename(oldIndexRoot, newIndexRoot)
-			if err != nil {
+			// explicitly rename Class directory starting with uppercase to lowercase
+			// as MkdirAll will not create lowercased dir if uppercased one exists
+			oldClassRoot := path.Join(db.config.RootPath, entry.Name())
+			newClassRoot := path.Join(db.config.RootPath, strings.ToLower(entry.Name()))
+			if err := os.Rename(oldClassRoot, newClassRoot); err != nil {
 				return nil, fmt.Errorf(
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
-					oldIndexRoot, newIndexRoot, err)
-			}
-			shards, err := os.ReadDir(newIndexRoot)
-			if err != nil {
-				return nil, fmt.Errorf("read pq class dir %q: %w", entry.Name(), err)
-			}
-			for _, shard := range shards {
-				if shard.IsDir() {
-					root := path.Join(newIndexRoot, shard.Name())
-					files, err := os.ReadDir(path.Join(newIndexRoot, shard.Name(), "compressed_objects"))
-					if err != nil {
-						return nil, fmt.Errorf("read pq shard dir %q: %w", shard.Name(), err)
-					}
-					for _, f := range files {
-						plan[root] = append(plan[root], migrationPart{
-							oldAbsPath: path.Join(root, "compressed_objects", f.Name()),
-							newRelPath: path.Join("lsm", helpers.VectorsHNSWPQBucketLSM, f.Name()),
-						})
-					}
-				}
+					oldClassRoot, newClassRoot, err)
 			}
 		}
 	}
 	return plan, nil
 }
 
-func makeNewRelPath(oldPath, prefix string) (newPath string) {
-	newPath = strings.TrimPrefix(oldPath, prefix)[1:]
-	if newPath == vectorIndexCommitLog {
-		// the primary commitlog for the index
-		newPath = fmt.Sprintf("main.%s", newPath)
-	} else if strings.Contains(newPath, vectorIndexCommitLog) {
-		// commitlog for a geo property
-		newPath = fmt.Sprintf("geo.%s", newPath)
+type classShard struct {
+	class string
+	shard string
+}
+
+type classShardGeoProp struct {
+	class   string
+	shard   string
+	geoProp string
+}
+
+type fileMatcher struct {
+	rootPath            string
+	shardLsmDirs        map[string]*classShard
+	shardFilePrefixes   map[string]*classShard
+	shardGeoDirPrefixes map[string]*classShardGeoProp
+	classes             map[string][]*classShard
+}
+
+func newFileMatcher(schemaGetter schema.SchemaGetter, rootPath string) *fileMatcher {
+	shardLsmDirs := make(map[string]*classShard)
+	shardFilePrefixes := make(map[string]*classShard)
+	shardGeoDirPrefixes := make(map[string]*classShardGeoProp)
+	classes := make(map[string][]*classShard)
+
+	sch := schemaGetter.GetSchemaSkipAuth()
+	for _, class := range sch.Objects.Classes {
+		shards := schemaGetter.CopyShardingState(class.Class).AllLocalPhysicalShards()
+		lowercasedClass := strings.ToLower(class.Class)
+
+		var geoProps []string
+		for _, prop := range class.Properties {
+			if dt, ok := entschema.AsPrimitive(prop.DataType); ok && dt == entschema.DataTypeGeoCoordinates {
+				geoProps = append(geoProps, prop.Name)
+			}
+		}
+
+		classes[class.Class] = make([]*classShard, 0, len(shards))
+		for _, shard := range shards {
+			cs := &classShard{class: class.Class, shard: shard}
+			shardLsmDirs[fmt.Sprintf("%s_%s_lsm", lowercasedClass, shard)] = cs
+			shardFilePrefixes[fmt.Sprintf("%s_%s", lowercasedClass, shard)] = cs
+			classes[class.Class] = append(classes[class.Class], cs)
+
+			for _, geoProp := range geoProps {
+				csp := &classShardGeoProp{class: class.Class, shard: shard, geoProp: geoProp}
+				shardGeoDirPrefixes[fmt.Sprintf("%s_%s_%s", lowercasedClass, shard, geoProp)] = csp
+			}
+		}
 	}
-	return
+
+	return &fileMatcher{
+		rootPath:            rootPath,
+		shardLsmDirs:        shardLsmDirs,
+		shardFilePrefixes:   shardFilePrefixes,
+		shardGeoDirPrefixes: shardGeoDirPrefixes,
+		classes:             classes,
+	}
+}
+
+// Checks if entry is directory with name (class is lowercased):
+// class_shard_lsm
+func (fm *fileMatcher) isShardLsmDir(entry os.DirEntry) (bool, *classShard) {
+	if !entry.IsDir() {
+		return false, nil
+	}
+	if cs, ok := fm.shardLsmDirs[entry.Name()]; ok {
+		return true, cs
+	}
+	return false, nil
+}
+
+// Checks if entry is file with name (class is lowercased):
+// class_shard.*
+// (e.g. class_shard.version, class_shard.indexcount)
+func (fm *fileMatcher) isShardFile(entry os.DirEntry) (bool, *classShard, string) {
+	if !entry.Type().IsRegular() {
+		return false, nil, ""
+	}
+	parts := strings.SplitN(entry.Name(), ".", 2)
+	if len(parts) != 2 {
+		return false, nil, ""
+	}
+	if cs, ok := fm.shardFilePrefixes[parts[0]]; ok {
+		return true, cs, parts[1]
+	}
+	return false, nil, ""
+}
+
+// Checks if entry is directory with name (class is lowercased):
+// class_shard.hnsw.commitlog.d
+func (fm *fileMatcher) isShardCommitLogDir(entry os.DirEntry) (bool, *classShard) {
+	if !entry.IsDir() {
+		return false, nil
+	}
+	parts := strings.SplitN(entry.Name(), ".", 2)
+	if len(parts) != 2 {
+		return false, nil
+	}
+	if parts[1] != vectorIndexCommitLog {
+		return false, nil
+	}
+	if cs, ok := fm.shardFilePrefixes[parts[0]]; ok {
+		return true, cs
+	}
+	return false, nil
+}
+
+// Checks if entry is directory with name (class is lowercased):
+// class_shard_prop.hnsw.commitlog.d
+func (fm *fileMatcher) isShardGeoCommitLogDir(entry os.DirEntry) (bool, *classShardGeoProp) {
+	if !entry.IsDir() {
+		return false, nil
+	}
+	parts := strings.SplitN(entry.Name(), ".", 2)
+	if len(parts) != 2 {
+		return false, nil
+	}
+	if parts[1] != vectorIndexCommitLog {
+		return false, nil
+	}
+	if csp, ok := fm.shardGeoDirPrefixes[parts[0]]; ok {
+		return true, csp
+	}
+	return false, nil
+}
+
+// Checks if entry is directory containing PQ index:
+// Class/shard/compressed_object
+func (fm *fileMatcher) isPqDir(entry os.DirEntry) (bool, []*classShard) {
+	if !entry.IsDir() {
+		return false, nil
+	}
+
+	resultcss := []*classShard{}
+	if css, ok := fm.classes[entry.Name()]; ok {
+		for _, cs := range css {
+			pqDir := path.Join(fm.rootPath, cs.class, cs.shard, "compressed_objects")
+			if info, err := os.Stat(pqDir); err == nil && info.IsDir() {
+				resultcss = append(resultcss, cs)
+			}
+		}
+		return true, resultcss
+	}
+	return false, nil
 }
 
 func fileExists(file string) (bool, error) {

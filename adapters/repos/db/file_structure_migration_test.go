@@ -16,11 +16,16 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const (
@@ -28,6 +33,7 @@ const (
 	numShards  = 10
 	chars      = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
 		"abcdefghijklmnopqrstuvwxyz" + "0123456789"
+	localNode = "node1"
 )
 
 var (
@@ -51,14 +57,15 @@ var (
 )
 
 func TestFileStructureMigration(t *testing.T) {
-	m := make(map[string]struct{}, numClasses*numShards)
+	shardsByClass := make(map[string][]string, numClasses)
 
 	t.Run("generate index and shard names", func(t *testing.T) {
 		for i := 0; i < numClasses; i++ {
 			c := randClassName()
+			shardsByClass[c] = make([]string, numShards)
 			for j := 0; j < numShards; j++ {
 				s := randShardName()
-				m[fmt.Sprintf("%s_%s", c, s)] = struct{}{}
+				shardsByClass[c][j] = s
 			}
 		}
 	})
@@ -70,13 +77,18 @@ func TestFileStructureMigration(t *testing.T) {
 			require.Nil(t, os.WriteFile(path.Join(root, f), nil, os.ModePerm))
 		}
 
-		for k := range m {
-			idx := path.Join(root, k)
-			for _, ext := range indexDirExts {
-				require.Nil(t, os.MkdirAll(idx+ext, os.ModePerm))
-			}
-			for _, ext := range indexFileExts {
-				require.Nil(t, os.WriteFile(idx+ext, nil, os.ModePerm))
+		for class, shards := range shardsByClass {
+			for _, shard := range shards {
+				idx := path.Join(root, fmt.Sprintf("%s_%s", strings.ToLower(class), shard))
+				for _, ext := range indexDirExts {
+					require.Nil(t, os.MkdirAll(idx+ext, os.ModePerm))
+				}
+				for _, ext := range indexFileExts {
+					require.Nil(t, os.WriteFile(idx+ext, nil, os.ModePerm))
+				}
+
+				pqDir := path.Join(root, class, shard, "compressed_objects")
+				require.Nil(t, os.MkdirAll(pqDir, os.ModePerm))
 			}
 		}
 	})
@@ -89,13 +101,42 @@ func TestFileStructureMigration(t *testing.T) {
 		//  - (3 dirs + 3 files) per shard per index
 		//    - dirs: main commilog, geo prop commitlog, lsm store
 		//    - files: indexcount, proplengths, version
+		//  - 1 dir per index; shards dirs are nested
+		//    - pq store
 		//  - 3 root db files
-		expectedLen := numClasses*numShards*(len(indexDirExts)+len(indexFileExts)) + len(rootFiles)
+		expectedLen := numClasses*(numShards*(len(indexDirExts)+len(indexFileExts))+1) + len(rootFiles)
 		require.Len(t, files, expectedLen)
 	})
 
 	t.Run("migrate the db", func(t *testing.T) {
-		db := testDB(root)
+		classes := make([]*models.Class, numClasses)
+		states := make(map[string]*sharding.State, numClasses)
+
+		i := 0
+		for class, shards := range shardsByClass {
+			classes[i] = &models.Class{
+				Class: class,
+				Properties: []*models.Property{{
+					Name:     "someGeoProp",
+					DataType: schema.DataTypeGeoCoordinates.PropString(),
+				}},
+			}
+			states[class] = &sharding.State{
+				Physical: make(map[string]sharding.Physical),
+			}
+			states[class].SetLocalName(localNode)
+
+			for _, shard := range shards {
+				states[class].Physical[shard] = sharding.Physical{
+					Name:           shard,
+					BelongsToNodes: []string{localNode},
+				}
+			}
+
+			i++
+		}
+
+		db := testDB(root, classes, states)
 		require.Nil(t, db.migrateFileStructureIfNecessary())
 	})
 
@@ -118,7 +159,7 @@ func TestFileStructureMigration(t *testing.T) {
 				shardsRoot, err := os.ReadDir(path.Join(root, idx.Name()))
 				require.Nil(t, err)
 				for _, shard := range shardsRoot {
-					assertShardRootContents(t, m, root, idx, shard)
+					assertShardRootContents(t, shardsByClass, root, idx, shard)
 				}
 			} else {
 				foundRootFiles = append(foundRootFiles, f.Name())
@@ -129,13 +170,17 @@ func TestFileStructureMigration(t *testing.T) {
 	})
 }
 
-func assertShardRootContents(t *testing.T, flatFiles map[string]struct{}, root string, idx, shard os.DirEntry) {
+func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, root string, idx, shard os.DirEntry) {
 	assert.True(t, shard.IsDir())
 
 	// Whatever we find in this shard directory, it should be able to
 	// be mapped back to the original flat structure root contents
-	_, ok := flatFiles[fmt.Sprintf("%s_%s", idx.Name(), shard.Name())]
-	assert.True(t, ok)
+	lowercasedClasses := make(map[string]string, len(shardsByClass))
+	for class := range shardsByClass {
+		lowercasedClasses[strings.ToLower(class)] = class
+	}
+	require.Contains(t, lowercasedClasses, idx.Name())
+	assert.Contains(t, shardsByClass[lowercasedClasses[idx.Name()]], shard.Name())
 
 	// Now we will get a set of all expected files within the shard dir.
 	// Check to see if all of these files are found.
@@ -146,13 +191,23 @@ func assertShardRootContents(t *testing.T, flatFiles map[string]struct{}, root s
 		expected[sf.Name()] = true
 	}
 	expected.assert(t)
+
+	// Check if pq store was migrated to main store as "vectors_hnsw_pq" subdir
+	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsHNSWPQBucketLSM)
+	info, err := os.Stat(pqDir)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
 }
 
-func testDB(root string) *DB {
+func testDB(root string, classes []*models.Class, states map[string]*sharding.State) *DB {
 	logger, _ := test.NewNullLogger()
 	return &DB{
 		config: Config{RootPath: root},
 		logger: logger,
+		schemaGetter: &fakeMigrationSchemaGetter{
+			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
+			states: states,
+		},
 	}
 }
 
@@ -167,7 +222,11 @@ func randShardName() string {
 func randStringBytes(n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+		if (i+1)%5 == 0 {
+			b[i] = []byte("_")[0]
+		} else {
+			b[i] = chars[rand.Intn(len(chars))]
+		}
 	}
 	return string(b)
 }
@@ -189,4 +248,49 @@ func (c shardContents) assert(t *testing.T) {
 	for name, found := range c {
 		assert.True(t, found, "didn't find %q in shard contents", name)
 	}
+}
+
+type fakeMigrationSchemaGetter struct {
+	sch    schema.Schema
+	states map[string]*sharding.State
+}
+
+func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
+	return sg.sch
+}
+
+func (sg *fakeMigrationSchemaGetter) Nodes() []string {
+	return nil
+}
+
+func (sg *fakeMigrationSchemaGetter) NodeName() string {
+	return ""
+}
+
+func (sg *fakeMigrationSchemaGetter) ClusterHealthScore() int {
+	return 0
+}
+
+func (sg *fakeMigrationSchemaGetter) ResolveParentNodes(string, string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (sg *fakeMigrationSchemaGetter) CopyShardingState(class string) *sharding.State {
+	return sg.states[class]
+}
+
+func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, error) {
+	return "", nil
+}
+
+func (sg *fakeMigrationSchemaGetter) TenantShard(class, tenant string) (string, string) {
+	return "", ""
+}
+
+func (sg *fakeMigrationSchemaGetter) ShardFromUUID(class string, uuid []byte) string {
+	return ""
+}
+
+func (sg *fakeMigrationSchemaGetter) ShardReplicas(class, shard string) ([]string, error) {
+	return nil, nil
 }
