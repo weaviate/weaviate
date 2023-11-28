@@ -149,6 +149,10 @@ func (f *Store) SetDB(db DB) {
 	f.schema.shardReader = db
 }
 
+func (f *Store) Ready() bool {
+	return f.open.Load() && f.dbLoaded.Load()
+}
+
 func (st *Store) Execute(req *cmd.ApplyRequest) error {
 	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
 
