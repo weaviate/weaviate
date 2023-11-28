@@ -85,7 +85,7 @@ func (f fakeVectorConfig) DistanceName() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schemaConfig.VectorIndexConfig, error) {
+func dummyParseVectorConfig(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
 	return fakeVectorConfig(in.(map[string]interface{})), nil
 }
 
