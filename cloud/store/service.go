@@ -51,6 +51,10 @@ func (s *Service) Close(ctx context.Context) (err error) {
 	return s.store.Close(ctx)
 }
 
+func (s *Service) Ready() bool {
+	return s.store.Ready()
+}
+
 func (s *Service) SchemaReader() *schema {
 	return s.store.SchemaReader()
 }
