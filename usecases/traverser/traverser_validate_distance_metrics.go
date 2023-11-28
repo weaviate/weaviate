@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
@@ -57,7 +58,7 @@ func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, 
 			continue
 		}
 
-		vectorConfig, assertErr := schema.TypeAssertVectorIndex(class)
+		vectorConfig, assertErr := schemaConfig.TypeAssertVectorIndex(class)
 		if assertErr != nil {
 			err = assertErr
 			return
@@ -102,7 +103,7 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
 
-	vectorConfig, err := schema.TypeAssertVectorIndex(class)
+	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class)
 	if err != nil {
 		return err
 	}
