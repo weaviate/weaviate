@@ -43,6 +43,14 @@ func NewExecutor(migrator Migrator, mr metaReader,
 	return m, nil
 }
 
+func (e *executor) Open(ctx context.Context) error {
+	return e.migrator.WaitForStartup(ctx)
+}
+
+func (e *executor) Close(ctx context.Context) error {
+	return e.migrator.Shutdown(ctx)
+}
+
 func (e *executor) AddClass(pl cluster.AddClassRequest) error {
 	// TODO-RAFT: do we need context here for every applyFunc?
 	ctx := context.Background()
