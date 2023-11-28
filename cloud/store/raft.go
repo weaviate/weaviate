@@ -12,6 +12,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,12 +44,11 @@ const (
 /// TODO: make loadDB an interface
 
 // Open opens this store and marked as such.
-func (st *Store) Open(loadDB func() error) (err error) {
+func (st *Store) Open(ctx context.Context) (err error) {
 	st.log.Info("bootstrapping started")
 	if st.open.Load() { // store already opened
 		return nil
 	}
-	st.loadDB = loadDB
 	defer func() { st.open.Store(err == nil) }()
 
 	if err = os.MkdirAll(st.raftDir, 0o755); err != nil {
@@ -56,12 +56,13 @@ func (st *Store) Open(loadDB func() error) (err error) {
 	}
 
 	// log store
-	logStore, err := raftbolt.NewBoltStore(filepath.Join(st.raftDir, raftDBName))
+	st.logStore, err = raftbolt.NewBoltStore(filepath.Join(st.raftDir, raftDBName))
 	if err != nil {
 		return fmt.Errorf("raft: bolt db: %w", err)
 	}
+
 	// log cache
-	logCache, err := raft.NewLogCache(logCacheCapacity, logStore)
+	logCache, err := raft.NewLogCache(logCacheCapacity, st.logStore)
 	if err != nil {
 		return fmt.Errorf("raft: log cache: %w", err)
 	}
@@ -85,18 +86,18 @@ func (st *Store) Open(loadDB func() error) (err error) {
 
 	st.log.Info("raft tcp transport", "address", address, "tcpMaxPool", tcpMaxPool, "tcpTimeout", tcpTimeout)
 
-	rLog := rLog{logStore}
+	rLog := rLog{st.logStore}
 	st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
 
 	if st.initialLastAppliedIndex == snapshotIndex(snapshotStore) {
-		st.loadDatabase()
+		st.loadDatabase(ctx)
 	}
 
 	// raft node
-	st.raft, err = raft.NewRaft(st.configureRaft(), st, logCache, logStore, snapshotStore, transport)
+	st.raft, err = raft.NewRaft(st.configureRaft(), st, logCache, st.logStore, snapshotStore, transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
@@ -140,7 +141,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
 		if l.Index >= st.initialLastAppliedIndex {
-			st.loadDatabase()
+			st.loadDatabase(context.Background())
 		}
 	}()
 	switch cmd.Type {
@@ -390,7 +391,7 @@ func (st *Store) configureRaft() *raft.Config {
 	return cfg
 }
 
-func (st *Store) loadDatabase() {
+func (st *Store) loadDatabase(ctx context.Context) {
 	if st.dbLoaded.Load() {
 		return
 	}
@@ -399,7 +400,7 @@ func (st *Store) loadDatabase() {
 		cls.Sharding.SetLocalName(st.nodeID)
 	}
 
-	if err := st.loadDB(); err != nil {
+	if err := st.db.Open(ctx); err != nil {
 		st.log.Error("cannot restore database", "error", err.Error())
 		panic("error restoring database")
 	}

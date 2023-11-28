@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
@@ -26,7 +27,7 @@ import (
 // It ensures that these operations are executed on the current leader, regardless of the specific leader in the cluster.
 type Service struct {
 	store *Store
-	rpc   client
+	cl    client
 }
 
 // client to communicate with remote services
@@ -37,10 +38,22 @@ type client interface {
 }
 
 func NewService(store *Store, client client) *Service {
-	return &Service{store: store, rpc: client}
+	return &Service{store: store, cl: client}
 }
 
-/// RAFT-TODO Documentation
+// / RAFT-TODO Documentation
+func (s *Service) Open(ctx context.Context, db DB) error {
+	s.store.SetDB(db)
+	return s.store.Open(ctx)
+}
+
+func (s *Service) Close(ctx context.Context) (err error) {
+	return s.store.Close(ctx)
+}
+
+func (s *Service) SchemaReader() *schema {
+	return s.store.SchemaReader()
+}
 
 func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
 	req := cmd.AddClassRequest{Class: cls, State: ss}
@@ -167,7 +180,7 @@ func (st *Service) Execute(req *cmd.ApplyRequest) error {
 	if leader == "" {
 		return ErrLeaderNotFound
 	}
-	_, err := st.rpc.Apply(leader, req)
+	_, err := st.cl.Apply(leader, req)
 	return err
 }
 
@@ -181,7 +194,7 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 		return fmt.Errorf("cannot find leader")
 	}
 	req := &cmd.JoinPeerRequest{Id: id, Address: addr, Voter: voter}
-	_, err := s.rpc.Join(ctx, leader, req)
+	_, err := s.cl.Join(ctx, leader, req)
 	return err
 }
 
@@ -195,13 +208,17 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 		return ErrLeaderNotFound
 	}
 	req := &cmd.RemovePeerRequest{Id: id}
-	_, err := s.rpc.Remove(ctx, leader, req)
+	_, err := s.cl.Remove(ctx, leader, req)
 	return err
 }
 
 func (s *Service) Stats() map[string]string {
 	// log.Printf("membership.Stats")
 	return s.store.Stats()
+}
+
+func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
+	return s.store.WaitToRestoreDB(ctx, period)
 }
 
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
