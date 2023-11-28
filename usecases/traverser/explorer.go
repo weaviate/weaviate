@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -697,7 +698,7 @@ func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
 	targetVector := e.targetParamHelper.GetTargetVectorFromParams(params)
-	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
+	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err
 	}

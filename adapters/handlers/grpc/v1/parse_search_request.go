@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -724,7 +725,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 	}
 
 	if targetVectors != nil {
-		vectorIndex, err := schema.TypeAssertVectorIndex(class, *targetVectors)
+		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, *targetVectors)
 		if err != nil {
 			return props, errors.Wrap(err, "get vector index config from class")
 		}
