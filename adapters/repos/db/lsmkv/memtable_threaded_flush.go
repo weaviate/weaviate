@@ -23,7 +23,7 @@ func (m *MemtableThreaded) flush() error {
 	if m.baseline != nil {
 		return m.baseline.flush()
 	}
-	//TODO: implement
+	// TODO: implement
 	return errors.Errorf("baseline is nil")
 }
 
@@ -31,7 +31,7 @@ func (m *MemtableThreaded) flushDataReplace(f io.Writer) ([]segmentindex.Key, er
 	if m.baseline != nil {
 		return m.baseline.flushDataReplace(f)
 	}
-	//TODO: implement
+	// TODO: implement
 	return nil, errors.Errorf("baseline is nil")
 }
 
@@ -39,7 +39,7 @@ func (m *MemtableThreaded) flushDataSet(f io.Writer) ([]segmentindex.Key, error)
 	if m.baseline != nil {
 		return m.baseline.flushDataSet(f)
 	}
-	//TODO: implement
+	// TODO: implement
 	return nil, errors.Errorf("baseline is nil")
 }
 
@@ -47,7 +47,7 @@ func (m *MemtableThreaded) flushDataMap(f io.Writer) ([]segmentindex.Key, error)
 	if m.baseline != nil {
 		return m.baseline.flushDataMap(f)
 	}
-	//TODO: implement
+	// TODO: implement
 	return nil, errors.Errorf("baseline is nil")
 }
 
@@ -57,7 +57,7 @@ func (m *MemtableThreaded) flushDataCollection(f io.Writer,
 	if m.baseline != nil {
 		return m.baseline.flushDataCollection(f, flat)
 	}
-	//TODO: implement
+	// TODO: implement
 	return nil, errors.Errorf("baseline is nil")
 }
 
@@ -65,7 +65,7 @@ func (m *MemtableThreaded) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key,
 	if m.baseline != nil {
 		return m.baseline.flushDataRoaringSet(f)
 	}
-	//TODO: implement
+	// TODO: implement
 	return nil, errors.Errorf("baseline is nil")
 }
 
@@ -73,10 +73,9 @@ func (m *MemtableThreaded) getNodesRoaringSet() []*roaringset.BinarySearchNode {
 	if m.baseline != nil {
 		return m.baseline.RoaringSet().FlattenInOrder()
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedRoaringSetFlattenInOrder,
 		}, true, "ThreadedRoaringSetFlattenInOrder")
 		return output.nodes
 	}
-
 }

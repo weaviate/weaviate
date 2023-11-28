@@ -1,18 +1,25 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lsmkv
 
 import (
-	"context"
 	"fmt"
-	"hash/fnv"
 	"math/rand"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 type Request struct {
@@ -55,7 +62,6 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 }
 
 func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([]*roaringset.BinarySearchNode, Times) {
-
 	numChannels := numWorkers
 	if workerAssignment == "single-channel" {
 		numChannels = 1
@@ -128,9 +134,9 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 			var funct string
 
 			if rand.Intn(2) == 0 {
-				funct = "ThreadedRoaringSetAddOne"
+				funct = "RoaringSetAddOne"
 			} else {
-				funct = "ThreadedRoaringSetRemoveOne"
+				funct = "RoaringSetRemoveOne"
 			}
 			operations[i][j] = &Request{key: keys[keyIndex], value: uint64(i*numClients + j), operation: funct}
 			operationsPerKey[string(keys[keyIndex])]++
@@ -141,51 +147,16 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 	return operations
 }
 
-// Worker goroutine: adds to the RoaringSet
-// TODO: wrap this code to support an interface similar to the non-concurrent version on Bucket, instead of this worker model
-func worker(id int, dirName string, requests <-chan Request, response chan<- []*roaringset.BinarySearchNode, wg *sync.WaitGroup) {
-	defer wg.Done()
-	ctx := context.Background()
-	// One bucket per worker, initialization is done in the worker thread
-	b, _ := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyRoaringSet))
-
-	for req := range requests {
-		if req.operation == "ThreadedRoaringSetAddOne" {
-			err := b.RoaringSetAddOne(req.key, req.value)
-			req.ResponseCh <- Response{Error: err}
-		} else if req.operation == "ThreadedRoaringSetRemoveOne" {
-			err := b.RoaringSetRemoveOne(req.key, req.value)
-			req.ResponseCh <- Response{Error: err}
-		}
-
-	}
-	// Grab the nodes and send them back for further merging
-	nodes := b.active.getNodesRoaringSet()
-	response <- nodes
-	close(response)
-	fmt.Println("Worker", id, "size:", len(nodes))
-
-}
-
-func hashKey(key []byte, numWorkers int) int {
-	// consider using different hash function like Murmur hash or other hash table friendly hash functions
-	hasher := fnv.New32a()
-	hasher.Write(key)
-	return int(hasher.Sum32()) % numWorkers
-}
-
 func client(i int, numWorkers int, threadOperations []*Request, m *MemtableThreaded, wg *sync.WaitGroup, workerAssignment string) {
 	defer wg.Done()
 
 	for j := 0; j < len(threadOperations); j++ {
-		if threadOperations[j].operation == "ThreadedRoaringSetAddOne" {
+		if threadOperations[j].operation == "RoaringSetAddOne" {
 			err := m.roaringSetAddOne(threadOperations[j].key, threadOperations[j].value)
 			if err != nil {
 				panic(err)
 			}
-		} else if threadOperations[j].operation == "ThreadedRoaringSetRemoveOne" {
+		} else if threadOperations[j].operation == "RoaringSetRemoveOne" {
 			err := m.roaringSetRemoveOne(threadOperations[j].key, threadOperations[j].value)
 			if err != nil {
 				panic(err)

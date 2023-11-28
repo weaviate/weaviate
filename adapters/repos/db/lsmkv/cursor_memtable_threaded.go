@@ -17,10 +17,10 @@ func (m *MemtableThreaded) newCollectionCursor() innerCursorCollection {
 	if m.baseline != nil {
 		return m.baseline.newCollectionCursor()
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewCollectionCursor,
-		}, true, "ThreadedNewCollectionCursor")
-		//TODO: implement properly on roaringOperation
+		}, true, "NewCollectionCursor")
+		// TODO: implement properly on roaringOperation
 		return output.innerCursorCollection
 	}
 }
@@ -29,10 +29,10 @@ func (m *MemtableThreaded) newRoaringSetCursor() roaringset.InnerCursor {
 	if m.baseline != nil {
 		return m.baseline.newRoaringSetCursor()
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewRoaringSetCursor,
-		}, true, "ThreadedNewRoaringSetCursor")
-		//TODO: implement properly on roaringOperation
+		}, true, "NewRoaringSetCursor")
+		// TODO: implement properly on roaringOperation
 		return output.innerCursorRoaringSet
 	}
 }
@@ -41,10 +41,10 @@ func (m *MemtableThreaded) newMapCursor() innerCursorMap {
 	if m.baseline != nil {
 		return m.baseline.newMapCursor()
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewMapCursor,
-		}, true, "ThreadedNewMapCursor")
-		//TODO: implement properly on roaringOperation
+		}, true, "NewMapCursor")
+		// TODO: implement properly on roaringOperation
 		return output.innerCursorMap
 	}
 }
@@ -53,10 +53,10 @@ func (m *MemtableThreaded) newCursor() innerCursorReplace {
 	if m.baseline != nil {
 		return m.baseline.newCursor()
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedNewCursor,
-		}, true, "ThreadedNewCursor")
-		//TODO: implement properly on roaringOperation
+		}, true, "NewCursor")
+		// TODO: implement properly on roaringOperation
 		return output.innerCursorReplace
 	}
 }

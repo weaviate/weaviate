@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lsmkv
 
 import (
@@ -46,12 +57,11 @@ func TestMemtableConcurrentMergeLoad(t *testing.T) {
 }
 
 func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) []*roaringset.BinarySearchNode {
-
 	nodes, times := RunExperiment(t, numClients, numWorkers, workerAssignment, operations)
 
 	// TODO: merge the buckets and compare to the non-concurrent version
 
-	//dirName := "multi_thread/segment"
+	// dirName := "multi_thread/segment"
 	dirName := t.TempDir()
 	startTime := time.Now()
 
@@ -79,11 +89,10 @@ func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssi
 }
 
 func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.BinarySearchNode, error) {
-
 	times := Times{}
 	startTime := time.Now()
 
-	//dirName := "single_thread"
+	// dirName := "single_thread"
 	dirName := t.TempDir()
 	m, _ := newMemtable(dirName, StrategyRoaringSet, 0, nil)
 

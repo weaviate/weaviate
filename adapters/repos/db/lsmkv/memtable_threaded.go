@@ -15,11 +15,11 @@ import (
 	"fmt"
 	"hash/fnv"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
@@ -28,18 +28,20 @@ type MemtableThreaded struct {
 	baseline         *Memtable
 	wgWorkers        sync.WaitGroup
 	path             string
-	numClients       int
 	numWorkers       int
-	requestsChannels []chan ThreadedBitmapRequest
+	requestsChannels []chan ThreadedMemtableRequest
 	workerAssignment string
+	secondaryIndices uint16
+	lastWrite        time.Time
+	createdAt        time.Time
+	metrics          *memtableMetrics
 	commitLogger     *commitLogger
 }
 
-type ThreadedMemtableFunc func(*Memtable, ThreadedBitmapRequest) ThreadedBitmapResponse
+type ThreadedMemtableFunc func(*Memtable, ThreadedMemtableRequest) ThreadedMemtableResponse
 
-type ThreadedBitmapRequest struct {
-	operation ThreadedMemtableFunc
-	//operationName  string
+type ThreadedMemtableRequest struct {
+	operation   ThreadedMemtableFunc
 	key         []byte
 	value       uint64
 	valueBytes  []byte
@@ -48,13 +50,13 @@ type ThreadedBitmapRequest struct {
 	bm          *sroar.Bitmap
 	additions   *sroar.Bitmap
 	deletions   *sroar.Bitmap
-	response    chan ThreadedBitmapResponse
+	response    chan ThreadedMemtableResponse
 	pos         int
 	opts        []SecondaryKeyOption
 	pair        MapPair
 }
 
-type ThreadedBitmapResponse struct {
+type ThreadedMemtableResponse struct {
 	error                 error
 	bitmap                roaringset.BitmapLayer
 	nodes                 []*roaringset.BinarySearchNode
@@ -65,65 +67,76 @@ type ThreadedBitmapResponse struct {
 	innerCursorMap        innerCursorMap
 	innerCursorReplace    innerCursorReplace
 	innerCursorRoaringSet roaringset.InnerCursor
+	size                  uint64
+	duration              time.Duration
+	countStats            *countStats
 }
 
-func ThreadedGet(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedGet(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.get(request.key)
-	return ThreadedBitmapResponse{error: err, result: v}
+	return ThreadedMemtableResponse{error: err, result: v}
 }
 
-func ThreadedGetBySecondary(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedGetBySecondary(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.getBySecondary(request.pos, request.key)
-	return ThreadedBitmapResponse{error: err, result: v}
+	return ThreadedMemtableResponse{error: err, result: v}
 }
 
-func ThreadedPut(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedPut(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.put(request.key, request.valueBytes, request.opts...)
-	return ThreadedBitmapResponse{error: err}
+	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedSetTombstone(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedSetTombstone(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.setTombstone(request.key, request.opts...)
-	return ThreadedBitmapResponse{error: err}
+	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedGetCollection(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedGetCollection(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.getCollection(request.key)
-	return ThreadedBitmapResponse{error: err, values: v}
+	return ThreadedMemtableResponse{error: err, values: v}
 }
 
-func ThreadedGetMap(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedGetMap(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.getMap(request.key)
-	return ThreadedBitmapResponse{error: err, mapNodes: v}
+	return ThreadedMemtableResponse{error: err, mapNodes: v}
 }
 
-func ThreadedAppend(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedAppend(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.append(request.key, request.valuesValue)
-	return ThreadedBitmapResponse{error: err}
+	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedAppendMapSorted(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
+func ThreadedAppendMapSorted(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.appendMapSorted(request.key, request.pair)
-	return ThreadedBitmapResponse{error: err}
+	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedNewCollectionCursor(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
-	return ThreadedBitmapResponse{innerCursorCollection: m.newCollectionCursor()}
+func ThreadedNewCollectionCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{innerCursorCollection: m.newCollectionCursor()}
 }
 
-func ThreadedNewMapCursor(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
-	return ThreadedBitmapResponse{innerCursorMap: m.newMapCursor()}
+func ThreadedNewMapCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{innerCursorMap: m.newMapCursor()}
 }
 
-func ThreadedNewCursor(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
-	return ThreadedBitmapResponse{innerCursorReplace: m.newCursor()}
+func ThreadedNewCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{innerCursorReplace: m.newCursor()}
 }
 
-func ThreadedNewRoaringSetCursor(m *Memtable, request ThreadedBitmapRequest) ThreadedBitmapResponse {
-	return ThreadedBitmapResponse{innerCursorRoaringSet: m.newRoaringSetCursor()}
+func ThreadedNewRoaringSetCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{innerCursorRoaringSet: m.newRoaringSetCursor()}
 }
 
-func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest, wg *sync.WaitGroup, strategy string) {
+func ThreadedWriteWAL(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{error: m.writeWAL()}
+}
+
+func ThreadedSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{size: m.size}
+}
+
+func threadWorker(id int, dirName string, requests <-chan ThreadedMemtableRequest, wg *sync.WaitGroup, strategy string) {
 	defer wg.Done()
 	// One bucket per worker, initialization is done in the worker thread
 	m, err := newMemtable(dirName, strategy, 0, nil)
@@ -133,7 +146,7 @@ func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest,
 	}
 
 	for req := range requests {
-		//fmt.Println("Worker", id, "received request", req.operationName)
+		// fmt.Println("Worker", id, "received request", req.operationName)
 		if req.response != nil {
 			req.response <- req.operation(m, req)
 		} else {
@@ -142,7 +155,6 @@ func threadWorker(id int, dirName string, requests <-chan ThreadedBitmapRequest,
 	}
 
 	fmt.Println("Worker", id, "size:")
-
 }
 
 func threadHashKey(key []byte, numWorkers int) int {
@@ -168,7 +180,6 @@ func newMemtableThreadedDebug(path string, strategy string,
 ) (*MemtableThreaded, error) {
 	if workerAssignment == "baseline" { //|| strategy != StrategyRoaringSet {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
-
 		if err != nil {
 			return nil, err
 		}
@@ -180,7 +191,6 @@ func newMemtableThreadedDebug(path string, strategy string,
 	} else {
 
 		cl, err := newCommitLogger(path)
-
 		if err != nil {
 			return nil, err
 		}
@@ -188,10 +198,10 @@ func newMemtableThreadedDebug(path string, strategy string,
 		var wgWorkers sync.WaitGroup
 		numWorkers := runtime.NumCPU()
 		numChannels := numWorkers
-		requestsChannels := make([]chan ThreadedBitmapRequest, numChannels)
+		requestsChannels := make([]chan ThreadedMemtableRequest, numChannels)
 
 		for i := 0; i < numChannels; i++ {
-			requestsChannels[i] = make(chan ThreadedBitmapRequest)
+			requestsChannels[i] = make(chan ThreadedMemtableRequest)
 		}
 
 		// Start worker goroutines
@@ -203,9 +213,13 @@ func newMemtableThreadedDebug(path string, strategy string,
 
 		m := &MemtableThreaded{
 			wgWorkers:        wgWorkers,
-			numClients:       0,
+			path:             path,
 			numWorkers:       numWorkers,
 			requestsChannels: requestsChannels,
+			secondaryIndices: secondaryIndices,
+			lastWrite:        time.Now(),
+			createdAt:        time.Now(),
+			metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 			baseline:         nil,
 			workerAssignment: workerAssignment,
 			commitLogger:     cl,
@@ -214,17 +228,16 @@ func newMemtableThreadedDebug(path string, strategy string,
 		return m, nil
 
 	}
-
 }
 
 func (m *MemtableThreaded) get(key []byte) ([]byte, error) {
 	if m.baseline != nil {
 		return m.baseline.get(key)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedGet,
 			key:       key,
-		}, true, "ThreadedGet")
+		}, true, "Get")
 		return output.result, output.error
 	}
 }
@@ -233,11 +246,11 @@ func (m *MemtableThreaded) getBySecondary(pos int, key []byte) ([]byte, error) {
 	if m.baseline != nil {
 		return m.baseline.getBySecondary(pos, key)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedGetBySecondary,
 			key:       key,
 			pos:       pos,
-		}, true, "ThreadedGetBySecondary")
+		}, true, "GetBySecondary")
 		return output.result, output.error
 	}
 }
@@ -246,12 +259,12 @@ func (m *MemtableThreaded) put(key, value []byte, opts ...SecondaryKeyOption) er
 	if m.baseline != nil {
 		return m.baseline.put(key, value, opts...)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation:  ThreadedPut,
 			key:        key,
 			valueBytes: value,
 			opts:       opts,
-		}, false, "ThreadedPut")
+		}, false, "Put")
 		return output.error
 	}
 }
@@ -260,11 +273,11 @@ func (m *MemtableThreaded) setTombstone(key []byte, opts ...SecondaryKeyOption) 
 	if m.baseline != nil {
 		return m.baseline.setTombstone(key, opts...)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedSetTombstone,
 			key:       key,
 			opts:      opts,
-		}, false, "ThreadedSetTombstone")
+		}, false, "SetTombstone")
 		return output.error
 	}
 }
@@ -273,10 +286,10 @@ func (m *MemtableThreaded) getCollection(key []byte) ([]value, error) {
 	if m.baseline != nil {
 		return m.baseline.getCollection(key)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedGetCollection,
 			key:       key,
-		}, true, "ThreadedGetCollection")
+		}, true, "GetCollection")
 		return output.values, output.error
 	}
 }
@@ -285,10 +298,10 @@ func (m *MemtableThreaded) getMap(key []byte) ([]MapPair, error) {
 	if m.baseline != nil {
 		return m.baseline.getMap(key)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedGetMap,
 			key:       key,
-		}, true, "ThreadedGetMap")
+		}, true, "GetMap")
 		return output.mapNodes, output.error
 	}
 }
@@ -297,11 +310,11 @@ func (m *MemtableThreaded) append(key []byte, values []value) error {
 	if m.baseline != nil {
 		return m.baseline.append(key, values)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation:   ThreadedAppend,
 			key:         key,
 			valuesValue: values,
-		}, false, "ThreadedAppend")
+		}, false, "Append")
 		return output.error
 	}
 }
@@ -310,11 +323,11 @@ func (m *MemtableThreaded) appendMapSorted(key []byte, pair MapPair) error {
 	if m.baseline != nil {
 		return m.baseline.appendMapSorted(key, pair)
 	} else {
-		output := m.roaringOperation(ThreadedBitmapRequest{
+		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedAppendMapSorted,
 			key:       key,
 			pair:      pair,
-		}, false, "ThreadedAppendMapSorted")
+		}, false, "AppendMapSorted")
 		return output.error
 	}
 }
@@ -322,29 +335,45 @@ func (m *MemtableThreaded) appendMapSorted(key []byte, pair MapPair) error {
 func (m *MemtableThreaded) Size() uint64 {
 	if m.baseline != nil {
 		return m.baseline.Size()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedSize,
+		}, false, "Size")
+		return output.size
 	}
-	return 0
 }
 
 func (m *MemtableThreaded) ActiveDuration() time.Duration {
 	if m.baseline != nil {
 		return m.baseline.ActiveDuration()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedSize,
+		}, false, "ActiveDuration")
+		return output.duration
 	}
-	return 0
 }
 
 func (m *MemtableThreaded) IdleDuration() time.Duration {
 	if m.baseline != nil {
 		return m.baseline.IdleDuration()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedSize,
+		}, false, "IdleDuration")
+		return output.duration
 	}
-	return 0
 }
 
 func (m *MemtableThreaded) countStats() *countStats {
 	if m.baseline != nil {
 		return m.baseline.countStats()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedSize,
+		}, false, "countStats")
+		return output.countStats
 	}
-	return nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
@@ -356,16 +385,18 @@ func (m *MemtableThreaded) countStats() *countStats {
 func (m *MemtableThreaded) writeWAL() error {
 	if m.baseline != nil {
 		return m.baseline.writeWAL()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedWriteWAL,
+		}, false, "WriteWAL")
+		return output.error
 	}
-	//TODO: implement
-	return errors.Errorf("baseline is nil")
 }
 
 func (m *MemtableThreaded) Commitlog() *commitLogger {
 	if m.baseline != nil {
 		return m.baseline.Commitlog()
 	}
-	//TODO: implement
 	return m.commitLogger
 }
 
@@ -380,8 +411,7 @@ func (m *MemtableThreaded) SecondaryIndices() uint16 {
 	if m.baseline != nil {
 		return m.baseline.SecondaryIndices()
 	}
-	//TODO: implement
-	return 0
+	return m.secondaryIndices
 }
 
 func (m *MemtableThreaded) SetPath(path string) {
