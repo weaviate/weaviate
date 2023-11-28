@@ -48,10 +48,10 @@ import (
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	schemav2 "github.com/weaviate/weaviate/cloud/store"
 	ctrans "github.com/weaviate/weaviate/cloud/transport"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -257,7 +257,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 		RaftPort:        appState.ServerConfig.Config.Raft.Port,
 		BootstrapExpect: appState.ServerConfig.Config.Raft.BootstrapExpect,
 		DB:              nil,
-		Parser:          schema.NewParser(appState.Cluster, enthnsw.ParseAndValidateConfig),
+		Parser:          schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig),
 		Logger:          sLogger(),
 		LogLevel:        logLevel(),
 	}
