@@ -199,7 +199,7 @@ func NewManager(migrator Migrator,
 	return m, nil
 }
 
-func (m *Manager) Shutdown(ctx context.Context) error {
+func (m *Manager) Shutdown(ctx context.Context) error { //
 	// TODO-RAFT START
 	// Fix shutdown logic
 	//

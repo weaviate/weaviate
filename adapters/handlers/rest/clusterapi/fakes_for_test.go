@@ -281,3 +281,11 @@ func (n *NilMigrator) InvertedReindex(ctx context.Context, taskNames ...string) 
 func (n *NilMigrator) AdjustFilterablePropSettings(ctx context.Context) error {
 	return nil
 }
+
+func (n *NilMigrator) WaitForStartup(ctx context.Context) error {
+	return nil
+}
+
+func (n *NilMigrator) Shutdown(ctx context.Context) error {
+	return nil
+}
