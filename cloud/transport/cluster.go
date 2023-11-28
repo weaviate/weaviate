@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package transport
 
 import (
 	"context"
@@ -45,8 +45,8 @@ type Cluster struct {
 	log        *slog.Logger
 }
 
-func NewCluster(ms members, ex executor, address string, l *slog.Logger) Cluster {
-	return Cluster{
+func NewCluster(ms members, ex executor, address string, l *slog.Logger) *Cluster {
+	return &Cluster{
 		members:  ms,
 		executor: ex,
 		address:  address,
@@ -99,7 +99,7 @@ func (c *Cluster) Open() error {
 	return nil
 }
 
-func (c *Cluster) Shutdown() {
+func (c *Cluster) Close() {
 	c.grpcServer.Stop()
 }
 
