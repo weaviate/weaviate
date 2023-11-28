@@ -47,7 +47,7 @@ type Manager struct {
 	metaReader
 }
 
-type VectorConfigParser func(in interface{}) (schemaConfig.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
@@ -176,7 +176,7 @@ func NewManager(migrator Migrator,
 	handler, err := NewHandler(
 		store, metaReader, migrator,
 		logger, authorizer,
-		config, hnswConfigParser, vectorizerValidator, invertedConfigValidator,
+		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
