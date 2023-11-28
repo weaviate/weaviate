@@ -21,14 +21,14 @@ import (
 )
 
 type Parser struct {
-	clusterState     clusterState
-	hnswConfigParser VectorConfigParser
+	clusterState clusterState
+	configParser VectorConfigParser
 }
 
-func NewParser(clusterState clusterState, hnswConfigParser VectorConfigParser) *Parser {
+func NewParser(clusterState clusterState, configParser VectorConfigParser) *Parser {
 	return &Parser{
-		clusterState:     clusterState,
-		hnswConfigParser: hnswConfigParser,
+		clusterState: clusterState,
+		configParser: configParser,
 	}
 }
 
