@@ -46,8 +46,8 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
+	"github.com/weaviate/weaviate/cloud"
 	schemav2 "github.com/weaviate/weaviate/cloud/store"
-	ctrans "github.com/weaviate/weaviate/cloud/transport"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -240,48 +240,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	schemaTxPersistence := txstore.NewStore(
 		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 
-	// TODO-RAFT START
+	/// TODO-RAFT START
 	//
 	nodeName := appState.Cluster.LocalName()
 	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
 	addrs := strings.Split(nodeAddr, ":")
-	rpcPort := strconv.Itoa(appState.ServerConfig.Config.Raft.InternalRPCPort)
-	rpcAddr := addrs[0] + ":" + rpcPort
-	raftAddr := addrs[0] + ":" + fmt.Sprintf("%d", appState.ServerConfig.Config.Raft.Port)
-
-	cl := ctrans.NewClient(ctrans.NewRPCResolver(isLocalhost, rpcPort))
 
 	rConfig := schemav2.Config{
 		WorkDir:         filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
 		NodeID:          nodeName,
 		Host:            addrs[0],
 		RaftPort:        appState.ServerConfig.Config.Raft.Port,
+		RPCPort:         appState.ServerConfig.Config.Raft.InternalRPCPort,
 		BootstrapExpect: appState.ServerConfig.Config.Raft.BootstrapExpect,
 		DB:              nil,
 		Parser:          schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig),
 		Logger:          sLogger(),
 		LogLevel:        logLevel(),
+		IsLocalHost:     isLocalhost,
 	}
 
-	fsm := schemav2.New(rConfig)
-	appState.MetaStore = schemav2.NewService(&fsm, cl)
-	cluster := ctrans.NewCluster(&fsm, appState.MetaStore, rpcAddr, rConfig.Logger)
-	if err := cluster.Open(); err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not start raft cluster")
-	}
-	schemaReader := fsm.SchemaReader()
-	executor, err := schema.NewExecutor(migrator, schemaReader, appState.Logger)
+	appState.CloudService = cloud.New(rConfig)
+	executor, err := schema.NewExecutor(migrator, appState.CloudService.SchemaReader(), appState.Logger)
 	if err != nil {
 		appState.Logger.Errorf("could not init executor %v:", err)
 		os.Exit(1)
 	}
-	fsm.SetDB(executor)
 	schemaManager, err := schemaUC.NewManager(migrator,
-		appState.MetaStore,
-		schemaReader,
+		appState.CloudService.Service,
+		appState.CloudService.SchemaReader(),
 		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
@@ -295,10 +282,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 		os.Exit(1)
 	}
 
-	// TODO-RAFT ENDappState.MetaHandler = handler
-
 	appState.SchemaManager = schemaManager
-
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
@@ -324,41 +308,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 			Fatal("cannot resolve raft addresses using member list")
 	}
 
-	err = fsm.Open(func() error { return vectorRepo.WaitForStartup(ctx) })
+	err = appState.CloudService.Open(ctx, candidateList, executor)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").
 			WithError(err).
-			Fatal("could not open fsm store")
+			Fatal("could not open cloud meta store")
 	}
-
-	bs := schemav2.NewBootstrapper(cl, nodeName, raftAddr)
-	bTimeout := time.Second * 60
-	bCtx, bCancel := context.WithTimeout(ctx, bTimeout)
-	defer bCancel()
-	if err := bs.Do(bCtx, candidateList, rConfig.Logger); err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithField("timeout", bTimeout).
-			WithError(err).
-			Fatal("could not open fsm store")
-	}
-	if err := fsm.WaitToRestoreDB(ctx, 10*time.Second); err != nil {
-		appState.Logger.
-			WithField("action", "startup_db").
-			WithError(err).
-			Fatal("could not restore database")
-	}
-
 	// TODO-RAFT END
-	// err = vectorRepo.WaitForStartup(ctx)
-	// if err != nil {
-	// 	appState.Logger.
-	// 		WithError(err).
-	// 		WithField("action", "startup").
-	// 		Fatal("db didn't start up")
-	// 	os.Exit(1)
-	// }
 
 	if err := schemaManager.StartServing(ctx); err != nil {
 		appState.Logger.
@@ -537,7 +494,7 @@ func configureAPI(api *operations.WeaviateAPI, isLocalhost bool) http.Handler {
 			panic(err)
 		}
 
-		if err := appState.DB.Shutdown(ctx); err != nil {
+		if err := appState.CloudService.Close(ctx); err != nil {
 			panic(err)
 		}
 	}

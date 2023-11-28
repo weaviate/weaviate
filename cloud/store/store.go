@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
@@ -44,6 +45,8 @@ type DB interface {
 	DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error
 	UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
+	Open(ctx context.Context) error
+	Close(ctx context.Context) error
 }
 
 type Parser interface {
@@ -55,15 +58,17 @@ type Config struct {
 	NodeID          string
 	Host            string
 	RaftPort        int
+	RPCPort         int
 	BootstrapExpect int
 
 	RaftHeartbeatTimeout time.Duration
 	RaftElectionTimeout  time.Duration
 
-	DB       DB
-	Parser   Parser
-	Logger   *slog.Logger
-	LogLevel string
+	DB          DB
+	Parser      Parser
+	Logger      *slog.Logger
+	LogLevel    string
+	IsLocalHost bool
 }
 
 type Store struct {
@@ -86,14 +91,13 @@ type Store struct {
 	logLevel string
 
 	bootstrapped atomic.Bool
-
-	mutex      sync.Mutex
-	candidates map[string]string
+	logStore     *raftbolt.BoltStore
+	mutex        sync.Mutex
+	candidates   map[string]string
 
 	// initialLastAppliedIndex represents the index of the last applied command when the store is opened.
 	initialLastAppliedIndex uint64
 
-	loadDB func() error
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 }
@@ -115,6 +119,29 @@ func New(cfg Config) Store {
 		log:                  cfg.Logger,
 		logLevel:             cfg.LogLevel,
 	}
+}
+
+func (st *Store) Close(ctx context.Context) (err error) {
+	if !st.open.Load() {
+		return nil
+	}
+	st.log.Info("stopping raft ...")
+	ft := st.raft.Shutdown()
+	if err = ft.Error(); err != nil {
+		return ft.Error()
+	}
+	st.open.Store(false)
+
+	st.log.Info("closing log store ...")
+	err = st.logStore.Close()
+
+	st.log.Info("closing data store ...")
+	errDB := st.db.Close(ctx)
+	if err != nil || errDB != nil {
+		return fmt.Errorf("close log store: %w, close database: %w", err, errDB)
+	}
+
+	return
 }
 
 func (f *Store) SetDB(db DB) {
@@ -162,7 +189,7 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
-	return st.raft.State() == raft.Leader
+	return st.raft != nil && st.raft.State() == raft.Leader
 }
 
 func (f *Store) SchemaReader() *schema {

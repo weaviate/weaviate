@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cloud"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -36,8 +37,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
-
-	schemav2 "github.com/weaviate/weaviate/cloud/store"
 )
 
 // State is the only source of application-wide state
@@ -70,8 +69,7 @@ type State struct {
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
 	/// TODO-RAFT START
-	MetaStore   *schemav2.Service
-	MetaHandler *schema.Handler
+	CloudService cloud.Service
 	/// TODO-RAFT END
 }
 
