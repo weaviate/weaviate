@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -621,7 +622,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		IsConsistent:       prop.IsConsistent,
 	}
 
-	vectorIndex, err := schema.TypeAssertVectorIndex(class)
+	vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class)
 	if err != nil {
 		return props, err
 	}
