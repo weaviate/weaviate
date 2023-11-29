@@ -701,3 +701,12 @@ func (h *hnsw) ContainsNode(id uint64) bool {
 func (h *hnsw) DistancerProvider() distancer.Provider {
 	return h.distancerProvider
 }
+
+func (h *hnsw) normalizeVec(vec []float32) []float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		return distancer.Normalize(vec)
+	}
+	return vec
+}

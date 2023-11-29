@@ -65,12 +65,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	if h.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vector = distancer.Normalize(vector)
-	}
-
+	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(vector, k, allowList)
@@ -436,9 +431,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer *ssdhelpers.PQDist
 			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
 	}
-	if h.distancerProvider.Type() == "cosine-dot" {
-		vec = distancer.Normalize(vec)
-	}
+	vec = h.normalizeVec(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 
