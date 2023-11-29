@@ -77,7 +77,7 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 		}, UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
-		})
+		}, newDummyStore(t))
 
 		require.Nil(t, err)
 		vectorIndex = index

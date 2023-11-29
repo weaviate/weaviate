@@ -256,7 +256,10 @@ func TestBackup_BucketLevel(t *testing.T) {
 func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	db, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  rootDir,

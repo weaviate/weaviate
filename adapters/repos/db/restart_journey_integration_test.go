@@ -46,7 +46,10 @@ func TestRestartJourney(t *testing.T) {
 		},
 	}
 	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,

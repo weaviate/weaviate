@@ -143,7 +143,10 @@ func TestNullArrayClass(t *testing.T) {
 }
 
 func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
 	repo, err := New(logger, Config{
