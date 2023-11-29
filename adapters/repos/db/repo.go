@@ -190,6 +190,7 @@ type Config struct {
 	ServerVersion             string
 	GitHash                   string
 	AvoidMMap                 bool
+	DisableLazyLoadShards     bool
 	Replication               replication.GlobalConfig
 }
 

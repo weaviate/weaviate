@@ -27,7 +27,7 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *Shard) putObjectBatch(ctx context.Context,
+func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if s.isReadOnly() {
@@ -85,7 +85,7 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 // operations)
 type objectsBatcher struct {
 	sync.Mutex
-	shard          *Shard
+	shard          ShardLike
 	statuses       map[strfmt.UUID]objectInsertStatus
 	errs           []error
 	duplicates     map[int]struct{}
@@ -94,7 +94,7 @@ type objectsBatcher struct {
 	batchStartTime time.Time
 }
 
-func newObjectsBatcher(s *Shard) *objectsBatcher {
+func newObjectsBatcher(s ShardLike) *objectsBatcher {
 	return &objectsBatcher{shard: s}
 }
 
@@ -103,7 +103,7 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	beforeBatch := time.Now()
-	defer ob.shard.metrics.BatchObject(beforeBatch, len(objects))
+	defer ob.shard.Metrics().BatchObject(beforeBatch, len(objects))
 
 	ob.init(objects)
 	ob.storeInObjectStore(ctx)
@@ -133,7 +133,7 @@ func (ob *objectsBatcher) storeInObjectStore(ctx context.Context) {
 		}
 	}
 
-	ob.shard.metrics.ObjectStore(beforeObjectStore)
+	ob.shard.Metrics().ObjectStore(beforeObjectStore)
 }
 
 func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
@@ -233,7 +233,7 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	if err := ob.shard.queue.Delete(docIDsToDelete...); err != nil {
+	if err := ob.shard.Queue().Delete(docIDsToDelete...); err != nil {
 		for _, pos := range positions {
 			ob.setErrorAtIndex(err, pos)
 		}
@@ -259,13 +259,13 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 
 		ob.wg.Add(1)
 		status := ob.statuses[object.ID()]
-		ob.shard.centralJobQueue <- job{
+		ob.shard.addJobToQueue(job{
 			object:  object,
 			status:  status,
 			index:   i,
 			ctx:     ctx,
 			batcher: ob,
-		}
+		})
 	}
 }
 
@@ -278,11 +278,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 	ob.batchStartTime = time.Now()
 
-	var shouldGeoIndex bool
-	ob.shard.propertyIndicesLock.RLock()
-	shouldGeoIndex = len(ob.shard.propertyIndices) > 0
-	ob.shard.propertyIndicesLock.RUnlock()
-
+	shouldGeoIndex := ob.shard.hasGeoIndex()
 	vectors := make([]vectorDescriptor, 0, len(ob.objects))
 	for i := range ob.objects {
 		object := ob.objects[i]
@@ -311,7 +307,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		vectors = append(vectors, desc)
 	}
 
-	err := ob.shard.queue.Push(ctx, vectors...)
+	err := ob.shard.Queue().Push(ctx, vectors...)
 	if err != nil {
 		ob.setErrorAtIndex(err, 0)
 	}
@@ -420,19 +416,19 @@ func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
 }
 
 func (ob *objectsBatcher) flushWALs(ctx context.Context) {
-	if err := ob.shard.store.WriteWALs(); err != nil {
+	if err := ob.shard.Store().WriteWALs(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := ob.shard.vectorIndex.Flush(); err != nil {
+	if err := ob.shard.VectorIndex().Flush(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := ob.shard.propLengths.Flush(false); err != nil {
+	if err := ob.shard.GetPropertyLengthTracker().Flush(false); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}

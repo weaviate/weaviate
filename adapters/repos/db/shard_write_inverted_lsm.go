@@ -208,13 +208,13 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 	return b.SetAdd(item.Data, docIDs)
 }
 
-func (s *Shard) addPropLengths(props []inverted.Property) error {
+func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 	for _, prop := range props {
 		if !prop.HasSearchableIndex {
 			continue
 		}
 
-		if err := s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+		if err := s.GetPropertyLengthTracker().TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
 
@@ -229,7 +229,7 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 			continue
 		}
 
-		if err := s.propLengths.UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+		if err := s.GetPropertyLengthTracker().UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
 

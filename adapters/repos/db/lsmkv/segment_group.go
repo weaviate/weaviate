@@ -374,7 +374,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (sg *SegmentGroup) updateStatus(status storagestate.Status) {
+func (sg *SegmentGroup) UpdateStatus(status storagestate.Status) {
 	sg.statusLock.Lock()
 	defer sg.statusLock.Unlock()
 
