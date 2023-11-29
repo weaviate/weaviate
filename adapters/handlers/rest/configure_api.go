@@ -133,37 +133,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}()
 	}
 
-	if os.Getenv("LIMIT_RESOURCES") == "true" {
-		appState.Logger.Info("Limiting resources:  memory: 80%, cores: all but one")
-		if os.Getenv("GOMAXPROCS") == "" {
-			// Fetch the number of cores from the cgroups cpuset
-			// and parse it into an int
-			cores, err := getCores()
-			if err == nil {
-				appState.Logger.WithField("cores", cores).Warn("GOMAXPROCS not set, and unable to read from cgroups, setting to number of cores")
-				goruntime.GOMAXPROCS(cores)
-			} else {
-				cores = goruntime.NumCPU() - 1
-				if cores > 0 {
-					appState.Logger.WithField("cores", cores).Warnf("Unable to read from cgroups: %v, setting to max cores to: %v", err, cores)
-					goruntime.GOMAXPROCS(cores)
-				}
-			}
-		}
-
-		limit, err := memlimit.SetGoMemLimit(0.8)
-		if err != nil {
-			appState.Logger.WithError(err).Warnf("Unable to set memory limit from cgroups: %v", err)
-			// Set memory limit to 90% of the available memory
-			limit := int64(float64(memory.TotalMemory()) * 0.8)
-			debug.SetMemoryLimit(limit)
-			appState.Logger.WithField("limit", limit).Info("Set memory limit based on available memory")
-		} else {
-			appState.Logger.WithField("limit", limit).Info("Set memory limit")
-		}
-	} else {
-		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU.  To limit resources, set LIMIT_RESOURCES=true")
-	}
+	limitResources(appState)
 
 	err := registerModules(appState)
 	if err != nil {
@@ -908,4 +878,41 @@ func parseVersionFromSwaggerSpec() string {
 	}
 
 	return spec.Info.Version
+}
+
+func limitResources(appState *state.State) {
+	if os.Getenv("LIMIT_RESOURCES") == "true" {
+		appState.Logger.Info("Limiting resources:  memory: 80%, cores: all but one")
+		if os.Getenv("GOMAXPROCS") == "" {
+			// Fetch the number of cores from the cgroups cpuset
+			// and parse it into an int
+			cores, err := getCores()
+			if err == nil {
+				appState.Logger.WithField("cores", cores).
+					Warn("GOMAXPROCS not set, and unable to read from cgroups, setting to number of cores")
+				goruntime.GOMAXPROCS(cores)
+			} else {
+				cores = goruntime.NumCPU() - 1
+				if cores > 0 {
+					appState.Logger.WithField("cores", cores).
+						Warnf("Unable to read from cgroups: %v, setting to max cores to: %v", err, cores)
+					goruntime.GOMAXPROCS(cores)
+				}
+			}
+		}
+
+		limit, err := memlimit.SetGoMemLimit(0.8)
+		if err != nil {
+			appState.Logger.WithError(err).Warnf("Unable to set memory limit from cgroups: %v", err)
+			// Set memory limit to 90% of the available memory
+			limit := int64(float64(memory.TotalMemory()) * 0.8)
+			debug.SetMemoryLimit(limit)
+			appState.Logger.WithField("limit", limit).Info("Set memory limit based on available memory")
+		} else {
+			appState.Logger.WithField("limit", limit).Info("Set memory limit")
+		}
+	} else {
+		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
+			"To limit resources, set LIMIT_RESOURCES=true")
+	}
 }
