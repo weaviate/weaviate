@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package storobj
 
 import "sync"
@@ -27,5 +38,10 @@ func (b *bufferPool) Put(buf []byte) {
 	// way all buffers will always have len=0, either because they are brand-new
 	// or because they have been reset.
 	buf = buf[:0]
+
+	//nolint:staticcheck // I disagree with the linter, this doesn't need to be a
+	//pointer. Even if we copy the slicestruct header, the backing array is
+	//what's allocation-heavy and that will be reused. The profiles in the PR
+	//description prove this.
 	b.pool.Put(buf)
 }
