@@ -316,6 +316,16 @@ func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	return bytes, err
 }
 
+// GetBySecondaryWithBuffer is like [Bucket.GetBySecondary], but also takes a
+// buffer. It's in the response of the caller to pool the buffer, since the
+// bucket does not know when the caller is done using it. The return bytes will
+// likely point to the same memory that's part of the buffer. However, if the
+// buffer is to small, a larger buffer may also be returned (second arg).
+func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]byte, []byte, error) {
+	bytes, newBuf, err := b.GetBySecondaryIntoMemory(pos, key, buf)
+	return bytes, newBuf, err
+}
+
 // GetBySecondaryIntoMemory copies into the specified memory, and retrieves
 // an object using one of its secondary keys. A bucket
 // can have an infinite number of secondary keys. Specify the secondary key
