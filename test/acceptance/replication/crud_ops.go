@@ -59,6 +59,11 @@ func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
+func createObjectsCL(t *testing.T, host string, batch []*models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.CreateObjectsBatchCL(t, batch, cl)
+}
+
 func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.SetupClient(host)
 	helper.CreateObjectsBatch(t, batch)

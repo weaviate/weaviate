@@ -986,6 +986,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(replica.One)
+		}
+	}
+
 	shardNames, err := i.targetShardNames(tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
@@ -1019,7 +1025,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames)
+		filters, keywordRanking, sort, cursor, addlProps, replProps, shardNames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1090,9 +1096,6 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency(replica.One)
-		}
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
@@ -1106,7 +1109,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, shards []string,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties, shards []string,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
@@ -1131,7 +1134,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
 				}
-			} else {
+				// If a class is replication-enabled, a request with a consistency level
+				// of ONE should not cause DB to attempt contact any other nodes
+			} else if !i.replicationEnabled() || replProps.ConsistencyLevel != string(replica.One) {
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
