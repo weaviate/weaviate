@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -171,18 +172,25 @@ func threadHashKey(key []byte, numWorkers int) int {
 func newMemtableThreaded(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics,
 ) (*MemtableThreaded, error) {
-	workerAssignment := os.Getenv("MEMTABLE_WORKER_ASSIGNMENT")
+	workerAssignment := os.Getenv("MEMTABLE_THREADED_WORKER_ASSIGNMENT")
 	if len(workerAssignment) == 0 {
 		workerAssignment = "hash"
 	}
+	enableForSet := map[string]bool{}
+	enableFor := os.Getenv("MEMTABLE_THREADED_ENABLE_TYPES")
+	if len(workerAssignment) != 0 {
+		for _, t := range strings.Split(enableFor, ",") {
+			enableForSet[t] = true
+		}
+	}
 
-	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment)
+	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment, enableForSet)
 }
 
 func newMemtableThreadedDebug(path string, strategy string,
-	secondaryIndices uint16, metrics *Metrics, workerAssignment string,
+	secondaryIndices uint16, metrics *Metrics, workerAssignment string, enableFor map[string]bool,
 ) (*MemtableThreaded, error) {
-	if workerAssignment == "baseline" { //|| strategy != StrategyRoaringSet {
+	if !enableFor[strategy] {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
 		if err != nil {
 			return nil, err
