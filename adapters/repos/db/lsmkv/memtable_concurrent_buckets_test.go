@@ -63,6 +63,11 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 
 func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([]*roaringset.BinarySearchNode, Times) {
 	numChannels := numWorkers
+
+	useThreadedFor := map[string]bool{
+		StrategyRoaringSet: true,
+	}
+
 	if workerAssignment == "single-channel" {
 		numChannels = 1
 	}
@@ -70,12 +75,13 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	if workerAssignment == "baseline" {
 		numChannels = 1
 		numWorkers = 1
+		useThreadedFor = map[string]bool{}
 	}
 
 	path := t.TempDir()
 	strategy := StrategyRoaringSet
 
-	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment)
+	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment, useThreadedFor)
 	if err != nil {
 		t.Fatal(err)
 	}

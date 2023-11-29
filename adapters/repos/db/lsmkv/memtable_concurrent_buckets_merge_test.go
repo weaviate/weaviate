@@ -111,10 +111,10 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 			if i >= len(operations[j]) {
 				continue
 			}
-			if operations[j][i].operation == "ThreadedRoaringSetAddOne" {
+			if operations[j][i].operation == "RoaringSetAddOne" {
 				err := m.roaringSetAddOne(operations[j][i].key, operations[j][i].value)
 				require.Nil(t, err)
-			} else if operations[j][i].operation == "ThreadedRoaringSetRemoveOne" {
+			} else if operations[j][i].operation == "RoaringSetRemoveOne" {
 				err := m.roaringSetRemoveOne(operations[j][i].key, operations[j][i].value)
 				require.Nil(t, err)
 			}
