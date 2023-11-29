@@ -96,15 +96,14 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 			logger.WithField("className", object.Class).
 				Warningf(warningSkipVectorProvided)
 		}
-
 		return nil
 	}
 
-	//if hnswConfig.Skip {
-	//	logger.WithField("className", object.Class).
-	//		WithField("vectorizer", class.Vectorizer).
-	//		Warningf(warningSkipVectorGenerated, class.Vectorizer)
-	//}
+	if hnswConfig.Skip {
+		logger.WithField("className", object.Class).
+			WithField("vectorizer", class.Vectorizer).
+			Warningf(warningSkipVectorGenerated, class.Vectorizer)
+	}
 
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {
