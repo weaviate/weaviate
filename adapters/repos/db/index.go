@@ -257,37 +257,89 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
-	for _, shardName := range shardState.AllPhysicalShards() {
-		if !shardState.IsLocalShard(shardName) {
-			// do not create non-local shards
-			continue
+	if err := index.initAndStoreShards(ctx, shardState, class, promMetrics); err != nil {
+		return nil, err
+	}
+
+	index.cycleCallbacks.compactionCycle.Start()
+	index.cycleCallbacks.flushCycle.Start()
+
+	return index, nil
+}
+
+func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics,
+) error {
+	if i.Config.DisableLazyLoadShards {
+		eg := errgroup.Group{}
+		eg.SetLimit(_NUMCPU)
+
+		for _, shardName := range shardState.AllLocalPhysicalShards() {
+			physical := shardState.Physical[shardName]
+			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
+				// do not instantiate inactive shard
+				continue
+			}
+
+			shardName := shardName // prevent loop variable capture
+			eg.Go(func() error {
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+				if err != nil {
+					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+				}
+
+				i.shards.Store(shardName, shard)
+				return nil
+			})
 		}
+
+		return eg.Wait()
+	}
+
+	for _, shardName := range shardState.AllLocalPhysicalShards() {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
 		}
 
-		shardName := shardName // prevent loop variable capture
-
-		shard, err := NewLazyLoadShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
-		if err != nil {
-			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, index.ID(), err)
-		}
-
-		index.shards.Store(shardName, shard)
+		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+		i.shards.Store(shardName, shard)
 	}
 
-	go index.ForEachShard(func(name string, shard ShardLike) error {
+	go i.ForEachShard(func(name string, shard ShardLike) error {
 		shard.Load(context.Background())
 		time.Sleep(1 * time.Second)
 		return nil
 	})
 
-	index.cycleCallbacks.compactionCycle.Start()
-	index.cycleCallbacks.flushCycle.Start()
+	return nil
+}
 
-	return index, nil
+func (i *Index) initAndStoreShard(ctx context.Context, shardName string, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics,
+) error {
+	shard, err := i.initShard(ctx, shardName, class, promMetrics)
+	if err != nil {
+		return err
+	}
+	i.shards.Store(shardName, shard)
+	return nil
+}
+
+func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics,
+) (ShardLike, error) {
+	if i.Config.DisableLazyLoadShards {
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+		if err != nil {
+			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+		}
+		return shard, nil
+	}
+
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+	return shard, nil
 }
 
 func (i *Index) ForceLoadShards(ctx context.Context) (err error) {
@@ -1951,14 +2003,7 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	s, err := NewLazyLoadShard(ctx, nil, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
-	if err != nil {
-		return err
-	}
-
-	i.shards.Store(shardName, s)
-
-	return nil
+	return i.initAndStoreShard(ctx, shardName, class, nil)
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {

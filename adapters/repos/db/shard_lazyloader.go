@@ -50,22 +50,17 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (ShardLike, error) {
-	if index.Config.DisableLazyLoadShards {
-		return NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
-	} else {
-		l := &LazyLoadShard{
-			shardOpts: &deferredShardOpts{
-				promMetrics: promMetrics,
+) *LazyLoadShard {
+	return &LazyLoadShard{
+		shardOpts: &deferredShardOpts{
+			promMetrics: promMetrics,
 
-				name:             shardName,
-				index:            index,
-				class:            class,
-				jobQueueCh:       jobQueueCh,
-				indexCheckpoints: indexCheckpoints,
-			},
-		}
-		return l, nil
+			name:             shardName,
+			index:            index,
+			class:            class,
+			jobQueueCh:       jobQueueCh,
+			indexCheckpoints: indexCheckpoints,
+		},
 	}
 }
 
