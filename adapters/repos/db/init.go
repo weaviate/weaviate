@@ -98,7 +98,6 @@ func (db *DB) init(ctx context.Context) error {
 
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
-			// idx.notifyReady()
 			db.indexLock.Unlock()
 		}
 	}
