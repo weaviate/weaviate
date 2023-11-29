@@ -202,7 +202,7 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset
 	return flat[:mergedNodesIndex], nil
 }
 
-func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) error {
+func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) ([]segmentindex.Key, error) {
 	totalSize := len(flat)
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
 	header := segmentindex.Header{
@@ -215,13 +215,13 @@ func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) error {
 
 	file, err := os.Create(path + ".db")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	f := bufio.NewWriterSize(file, int(float64(totalSize)*1.3))
 
 	n, err := header.WriteTo(f)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	headerSize := int(n)
 	keys := make([]segmentindex.Key, len(flat))
@@ -231,16 +231,16 @@ func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) error {
 		sn, err := roaringset.NewSegmentNode(node.Key, node.Value.Additions,
 			node.Value.Deletions)
 		if err != nil {
-			return fmt.Errorf("create segment node: %w", err)
+			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
 		ki, err := sn.KeyIndexAndWriteTo(f, totalWritten)
 		if err != nil {
-			return fmt.Errorf("write node %d: %w", i, err)
+			return nil, fmt.Errorf("write node %d: %w", i, err)
 		}
 
 		keys[i] = ki
 		totalWritten = ki.ValueEnd
 	}
-	return nil
+	return keys, nil
 }

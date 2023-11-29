@@ -64,7 +64,8 @@ func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssi
 
 	startTime = time.Now()
 
-	require.Nil(t, writeRoaringSet(nodes, dirName))
+	_, err := writeRoaringSet(nodes, dirName)
+	require.Nil(t, err)
 
 	times.Shutdown = int(time.Since(startTime).Milliseconds())
 

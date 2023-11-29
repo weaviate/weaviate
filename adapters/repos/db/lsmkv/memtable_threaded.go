@@ -286,25 +286,17 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 		}
 		return ThreadedMemtableResponse{countStats: countStats}
 	} else if operationName == "RoaringSetFlattenInOrder" {
-		// send request to all workers
+		responses := multiMemtableRequest(m, data, true)
 		var nodes [][]*roaringset.BinarySearchNode
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
+		for _, response := range responses {
 			nodes = append(nodes, response.nodes)
 		}
 		merged, err := mergeRoaringSets(nodes)
 		return ThreadedMemtableResponse{nodes: merged, error: err}
 	} else if operationName == "NewCollectionCursor" {
-		// send request to all workers
+		responses := multiMemtableRequest(m, data, true)
 		var cursors []innerCursorCollection
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
+		for _, response := range responses {
 			cursors = append(cursors, response.innerCursorCollection)
 		}
 		set := &CursorSet{
@@ -314,25 +306,17 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 		}
 		return ThreadedMemtableResponse{cursorSet: set}
 	} else if operationName == "NewRoaringSetCursor" {
-		// send request to all workers
+		responses := multiMemtableRequest(m, data, true)
 		var cursors []roaringset.InnerCursor
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
+		for _, response := range responses {
 			cursors = append(cursors, response.innerCursorRoaringSet)
 		}
 		set := roaringset.NewCombinedCursorLayer(cursors, false)
 		return ThreadedMemtableResponse{cursorRoaringSet: set}
 	} else if operationName == "NewMapCursor" {
-		// send request to all workers
+		responses := multiMemtableRequest(m, data, true)
 		var cursors []innerCursorMap
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
+		for _, response := range responses {
 			cursors = append(cursors, response.innerCursorMap)
 		}
 		mapCursor := &CursorMap{
@@ -342,13 +326,9 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 		}
 		return ThreadedMemtableResponse{cursorMap: mapCursor}
 	} else if operationName == "NewCursor" {
-		// send request to all workers
+		responses := multiMemtableRequest(m, data, true)
 		var cursors []innerCursorReplace
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
+		for _, response := range responses {
 			cursors = append(cursors, response.innerCursorReplace)
 		}
 		cursor := &CursorReplace{
