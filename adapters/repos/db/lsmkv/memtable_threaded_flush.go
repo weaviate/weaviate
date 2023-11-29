@@ -75,7 +75,7 @@ func (m *MemtableThreaded) getNodesRoaringSet() []*roaringset.BinarySearchNode {
 	} else {
 		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedRoaringSetFlattenInOrder,
-		}, true, "ThreadedRoaringSetFlattenInOrder")
+		}, true, "RoaringSetFlattenInOrder")
 		return output.nodes
 	}
 }
