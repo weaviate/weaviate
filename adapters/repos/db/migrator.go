@@ -57,6 +57,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 			AvoidMMap:                 m.db.config.AvoidMMap,
+			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
 			ReplicationFactor:         class.ReplicationConfig.Factor,
 		},
 		shardState,
@@ -166,7 +167,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	shards := make(map[string]*Shard, len(creates))
+	shards := make(map[string]ShardLike, len(creates))
 	rollback := func() {
 		for name, shard := range shards {
 			if err := shard.drop(); err != nil {
@@ -198,7 +199,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		if pl.Status != models.TenantActivityStatusHOT {
 			continue // skip creating inactive shards
 		}
-		shard, err := NewShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
+		shard, err := NewLazyLoadShard(ctx, m.db.promMetrics, pl.Name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create partition %q: %w", pl, err)
 		}
@@ -219,8 +220,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	shardsToHot := make([]string, 0, len(updates))
 	shardsToCold := make([]string, 0, len(updates))
-	shardsHotted := make(map[string]*Shard)
-	shardsColded := make(map[string]*Shard)
+	shardsHotted := make(map[string]ShardLike)
+	shardsColded := make(map[string]ShardLike)
 
 	rollbackHotted := func() {
 		eg := new(errgroup.Group)
@@ -228,7 +229,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		for name, shard := range shardsHotted {
 			name, shard := name, shard
 			eg.Go(func() error {
-				if err := shard.shutdown(ctx); err != nil {
+				if err := shard.Shutdown(ctx); err != nil {
 					idx.logger.WithField("action", "rollback_shutdown_shard").
 						WithField("shard", shard.ID()).
 						Errorf("cannot shutdown self activated shard %q: %s", name, err)
@@ -263,7 +264,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		for name, shard := range shardsColded {
 			name, shard := name, shard
 			eg.Go(func() error {
-				if err := shard.shutdown(ctx); err != nil {
+				if err := shard.Shutdown(ctx); err != nil {
 					idx.logger.WithField("action", "shutdown_shard").
 						WithField("shard", shard.ID()).
 						Errorf("cannot shutdown shard %q: %s", name, err)
@@ -288,7 +289,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			if shard := idx.shards.Load(name); shard != nil {
 				continue
 			}
-			shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
+			shard, err := NewLazyLoadShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue, m.db.indexCheckpoints)
 			if err != nil {
 				return fmt.Errorf("cannot activate shard '%s': %w", name, err)
 			}
@@ -406,7 +407,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		// Iterate over all shards
-		if err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
 			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
 			return err
@@ -438,33 +439,33 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	for _, index := range m.db.indices {
 
 		// Clear the shards before counting
-		index.IterateShards(ctx, func(index *Index, shard *Shard) error {
-			shard.propLengths.Clear()
+		index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
+			shard.GetPropertyLengthTracker().Clear()
 			return nil
 		})
 
 		// Iterate over all shards
-		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+		index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.analyzeObject(object)
+			props, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil
 			}
 
-			if err := shard.addPropLengths(props); err != nil {
+			if err := shard.SetPropertyLengths(props); err != nil {
 				m.logger.WithField("error", err).Error("could not add prop lengths")
 				return nil
 			}
 
-			shard.propLengths.Flush(false)
+			shard.GetPropertyLengthTracker().Flush(false)
 
 			return nil
 		})
 
-		// Flush the propLengths to disk
-		err := index.IterateShards(ctx, func(index *Index, shard *Shard) error {
-			return shard.propLengths.Flush(false)
+		// Flush the GetPropertyLengthTracker() to disk
+		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
+			return shard.GetPropertyLengthTracker().Flush(false)
 		})
 		if err != nil {
 			m.logger.WithField("error", err).Error("could not flush prop lengths")
@@ -511,7 +512,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.ForEachShard(func(name string, shard *Shard) error {
+		index.ForEachShard(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -574,7 +575,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := &errgroup.Group{}
-			index.ForEachShard(func(_ string, shard *Shard) error {
+			index.ForEachShard(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
@@ -632,9 +633,9 @@ func (m *Migrator) logInvertedReindex() *logrus.Entry {
 	return m.logger.WithField("action", "inverted_reindex")
 }
 
-func (m *Migrator) logInvertedReindexShard(shard *Shard) *logrus.Entry {
+func (m *Migrator) logInvertedReindexShard(shard ShardLike) *logrus.Entry {
 	return m.logInvertedReindex().
-		WithField("index", shard.index.ID()).
+		WithField("index", shard.Index().ID()).
 		WithField("shard", shard.ID())
 }
 
@@ -646,8 +647,8 @@ func (m *Migrator) logMissingFilterableIndex(index *Index) *logrus.Entry {
 	return m.logMissingFilterable().WithField("index", index.ID())
 }
 
-func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
-	return m.logMissingFilterableIndex(shard.index).WithField("shard", shard.ID())
+func (m *Migrator) logMissingFilterableShard(shard ShardLike) *logrus.Entry {
+	return m.logMissingFilterableIndex(shard.Index()).WithField("shard", shard.ID())
 }
 
 // As of v1.19 property's IndexInverted setting is replaced with IndexFilterable
