@@ -142,6 +142,11 @@ func ThreadedSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtable
 	return ThreadedMemtableResponse{size: m.size}
 }
 
+func ThreadedFlush(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	err := m.flush()
+	return ThreadedMemtableResponse{error: err}
+}
+
 func threadWorker(id int, dirName string, requests <-chan ThreadedMemtableRequest, wg *sync.WaitGroup, strategy string) {
 	defer wg.Done()
 	// One bucket per worker, initialization is done in the worker thread
@@ -337,6 +342,9 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			innerCursors: cursors,
 		}
 		return ThreadedMemtableResponse{cursorReplace: cursor}
+	} else if operationName == "Flush" {
+		multiMemtableRequest(m, data, false)
+		return ThreadedMemtableResponse{}
 	}
 
 	key := data.key
