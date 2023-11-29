@@ -35,6 +35,10 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 	return &filteredAggregator{Aggregator: agg}
 }
 
+func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+	return fa.propLenTracker
+}
+
 func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if fa.params.Hybrid != nil {
 		return fa.hybrid(ctx)
@@ -121,7 +125,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	)
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
 		propertyspecific.Indices{}, fa.classSearcher,
-		nil, fa.propLengths, fa.logger, fa.shardVersion,
+		nil, fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
@@ -138,7 +142,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	}
 
 	scan := func(properties *models.PropertySchema, docID uint64) (bool, error) {
-		if err := fa.analyzeObject(ctx, properties, propAggs); err != nil {
+		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
 			return false, errors.Wrapf(err, "analyze object %d", docID)
 		}
 		return true, nil
@@ -156,7 +160,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	return propAggs.results()
 }
 
-func (fa *filteredAggregator) analyzeObject(ctx context.Context,
+func (fa *filteredAggregator) AnalyzeObject(ctx context.Context,
 	properties *models.PropertySchema, propAggs map[string]propAgg,
 ) error {
 	if err := ctx.Err(); err != nil {
