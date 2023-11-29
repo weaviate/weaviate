@@ -106,7 +106,10 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 func TestHybrid(t *testing.T) {
 	dirName := t.TempDir()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -142,7 +145,10 @@ func TestBIER(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -240,7 +246,10 @@ func TestRFJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -557,7 +566,10 @@ func TestRFJourneyWithFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -733,7 +745,10 @@ func TestStability(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -920,7 +935,10 @@ func TestHybridOverSearch(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,

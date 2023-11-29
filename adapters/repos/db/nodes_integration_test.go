@@ -31,7 +31,10 @@ func TestNodesAPI_Journey(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",

@@ -206,7 +206,10 @@ func TestBM25FJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -451,7 +454,10 @@ func TestBM25FSingleProp(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -490,7 +496,10 @@ func TestBM25FWithFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -550,7 +559,10 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -606,7 +618,10 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -671,7 +686,10 @@ func TestBM25FCompare(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -845,7 +863,10 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
@@ -981,7 +1002,10 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},

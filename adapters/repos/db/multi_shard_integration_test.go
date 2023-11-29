@@ -296,7 +296,10 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 		} else {
 			shardState = multiShardState()
 		}
-		schemaGetter := &fakeSchemaGetter{shardState: shardState}
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: shardState,
+		}
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)

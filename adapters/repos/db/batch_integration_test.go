@@ -41,7 +41,10 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -73,7 +76,10 @@ func TestBatchPutObjects(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -100,7 +106,10 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -133,7 +142,10 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -159,7 +171,10 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   1,
 		RootPath:                  dirName,
@@ -235,7 +250,10 @@ func TestBatchDeleteObjects(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -263,7 +281,10 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 
 	queryMaximumResults := int64(200)
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -300,7 +321,10 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 
 	queryMaximumResults := int64(20)
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
