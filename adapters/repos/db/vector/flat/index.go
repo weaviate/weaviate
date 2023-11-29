@@ -485,7 +485,7 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	// nothing to do here
-	// Shard::listBackupFiles will take care of handling store's buckets
+	// Shard::ListBackupFiles will take care of handling store's buckets
 	return []string{}, nil
 }
 

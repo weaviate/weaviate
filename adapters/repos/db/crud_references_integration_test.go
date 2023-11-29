@@ -516,7 +516,7 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
-	index.ForEachShard(func(name string, shard *Shard) error {
+	index.ForEachShard(func(name string, shard ShardLike) error {
 		sum += shard.Dimensions()
 		return nil
 	})
@@ -530,8 +530,8 @@ func GetQuantizedDimensionsFromRepo(repo *DB, className string, segments int) in
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
-	index.ForEachShard(func(name string, shard *Shard) error {
-		sum += shard.quantizedDimensions(segments)
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		sum += shard.QuantizedDimensions(segments)
 		return nil
 	})
 	return sum
