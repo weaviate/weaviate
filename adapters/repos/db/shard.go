@@ -66,13 +66,9 @@ type ShardLike interface {
 	GetStatus() storagestate.Status                                                 // Return the shard status
 	UpdateStatus(status string) error                                               // Set shard status
 	FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) // Search and return document ids
-	// GetCounter() *indexcounter.Counter //Get
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	// GetVectorIndex() VectorIndex
-	// GetPropertyIndices() propertyspecific.Indices
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
-	// SetPropertyTracker(*inverted.JsonPropertyLengthTracker) //FIXME rename
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
@@ -86,17 +82,12 @@ type ShardLike interface {
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                      // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ID() string // Get the shard id
-	// path() string
 	// TODO tests only
 	DBPathLSM() string
-	// uuidToIdLockPoolId(idBytes []byte) uint8
-	// initLSMStore(ctx context.Context) error
 	drop() error
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	// memtableIdleConfig() lsmkv.BucketOption
-	// dynamicMemtableSizing() lsmkv.BucketOption
 	createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group)
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error //
@@ -154,7 +145,6 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
-	MustLoad()                  // Force shard to load immediately
 	Load(context.Context) error // Load shard
 }
 
@@ -203,9 +193,6 @@ type Shard struct {
 
 func (s *Shard) Load(ctx context.Context) error {
 	return nil
-}
-
-func (s *Shard) MustLoad() {
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

@@ -18,8 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 )
 
 func (s *Shard) Queue() *IndexQueue {
@@ -50,14 +48,6 @@ func (s *Shard) Store() *lsmkv.Store {
 
 func (s *Shard) Counter() *indexcounter.Counter {
 	return s.counter
-}
-
-func (s *Shard) GetVectorIndex() VectorIndex {
-	return s.VectorIndex()
-}
-
-func (s *Shard) GetPropertyIndices() propertyspecific.Indices {
-	return s.propertyIndices
 }
 
 // Tracks the lengths of all properties.  Must be updated on inserts/deletes.
