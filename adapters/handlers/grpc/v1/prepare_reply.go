@@ -89,19 +89,18 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 }
 
 func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
-	err := errors.New("could not extract additional prop")
 	_, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 
 	additionalProps := &pb.MetadataResult{}
 	if additionalPropsParams.ID && !generativeSearchEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
-			return nil, "", errors.Wrap(err, "get id")
+			return nil, "", errors.New("could not extract get id in additional prop")
 		}
 
 		idStrfmt, ok := idRaw.(strfmt.UUID)
 		if !ok {
-			return nil, "", errors.Wrap(err, "format id")
+			return nil, "", errors.New("could not extract format id in additional prop")
 		}
 		additionalProps.Id = idStrfmt.String()
 	}
@@ -125,12 +124,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
-			return nil, "", errors.Wrap(err, "get id generative")
+			return nil, "", errors.New("could not extract get id generative in additional prop")
 		}
 
 		idStrfmt, ok := idRaw.(strfmt.UUID)
 		if !ok {
-			return nil, "", errors.Wrap(err, "format id generative")
+			return nil, "", errors.New("could not format id generative in additional prop")
 		}
 		additionalProps.Id = idStrfmt.String()
 	}
@@ -138,15 +137,13 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	if generativeSearchEnabled {
 		generate, ok := additionalPropertiesMap["generate"]
 		if !ok && firstObject {
-			return nil, "", errors.Wrap(err,
-				"No results for generative search despite a search request. Is a the generative module enabled?",
-			)
+			return nil, "", errors.New("No results for generative search despite a search request. Is a the generative module enabled?")
 		}
 
 		if ok { // does not always have content, for example with grouped results only the first object has an entry
 			generateFmt, ok := generate.(*models.GenerateResult)
 			if !ok {
-				return nil, "", errors.Wrap(err, "cast generative result")
+				return nil, "", errors.New("could not cast generative result additional prop")
 			}
 			if generateFmt.Error != nil {
 				return nil, "", generateFmt.Error
