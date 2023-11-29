@@ -12,17 +12,14 @@
 package lsmkv
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
-	"os"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func TestMemtableConcurrentMergeLoad(t *testing.T) {
@@ -67,7 +64,7 @@ func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssi
 
 	startTime = time.Now()
 
-	require.Nil(t, writeBucket(nodes, dirName))
+	require.Nil(t, writeRoaringSet(nodes, dirName))
 
 	times.Shutdown = int(time.Since(startTime).Milliseconds())
 
@@ -162,47 +159,4 @@ func compareBuckets(b1 []*roaringset.BinarySearchNode, b2 []*roaringset.BinarySe
 
 	}
 	return true
-}
-
-func writeBucket(flat []*roaringset.BinarySearchNode, path string) error {
-	totalSize := len(flat)
-	totalDataLength := totalPayloadSizeRoaringSet(flat)
-	header := segmentindex.Header{
-		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
-		Level:            0,
-		Version:          0,
-		SecondaryIndices: 0,
-		Strategy:         segmentindex.StrategyRoaringSet,
-	}
-
-	file, err := os.Create(path + ".db")
-	if err != nil {
-		return err
-	}
-	f := bufio.NewWriterSize(file, int(float64(totalSize)*1.3))
-
-	n, err := header.WriteTo(f)
-	if err != nil {
-		return err
-	}
-	headerSize := int(n)
-	keys := make([]segmentindex.Key, len(flat))
-
-	totalWritten := headerSize
-	for i, node := range flat {
-		sn, err := roaringset.NewSegmentNode(node.Key, node.Value.Additions,
-			node.Value.Deletions)
-		if err != nil {
-			return fmt.Errorf("create segment node: %w", err)
-		}
-
-		ki, err := sn.KeyIndexAndWriteTo(f, totalWritten)
-		if err != nil {
-			return fmt.Errorf("write node %d: %w", i, err)
-		}
-
-		keys[i] = ki
-		totalWritten = ki.ValueEnd
-	}
-	return nil
 }

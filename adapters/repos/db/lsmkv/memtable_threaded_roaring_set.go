@@ -12,13 +12,14 @@
 package lsmkv
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
-	"math/rand"
-	"time"
+	"os"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func ThreadedRoaringSetRemoveOne(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
@@ -56,163 +57,6 @@ func ThreadedRoaringSetAddRemoveBitmaps(m *Memtable, request ThreadedMemtableReq
 
 func ThreadedRoaringSetFlattenInOrder(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{nodes: m.RoaringSet().FlattenInOrder()}
-}
-
-func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needOutput bool, operationName string) ThreadedMemtableResponse {
-	if operationName == "WriteWAL" {
-		multiMemtableRequest(m, data, false)
-		return ThreadedMemtableResponse{}
-	} else if operationName == "Size" {
-		responses := multiMemtableRequest(m, data, true)
-		var maxSize uint64
-		for _, response := range responses {
-			if response.size > maxSize {
-				maxSize = response.size
-			}
-		}
-		return ThreadedMemtableResponse{size: maxSize}
-	} else if operationName == "ActiveDuration" {
-		responses := multiMemtableRequest(m, data, true)
-		var maxDuration time.Duration
-		for _, response := range responses {
-			if response.duration > maxDuration {
-				maxDuration = response.duration
-			}
-		}
-		return ThreadedMemtableResponse{duration: maxDuration}
-	} else if operationName == "IdleDuration" {
-		responses := multiMemtableRequest(m, data, true)
-		var maxDuration time.Duration
-		for _, response := range responses {
-			if response.duration > maxDuration {
-				maxDuration = response.duration
-			}
-		}
-		return ThreadedMemtableResponse{duration: maxDuration}
-	} else if operationName == "countStats" {
-		responses := multiMemtableRequest(m, data, true)
-		countStats := &countStats{
-			upsertKeys:     make([][]byte, 0),
-			tombstonedKeys: make([][]byte, 0),
-		}
-		for _, response := range responses {
-			countStats.upsertKeys = append(countStats.upsertKeys, response.countStats.upsertKeys...)
-			countStats.tombstonedKeys = append(countStats.tombstonedKeys, response.countStats.tombstonedKeys...)
-		}
-		return ThreadedMemtableResponse{countStats: countStats}
-	} else if operationName == "RoaringSetFlattenInOrder" {
-		// send request to all workers
-		var nodes [][]*roaringset.BinarySearchNode
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
-			nodes = append(nodes, response.nodes)
-		}
-		merged, err := mergeRoaringSets(nodes)
-		return ThreadedMemtableResponse{nodes: merged, error: err}
-	} else if operationName == "NewCollectionCursor" {
-		// send request to all workers
-		var cursors []innerCursorCollection
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
-			cursors = append(cursors, response.innerCursorCollection)
-		}
-		set := &CursorSet{
-			unlock: func() {
-			},
-			innerCursors: cursors,
-		}
-		return ThreadedMemtableResponse{cursorSet: set}
-	} else if operationName == "NewRoaringSetCursor" {
-		// send request to all workers
-		var cursors []roaringset.InnerCursor
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
-			cursors = append(cursors, response.innerCursorRoaringSet)
-		}
-		set := roaringset.NewCombinedCursorLayer(cursors, false)
-		return ThreadedMemtableResponse{cursorRoaringSet: set}
-	} else if operationName == "NewMapCursor" {
-		// send request to all workers
-		var cursors []innerCursorMap
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
-			cursors = append(cursors, response.innerCursorMap)
-		}
-		mapCursor := &CursorMap{
-			unlock: func() {
-			},
-			innerCursors: cursors,
-		}
-		return ThreadedMemtableResponse{cursorMap: mapCursor}
-	} else if operationName == "NewCursor" {
-		// send request to all workers
-		var cursors []innerCursorReplace
-		for _, channel := range m.requestsChannels {
-			responseChannel := make(chan ThreadedMemtableResponse)
-			data.response = responseChannel
-			channel <- data
-			response := <-responseChannel
-			cursors = append(cursors, response.innerCursorReplace)
-		}
-		cursor := &CursorReplace{
-			unlock: func() {
-			},
-			innerCursors: cursors,
-		}
-		return ThreadedMemtableResponse{cursorReplace: cursor}
-	}
-
-	key := data.key
-	workerID := 0
-	if m.workerAssignment == "single-channel" {
-		workerID = 0
-	} else if m.workerAssignment == "random" {
-		workerID = rand.Intn(m.numWorkers)
-	} else if m.workerAssignment == "hash" {
-		workerID = threadHashKey(key, m.numWorkers)
-	} else {
-		panic("invalid worker assignment")
-	}
-	if needOutput {
-		responseCh := make(chan ThreadedMemtableResponse)
-		data.response = responseCh
-		m.requestsChannels[workerID] <- data
-		return <-responseCh
-	} else {
-		data.response = nil
-		m.requestsChannels[workerID] <- data
-		return ThreadedMemtableResponse{}
-	}
-}
-
-func multiMemtableRequest(m *MemtableThreaded, data ThreadedMemtableRequest, getResponses bool) []ThreadedMemtableResponse {
-	var responses []ThreadedMemtableResponse
-	if getResponses {
-		responses = make([]ThreadedMemtableResponse, m.numWorkers)
-	}
-	for _, channel := range m.requestsChannels {
-		if getResponses {
-			data.response = make(chan ThreadedMemtableResponse)
-		}
-		channel <- data
-		if getResponses {
-			response := <-data.response
-			responses = append(responses, response)
-		}
-	}
-	return responses
 }
 
 func (m *MemtableThreaded) roaringSetAddOne(key []byte, value uint64) error {
@@ -356,4 +200,47 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset
 
 	fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
 	return flat[:mergedNodesIndex], nil
+}
+
+func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) error {
+	totalSize := len(flat)
+	totalDataLength := totalPayloadSizeRoaringSet(flat)
+	header := segmentindex.Header{
+		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
+		Level:            0,
+		Version:          0,
+		SecondaryIndices: 0,
+		Strategy:         segmentindex.StrategyRoaringSet,
+	}
+
+	file, err := os.Create(path + ".db")
+	if err != nil {
+		return err
+	}
+	f := bufio.NewWriterSize(file, int(float64(totalSize)*1.3))
+
+	n, err := header.WriteTo(f)
+	if err != nil {
+		return err
+	}
+	headerSize := int(n)
+	keys := make([]segmentindex.Key, len(flat))
+
+	totalWritten := headerSize
+	for i, node := range flat {
+		sn, err := roaringset.NewSegmentNode(node.Key, node.Value.Additions,
+			node.Value.Deletions)
+		if err != nil {
+			return fmt.Errorf("create segment node: %w", err)
+		}
+
+		ki, err := sn.KeyIndexAndWriteTo(f, totalWritten)
+		if err != nil {
+			return fmt.Errorf("write node %d: %w", i, err)
+		}
+
+		keys[i] = ki
+		totalWritten = ki.ValueEnd
+	}
+	return nil
 }
