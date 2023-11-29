@@ -45,11 +45,12 @@ import (
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -64,10 +65,12 @@ import (
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
+	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
@@ -208,6 +211,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		TrackVectorDimensions:     appState.ServerConfig.Config.TrackVectorDimensions,
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
+		DisableLazyLoadShards:     appState.ServerConfig.Config.DisableLazyLoadShards,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -269,7 +273,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
-		enthnsw.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
+		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, schemaTxClient,
 		schemaTxPersistence, scaler,
 	)
@@ -711,6 +715,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativeaws.Name]; ok {
+		appState.Modules.Register(modgenerativeaws.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeaws.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modhuggingface.Name]; ok {
 		appState.Modules.Register(modhuggingface.New())
 		appState.Logger.
@@ -732,6 +744,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modtext2vecpalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecaws.Name]; ok {
+		appState.Modules.Register(modtext2vecaws.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecaws.Name).
 			Debug("enabled module")
 	}
 
@@ -788,6 +808,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modbind.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modjinaai.Name]; ok {
+		appState.Modules.Register(modjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modjinaai.Name).
 			Debug("enabled module")
 	}
 

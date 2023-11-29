@@ -9,10 +9,18 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package neartext
 
-import "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+type fakeTransformer struct{}
 
-func init() {
-	prefetchFunc = asm.Prefetch
+func (t *fakeTransformer) Transform(in []string) ([]string, error) {
+	result := make([]string, len(in))
+	for i, txt := range in {
+		if txt == "transform this" {
+			result[i] = "transformed text"
+		} else {
+			result[i] = txt
+		}
+	}
+	return result, nil
 }

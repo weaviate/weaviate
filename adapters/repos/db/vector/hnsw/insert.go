@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -24,18 +23,17 @@ import (
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
-	if h.isEmpty() {
+	dims := int(atomic.LoadInt32(&h.dims))
+
+	// no vectors exist
+	if dims == 0 {
 		return nil
 	}
-	// check if vector length is the same as existing nodes
-	existingNodeVector, err := h.cache.get(context.Background(), h.entryPointID)
-	if err != nil {
-		return err
-	}
 
-	if len(existingNodeVector) != len(vector) {
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
 		return fmt.Errorf("new node has a vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), len(existingNodeVector))
+			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
 	return nil
@@ -60,11 +58,10 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
 	h.RLock()
-	previousSize := uint64(len(h.nodes))
-	if maxId >= previousSize {
+	if maxId >= uint64(len(h.nodes)) {
 		h.RUnlock()
 		h.Lock()
-		if maxId >= previousSize {
+		if maxId >= uint64(len(h.nodes)) {
 			err := h.growIndexToAccomodateNode(maxId, h.logger)
 			if err != nil {
 				h.Unlock()
@@ -161,16 +158,16 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 
 	nodeId := node.id
 
-	h.shardedNodeLocks[nodeId%NodeLockStripe].Lock()
+	h.shardedNodeLocks.Lock(nodeId)
 	h.nodes[nodeId] = node
-	h.shardedNodeLocks[nodeId%NodeLockStripe].Unlock()
+	h.shardedNodeLocks.Unlock(nodeId)
 
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(vector)
 		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.preload(node.id, compressed)
+		h.compressedVectorsCache.Preload(node.id, compressed)
 	} else {
-		h.cache.preload(node.id, vector)
+		h.cache.Preload(node.id, vector)
 	}
 
 	h.insertMetrics.prepareAndInsertNode(before)
@@ -246,13 +243,16 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 
+	h.shardedNodeLocks.Lock(node.id)
 	h.nodes[node.id] = node
+	h.shardedNodeLocks.Unlock(node.id)
+
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)
 		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.preload(node.id, compressed)
+		h.compressedVectorsCache.Preload(node.id, compressed)
 	} else {
-		h.cache.preload(node.id, nodeVec)
+		h.cache.Preload(node.id, nodeVec)
 	}
 
 	// go h.insertHook(node.id, 0, node.connections)

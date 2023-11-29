@@ -46,21 +46,21 @@ type embeddingData struct {
 }
 
 type openAIApiError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Param   string `json:"param"`
-	Code    string `json:"code"`
+	Message string      `json:"message"`
+	Type    string      `json:"type"`
+	Param   string      `json:"param"`
+	Code    json.Number `json:"code"`
 }
 
-func buildUrl(config ent.VectorizationConfig) (string, error) {
-	if config.IsAzure {
-		host := "https://" + config.ResourceName + ".openai.azure.com"
-		path := "openai/deployments/" + config.DeploymentID + "/embeddings"
+func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+	if isAzure {
+		host := "https://" + resourceName + ".openai.azure.com"
+		path := "openai/deployments/" + deploymentID + "/embeddings"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
 
-	host := config.BaseURL
+	host := baseURL
 	path := "/v1/embeddings"
 	return url.JoinPath(host, path)
 }
@@ -70,7 +70,7 @@ type vectorizer struct {
 	openAIOrganization string
 	azureApiKey        string
 	httpClient         *http.Client
-	buildUrlFn         func(config ent.VectorizationConfig) (string, error)
+	buildUrlFn         func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
 }
 
@@ -105,7 +105,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	endpoint, err := v.buildUrlFn(config)
+	endpoint, err := v.buildURL(ctx, config)
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
@@ -157,6 +157,14 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
 	}, nil
+}
+
+func (v *vectorizer) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
+	baseURL, resourceName, deploymentID, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+		baseURL = headerBaseURL
+	}
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
 }
 
 func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
@@ -225,7 +233,7 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 		}
 	}
 	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetApiKeyFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
 		return apiKey[0]
 	}
 

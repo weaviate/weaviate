@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -63,7 +63,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -87,7 +87,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -106,7 +106,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -135,7 +135,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -158,7 +158,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &cohereUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/embed",
+				pathMask: "/v1/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -174,6 +174,30 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, err.Error(), "Cohere API Key: no api key found "+
 			"neither in request header: X-Cohere-Api-Key "+
 			"nor in environment variable under COHERE_APIKEY")
+	})
+
+	t.Run("when X-Cohere-BaseURL header is passed", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &cohereUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/embed",
+			},
+			logger: nullLogger(),
+		}
+
+		baseURL := "http://default-url.com"
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL := c.getCohereUrl(ctxWithValue, baseURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embed", buildURL)
+
+		buildURL = c.getCohereUrl(context.TODO(), baseURL)
+		assert.Equal(t, "http://default-url.com/v1/embed", buildURL)
 	})
 }
 

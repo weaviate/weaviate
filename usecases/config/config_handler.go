@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
 )
@@ -96,6 +96,7 @@ type Config struct {
 	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
@@ -132,7 +133,7 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 
 func (c Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
-	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
+	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
 		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
@@ -179,8 +180,11 @@ type Monitoring struct {
 	Group   bool   `json:"group_classes" yaml:"group_classes"`
 }
 
+// Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port int `json:"port" yaml:"port"`
+	Port     int    `json:"port" yaml:"port"`
+	CertFile string `json:"certFile" yaml:"certFile"`
+	KeyFile  string `json:"keyFile" yaml:"keyFile"`
 }
 
 type Profiling struct {
@@ -252,7 +256,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key"
 )
 
 func (r ResourceUsage) Validate() error {

@@ -378,22 +378,20 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligible for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
-	})
-
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		i := 0
-		for ; bucket.disk.eligibleForCompaction(); i++ {
-			require.Nil(t, bucket.disk.compactOnce())
-
+		var compacted bool
+		var err error
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
 			if i == 1 {
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
 				// will not be removed regardless of keepTombstones setting
 				assertSecondSegmentOfSize(t, bucket, 11876, 11876)
 			}
+			i++
 		}
+		require.Nil(t, err)
 	})
 
 	t.Run("verify control after compaction using a cursor", func(t *testing.T) {
@@ -523,14 +521,12 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 		assert.Equal(t, expected, retrieved)
 	})
 
-	t.Run("check if eligible for compaction", func(t *testing.T) {
-		assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
-	})
-
 	t.Run("compact until no longer eligible", func(t *testing.T) {
-		for bucket.disk.eligibleForCompaction() {
-			require.Nil(t, bucket.disk.compactOnce())
+		var compacted bool
+		var err error
+		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
 		}
+		require.Nil(t, err)
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
@@ -621,20 +617,12 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 				}
 			})
 
-			t.Run("check if eligible for compaction", func(t *testing.T) {
-				assert.True(t, bucket.disk.eligibleForCompaction(), "check eligible before")
-			})
-
 			t.Run("compact until no longer eligible", func(t *testing.T) {
-				for bucket.disk.eligibleForCompaction() {
-					require.Nil(t, bucket.disk.compactOnce())
+				var compacted bool
+				var err error
+				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
 				}
-			})
-
-			t.Run("compact until no longer eligible", func(t *testing.T) {
-				for bucket.disk.eligibleForCompaction() {
-					require.Nil(t, bucket.disk.compactOnce())
-				}
+				require.Nil(t, err)
 			})
 
 			t.Run("check entries after compaction", func(t *testing.T) {

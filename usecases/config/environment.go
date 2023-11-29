@@ -55,6 +55,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+		config.DisableLazyLoadShards = true
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
@@ -307,6 +311,14 @@ func FromEnv(config *Config) error {
 		DefaultGRPCPort,
 	); err != nil {
 		return err
+	}
+	config.GRPC.CertFile = ""
+	if v := os.Getenv("GRPC_CERT_FILE"); v != "" {
+		config.GRPC.CertFile = v
+	}
+	config.GRPC.KeyFile = ""
+	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
+		config.GRPC.KeyFile = v
 	}
 
 	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))

@@ -55,30 +55,46 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents   bool
-	keepTombstones bool // see bucket for more datails
+	mmapContents            bool
+	keepTombstones          bool // see bucket for more datails
+	useBloomFilter          bool // see bucket for more datails
+	calcCountNetAdditions   bool // see bucket for more datails
+	compactLeftOverSegments bool // see bucket for more datails
 }
 
-func newSegmentGroup(dir string, logger logrus.FieldLogger,
-	mapRequiresSorting bool, metrics *Metrics, strategy string,
-	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup,
-	mmapContents bool, keepTombstones bool,
+type sgConfig struct {
+	dir                   string
+	strategy              string
+	mapRequiresSorting    bool
+	monitorCount          bool
+	mmapContents          bool
+	keepTombstones        bool
+	useBloomFilter        bool
+	calcCountNetAdditions bool
+	forceCompaction       bool
+}
+
+func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
 ) (*SegmentGroup, error) {
-	list, err := os.ReadDir(dir)
+	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
 		return nil, err
 	}
 
-	out := &SegmentGroup{
-		segments:           make([]*segment, len(list)),
-		dir:                dir,
-		logger:             logger,
-		metrics:            metrics,
-		monitorCount:       monitorCount,
-		mapRequiresSorting: mapRequiresSorting,
-		strategy:           strategy,
-		mmapContents:       mmapContents,
-		keepTombstones:     keepTombstones,
+	sg := &SegmentGroup{
+		segments:                make([]*segment, len(list)),
+		dir:                     cfg.dir,
+		logger:                  logger,
+		metrics:                 metrics,
+		monitorCount:            cfg.monitorCount,
+		mapRequiresSorting:      cfg.mapRequiresSorting,
+		strategy:                cfg.strategy,
+		mmapContents:            cfg.mmapContents,
+		keepTombstones:          cfg.keepTombstones,
+		useBloomFilter:          cfg.useBloomFilter,
+		calcCountNetAdditions:   cfg.calcCountNetAdditions,
+		compactLeftOverSegments: cfg.forceCompaction,
 	}
 
 	segmentIndex := 0
@@ -92,19 +108,19 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
 		potentialWALFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(dir, potentialWALFileName))
+		ok, err := fileExists(filepath.Join(sg.dir, potentialWALFileName))
 		if err != nil {
 			return nil, errors.Wrapf(err, "check for presence of wals for segment %s",
 				entry.Name())
 		}
 
 		if ok {
-			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
 				return nil, errors.Wrapf(err, "delete corrupt segment %s", entry.Name())
 			}
 
 			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(dir, entry.Name())).
+				WithField("path", filepath.Join(sg.dir, entry.Name())).
 				WithField("wal_path", potentialWALFileName).
 				Info("Discarded (partially written) LSM segment, because an active WAL for " +
 					"the same segment was found. A recovery from the WAL will follow.")
@@ -121,26 +137,27 @@ func newSegmentGroup(dir string, logger logrus.FieldLogger,
 			continue
 		}
 
-		segment, err := newSegment(filepath.Join(dir, entry.Name()), logger,
-			metrics, out.makeExistsOnLower(segmentIndex), mmapContents)
+		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
+			metrics, sg.makeExistsOnLower(segmentIndex),
+			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init segment %s", entry.Name())
 		}
 
-		out.segments[segmentIndex] = segment
+		sg.segments[segmentIndex] = segment
 		segmentIndex++
 	}
 
-	out.segments = out.segments[:segmentIndex]
+	sg.segments = sg.segments[:segmentIndex]
 
-	if out.monitorCount {
-		out.metrics.ObjectCount(out.count())
+	if sg.monitorCount {
+		sg.metrics.ObjectCount(sg.count())
 	}
 
-	id := "segmentgroup/compaction/" + out.dir
-	out.compactionCallbackCtrl = compactionCallbacks.Register(id, out.compactIfLevelsMatch)
+	id := "segmentgroup/compaction/" + sg.dir
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactIfLevelsMatch)
 
-	return out, nil
+	return sg, nil
 }
 
 func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
@@ -166,8 +183,9 @@ func (sg *SegmentGroup) add(path string) error {
 	defer sg.maintenanceLock.Unlock()
 
 	newSegmentIndex := len(sg.segments)
-	segment, err := newSegment(path, sg.logger, sg.metrics,
-		sg.makeExistsOnLower(newSegmentIndex), sg.mmapContents)
+	segment, err := newSegment(path, sg.logger,
+		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
+		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 	if err != nil {
 		return errors.Wrapf(err, "init segment %s", path)
 	}
@@ -356,7 +374,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (sg *SegmentGroup) updateStatus(status storagestate.Status) {
+func (sg *SegmentGroup) UpdateStatus(status storagestate.Status) {
 	sg.statusLock.Lock()
 	defer sg.statusLock.Unlock()
 

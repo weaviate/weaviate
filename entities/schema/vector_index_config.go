@@ -11,6 +11,22 @@
 
 package schema
 
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/models"
+)
+
 type VectorIndexConfig interface {
 	IndexType() string
+	DistanceName() string
+}
+
+func TypeAssertVectorIndex(class *models.Class) (VectorIndexConfig, error) {
+	if config, ok := class.VectorIndexConfig.(VectorIndexConfig); ok {
+		return config, nil
+	}
+
+	return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
+		class.Class, class.VectorIndexConfig)
 }

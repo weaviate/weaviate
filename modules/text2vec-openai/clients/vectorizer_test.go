@@ -39,7 +39,7 @@ func TestBuildUrlFn(t *testing.T) {
 			BaseURL:      "https://api.openai.com",
 			IsAzure:      false,
 		}
-		url, err := buildUrl(config)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
 	})
@@ -53,7 +53,7 @@ func TestBuildUrlFn(t *testing.T) {
 			BaseURL:      "",
 			IsAzure:      true,
 		}
-		url, err := buildUrl(config)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
 	})
@@ -68,7 +68,7 @@ func TestBuildUrlFn(t *testing.T) {
 			BaseURL:      "https://foobar.some.proxy",
 			IsAzure:      false,
 		}
-		url, err := buildUrl(config)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
 	})
@@ -80,7 +80,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -103,7 +103,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -123,7 +123,7 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -138,7 +138,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -164,7 +164,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -183,7 +183,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(config ent.VectorizationConfig) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -200,6 +200,29 @@ func TestClient(t *testing.T) {
 		assert.EqualError(t, err, "API Key: no api key found "+
 			"neither in request header: X-Openai-Api-Key "+
 			"nor in environment variable under OPENAI_APIKEY")
+	})
+
+	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := New("", "", "", 0, nullLogger())
+
+		config := ent.VectorizationConfig{
+			Type:    "text",
+			Model:   "ada",
+			BaseURL: "http://default-url.com",
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL, err := c.buildURL(ctxWithValue, config)
+		require.NoError(t, err)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings", buildURL)
+
+		buildURL, err = c.buildURL(context.TODO(), config)
+		require.NoError(t, err)
+		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 }
 
@@ -404,6 +427,52 @@ func Test_getModelString(t *testing.T) {
 				v := New("apiKey", "", "", 0, nullLogger())
 				if got := v.getModelString(tt.args.docType, tt.args.model, "query", tt.args.version); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+}
+
+func TestOpenAIApiErrorDecode(t *testing.T) {
+	t.Run("getModelStringQuery", func(t *testing.T) {
+		type args struct {
+			response []byte
+		}
+		tests := []struct {
+			name string
+			args args
+			want string
+		}{
+			{
+				name: "Error code: missing property",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
+				},
+				want: "",
+			},
+			{
+				name: "Error code: as int",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
+				},
+				want: "500",
+			},
+			{
+				name: "Error code as string",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
+				},
+				want: "500",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				var got *openAIApiError
+				err := json.Unmarshal(tt.args.response, &got)
+				require.NoError(t, err)
+
+				if got.Code.String() != tt.want {
+					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
 				}
 			})
 		}

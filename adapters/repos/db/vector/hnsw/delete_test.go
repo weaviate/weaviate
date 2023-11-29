@@ -14,13 +14,13 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -28,8 +28,8 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *VectorSlice) ([]float32, error) {
-	return func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error) {
+func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
+	return func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
 		copy(container.Slice, vectors[int(id)])
 		return vectors[int(id)], nil
 	}
@@ -71,7 +71,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	var control []uint64
 
 	t.Run("vectors are cached correctly", func(t *testing.T) {
-		assert.Equal(t, len(vectors), int(vectorIndex.cache.countVectors()))
+		assert.Equal(t, len(vectors), int(vectorIndex.cache.CountVectors()))
 	})
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 	t.Run("vector cache holds half the original vectors", func(t *testing.T) {
 		vectorIndex.CleanUpTombstonedNodes(neverStop)
-		assert.Equal(t, len(vectors)/2, int(vectorIndex.cache.countVectors()))
+		assert.Equal(t, len(vectors)/2, int(vectorIndex.cache.CountVectors()))
 	})
 
 	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
@@ -125,7 +125,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	})
 
 	t.Run("vector cache holds no vectors", func(t *testing.T) {
-		assert.Equal(t, 0, int(vectorIndex.cache.countVectors()))
+		assert.Equal(t, 0, int(vectorIndex.cache.CountVectors()))
 	})
 }
 
@@ -517,34 +517,30 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
-	// there is a single bulk clean event after all the deletes
-	vectors := vectorsForDeleteTest()
-	var vectorIndex *hnsw
-	userConfig := ent.UserConfig{
-		MaxConnections: 30,
-		EFConstruction: 128,
+	var (
+		vectorIndex *hnsw
+		// there is a single bulk clean event after all the deletes
+		vectors    = vectorsForDeleteTest()
+		rootPath   = t.TempDir()
+		userConfig = ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 
-		// The actual size does not matter for this test, but if it defaults to
-		// zero it will constantly think it's full and needs to be deleted - even
-		// after just being deleted, so make sure to use a positive number here.
-		VectorCacheMaxObjects: 100000,
-		PQ: ent.PQConfig{
-			Enabled: true,
-			Encoder: ent.PQEncoder{
-				Type:         ent.PQEncoderTypeTile,
-				Distribution: ent.PQEncoderDistributionNormal,
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
 			},
-		},
-	}
+		}
+	)
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
-		defer func(path string) {
-			err := os.RemoveAll(path)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}(rootPath)
 		index, err := New(Config{
 			RootPath:              rootPath,
 			ID:                    "delete-test",
@@ -661,28 +657,24 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
-	// there is a single bulk clean event after all the deletes
-	vectors := vectorsForDeleteTest()
-	var vectorIndex *hnsw
-	userConfig := ent.UserConfig{
-		MaxConnections: 30,
-		EFConstruction: 128,
+	var (
+		vectorIndex *hnsw
+		// there is a single bulk clean event after all the deletes
+		vectors    = vectorsForDeleteTest()
+		rootPath   = t.TempDir()
+		userConfig = ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
 
-		// The actual size does not matter for this test, but if it defaults to
-		// zero it will constantly think it's full and needs to be deleted - even
-		// after just being deleted, so make sure to use a positive number here.
-		VectorCacheMaxObjects: 100000,
-		PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
-	}
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+			PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+		}
+	)
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		rootPath := "doesnt-matter-as-committlogger-is-mocked-out"
-		defer func(path string) {
-			err := os.RemoveAll(path)
-			if err != nil {
-				fmt.Println(err)
-			}
-		}(rootPath)
 		index, err := New(Config{
 			RootPath:              rootPath,
 			ID:                    "delete-test",
@@ -1301,7 +1293,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 	t.Run("simulate ep vec deletion in object store", func(t *testing.T) {
 		vectors[0] = nil
 		vectorErrors[0] = storobj.NewErrNotFoundf(0, "deleted")
-		vectorIndex.cache.delete(context.Background(), 0)
+		vectorIndex.cache.Delete(context.Background(), 0)
 	})
 
 	t.Run("try to insert a fourth vector", func(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func GetApiKeyFromGRPC(ctx context.Context, key string) []string {
+func GetValueFromGRPC(ctx context.Context, key string) []string {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		// the grpc library will lowercase all md keys, so we need to make sure to check a lowercase key

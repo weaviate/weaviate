@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -206,7 +207,7 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*LazyLoadShard, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -236,6 +237,9 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		getSchema:             schemaGetter,
 		centralJobQueue:       queue,
 	}
+	if err = os.Mkdir(idx.path(), os.ModePerm); err != nil {
+		panic(err)
+	}
 	idx.initCycleCallbacksNoop()
 
 	for _, opt := range indexOpts {
@@ -244,10 +248,11 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh, nil)
+	shd_i, err := NewLazyLoadShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh, nil)
 	if err != nil {
 		panic(err)
 	}
+	shd := shd_i.(*LazyLoadShard)
 
 	idx.shards.Store(shardName, shd)
 

@@ -15,13 +15,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 const (
-	initialSize             = 1000
-	minimumIndexGrowthDelta = 2000
-	indexGrowthRate         = 1.25
+	indexGrowthRate = 1.25
 )
 
 // growIndexToAccomodateNode is a wrapper around the growIndexToAccomodateNode
@@ -29,24 +28,37 @@ const (
 // its own, make sure that this function is called from a single-thread or
 // locked situation
 func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) error {
+	defer func() {
+		h.metrics.SetSize(len(h.nodes))
+	}()
+
 	before := time.Now()
-	newIndex, changed, err := growIndexToAccomodateNode(h.nodes, id, logger)
-	if err != nil {
-		return err
+
+	// check whether h.nodes slice needs growing
+	// not to unnecessarily lock h.shardedNodeLocks
+	if id < uint64(len(h.nodes)) {
+		return nil
 	}
 
-	h.metrics.SetSize(len(h.nodes))
+	// lock h.nodes' individual elements to avoid race between writing to elements
+	// and copying entire slice in growIndexToAccomodateNode method
+	newIndex, err := func() ([]*vertex, error) {
+		h.shardedNodeLocks.RLockAll()
+		defer h.shardedNodeLocks.RUnlockAll()
 
-	if !changed {
-		return nil
+		newIndex, _, err := growIndexToAccomodateNode(h.nodes, id, logger)
+		return newIndex, err
+	}()
+	if err != nil {
+		return err
 	}
 
 	defer h.metrics.GrowDuration(before)
 
 	if h.compressed.Load() {
-		h.compressedVectorsCache.grow(uint64(len(newIndex)))
+		h.compressedVectorsCache.Grow(uint64(len(newIndex)))
 	} else {
-		h.cache.grow(uint64(len(newIndex)))
+		h.cache.Grow(uint64(len(newIndex)))
 	}
 
 	h.pools.visitedListsLock.Lock()
@@ -55,7 +67,9 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	h.pools.visitedLists = visited.NewPool(1, len(newIndex)+512)
 	h.pools.visitedListsLock.Unlock()
 
+	h.shardedNodeLocks.LockAll()
 	h.nodes = newIndex
+	h.shardedNodeLocks.UnlockAll()
 
 	return nil
 }
@@ -78,9 +92,9 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 
 	var newSize uint64
 
-	if (indexGrowthRate-1)*float64(previousSize) < float64(minimumIndexGrowthDelta) {
+	if (indexGrowthRate-1)*float64(previousSize) < float64(cache.MinimumIndexGrowthDelta) {
 		// typically grow the index by the delta
-		newSize = previousSize + minimumIndexGrowthDelta
+		newSize = previousSize + cache.MinimumIndexGrowthDelta
 	} else {
 		newSize = uint64(float64(previousSize) * indexGrowthRate)
 	}
@@ -91,7 +105,7 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		// imports 21 objects, then deletes the first 20,500. When rebuilding the
 		// index from disk the first id to be imported would be 20,501, however the
 		// index default size and default delta would only reach up to 20,000.
-		newSize = id + minimumIndexGrowthDelta
+		newSize = id + cache.MinimumIndexGrowthDelta
 	}
 
 	newIndex := make([]*vertex, newSize)

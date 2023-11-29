@@ -17,7 +17,7 @@ package db
 import (
 	"context"
 	"os"
-	"strings"
+	"path"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -241,7 +241,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.name, storagestate.StatusReadOnly.String())
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -314,8 +314,8 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	}
 
 	// set all shards to readonly
-	index.ForEachShard(func(name string, shard *Shard) error {
-		err = shard.updateStatus(storagestate.StatusReadOnly.String())
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		err = shard.UpdateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 		return nil
 	})
@@ -334,6 +334,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
+	idx.ForceLoadShards(testCtx())
 	require.Nil(t, err)
 	return idx
 }
@@ -349,16 +350,22 @@ func invertedConfig() *models.InvertedIndexConfig {
 	}
 }
 
-func getIndexFilenames(dirName string, className string) ([]string, error) {
-	filenames := []string{}
-	infos, err := os.ReadDir(dirName)
+func getIndexFilenames(rootDir, indexName string) ([]string, error) {
+	var filenames []string
+	indexRoot, err := os.ReadDir(path.Join(rootDir, indexName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			// index was dropped, or never existed
+			return filenames, nil
+		}
+		return nil, err
+	}
+	shardFiles, err := os.ReadDir(path.Join(rootDir, indexName, indexRoot[0].Name()))
 	if err != nil {
 		return filenames, err
 	}
-	for _, i := range infos {
-		if strings.Contains(i.Name(), className) {
-			filenames = append(filenames, i.Name())
-		}
+	for _, f := range shardFiles {
+		filenames = append(filenames, f.Name())
 	}
 	return filenames, nil
 }

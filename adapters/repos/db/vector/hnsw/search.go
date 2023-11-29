@@ -214,11 +214,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		if dist > worstResultDistance && results.Len() >= ef {
 			break
 		}
-		h.RLock()
-		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RLock()
+
+		h.shardedNodeLocks.RLock(candidate.ID)
 		candidateNode := h.nodes[candidate.ID]
-		h.shardedNodeLocks[candidate.ID%NodeLockStripe].RUnlock()
-		h.RUnlock()
+		h.shardedNodeLocks.RUnlock(candidate.ID)
+
 		if candidateNode == nil {
 			// could have been a node that already had a tombstone attached and was
 			// just cleaned up while we were waiting for a read lock
@@ -300,9 +300,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				results.Insert(neighborID, distance)
 
 				if h.compressed.Load() {
-					h.compressedVectorsCache.prefetch(candidates.Top().ID)
+					h.compressedVectorsCache.Prefetch(candidates.Top().ID)
 				} else {
-					h.cache.prefetch(candidates.Top().ID)
+					h.cache.Prefetch(candidates.Top().ID)
 				}
 
 				// +1 because we have added one node size calculating the len
@@ -408,7 +408,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
 func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
 	nodeID uint64,
 ) (float32, bool, error) {
-	vec, err := h.compressedVectorsCache.get(context.Background(), nodeID)
+	vec, err := h.compressedVectorsCache.Get(context.Background(), nodeID)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {

@@ -41,15 +41,15 @@ import (
 )
 
 type BM25Searcher struct {
-	config        schema.BM25Config
-	store         *lsmkv.Store
-	schema        schema.Schema
-	classSearcher ClassSearcher // to allow recursive searches on ref-props
-	propIndices   propertyspecific.Indices
-	deletedDocIDs DeletedDocIDChecker
-	propLengths   propLengthRetriever
-	logger        logrus.FieldLogger
-	shardVersion  uint16
+	config         schema.BM25Config
+	store          *lsmkv.Store
+	schema         schema.Schema
+	classSearcher  ClassSearcher // to allow recursive searches on ref-props
+	propIndices    propertyspecific.Indices
+	deletedDocIDs  DeletedDocIDChecker
+	propLenTracker propLengthRetriever
+	logger         logrus.FieldLogger
+	shardVersion   uint16
 }
 
 type propLengthRetriever interface {
@@ -59,19 +59,19 @@ type propLengthRetriever interface {
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	propLengths propLengthRetriever, logger logrus.FieldLogger,
+	propLenTracker propLengthRetriever, logger logrus.FieldLogger,
 	shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
-		config:        config,
-		store:         store,
-		schema:        schema,
-		propIndices:   propIndices,
-		classSearcher: classSearcher,
-		deletedDocIDs: deletedDocIDs,
-		propLengths:   propLengths,
-		logger:        logger.WithField("action", "bm25_search"),
-		shardVersion:  shardVersion,
+		config:         config,
+		store:          store,
+		schema:         schema,
+		propIndices:    propIndices,
+		classSearcher:  classSearcher,
+		deletedDocIDs:  deletedDocIDs,
+		propLenTracker: propLenTracker,
+		logger:         logger.WithField("action", "bm25_search"),
+		shardVersion:   shardVersion,
 	}
 }
 
@@ -93,6 +93,10 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	}
 
 	return objs, scores, nil
+}
+
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
+	return b.propLenTracker.(*JsonPropertyLengthTracker)
 }
 
 func (b *BM25Searcher) wand(
@@ -147,7 +151,7 @@ func (b *BM25Searcher) wand(
 		}
 		propertyBoosts[property] = float32(propBoost)
 
-		propMean, err := b.propLengths.PropertyMean(property)
+		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
 			return nil, nil, err
 		}
