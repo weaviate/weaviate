@@ -308,7 +308,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 	}
 
 	go i.ForEachShard(func(name string, shard ShardLike) error {
-		shard.Load(context.Background())
+		shard.(*LazyLoadShard).Load(context.Background())
 		time.Sleep(1 * time.Second)
 		return nil
 	})
@@ -340,13 +340,6 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 	return shard, nil
-}
-
-func (i *Index) ForceLoadShards(ctx context.Context) (err error) {
-	return i.ForEachShard(func(_ string, shard ShardLike) error {
-		shard.Load(ctx)
-		return nil
-	})
 }
 
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
