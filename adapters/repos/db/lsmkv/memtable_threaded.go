@@ -364,17 +364,23 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 
 func multiMemtableRequest(m *MemtableThreaded, data ThreadedMemtableRequest, getResponses bool) []ThreadedMemtableResponse {
 	var responses []ThreadedMemtableResponse
+	var responseChanels []chan ThreadedMemtableResponse
 	if getResponses {
 		responses = make([]ThreadedMemtableResponse, m.numWorkers)
+		responseChanels = make([]chan ThreadedMemtableResponse, m.numWorkers)
+		for i := 0; i < m.numWorkers; i++ {
+			responseChanels[i] = make(chan ThreadedMemtableResponse)
+		}
 	}
-	for _, channel := range m.requestsChannels {
+	for i, channel := range m.requestsChannels {
 		if getResponses {
-			data.response = make(chan ThreadedMemtableResponse)
+			data.response = responseChanels[i]
 		}
 		channel <- data
-		if getResponses {
-			response := <-data.response
-			responses = append(responses, response)
+	}
+	if getResponses {
+		for i, responseCh := range responseChanels {
+			responses[i] = <-responseCh
 		}
 	}
 	return responses
