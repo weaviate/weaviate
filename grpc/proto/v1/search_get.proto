@@ -204,9 +204,10 @@ message RefPropertiesRequest {
 
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 1;
+  repeated float vector = 1;  // will be removed in the future, use vector_bytes
   optional double certainty = 2;
   optional double distance = 3;
+  bytes vector_bytes = 4;
 }
 
 message NearObject {
