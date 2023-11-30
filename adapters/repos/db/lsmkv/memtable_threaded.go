@@ -658,7 +658,7 @@ func (m *MemtableThreaded) CommitlogPause() {
 
 func (m *MemtableThreaded) CommitlogUnpause() {
 	if m.baseline != nil {
-		m.baseline.Commitlog().pause()
+		m.baseline.Commitlog().unpause()
 	} else {
 		m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedCommitlogUnpause,
