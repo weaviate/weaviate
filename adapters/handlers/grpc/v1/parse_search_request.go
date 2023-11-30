@@ -12,7 +12,9 @@
 package v1
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/pkg/errors"
 
@@ -93,8 +95,20 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if nv := req.NearVector; nv != nil {
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(nv.VectorBytes) > 0 {
+			vector = make([]float32, len(nv.VectorBytes)/4)
+
+			for i := 0; i < len(vector); i++ {
+				asUint := binary.LittleEndian.Uint32(nv.VectorBytes[i*4 : i*4+4])
+				vector[i] = math.Float32frombits(asUint)
+			}
+		} else {
+			vector = nv.Vector
+		}
 		out.NearVector = &searchparams.NearVector{
-			Vector: nv.Vector,
+			Vector: vector,
 		}
 
 		// The following business logic should not sit in the API. However, it is
