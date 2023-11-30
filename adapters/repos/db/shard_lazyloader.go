@@ -331,13 +331,20 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.loaded {
+	if !l.isLoaded() {
 		return nil
 	}
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
 	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) isLoaded() bool {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	return l.loaded
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
