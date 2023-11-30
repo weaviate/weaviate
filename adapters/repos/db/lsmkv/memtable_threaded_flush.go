@@ -15,6 +15,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
+func (m *MemtableThreaded) closeRequestChannels() {
+	for _, channel := range m.requestsChannels {
+		close(channel)
+	}
+	m.wgWorkers.Wait()
+}
+
 func (m *MemtableThreaded) flush() error {
 	if m.baseline != nil {
 		return m.baseline.flush()
@@ -22,6 +29,7 @@ func (m *MemtableThreaded) flush() error {
 		output := m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedFlush,
 		}, true, "Flush")
+		m.closeRequestChannels()
 		return output.error
 	}
 }

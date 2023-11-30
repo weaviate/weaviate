@@ -28,7 +28,7 @@ import (
 
 type MemtableThreaded struct {
 	baseline         *Memtable
-	wgWorkers        sync.WaitGroup
+	wgWorkers        *sync.WaitGroup
 	path             string
 	numWorkers       int
 	requestsChannels []chan ThreadedMemtableRequest
@@ -200,8 +200,6 @@ func threadWorker(id int, dirName string, secondaryIndices uint16, metrics *Metr
 			req.operation(m, req)
 		}
 	}
-
-	fmt.Println("Worker", id, "size:")
 }
 
 func threadHashKey(key []byte, numWorkers int) int {
@@ -244,7 +242,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 		return m, nil
 	} else {
 
-		var wgWorkers sync.WaitGroup
+		var wgWorkers *sync.WaitGroup
 		numWorkers := runtime.NumCPU()
 		numChannels := numWorkers
 		requestsChannels := make([]chan ThreadedMemtableRequest, numChannels)
@@ -254,10 +252,11 @@ func newMemtableThreadedDebug(path string, strategy string,
 		}
 
 		// Start worker goroutines
+		wgWorkers = &sync.WaitGroup{}
 		wgWorkers.Add(numWorkers)
 		for i := 0; i < numWorkers; i++ {
 			dirName := path + fmt.Sprintf("_%d", i)
-			go threadWorker(i, dirName, secondaryIndices, metrics, requestsChannels[i%numChannels], &wgWorkers, strategy)
+			go threadWorker(i, dirName, secondaryIndices, metrics, requestsChannels[i%numChannels], wgWorkers, strategy)
 		}
 
 		m := &MemtableThreaded{
