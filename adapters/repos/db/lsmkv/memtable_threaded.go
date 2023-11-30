@@ -218,7 +218,7 @@ func newMemtableThreaded(path string, strategy string,
 	}
 	enableForSet := map[string]bool{}
 	enableFor := os.Getenv("MEMTABLE_THREADED_ENABLE_TYPES")
-	if len(workerAssignment) != 0 {
+	if len(enableFor) != 0 {
 		for _, t := range strings.Split(enableFor, ",") {
 			enableForSet[t] = true
 		}
