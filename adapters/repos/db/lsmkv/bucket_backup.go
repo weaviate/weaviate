@@ -48,7 +48,7 @@ func (b *Bucket) FlushMemtable() error {
 	}
 	b.flushLock.Unlock()
 
-	stat, err := b.active.Commitlog().file.Stat()
+	fileSize, err := b.active.CommitlogFileSize()
 	if err != nil {
 		b.logger.WithField("action", "lsm_wal_stat").
 			WithField("path", b.dir).
@@ -58,7 +58,7 @@ func (b *Bucket) FlushMemtable() error {
 
 	// attempting a flush&switch on when the active memtable
 	// or WAL is empty results in a corrupted backup attempt
-	if b.active.Size() > 0 || stat.Size() > 0 {
+	if b.active.Size() > 0 || fileSize > 0 {
 		if err := b.FlushAndSwitch(); err != nil {
 			return err
 		}

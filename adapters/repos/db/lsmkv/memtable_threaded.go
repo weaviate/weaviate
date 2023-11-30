@@ -37,25 +37,26 @@ type MemtableThreaded struct {
 	lastWrite        time.Time
 	createdAt        time.Time
 	metrics          *memtableMetrics
-	commitLogger     *commitLogger
 }
 
 type ThreadedMemtableFunc func(*Memtable, ThreadedMemtableRequest) ThreadedMemtableResponse
 
 type ThreadedMemtableRequest struct {
-	operation   ThreadedMemtableFunc
-	key         []byte
-	value       uint64
-	valueBytes  []byte
-	values      []uint64
-	valuesValue []value
-	bm          *sroar.Bitmap
-	additions   *sroar.Bitmap
-	deletions   *sroar.Bitmap
-	response    chan ThreadedMemtableResponse
-	pos         int
-	opts        []SecondaryKeyOption
-	pair        MapPair
+	operation    ThreadedMemtableFunc
+	key          []byte
+	value        uint64
+	valueBytes   []byte
+	values       []uint64
+	valuesValue  []value
+	bm           *sroar.Bitmap
+	additions    *sroar.Bitmap
+	deletions    *sroar.Bitmap
+	response     chan ThreadedMemtableResponse
+	pos          int
+	opts         []SecondaryKeyOption
+	pair         MapPair
+	bucketDir    string
+	newBucketDir string
 }
 
 type ThreadedMemtableResponse struct {
@@ -142,9 +143,40 @@ func ThreadedSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtable
 	return ThreadedMemtableResponse{size: m.size}
 }
 
+func ThreadedCommitlogSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{size: uint64(m.Commitlog().Size())}
+}
+
+func ThreadedCommitlogUpdatePath(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	updatePath := func(src string) string {
+		return strings.Replace(src, request.bucketDir, request.newBucketDir, 1)
+	}
+	m.SetPath(updatePath(m.Path()))
+	m.Commitlog().path = updatePath(m.Commitlog().path)
+	return ThreadedMemtableResponse{}
+}
+
 func ThreadedFlush(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.flush()
 	return ThreadedMemtableResponse{error: err}
+}
+
+func ThreadedCommitlogPause(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	m.Commitlog().pause()
+	return ThreadedMemtableResponse{}
+}
+
+func ThreadedCommitlogUnpause(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	m.Commitlog().unpause()
+	return ThreadedMemtableResponse{}
+}
+
+func ThreadedCommitlogFileSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	stat, err := m.Commitlog().file.Stat()
+	if err != nil {
+		return ThreadedMemtableResponse{error: err}
+	}
+	return ThreadedMemtableResponse{size: uint64(stat.Size())}
 }
 
 func threadWorker(id int, dirName string, secondaryIndices uint16, metrics *Metrics, requests <-chan ThreadedMemtableRequest, wg *sync.WaitGroup, strategy string) {
@@ -208,11 +240,6 @@ func newMemtableThreadedDebug(path string, strategy string,
 		return m, nil
 	} else {
 
-		cl, err := newCommitLogger(path)
-		if err != nil {
-			return nil, err
-		}
-
 		var wgWorkers sync.WaitGroup
 		numWorkers := runtime.NumCPU()
 		numChannels := numWorkers
@@ -240,7 +267,6 @@ func newMemtableThreadedDebug(path string, strategy string,
 			metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 			baseline:         nil,
 			workerAssignment: workerAssignment,
-			commitLogger:     cl,
 		}
 
 		return m, nil
@@ -250,7 +276,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 
 func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needOutput bool, operationName string) ThreadedMemtableResponse {
 	if operationName == "WriteWAL" {
-		multiMemtableRequest(m, data, false)
+		multiMemtableRequest(m, data, true)
 		return ThreadedMemtableResponse{}
 	} else if operationName == "Size" {
 		responses := multiMemtableRequest(m, data, true)
@@ -343,8 +369,26 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 		}
 		return ThreadedMemtableResponse{cursorReplace: cursor}
 	} else if operationName == "Flush" {
-		multiMemtableRequest(m, data, false)
+		multiMemtableRequest(m, data, true)
 		return ThreadedMemtableResponse{}
+	} else if operationName == "CommitlogUpdatePath" {
+		multiMemtableRequest(m, data, true)
+		return ThreadedMemtableResponse{}
+	} else if operationName == "CommitlogPause" {
+		multiMemtableRequest(m, data, true)
+		return ThreadedMemtableResponse{}
+	} else if operationName == "CommitlogUnpause" {
+		multiMemtableRequest(m, data, true)
+		return ThreadedMemtableResponse{}
+	} else if operationName == "CommitlogFileSize" {
+		responses := multiMemtableRequest(m, data, true)
+		var maxSize uint64
+		for _, response := range responses {
+			if response.size > maxSize {
+				maxSize = response.size
+			}
+		}
+		return ThreadedMemtableResponse{size: maxSize}
 	}
 
 	key := data.key
@@ -557,11 +601,15 @@ func (m *MemtableThreaded) writeWAL() error {
 	}
 }
 
-func (m *MemtableThreaded) Commitlog() *commitLogger {
+func (m *MemtableThreaded) CommitlogSize() int64 {
 	if m.baseline != nil {
-		return m.baseline.Commitlog()
+		return m.baseline.Commitlog().Size()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedSize,
+		}, false, "CommitlogSize")
+		return int64(output.size)
 	}
-	return m.commitLogger
 }
 
 func (m *MemtableThreaded) Path() string {
@@ -578,9 +626,53 @@ func (m *MemtableThreaded) SecondaryIndices() uint16 {
 	return m.secondaryIndices
 }
 
-func (m *MemtableThreaded) SetPath(path string) {
-	if m.baseline != nil {
-		m.baseline.SetPath(path)
+func (m *MemtableThreaded) UpdatePath(bucketDir, newBucketDir string) {
+	updatePath := func(src string) string {
+		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
-	m.path = path
+	if m.baseline != nil {
+		m.baseline.SetPath(updatePath(m.baseline.Path()))
+		m.baseline.Commitlog().path = updatePath(m.baseline.Commitlog().path)
+	} else {
+		m.threadedOperation(ThreadedMemtableRequest{
+			operation:    ThreadedCommitlogUpdatePath,
+			bucketDir:    bucketDir,
+			newBucketDir: newBucketDir,
+		}, false, "UpdatePath")
+	}
+}
+
+func (m *MemtableThreaded) CommitlogPause() {
+	if m.baseline != nil {
+		m.baseline.Commitlog().pause()
+	} else {
+		m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedCommitlogPause,
+		}, false, "CommitlogPause")
+	}
+}
+
+func (m *MemtableThreaded) CommitlogUnpause() {
+	if m.baseline != nil {
+		m.baseline.Commitlog().pause()
+	} else {
+		m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedCommitlogUnpause,
+		}, false, "CommitlogUnpause")
+	}
+}
+
+func (m *MemtableThreaded) CommitlogFileSize() (int64, error) {
+	if m.baseline != nil {
+		stat, err := m.baseline.Commitlog().file.Stat()
+		if err != nil {
+			return 0, err
+		}
+		return stat.Size(), nil
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedCommitlogFileSize,
+		}, false, "CommitlogFileSize,")
+		return int64(output.size), output.error
+	}
 }

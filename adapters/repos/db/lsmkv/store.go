@@ -377,12 +377,12 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 	bucket.flushLock.Lock()
 	bucket.dir = newBucketDir
 	if bucket.active != nil {
-		bucket.active.SetPath(updatePath(bucket.active.Path()))
-		bucket.active.Commitlog().path = updatePath(bucket.active.Commitlog().path)
+		bucket.active.UpdatePath(bucketDir, newBucketDir)
+		// bucket.active.Commitlog().path = updatePath(bucket.active.Commitlog().path)
 	}
 	if bucket.flushing != nil {
-		bucket.flushing.SetPath(updatePath(bucket.flushing.Path()))
-		bucket.flushing.Commitlog().path = updatePath(bucket.flushing.Commitlog().path)
+		bucket.flushing.UpdatePath(bucketDir, newBucketDir)
+		// bucket.flushing.Commitlog().path = updatePath(bucket.flushing.Commitlog().path)
 	}
 	bucket.flushLock.Unlock()
 

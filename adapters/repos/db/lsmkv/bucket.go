@@ -859,7 +859,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.Commitlog().Size()
+	commitLogSize := b.active.CommitlogSize()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
@@ -959,8 +959,21 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	defer b.flushLock.Unlock()
 
 	path := b.flushing.Path()
-	if err := b.disk.add(path + ".db"); err != nil {
-		return err
+
+	// segments are now named path_0.db, path_1.db, etc., check for them when adding
+	// to the disk
+	if stat, _ := os.Stat(path + ".db"); stat != nil {
+		if err := b.disk.add(path + ".db"); err != nil {
+			return err
+		}
+	}
+	for i := 0; i < 1000; i++ {
+		if stat, _ := os.Stat(path + "_" + string(i) + ".db"); stat != nil {
+			if err := b.disk.add(path + "_" + string(i) + ".db"); err != nil {
+				return err
+			}
+			break
+		}
 	}
 	b.flushing = nil
 
