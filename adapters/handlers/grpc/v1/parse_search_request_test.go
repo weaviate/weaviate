@@ -153,7 +153,9 @@ func TestGRPCRequest(t *testing.T) {
 			name: "Empty return properties given",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
+					NoProps: true,
+				},
 			},
 			error: false,
 		},
