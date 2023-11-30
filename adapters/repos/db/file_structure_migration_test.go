@@ -31,9 +31,11 @@ import (
 const (
 	numClasses = 100
 	numShards  = 10
-	chars      = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
-		"abcdefghijklmnopqrstuvwxyz" + "0123456789"
-	localNode = "node1"
+	uppercase  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	lowercase  = "abcdefghijklmnopqrstuvwxyz"
+	digits     = "0123456789"
+	chars      = uppercase + lowercase + digits
+	localNode  = "node1"
 )
 
 var (
@@ -222,13 +224,20 @@ func randShardName() string {
 func randStringBytes(n int) string {
 	b := make([]byte, n)
 	for i := range b {
-		if (i+1)%5 == 0 {
+		switch {
+		case i == 0:
+			b[i] = randChar(uppercase)
+		case i == n/2:
 			b[i] = []byte("_")[0]
-		} else {
-			b[i] = chars[rand.Intn(len(chars))]
+		default:
+			b[i] = randChar(chars)
 		}
 	}
 	return string(b)
+}
+
+func randChar(str string) byte {
+	return str[rand.Intn(len(str))]
 }
 
 type shardContents map[string]bool
