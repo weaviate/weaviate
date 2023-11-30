@@ -143,6 +143,10 @@ func ThreadedSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtable
 	return ThreadedMemtableResponse{size: m.size}
 }
 
+func ThreadeCountStats(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{countStats: m.countStats()}
+}
+
 func ThreadedCommitlogSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{size: uint64(m.Commitlog().Size())}
 }
@@ -578,7 +582,7 @@ func (m *MemtableThreaded) countStats() *countStats {
 		return m.baseline.countStats()
 	} else {
 		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedSize,
+			operation: ThreadeCountStats,
 		}, false, "countStats")
 		return output.countStats
 	}
