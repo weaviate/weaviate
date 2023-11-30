@@ -18,8 +18,8 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -93,22 +93,32 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	return nil
 }
 
-func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
-	Id := make([]byte, 8)
-	binary.LittleEndian.PutUint64(Id, index)
-	h.compressedBucket.Put(Id, vector)
+func (h *hnsw) storeCompressedVector(id uint64, vector []byte) {
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, id)
+	h.compressedBucket.Put(key, vector)
 }
 
 func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
-	vec, err := h.vectorForID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("get vector for id: %w", err)
-	}
-	if h.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vec = distancer.Normalize(vec)
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, id)
+
+	if vec, err := h.compressedBucket.Get(key); err == nil {
+		return vec, nil
+	} else if err != entlsmkv.NotFound {
+		return nil, fmt.Errorf("getting vector '%d' from compressed store: %w", id, err)
 	}
 
-	return h.pq.Encode(vec), nil
+	// not found, fallback to uncompressed source
+	h.logger.
+		WithField("action", "compress").
+		WithField("vector", id).
+		Warnf("Vector not found in compressed store")
+
+	vec, err := h.VectorForIDThunk(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("getting vector '%d' from store: %w", id, err)
+	}
+
+	return h.pq.Encode(h.normalizeVec(vec)), nil
 }
