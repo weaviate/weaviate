@@ -128,18 +128,18 @@ func FromBinaryOptional(data []byte,
 
 	createTime := int64(rw.ReadUint64())
 	updateTime := int64(rw.ReadUint64())
-	vectorLength2 := rw.ReadUint16()
+	vectorLength := rw.ReadUint16()
 	// The vector length should always be returned (for usage metrics purposes) even if the vector itself is skipped
-	ko.VectorLen = int(vectorLength2)
+	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
-		ko.Object.Vector = make([]float32, vectorLength2)
-		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength2) * 4)
-		for i := 0; i < int(vectorLength2); i++ {
+		ko.Object.Vector = make([]float32, vectorLength)
+		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
+		for i := 0; i < int(vectorLength); i++ {
 			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
 			ko.Object.Vector[i] = math.Float32frombits(bits)
 		}
 	} else {
-		rw.MoveBufferPositionForward(uint64(vectorLength2) * 4)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
 		ko.Object.Vector = nil
 	}
 	ko.Vector = ko.Object.Vector
@@ -166,10 +166,17 @@ func FromBinaryOptional(data []byte,
 	vectorWeightsLength := rw.ReadUint32()
 	vectorWeights := rw.ReadBytesFromBuffer(uint64(vectorWeightsLength))
 
-	// some object members need additional "enrichment". Only do this if necessary
+	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
 	if len(props) > 0 ||
 		len(meta) > 0 ||
-		vectorWeightsLength > 0 && !(vectorWeightsLength == 4 && vectorWeights[0] == 110 && vectorWeights[1] == 117 && vectorWeights[2] == 108 && vectorWeights[3] == 108) {
+		vectorWeightsLength > 0 &&
+			!( // if the length is 4 and the encoded value is "null" (in ascii), vectorweights are not actually present
+			vectorWeightsLength == 4 &&
+				vectorWeights[0] == 110 && // n
+				vectorWeights[1] == 117 && // u
+				vectorWeights[2] == 108 && // l
+				vectorWeights[3] == 108) { // l
+
 		if err := ko.parseObject(
 			uuidParsed,
 			createTime,
