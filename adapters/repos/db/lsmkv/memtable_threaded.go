@@ -147,10 +147,10 @@ func ThreadedFlush(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtabl
 	return ThreadedMemtableResponse{error: err}
 }
 
-func threadWorker(id int, dirName string, requests <-chan ThreadedMemtableRequest, wg *sync.WaitGroup, strategy string) {
+func threadWorker(id int, dirName string, secondaryIndices uint16, metrics *Metrics, requests <-chan ThreadedMemtableRequest, wg *sync.WaitGroup, strategy string) {
 	defer wg.Done()
 	// One bucket per worker, initialization is done in the worker thread
-	m, err := newMemtable(dirName, strategy, 0, nil)
+	m, err := newMemtable(dirName, strategy, secondaryIndices, metrics)
 	if err != nil {
 		fmt.Println("Error creating memtable", err)
 		return
@@ -226,7 +226,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 		wgWorkers.Add(numWorkers)
 		for i := 0; i < numWorkers; i++ {
 			dirName := path + fmt.Sprintf("_%d", i)
-			go threadWorker(i, dirName, requestsChannels[i%numChannels], &wgWorkers, strategy)
+			go threadWorker(i, dirName, secondaryIndices, metrics, requestsChannels[i%numChannels], &wgWorkers, strategy)
 		}
 
 		m := &MemtableThreaded{
