@@ -103,13 +103,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 }
 
 func (l *LazyLoadShard) Index() *Index {
-	l.mustLoad()
-	return l.shard.Index()
+	return l.shardOpts.index
 }
 
 func (l *LazyLoadShard) Name() string {
-	l.mustLoad()
-	return l.shard.Name()
+	return l.shardOpts.name
 }
 
 func (l *LazyLoadShard) Store() *lsmkv.Store {
