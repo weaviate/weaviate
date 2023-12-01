@@ -237,8 +237,10 @@ func (index *flat) Add(id uint64, vector []float32) error {
 			return err
 		}
 		if index.isBQCached() {
+			index.Lock()
 			index.bqCache.Grow(id)
 			index.bqCache.Preload(id, vectorBQ)
+			index.Unlock()
 		}
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
@@ -610,7 +612,7 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) PostStartup() {
-	if !index.isBQ() {
+	if !index.isBQCached() {
 		return
 	}
 
