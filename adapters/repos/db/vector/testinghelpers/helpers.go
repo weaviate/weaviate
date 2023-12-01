@@ -128,7 +128,7 @@ func genVector(r *rand.Rand, dimensions int) []float32 {
 
 func Normalize(vectors [][]float32) {
 	for i := range vectors {
-		vectors[i] = distancer.Normalize(vectors[i])
+		distancer.NormalizeInline(vectors[i])
 	}
 }
 

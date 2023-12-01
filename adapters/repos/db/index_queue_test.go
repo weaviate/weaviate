@@ -647,7 +647,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 	results := newPqMaxPool(k).GetMax(k)
 
 	if m.DistancerProvider().Type() == "cosine-dot" {
-		vector = distancer.Normalize(vector)
+		distancer.NormalizeInline(vector)
 	}
 
 	for id, v := range m.vectors {
@@ -657,7 +657,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 		}
 
 		if m.DistancerProvider().Type() == "cosine-dot" {
-			v = distancer.Normalize(v)
+			distancer.NormalizeInline(v)
 		}
 
 		dist, _, err := m.DistanceBetweenVectors(vector, v)
@@ -694,7 +694,7 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 	results := newPqMaxPool(int(maxLimit)).GetMax(int(maxLimit))
 
 	if m.DistancerProvider().Type() == "cosine-dot" {
-		vector = distancer.Normalize(vector)
+		distancer.NormalizeInline(vector)
 	}
 
 	for id, v := range m.vectors {
@@ -704,7 +704,7 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 		}
 
 		if m.DistancerProvider().Type() == "cosine-dot" {
-			v = distancer.Normalize(v)
+			distancer.NormalizeInline(v)
 		}
 
 		dist, _, err := m.DistanceBetweenVectors(vector, v)

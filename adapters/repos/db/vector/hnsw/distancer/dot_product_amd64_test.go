@@ -30,8 +30,8 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 			vec1[i] = 1
 			vec2[i] = 1
 		}
-		vec1 = Normalize(vec1)
-		vec2 = Normalize(vec2)
+		NormalizeInline(vec1)
+		NormalizeInline(vec2)
 		res := -asm.Dot(vec1, vec2)
 		if math.IsNaN(float64(res)) {
 			panic("NaN")

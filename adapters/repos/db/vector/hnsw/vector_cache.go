@@ -104,7 +104,7 @@ func (s *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 	})
 
 	if s.normalizeOnRead {
-		vec = distancer.Normalize(vec)
+		distancer.NormalizeInline(vec)
 	}
 
 	atomic.AddInt64(&s.count, 1)

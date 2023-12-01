@@ -65,7 +65,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	vector = h.normalizeVec(vector)
+	vector = h.normalizeVecInline(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(vector, k, allowList)
@@ -431,7 +431,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer *ssdhelpers.PQDist
 			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
 	}
-	vec = h.normalizeVec(vec)
+	vec = h.normalizeVecInline(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 

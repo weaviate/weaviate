@@ -434,7 +434,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	if q.Index.DistancerProvider().Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
-		vector = distancer.Normalize(vector)
+		distancer.NormalizeInline(vector)
 	}
 
 	var results *priorityqueue.Queue
@@ -492,7 +492,7 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 		if q.Index.DistancerProvider().Type() == "cosine-dot" {
 			// cosine-dot requires normalized vectors, as the dot product and cosine
 			// similarity are only identical if the vector is normalized
-			v = distancer.Normalize(v)
+			distancer.NormalizeInline(v)
 		}
 
 		dist, _, err := q.Index.DistanceBetweenVectors(vector, v)

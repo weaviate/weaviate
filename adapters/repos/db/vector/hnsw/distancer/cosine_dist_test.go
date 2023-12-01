@@ -81,6 +81,34 @@ func TestCosineDistancer(t *testing.T) {
 	})
 }
 
+func TestCosineDistancerInline(t *testing.T) {
+	cases := []struct {
+		name             string
+		vec1             []float32
+		vec2             []float32
+		expectedDistance float32
+	}{
+		{name: "identical", vec1: []float32{0.1, 0.3, 0.7}, vec2: []float32{0.1, 0.3, 0.7}, expectedDistance: 0},
+		{name: "different vectors, but identical angle", vec1: []float32{0.1, 0.3, 0.7}, vec2: []float32{0.2, 0.6, 1.4}, expectedDistance: 0},
+		{name: "different vectors", vec1: []float32{0.1, 0.3, 0.7}, vec2: []float32{0.2, 0.2, 0.2}, expectedDistance: 0.17318934},
+		{name: "opposite vectors", vec1: []float32{0.1, 0.3, 0.7}, vec2: []float32{-0.1, -0.3, -0.7}, expectedDistance: 2},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			NormalizeInline(tt.vec1)
+			NormalizeInline(tt.vec2)
+			dist, ok, err := NewCosineDistanceProvider().New(tt.vec1).Distance(tt.vec2)
+			require.Nil(t, err)
+			require.True(t, ok)
+			control, ok, err := NewCosineDistanceProvider().SingleDist(tt.vec1, tt.vec2)
+			require.True(t, ok)
+			require.Nil(t, err)
+			assert.Equal(t, control, dist)
+			assert.Equal(t, tt.expectedDistance, dist)
+		})
+	}
+}
+
 func TestCosineDistancerStepbyStep(t *testing.T) {
 	t.Run("step by step equals SingleDist", func(t *testing.T) {
 		vec1 := Normalize([]float32{3, 4, 5})

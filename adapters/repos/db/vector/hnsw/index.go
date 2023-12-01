@@ -710,3 +710,12 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	}
 	return vec
 }
+
+func (h *hnsw) normalizeVecInline(vec []float32) []float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		distancer.NormalizeInline(vec)
+	}
+	return vec
+}

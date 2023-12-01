@@ -85,7 +85,7 @@ func (h *hnsw) AddBatch(ids []uint64, vectors [][]float32) error {
 
 		h.metrics.InsertVector()
 
-		vector = h.normalizeVec(vector)
+		vector = h.normalizeVecInline(vector)
 		err := h.addOne(vector, node)
 		if err != nil {
 			return err
