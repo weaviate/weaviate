@@ -148,7 +148,7 @@ func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *model
 	// 		return err
 	// 	}
 
-	//return h.mergeClassObjectProperty(ctx, class, property)
+	// return h.mergeClassObjectProperty(ctx, class, property)
 }
 
 func (h *Handler) mergeClassObjectProperty(ctx context.Context,
