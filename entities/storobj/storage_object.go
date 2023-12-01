@@ -30,6 +30,16 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
+var bufPool *bufferPool
+
+func init() {
+	// a 10kB buffer should be large enough for typical cases, it can fit a
+	// 1536d uncompressed vector and about 3kB of object payload. If the
+	// initial size is not large enoug, the caller can always allocate a larger
+	// buffer and return that to the pool instead.
+	bufPool = newBufferPool(10 * 1024)
+}
+
 type Object struct {
 	MarshallerVersion uint8
 	Object            models.Object `json:"object"`
@@ -200,6 +210,7 @@ func FromBinaryOptional(data []byte,
 
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
+	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
@@ -213,14 +224,21 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		docIDBuf = make([]byte, 8)
 		out      = make([]*Object, len(ids))
 		i        = 0
+		lsmBuf   = bufPool.Get()
 	)
+
+	defer func() {
+		bufPool.Put(lsmBuf)
+	}()
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
-		res, err := bucket.GetBySecondary(0, docIDBuf)
+		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
 		if err != nil {
 			return nil, err
 		}
+
+		lsmBuf = newBuf // may have changed, e.g. because it was grown
 
 		if res == nil {
 			continue
