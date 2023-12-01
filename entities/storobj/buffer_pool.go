@@ -17,7 +17,10 @@ func newBufferPool(initialSize int) *bufferPool {
 	return &bufferPool{
 		pool: sync.Pool{
 			New: func() any {
-				return make([]byte, initialSize)
+				// initialize with len=0 to make sure we get a consistent result
+				// whether it's a new or used buffer. Every buffer will always have
+				// len=0 and cap>=initialSize
+				return make([]byte, 0, initialSize)
 			},
 		},
 	}
