@@ -54,6 +54,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
+	modgenerativetransformers "github.com/weaviate/weaviate/modules/generative-transformers"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
@@ -706,6 +707,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativepalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativetransformers.Name]; ok {
+		appState.Modules.Register(modgenerativetransformers.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativetransformers.Name).
 			Debug("enabled module")
 	}
 
