@@ -15,10 +15,16 @@ import "math"
 
 func Normalize(v []float32) []float32 {
 	var norm float32
-	out := make([]float32, len(v))
 	for i := range v {
 		norm += v[i] * v[i]
 	}
+
+	// no need to create a copy if vector does not need to be normalized
+	if norm > 0.99999 && norm < 1.00001 {
+		return v
+	}
+
+	out := make([]float32, len(v))
 	if norm == 0 {
 		return out
 	}
