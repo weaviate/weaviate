@@ -133,10 +133,8 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 }
 
 func (s *Shard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
-	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), nil,
-		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,
-		s.versioner.version, s.isFallbackToSearchable,
+	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.GetSchemaSkipAuth(),
+		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit).
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {

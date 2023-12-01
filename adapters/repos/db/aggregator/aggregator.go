@@ -38,7 +38,6 @@ type Aggregator struct {
 	params                 aggregation.Params
 	getSchema              schemaUC.SchemaGetter
 	classSearcher          inverted.ClassSearcher // to support ref-filters
-	deletedDocIDs          inverted.DeletedDocIDChecker
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
@@ -50,9 +49,10 @@ type Aggregator struct {
 
 func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher,
-	deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
-	shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger,
-	propLenTracker *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable,
+	stopwords stopwords.StopwordDetector, shardVersion uint16,
+	vectorIndex vectorIndex, logger logrus.FieldLogger,
+	propLenTracker *inverted.JsonPropertyLengthTracker,
+	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 ) *Aggregator {
 	return &Aggregator{
@@ -61,7 +61,6 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		params:                 params,
 		getSchema:              getSchema,
 		classSearcher:          classSearcher,
-		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		vectorIndex:            vectorIndex,
