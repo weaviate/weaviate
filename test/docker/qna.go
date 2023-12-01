@@ -51,11 +51,13 @@ func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*D
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, nat.Port("8080/tcp"), "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
 	envSettings["QNA_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", QnATransformers, "8080")
-	return &DockerContainer{QnATransformers, uri, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	return &DockerContainer{QnATransformers, endpoints, container, envSettings}, nil
 }
