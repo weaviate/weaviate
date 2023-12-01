@@ -161,7 +161,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
 		if index.compression == flatent.CompressionBQ {
-			index.bq = ssdhelpers.NewBinaryQuantizer()
+			index.bq = ssdhelpers.NewBinaryQuantizer(nil)
 		}
 	})
 	if len(vector) != int(index.dims) {
@@ -172,10 +172,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
 	if index.compression == flatent.CompressionBQ {
-		vectorBQ, err := index.bq.Encode(vector)
-		if err != nil {
-			return err
-		}
+		vectorBQ := index.bq.Encode(vector)
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
 	}
@@ -256,10 +253,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	defer index.pqResults.Put(heap)
 
 	vector = index.normalized(vector)
-	vectorBQ, err := index.bq.Encode(vector)
-	if err != nil {
-		return nil, nil, err
-	}
+	vectorBQ := index.bq.Encode(vector)
 
 	if err := index.findTopVectors(heap, allow, ef,
 		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,

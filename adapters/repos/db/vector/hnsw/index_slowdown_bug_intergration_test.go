@@ -26,6 +26,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func Normalize(v []float32) []float32 {
@@ -77,7 +78,7 @@ func TestSlowDownBugAtHighEF(t *testing.T) {
 		}, UserConfig{
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
-		}, newDummyStore(t))
+		}, testinghelpers.NewDummyStore(t))
 
 		require.Nil(t, err)
 		vectorIndex = index

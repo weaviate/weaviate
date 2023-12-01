@@ -153,16 +153,15 @@ type hnsw struct {
 	compressed   atomic.Bool
 	doNotRescore bool
 
-	pq                     *ssdhelpers.ProductQuantizer
-	pqConfig               ent.PQConfig
-	compressedVectorsCache cache.Cache[byte]
-	compressedBucket       *lsmkv.Bucket
-	compressActionLock     *sync.RWMutex
-	className              string
-	shardName              string
-	VectorForIDThunk       common.VectorForID[float32]
-	shardedNodeLocks       *common.ShardedLocks
-	store                  *lsmkv.Store
+	compressor ssdhelpers.VectorCompressor
+	pqConfig   ent.PQConfig
+
+	compressActionLock *sync.RWMutex
+	className          string
+	shardName          string
+	VectorForIDThunk   common.VectorForID[float32]
+	shardedNodeLocks   *common.ShardedLocks
+	store              *lsmkv.Store
 }
 
 type CommitLogger interface {
@@ -220,8 +219,6 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
 
-	var compressedVectorsCache cache.Cache[byte]
-
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
@@ -230,25 +227,24 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		maximumConnectionsLayerZero: 2 * uc.MaxConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer:        1 / math.Log(float64(uc.MaxConnections)),
-		efConstruction:         uc.EFConstruction,
-		flatSearchCutoff:       int64(uc.FlatSearchCutoff),
-		nodes:                  make([]*vertex, cache.InitialSize),
-		cache:                  vectorCache,
-		vectorForID:            vectorCache.Get,
-		multiVectorForID:       vectorCache.MultiGet,
-		compressedVectorsCache: compressedVectorsCache,
-		id:                     cfg.ID,
-		rootPath:               cfg.RootPath,
-		tombstones:             map[uint64]struct{}{},
-		logger:                 cfg.Logger,
-		distancerProvider:      cfg.DistanceProvider,
-		deleteLock:             &sync.Mutex{},
-		tombstoneLock:          &sync.RWMutex{},
-		resetLock:              &sync.Mutex{},
-		resetCtx:               resetCtx,
-		resetCtxCancel:         resetCtxCancel,
-		initialInsertOnce:      &sync.Once{},
+		levelNormalizer:   1 / math.Log(float64(uc.MaxConnections)),
+		efConstruction:    uc.EFConstruction,
+		flatSearchCutoff:  int64(uc.FlatSearchCutoff),
+		nodes:             make([]*vertex, cache.InitialSize),
+		cache:             vectorCache,
+		vectorForID:       vectorCache.Get,
+		multiVectorForID:  vectorCache.MultiGet,
+		id:                cfg.ID,
+		rootPath:          cfg.RootPath,
+		tombstones:        map[uint64]struct{}{},
+		logger:            cfg.Logger,
+		distancerProvider: cfg.DistanceProvider,
+		deleteLock:        &sync.Mutex{},
+		tombstoneLock:     &sync.RWMutex{},
+		resetLock:         &sync.Mutex{},
+		resetCtx:          resetCtx,
+		resetCtxCancel:    resetCtxCancel,
+		initialInsertOnce: &sync.Once{},
 
 		ef:       int64(uc.EF),
 		efMin:    int64(uc.DynamicEFMin),
@@ -265,14 +261,23 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
 		shardedNodeLocks:     common.NewDefaultShardedLocks(),
-		store:                store,
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
+		store:                    store,
 	}
 
 	if uc.PQ.Enabled {
-		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+		//index.pqVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+	}
+
+	if uc.BQ.Enabled {
+		var err error
+		index.compressor, err = ssdhelpers.NewBQCompressor(index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store)
+		if err != nil {
+			return nil, err
+		}
+		//index.bqVectorsCache = cache.NewShardedUInt64LockCache(index.getBQCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
 	if err := index.init(cfg); err != nil {
@@ -390,13 +395,20 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 // }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32,
+	entryPointID uint64, nodeVec []float32, distancer ssdhelpers.CompressorDistancer,
 ) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
 		eps := priorityqueue.NewMin(1)
-		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		var dist float32
+		var ok bool
+		var err error
+		if h.compressed.Load() {
+			dist, ok, err = distancer.DistanceToNode(entryPointID)
+		} else {
+			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		}
 		if err != nil {
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
@@ -406,7 +418,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 		}
 
 		eps.Insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
+		res, err := h.searchLayerByVectorWithDistancer(nodeVec, eps, 1, level, nil, distancer)
 		if err != nil {
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
@@ -437,40 +449,20 @@ func min(a, b int) int {
 
 func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 	if h.compressed.Load() {
-		v1, err := h.compressedVectorsCache.Get(context.Background(), a)
+		dist, err := h.compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), a, b)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
 				h.handleDeletedNode(e.DocID)
 				return 0, false, nil
 			} else {
-				// not a typed error, we can recover from, return with err
-				return 0, false, errors.Wrapf(err,
-					"could not get vector of object at docID %d", a)
+				return 0, false, err
 			}
 		}
-		if len(v1) == 0 {
-			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
-		}
 
-		v2, err := h.compressedVectorsCache.Get(context.Background(), b)
-		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, false, nil
-			} else {
-				// not a typed error, we can recover from, return with err
-				return 0, false, errors.Wrapf(err,
-					"could not get vector of object at docID %d", a)
-			}
-		}
-		if len(v2) == 0 {
-			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
-		}
-
-		return h.pq.DistanceBetweenCompressedVectors(v1, v2), true, nil
+		return dist, true, nil
 	}
+
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), a)
@@ -512,24 +504,20 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 
 func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
 	if h.compressed.Load() {
-		v1, err := h.compressedVectorsCache.Get(context.Background(), node)
+		dist, err := h.compressor.DistanceBetweenCompressedAndUncompressedVectorsFromID(context.Background(), node, vecB)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
 				h.handleDeletedNode(e.DocID)
 				return 0, false, nil
 			} else {
-				// not a typed error, we can recover from, return with err
-				return 0, false, errors.Wrapf(err,
-					"could not get vector of object at docID %d", node)
+				return 0, false, err
 			}
 		}
-		if len(v1) == 0 {
-			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", node)
-		}
 
-		return h.pq.DistanceBetweenCompressedAndUncompressedVectors(vecB, v1), true, nil
+		return dist, true, nil
 	}
+
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), node)
@@ -622,7 +610,10 @@ func (h *hnsw) Drop(ctx context.Context) error {
 	}
 
 	if h.compressed.Load() {
-		h.compressedVectorsCache.Drop()
+		err := h.compressor.Drop()
+		if err != nil {
+			return fmt.Errorf("failed to shutdown compressed store")
+		}
 	} else {
 		// cancel vector cache goroutine
 		h.cache.Drop()
@@ -648,7 +639,10 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 	}
 
 	if h.compressed.Load() {
-		h.compressedVectorsCache.Drop()
+		err := h.compressor.Drop()
+		if err != nil {
+			return errors.Wrap(err, "hnsw shutdown")
+		}
 	} else {
 		h.cache.Drop()
 	}

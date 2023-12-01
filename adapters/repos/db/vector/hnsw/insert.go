@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -157,9 +158,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	h.shardedNodeLocks.Unlock(nodeId)
 
 	if h.compressed.Load() {
-		compressed := h.pq.Encode(vector)
-		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.Preload(node.id, compressed)
+		h.compressor.Preload(node.id, vector)
 	} else {
 		h.cache.Preload(node.id, vector)
 	}
@@ -168,8 +167,15 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	var err error
+	var distancer ssdhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		distancer = h.compressor.NewDistancer(vector)
+	}
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
-		entryPointID, vector)
+		entryPointID, vector, distancer)
+	if h.compressed.Load() {
+		h.compressor.ReturnDistancer(distancer)
+	}
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
 	}
@@ -242,9 +248,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.shardedNodeLocks.Unlock(node.id)
 
 	if h.compressed.Load() {
-		compressed := h.pq.Encode(nodeVec)
-		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.Preload(node.id, compressed)
+		h.compressor.Preload(node.id, nodeVec)
 	} else {
 		h.cache.Preload(node.id, nodeVec)
 	}

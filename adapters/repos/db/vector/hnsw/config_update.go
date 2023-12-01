@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -101,23 +100,12 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		return nil
 	}
 
-	// compression got enabled in this update
-	if h.compressedVectorsCache == (cache.Cache[byte])(nil) {
-		h.compressedVectorsCache = cache.NewShardedByteLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger, 0)
-	} else {
-		if h.compressed.Load() {
-			h.compressedVectorsCache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
-		} else {
-			h.cache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
-		}
-	}
-
 	// ToDo: check atomic operation
 	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
 		h.turnOnCompression(parsed, callback)
 	} else {
-		// without a compression we need to fire the callback right away
+		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
 		callback()
 	}
 

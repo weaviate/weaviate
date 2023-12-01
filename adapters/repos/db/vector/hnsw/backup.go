@@ -16,8 +16,37 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 )
+
+// BeginBackup prepares the hnsw index so a backup can be created
+func (h *hnsw) BeginBackup(ctx context.Context) error {
+	if err := h.SwitchCommitLogs(ctx); err != nil {
+		return err
+	}
+
+	if h.compressed.Load() {
+		if err := h.compressor.PauseCompaction(ctx); err != nil {
+			return fmt.Errorf("pause compressed store compaction: %w", err)
+		}
+		if err := h.compressor.FlushMemtables(ctx); err != nil {
+			return fmt.Errorf("flush compressed store memtables: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (h *hnsw) ResumeMaintenanceCycles(ctx context.Context) error {
+	if h.compressed.Load() {
+		if err := h.compressor.ResumeCompaction(ctx); err != nil {
+			return fmt.Errorf("resume compressed store compaction: %w", err)
+		}
+	}
+	return nil
+}
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
@@ -86,5 +115,17 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 		i++
 	}
 
+	return files, nil
+}
+
+func (h *hnsw) listCompressedFiles(ctx context.Context, basePath string) ([]string, error) {
+	files, err := h.compressor.ListFiles(ctx, basePath)
+	if err != nil {
+		return nil, fmt.Errorf("list compressed files: %w", err)
+	}
+	for i, file := range files {
+		withoutRoot := strings.Split(file, "/")
+		files[i] = path.Join(withoutRoot[1:]...)
+	}
 	return files, nil
 }

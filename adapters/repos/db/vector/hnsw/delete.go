@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -325,12 +326,10 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 
 	var neighborVec []float32
+	var compressorDistancer ssdhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		var vec []byte
-		vec, err = h.compressedVectorsCache.Get(context.Background(), neighbor)
-		if err == nil {
-			neighborVec = h.pq.Decode(vec)
-		}
+		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
+		defer h.compressor.ReturnDistancer(compressorDistancer)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
@@ -355,7 +354,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	neighborNode.Unlock()
 
 	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
-		neighborLevel, currentEntrypoint, neighborVec)
+		neighborLevel, currentEntrypoint, neighborVec, compressorDistancer)
 	if err != nil {
 		return false, errors.Wrap(err, "find best entrypoint")
 	}
@@ -625,7 +624,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			h.nodes[id] = nil
 			h.shardedNodeLocks.Unlock(id)
 			if h.compressed.Load() {
-				h.compressedVectorsCache.Delete(context.TODO(), id)
+				h.compressor.Delete(context.TODO(), id)
 			} else {
 				h.cache.Delete(context.TODO(), id)
 			}
