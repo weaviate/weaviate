@@ -144,7 +144,6 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
-	Load(context.Context) error // Load shard
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -187,10 +186,6 @@ type Shard struct {
 	fallbackToSearchable bool
 
 	cycleCallbacks *shardCycleCallbacks
-}
-
-func (s *Shard) Load(ctx context.Context) error {
-	return nil
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,

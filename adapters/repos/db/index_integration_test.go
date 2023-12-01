@@ -329,12 +329,13 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	shardState := singleShardState()
 
 	idx, err := NewIndex(testCtx(), IndexConfig{
-		RootPath: rootDir, ClassName: schema.ClassName(class.Class),
+		RootPath:              rootDir,
+		ClassName:             schema.ClassName(class.Class),
+		DisableLazyLoadShards: true,
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
-	idx.ForceLoadShards(testCtx())
 	require.Nil(t, err)
 	return idx
 }

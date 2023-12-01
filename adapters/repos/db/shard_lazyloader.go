@@ -50,22 +50,17 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (ShardLike, error) {
-	if index.Config.DisableLazyLoadShards {
-		return NewShard(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
-	} else {
-		l := &LazyLoadShard{
-			shardOpts: &deferredShardOpts{
-				promMetrics: promMetrics,
+) *LazyLoadShard {
+	return &LazyLoadShard{
+		shardOpts: &deferredShardOpts{
+			promMetrics: promMetrics,
 
-				name:             shardName,
-				index:            index,
-				class:            class,
-				jobQueueCh:       jobQueueCh,
-				indexCheckpoints: indexCheckpoints,
-			},
-		}
-		return l, nil
+			name:             shardName,
+			index:            index,
+			class:            class,
+			jobQueueCh:       jobQueueCh,
+			indexCheckpoints: indexCheckpoints,
+		},
 	}
 }
 
@@ -108,13 +103,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 }
 
 func (l *LazyLoadShard) Index() *Index {
-	l.mustLoad()
-	return l.shard.Index()
+	return l.shardOpts.index
 }
 
 func (l *LazyLoadShard) Name() string {
-	l.mustLoad()
-	return l.shard.Name()
+	return l.shardOpts.name
 }
 
 func (l *LazyLoadShard) Store() *lsmkv.Store {
@@ -336,13 +329,20 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.loaded {
+	if !l.isLoaded() {
 		return nil
 	}
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
 	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) isLoaded() bool {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	return l.loaded
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
