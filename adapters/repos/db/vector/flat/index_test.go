@@ -38,6 +38,12 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 )
 
+const (
+	CompressionNone = "none"
+	CompressionPQ   = "pq"
+	CompressionBQ   = "bq"
+)
+
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
 		dist, _, _ := provider.SingleDist(x, y)

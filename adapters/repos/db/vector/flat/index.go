@@ -615,7 +615,6 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
-
 	cursor := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor()
 	defer cursor.Close()
 
