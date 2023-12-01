@@ -68,12 +68,12 @@ func TestFusionRelativeScore(t *testing.T) {
 
 func TestFusionRelativeScoreExplain(t *testing.T) {
 	result1 := []*Result{
-		{uint64(1), &search.Result{SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1)), ExplainScore: "keyword"}},
-		{uint64(1), &search.Result{SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2)), ExplainScore: "keyword"}},
+		{uint64(1), &search.Result{SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1))}},
+		{uint64(1), &search.Result{SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))}},
 	}
 	result2 := []*Result{
-		{uint64(1), &search.Result{SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1)), ExplainScore: "vector"}},
-		{uint64(1), &search.Result{SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2)), ExplainScore: "vector"}},
+		{uint64(1), &search.Result{SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))}},
+		{uint64(1), &search.Result{SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2))}},
 	}
 	results := [][]*Result{result1, result2}
 	fused := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})

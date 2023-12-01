@@ -261,7 +261,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
 		if err := f(obj); err != nil {
-			return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+			return errors.Wrapf(err, "callback on object '%d' failed", obj.GetDocID())
 		}
 
 		i++

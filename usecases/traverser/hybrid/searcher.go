@@ -177,7 +177,7 @@ func processSparseSearch(results []*storobj.Object, weights []float32, err error
 		sr := obj.SearchResultWithDist(additional.Properties{}, weights[i])
 		sr.SecondarySortValue = sr.Score
 		sr.ExplainScore = "(bm25)" + sr.ExplainScore
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &Result{obj.GetDocID(), &sr}
 	}
 	return out, nil
 }
@@ -200,7 +200,7 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 		sr.ExplainScore = fmt.Sprintf(
 			"(vector) %v %v ", truncateVectorString(10, vector),
 			res[i].ExplainScore())
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &Result{obj.GetDocID(), &sr}
 	}
 	return out, nil
 }
@@ -232,7 +232,7 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &Result{obj.GetDocID(), &sr}
 	}
 
 	return out, "bm25f", subsearch.Weight, nil
@@ -257,7 +257,7 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &Result{obj.GetDocID(), &sr}
 	}
 
 	return out, "vector,nearText", subsearch.Weight, nil
@@ -274,7 +274,7 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &Result{obj.GetDocID(), &sr}
 	}
 
 	return out, "vector,nearVector", subsearch.Weight, nil

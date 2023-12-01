@@ -294,7 +294,7 @@ func (q *IndexQueue) PreloadShard(ctx context.Context, shard ShardLike) error {
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
-		id := obj.DocID()
+		id := obj.GetDocID()
 		if shard.VectorIndex().ContainsNode(id) {
 			continue
 		}

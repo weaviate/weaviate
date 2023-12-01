@@ -52,7 +52,7 @@ func (c *comparableCreator) createFromObjectWithPayload(object *storobj.Object, 
 	for level, propName := range c.propNames {
 		values[level] = c.extractor.extractFromObject(object, propName)
 	}
-	return &comparable{object.DocID(), values, payload}
+	return &comparable{object.GetDocID(), values, payload}
 }
 
 func (c *comparableCreator) extractDocIDs(comparables []*comparable) []uint64 {

@@ -409,7 +409,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		// Iterate over all shards
 		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
+			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.GetDocID())
 			return err
 		}); err != nil {
 			return err

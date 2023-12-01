@@ -152,7 +152,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			before.VectorLen = 3
 			assert.Equal(t, before, after)
 
-			assert.Equal(t, before.docID, after.docID)
+			assert.Equal(t, before.DocID, after.DocID)
 
 			// The vector length should always be returned (for usage metrics
 			// purposes) even if the vector itself is skipped
@@ -166,7 +166,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint64(12), so.docID)
+			assert.Equal(t, uint64(12), so.DocID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -175,7 +175,7 @@ func TestNewStorageObject(t *testing.T) {
 
 		t.Run("reassign index id", func(t *testing.T) {
 			so.SetDocID(13)
-			assert.Equal(t, uint64(13), so.docID)
+			assert.Equal(t, uint64(13), so.DocID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint64(12), so.docID)
+			assert.Equal(t, uint64(12), so.DocID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -229,7 +229,7 @@ func TestNewStorageObject(t *testing.T) {
 
 		t.Run("reassign index id", func(t *testing.T) {
 			so.SetDocID(13)
-			assert.Equal(t, uint64(13), so.docID)
+			assert.Equal(t, uint64(13), so.DocID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -573,7 +573,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.VectorLen = int(vectorLength)
 					assert.Equal(t, before, after)
 
-					assert.Equal(t, before.docID, after.docID)
+					assert.Equal(t, before.DocID, after.DocID)
 
 					// The vector length should always be returned (for usage metrics
 					// purposes) even if the vector itself is skipped
@@ -589,7 +589,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.VectorLen = int(vectorLength)
 					assert.Equal(t, before, after)
 
-					assert.Equal(t, before.docID, after.docID)
+					assert.Equal(t, before.DocID, after.DocID)
 
 					// The vector length should always be returned (for usage metrics
 					// purposes) even if the vector itself is skipped

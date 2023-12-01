@@ -40,14 +40,13 @@ type Object struct {
 	BelongsToNode     string        `json:"-"`
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
-
-	docID uint64
+	DocID             uint64
 }
 
 func New(docID uint64) *Object {
 	return &Object{
 		MarshallerVersion: 1,
-		docID:             docID,
+		DocID:             docID,
 	}
 }
 
@@ -91,7 +90,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 
 	ko.MarshallerVersion = version
 
-	ko.docID = rw.ReadUint64()
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // ignore kind-byte
 	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
 	if err != nil {
@@ -145,7 +144,7 @@ func FromBinaryOptional(data []byte,
 	)
 
 	ec := &errorcompounder.ErrorCompounder{}
-	ec.AddWrap(binary.Read(r, le, &ko.docID), "doc id")
+	ec.AddWrap(binary.Read(r, le, &ko.DocID), "doc id")
 	ec.AddWrap(binary.Read(r, le, &kindByte), "kind")
 	_, err := r.Read(uuidBytes)
 	ec.AddWrap(err, "uuid")
@@ -251,11 +250,11 @@ func (ko *Object) Class() schema.ClassName {
 }
 
 func (ko *Object) SetDocID(id uint64) {
-	ko.docID = id
+	ko.DocID = id
 }
 
-func (ko *Object) DocID() uint64 {
-	return ko.docID
+func (ko *Object) GetDocID() uint64 {
+	return ko.DocID
 }
 
 func (ko *Object) CreationTimeUnix() int64 {
@@ -508,7 +507,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
 	rw.WriteByte(ko.MarshallerVersion)
-	rw.WriteUint64(ko.docID)
+	rw.WriteUint64(ko.DocID)
 	rw.WriteByte(kindByte)
 
 	rw.CopyBytesToBuffer(idBytes)
@@ -643,7 +642,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	ko.MarshallerVersion = version
 
 	rw := byteops.NewReadWriter(data, byteops.WithPosition(1))
-	ko.docID = rw.ReadUint64()
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
 	uuidParsed, err := uuid.FromBytes(data[rw.Position : rw.Position+16])
@@ -824,7 +823,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 func (ko *Object) DeepCopyDangerous() *Object {
 	return &Object{
 		MarshallerVersion: ko.MarshallerVersion,
-		docID:             ko.docID,
+		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
 	}
