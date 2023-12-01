@@ -101,6 +101,7 @@ function main() {
     docker build --build-arg GITHASH="$GIT_HASH" -t $module_test_image .
     export "TEST_WEAVIATE_IMAGE"=$module_test_image
 
+    echo_green "Weaviate image successfully built, run module tests..."
     run_module_tests "$@"
     echo_green "Module acceptance tests successful"
   fi
@@ -132,7 +133,7 @@ function run_acceptance_tests() {
 function run_module_tests() {
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
     for pkg in $(go list ./... | grep 'test/modules'); do
-      if ! go test -v -count 1 -race "$pkg"; then
+      if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi

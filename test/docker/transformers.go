@@ -57,5 +57,7 @@ func startT2VTransformers(ctx context.Context, networkName, transformersImage st
 	}
 	envSettings := make(map[string]string)
 	envSettings["TRANSFORMERS_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Text2VecTransformers, "8080")
-	return &DockerContainer{Text2VecTransformers, uri, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	return &DockerContainer{Text2VecTransformers, endpoints, container, envSettings}, nil
 }

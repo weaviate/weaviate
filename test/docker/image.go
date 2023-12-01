@@ -51,11 +51,13 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, nat.Port("8080/tcp"), "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
 	envSettings["IMAGE_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Img2VecNeural, "8080")
-	return &DockerContainer{Img2VecNeural, uri, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	return &DockerContainer{Img2VecNeural, endpoints, container, envSettings}, nil
 }
