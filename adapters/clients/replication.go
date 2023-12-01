@@ -295,7 +295,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error,
 ) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode)
+	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode)
 }
 
 // backOff return a new random duration in the interval [d, 3d].
