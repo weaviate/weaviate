@@ -15,15 +15,21 @@ import (
 	"errors"
 	"math"
 	"math/bits"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-type BinaryQuantizer struct{}
-
-func NewBinaryQuantizer() BinaryQuantizer {
-	return BinaryQuantizer{}
+type BinaryQuantizer struct {
+	distancer distancer.Provider
 }
 
-func (bq BinaryQuantizer) Encode(vec []float32) ([]uint64, error) {
+func NewBinaryQuantizer(distancer distancer.Provider) BinaryQuantizer {
+	return BinaryQuantizer{
+		distancer: distancer,
+	}
+}
+
+func (bq BinaryQuantizer) Encode(vec []float32) []uint64 {
 	total := len(vec) / 64
 	if len(vec)%64 != 0 {
 		total++
@@ -35,7 +41,7 @@ func (bq BinaryQuantizer) Encode(vec []float32) ([]uint64, error) {
 			code[segment] += uint64(math.Pow(2, float64(j%64)))
 		}
 	}
-	return code, nil
+	return code
 }
 
 func (bq BinaryQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float32, error) {

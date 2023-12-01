@@ -26,15 +26,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -82,7 +78,7 @@ func TestRecall(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-	}, uc, newDummyStore(t))
+	}, uc, testinghelpers.NewDummyStore(t))
 	init := time.Now()
 	ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 		index.Add(uint64(id), vectors[id])
@@ -192,7 +188,7 @@ func TestHnswPqGist(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
-			}, uc, newDummyStore(t))
+			}, uc, testinghelpers.NewDummyStore(t))
 			init := time.Now()
 			total := 200000
 			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
@@ -359,7 +355,7 @@ func TestHnswPqSift(t *testing.T) {
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
-		}, uc, newDummyStore(t))
+		}, uc, testinghelpers.NewDummyStore(t))
 		init := time.Now()
 		ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 			index.Add(uint64(id), vectors[id])
@@ -459,7 +455,7 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
-			}, uc, newDummyStore(t))
+			}, uc, testinghelpers.NewDummyStore(t))
 			init := time.Now()
 			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				index.Add(uint64(id), vectors[id])
@@ -552,7 +548,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 					return vectors[int(id)], nil
 				},
-			}, uc, newDummyStore(t))
+			}, uc, testinghelpers.NewDummyStore(t))
 			init := time.Now()
 			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				index.Add(uint64(id), vectors[id])
@@ -602,13 +598,4 @@ func parseFromTxt(file string, size int) [][]float32 {
 		}
 	}
 	return test
-}
-
-func newDummyStore(t *testing.T) *lsmkv.Store {
-	logger, _ := test.NewNullLogger()
-	storeDir := t.TempDir()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
-	return store
 }

@@ -13,24 +13,12 @@ package hnsw
 
 import (
 	"context"
-	"encoding/binary"
-	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
-
-func (h *hnsw) initCompressedBucket() error {
-	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsHNSWPQBucketLSM)
-	if err != nil {
-		return fmt.Errorf("create or load bucket (compressed vectors store): %w", err)
-	}
-	h.compressedBucket = h.store.Bucket(helpers.VectorsHNSWPQBucketLSM)
-	return nil
-}
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	h.shardedNodeLocks.RLock(0)
@@ -39,10 +27,6 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	if node == nil {
 		return errors.New("data must be inserted before compress command can be executed")
-	}
-	err := h.initCompressedBucket()
-	if err != nil {
-		return fmt.Errorf("init compressed vector store: %w", err)
 	}
 
 	vec, err := h.vectorForID(context.Background(), node.id)
@@ -56,11 +40,6 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		cfg.Segments = dims
 	}
 
-	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)
-	if err != nil {
-		return fmt.Errorf("compress vectors: %w", err)
-	}
-
 	data := h.cache.All()
 	cleanData := make([][]float32, 0, len(data))
 	for _, point := range data {
@@ -69,8 +48,10 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		}
 		cleanData = append(cleanData, point)
 	}
-	h.compressedVectorsCache.Grow(uint64(len(data)))
-	h.pq.Fit(cleanData)
+	h.compressor, err = ssdhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+	if err != nil {
+		return errors.Wrap(err, "Compressing vectors.")
+	}
 
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
@@ -79,46 +60,13 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			if data[index] == nil {
 				return
 			}
-
-			encoded := h.pq.Encode(data[index])
-			h.storeCompressedVector(index, encoded)
-			h.compressedVectorsCache.Preload(index, encoded)
+			h.compressor.Preload(index, data[index])
 		})
-	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
-		return fmt.Errorf("add PQ to commit logger: %w", err)
-	}
+	/*if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
+		return errors.Wrap(err, "Adding PQ to the commit logger")
+	}*/
 
 	h.compressed.Store(true)
 	h.cache.Drop()
 	return nil
-}
-
-func (h *hnsw) storeCompressedVector(id uint64, vector []byte) {
-	key := make([]byte, 8)
-	binary.LittleEndian.PutUint64(key, id)
-	h.compressedBucket.Put(key, vector)
-}
-
-func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
-	key := make([]byte, 8)
-	binary.LittleEndian.PutUint64(key, id)
-
-	if vec, err := h.compressedBucket.Get(key); err == nil {
-		return vec, nil
-	} else if err != entlsmkv.NotFound {
-		return nil, fmt.Errorf("getting vector '%d' from compressed store: %w", id, err)
-	}
-
-	// not found, fallback to uncompressed source
-	h.logger.
-		WithField("action", "compress").
-		WithField("vector", id).
-		Warnf("Vector not found in compressed store")
-
-	vec, err := h.VectorForIDThunk(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("getting vector '%d' from store: %w", id, err)
-	}
-
-	return h.pq.Encode(h.normalizeVec(vec)), nil
 }

@@ -34,11 +34,11 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		queryVecs[i] = distancer.Normalize(queryVecs[i])
 	})
-	bq := ssdhelpers.NewBinaryQuantizer()
+	bq := ssdhelpers.NewBinaryQuantizer(nil)
 
 	codes := make([][]uint64, len(vectors))
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
-		codes[i], _ = bq.Encode(vectors[i])
+		codes[i] = bq.Encode(vectors[i])
 	})
 	neighbors := make([][]uint64, len(queryVecs))
 	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
@@ -53,7 +53,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	duration := time.Duration(0)
 	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		before := time.Now()
-		query, _ := bq.Encode(queryVecs[i])
+		query := bq.Encode(queryVecs[i])
 		heap := priorityqueue.NewMax(correctedK)
 		for j := range codes {
 			d, _ := bq.DistanceBetweenCompressedVectors(codes[j], query)
@@ -80,7 +80,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 }
 
 func TestBinaryQuantizerChecksSize(t *testing.T) {
-	bq := ssdhelpers.NewBinaryQuantizer()
+	bq := ssdhelpers.NewBinaryQuantizer(nil)
 	_, err := bq.DistanceBetweenCompressedVectors(make([]uint64, 3), make([]uint64, 4))
 	assert.NotNil(t, err)
 }

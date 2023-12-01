@@ -14,14 +14,12 @@ package hnsw
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"io"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -131,7 +129,7 @@ func (h *hnsw) restoreFromDisk() error {
 	h.compressed.Store(state.Compressed)
 
 	if state.Compressed {
-		h.dims = int32(state.PQData.Dimensions)
+		/*h.dims = int32(state.PQData.Dimensions)
 
 		err := h.initCompressedBucket()
 		if err != nil {
@@ -150,7 +148,7 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 
 		// make sure the compressed cache fits the current size
-		h.compressedVectorsCache.Grow(uint64(len(h.nodes)))
+		h.compressor.GrowCache(uint64(len(h.nodes)))*/
 	} else {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(len(h.nodes)))
@@ -191,7 +189,7 @@ func (h *hnsw) PostStartup() {
 func (h *hnsw) prefillCache() {
 	limit := 0
 	if h.compressed.Load() {
-		limit = int(h.compressedVectorsCache.CopyMaxSize())
+		limit = int(h.compressor.GetCacheMaxSize())
 	} else {
 		limit = int(h.cache.CopyMaxSize())
 	}
@@ -202,7 +200,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			cursor := h.compressedBucket.Cursor()
+			/*cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
 			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 				id := binary.LittleEndian.Uint64(k)
 				h.compressedVectorsCache.Grow(id)
@@ -217,7 +215,7 @@ func (h *hnsw) prefillCache() {
 				copy(vc, v)
 				h.compressedVectorsCache.Preload(id, vc)
 			}
-			cursor.Close()
+			cursor.Close()*/
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}

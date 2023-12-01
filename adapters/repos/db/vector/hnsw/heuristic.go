@@ -42,13 +42,12 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 	var returnList []priorityqueue.ItemWithIndex
 
 	if h.compressed.Load() {
-		vecs := make([][]byte, 0, len(ids))
+		bag := h.compressor.NewBag()
 		for _, id := range ids {
-			v, err := h.compressedVectorsCache.Get(context.Background(), id)
+			err := bag.Load(context.Background(), id)
 			if err != nil {
 				return err
 			}
-			vecs = append(vecs, v)
 		}
 
 		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.ItemWithIndex)
@@ -60,10 +59,12 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue,
 			}
 			distToQuery := curr.Dist
 
-			currVec := vecs[curr.Index]
 			good := true
 			for _, item := range returnList {
-				peerDist := h.pq.DistanceBetweenCompressedVectors(currVec, vecs[item.Index])
+				peerDist, err := bag.Distance(curr.ID, item.ID)
+				if err != nil {
+					return err
+				}
 
 				if peerDist < distToQuery {
 					good = false
