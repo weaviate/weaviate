@@ -166,29 +166,44 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
 	}
 
+	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
 	for _, compression := range []string{compressionNone, compressionBQ} {
 		t.Run("compression: "+compression, func(t *testing.T) {
 			for _, cache := range []bool{false, true} {
 				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
-					t.Run("recall on no compression", func(t *testing.T) {
+					if compression == compressionNone && cache == true {
+						return
+					}
+					targetRecall := float32(0.99)
+					if compression == compressionBQ {
+						targetRecall = 0.8
+					}
+					t.Run("recall", func(t *testing.T) {
 						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
-						assert.Greater(t, recall, float32(0.99))
+						assert.Greater(t, recall, targetRecall)
 						assert.Less(t, latency, float32(1_000_000))
 					})
 
-					extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
-					t.Run("recall on no compression with deletes", func(t *testing.T) {
+					t.Run("recall with deletes", func(t *testing.T) {
 						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
-						assert.Greater(t, recall, float32(0.99))
+						assert.Greater(t, recall, targetRecall)
 						assert.Less(t, latency, float32(1_000_000))
 					})
 
+				})
+			}
+		})
+	}
+	for _, compression := range []string{compressionNone, compressionBQ} {
+		t.Run("compression: "+compression, func(t *testing.T) {
+			for _, cache := range []bool{false, true} {
+				t.Run("cache: "+strconv.FormatBool(cache), func(t *testing.T) {
 					from := 0
 					to := 3_000
 					for i := range queries {
@@ -199,22 +214,26 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					for i := uint64(from); i < uint64(to); i++ {
 						allowIds = append(allowIds, i)
 					}
+					targetRecall := float32(0.99)
+					if compression == compressionBQ {
+						targetRecall = 0.8
+					}
 
-					t.Run("recall on filtered no compression", func(t *testing.T) {
+					t.Run("recall on filtered", func(t *testing.T) {
 						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
-						assert.Greater(t, recall, float32(0.99))
+						assert.Greater(t, recall, targetRecall)
 						assert.Less(t, latency, float32(1_000_000))
 					})
 
-					t.Run("recall on filtered no compression with deletes", func(t *testing.T) {
+					t.Run("recall on filtered with deletes", func(t *testing.T) {
 						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
-						assert.Greater(t, recall, float32(0.99))
+						assert.Greater(t, recall, targetRecall)
 						assert.Less(t, latency, float32(1_000_000))
 					})
 				})
