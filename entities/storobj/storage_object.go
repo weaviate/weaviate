@@ -227,7 +227,9 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		lsmBuf   = bufPool.Get()
 	)
 
-	defer bufPool.Put(lsmBuf)
+	defer func() {
+		bufPool.Put(lsmBuf)
+	}()
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
