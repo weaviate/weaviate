@@ -146,6 +146,14 @@ func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
 	index.store.Bucket(bucket).Put(idBytes, vector)
 }
 
+func (index *flat) isBQ() bool {
+	return index.compression == compressionBQ
+}
+
+func (index *flat) isBQCached() bool {
+	return index.bqCache != nil
+}
+
 func (index *flat) initBuckets(ctx context.Context) error {
 	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBucketLSM,
 		lsmkv.WithForceCompation(true),
@@ -154,7 +162,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
-	if index.compression == compressionBQ {
+	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
 			lsmkv.WithForceCompation(true),
 			lsmkv.WithUseBloomFilter(false),
@@ -212,7 +220,7 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		if index.compression == compressionBQ {
+		if index.isBQ() {
 			index.bq = ssdhelpers.NewBinaryQuantizer()
 		}
 	})
@@ -223,16 +231,14 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.compression == compressionBQ {
+	if index.isBQ() {
 		vectorBQ, err := index.bq.Encode(vector)
 		if err != nil {
 			return err
 		}
-		if index.bqCache != nil {
-			index.Lock()
+		if index.isBQCached() {
 			index.bqCache.Grow(id)
 			index.bqCache.Preload(id, vectorBQ)
-			index.Unlock()
 		}
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
@@ -242,7 +248,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
-		if index.bqCache != nil {
+		if index.isBQCached() {
 			index.bqCache.Delete(context.Background(), ids[i])
 		}
 		idBytes := make([]byte, 8)
@@ -252,7 +258,7 @@ func (index *flat) Delete(ids ...uint64) error {
 			return err
 		}
 
-		if index.compression == compressionBQ {
+		if index.isBQ() {
 			if err := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(idBytes); err != nil {
 				return err
 			}
@@ -261,7 +267,7 @@ func (index *flat) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (index *flat) searchTimeEF(k int) int {
+func (index *flat) searchTimeRescore(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
@@ -312,7 +318,7 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	rescore := index.searchTimeEF(k)
+	rescore := index.searchTimeRescore(k)
 	heap := index.pqResults.GetMax(rescore)
 	defer index.pqResults.Put(heap)
 
@@ -322,7 +328,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 		return nil, nil, err
 	}
 
-	if index.bqCache != nil {
+	if index.isBQCached() {
 		if err := index.findTopVectorsCached(heap, allow, rescore, vectorBQ); err != nil {
 			return nil, nil, err
 		}
@@ -604,6 +610,10 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) PostStartup() {
+	if !index.isBQ() {
+		return
+	}
+
 	cursor := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor()
 	defer cursor.Close()
 
