@@ -23,7 +23,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/docid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -162,7 +161,6 @@ type Shard struct {
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
-	deletedDocIDs    *docid.InMemDeletedTracker
 	propLenTracker   *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
 
@@ -207,7 +205,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		deletedDocIDs:    docid.NewInMemDeletedTracker(),
 		stopMetrics:      make(chan struct{}),
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
@@ -509,8 +506,6 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
 	}
 
-	// TODO: can we remove this?
-	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
