@@ -87,7 +87,21 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
+
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(hs.VectorBytes) > 0 {
+			vector = make([]float32, len(hs.VectorBytes)/4)
+
+			for i := 0; i < len(vector); i++ {
+				asUint := binary.LittleEndian.Uint32(hs.VectorBytes[i*4 : i*4+4])
+				vector[i] = math.Float32frombits(asUint)
+			}
+		} else if len(hs.Vector) > 0 {
+			vector = hs.Vector
+		}
+
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {

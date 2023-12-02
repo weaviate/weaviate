@@ -12,7 +12,9 @@
 package v1
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -67,11 +69,25 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 			objectErrors[i] = err
 			continue
 		}
+
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(obj.VectorBytes) > 0 {
+			vector = make([]float32, len(obj.VectorBytes)/4)
+
+			for i := 0; i < len(vector); i++ {
+				asUint := binary.LittleEndian.Uint32(obj.VectorBytes[i*4 : i*4+4])
+				vector[i] = math.Float32frombits(asUint)
+			}
+		} else if len(obj.Vector) > 0 {
+			vector = obj.Vector
+		}
+
 		objOriginalIndex[insertCounter] = i
 		objs = append(objs, &models.Object{
 			Class:      obj.Collection,
 			Tenant:     obj.Tenant,
-			Vector:     obj.Vector,
+			Vector:     vector,
 			Properties: props,
 			ID:         strfmt.UUID(obj.Uuid),
 		})
@@ -136,7 +152,21 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 
 	if properties.NumberArrayProperties != nil {
 		for j := range properties.NumberArrayProperties {
-			props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(properties.NumberArrayProperties[j].Values)
+			inputValuesBytes := properties.NumberArrayProperties[j].ValuesBytes
+			var values []float64
+
+			if len(inputValuesBytes) > 0 {
+				values = make([]float64, len(inputValuesBytes)/8)
+
+				for i := 0; i < len(values); i++ {
+					asUint := binary.LittleEndian.Uint64(inputValuesBytes[i*8 : i*8+8])
+					values[i] = math.Float64frombits(asUint)
+				}
+			} else {
+				values = properties.NumberArrayProperties[j].Values
+			}
+
+			props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(values)
 		}
 	}
 
