@@ -147,7 +147,7 @@ message Hybrid {
   string query = 1;
   repeated string properties = 2;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 3;
+  repeated float vector = 3;  // will be removed in the future, use vector_bytes
   float alpha = 4;
   enum FusionType {
     FUSION_TYPE_UNSPECIFIED = 0;
@@ -155,6 +155,7 @@ message Hybrid {
     FUSION_TYPE_RELATIVE_SCORE = 2;
   }
   FusionType fusion_type = 5;
+  bytes vector_bytes = 6;
 }
 
 message NearTextSearch {
@@ -256,6 +257,7 @@ message MetadataResult {
   string generative = 16;
   bool generative_present = 17;
   bool is_consistent_present = 18;
+  bytes vector_bytes = 19;
 }
 
 message PropertiesResult {

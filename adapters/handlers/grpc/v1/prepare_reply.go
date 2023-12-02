@@ -12,7 +12,9 @@
 package v1
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -167,7 +169,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if ok {
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
-				additionalProps.Vector = vectorfmt
+				additionalProps.Vector = vectorfmt // deprecated, remove in a bit
+				vectorBytes := make([]byte, len(vectorfmt)*4)
+				for i := range vectorfmt {
+					binary.LittleEndian.PutUint32(vectorBytes[i*4:i*4+4], math.Float32bits(vectorfmt[i]))
+				}
+				additionalProps.VectorBytes = vectorBytes
 			}
 		}
 	}
@@ -573,10 +580,19 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 				}
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
+
+			propBytes := make([]byte, len(propFloat)*8)
+			for i := range propFloat {
+				binary.LittleEndian.PutUint64(propBytes[i*8:i*8+8], math.Float64bits(propFloat[i]))
+			}
+
 			if props.NumberArrayProperties == nil {
 				props.NumberArrayProperties = make([]*pb.NumberArrayProperties, 0)
 			}
-			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propFloat})
+			props.NumberArrayProperties = append(
+				props.NumberArrayProperties,
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: propBytes},
+			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)
