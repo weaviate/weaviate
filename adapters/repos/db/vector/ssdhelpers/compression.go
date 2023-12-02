@@ -416,7 +416,7 @@ type QuantizedCompressorDistancer[T byte | uint64] struct {
 }
 
 func (distancer *QuantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, bool, error) {
-	vec, err := distancer.compressor.getCompressedVectorForID(context.Background(), id)
+	vec, err := distancer.compressor.cache.Get(context.Background(), id)
 	if err != nil {
 		return 0, false, err
 	}
