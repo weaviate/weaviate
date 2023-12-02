@@ -71,6 +71,7 @@ type VectorCompressor interface {
 	Delete(ctx context.Context, id uint64)
 	Preload(id uint64, vector []float32)
 	Prefetch(id uint64)
+	PrefillCache()
 
 	PauseCompaction(ctx context.Context) error
 	FlushMemtables(ctx context.Context) error
@@ -247,6 +248,19 @@ func (compressor *QuantizedVectorsCompressor[T]) initCompressedStore() error {
 	return nil
 }
 
+func (compressor *QuantizedVectorsCompressor[T]) PrefillCache() {
+	cursor := compressor.compressedStore.Bucket(helpers.VectorsHNSWPQBucketLSM).Cursor()
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		id := binary.BigEndian.Uint64(k)
+		compressor.cache.Grow(id)
+
+		vc := make([]byte, len(v))
+		copy(vc, v)
+		compressor.cache.Preload(id, compressor.quantizer.FromCompressedBytes(vc))
+	}
+	cursor.Close()
+}
+
 func NewPQCompressor(
 	cfg hnsw.PQConfig,
 	distance distancer.Provider,
@@ -268,6 +282,28 @@ func NewPQCompressor(
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
 	quantizer.Fit(data)
+	return pqVectorsCompressor, nil
+}
+
+func RestorePQCompressor(
+	cfg hnsw.PQConfig,
+	distance distancer.Provider,
+	dimensions int,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	encoders []PQEncoder,
+	store *lsmkv.Store,
+) (VectorCompressor, error) {
+	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders)
+	if err != nil {
+		return nil, err
+	}
+	pqVectorsCompressor := &QuantizedVectorsCompressor[byte]{
+		quantizer:       quantizer,
+		compressedStore: store,
+	}
+	pqVectorsCompressor.initCompressedStore()
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
 	return pqVectorsCompressor, nil
 }
 
