@@ -267,17 +267,15 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		store:                    store,
 	}
 
-	if uc.PQ.Enabled {
-		//index.pqVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
-	}
-
 	if uc.BQ.Enabled {
 		var err error
 		index.compressor, err = ssdhelpers.NewBQCompressor(index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store)
 		if err != nil {
 			return nil, err
 		}
-		//index.bqVectorsCache = cache.NewShardedUInt64LockCache(index.getBQCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+		index.compressed.Store(true)
+		index.cache.Drop()
+		index.cache = nil
 	}
 
 	if err := index.init(cfg); err != nil {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -126,30 +127,30 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
-	h.compressed.Store(state.Compressed)
-
 	if state.Compressed {
-		/*h.dims = int32(state.PQData.Dimensions)
-
-		err := h.initCompressedBucket()
-		if err != nil {
-			return err
-		}
+		h.compressed.Store(state.Compressed)
+		h.dims = int32(state.PQData.Dimensions)
 		h.cache.Drop()
 
-		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
-			h.pqConfig,
-			h.distancerProvider,
-			int(state.PQData.Dimensions),
-			state.PQData.Encoders,
-		)
+		if len(state.PQData.Encoders) > 0 {
+			h.compressor, err = ssdhelpers.RestorePQCompressor(
+				h.pqConfig,
+				h.distancerProvider,
+				int(state.PQData.Dimensions),
+				// ToDo: we need to read this value from somewhere
+				1e12,
+				h.logger,
+				state.PQData.Encoders,
+				h.store,
+			)
+		}
 		if err != nil {
-			return errors.Wrap(err, "Restoring PQ data.")
+			return errors.Wrap(err, "Restoring compressed data.")
 		}
 
 		// make sure the compressed cache fits the current size
-		h.compressor.GrowCache(uint64(len(h.nodes)))*/
-	} else {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
+	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(len(h.nodes)))
 
@@ -200,22 +201,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			/*cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
-			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-				id := binary.LittleEndian.Uint64(k)
-				h.compressedVectorsCache.Grow(id)
-
-				// Make sure to copy the vector. The cursor only guarantees that
-				// the underlying memory won't change until we hit .Next(). Since
-				// we want to keep this around in the cache "forever", we need to
-				// alloc some new memory and copy the vector.
-				//
-				// https://github.com/weaviate/weaviate/issues/3049
-				vc := make([]byte, len(v))
-				copy(vc, v)
-				h.compressedVectorsCache.Preload(id, vc)
-			}
-			cursor.Close()*/
+			h.compressor.PrefillCache()
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}
