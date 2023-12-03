@@ -62,13 +62,15 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 			if err := c.container.Start(ctx); err != nil {
 				return fmt.Errorf("cannot start %q: %w", c.name, err)
 			}
+			newEndpoints := map[EndpointName]endpoint{}
 			for name, e := range c.endpoints {
 				newURI, err := c.container.PortEndpoint(context.Background(), nat.Port(e.port), "")
 				if err != nil {
 					return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 				}
-				c.endpoints[name] = endpoint{e.port, newURI}
+				newEndpoints[name] = endpoint{e.port, newURI}
 			}
+			c.endpoints = newEndpoints
 		}
 	}
 	return nil
