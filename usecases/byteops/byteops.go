@@ -15,6 +15,7 @@ package byteops
 import (
 	"encoding/binary"
 	"errors"
+	"math"
 )
 
 const (
@@ -179,4 +180,40 @@ func (bo *ReadWriter) MoveBufferToAbsolutePosition(pos uint64) {
 func (bo *ReadWriter) WriteByte(b byte) {
 	bo.Buffer[bo.Position] = b
 	bo.Position += 1
+}
+
+func Float32ToByteVector(vec []float32) []byte {
+	byteVec := make([]byte, len(vec)*uint32Len)
+	for i := 0; i < len(vec); i++ {
+		binary.LittleEndian.PutUint32(byteVec[i*uint32Len:i*uint32Len+uint32Len], math.Float32bits(vec[i]))
+	}
+	return byteVec
+}
+
+func Float64ToByteVector(vec []float64) []byte {
+	byteVec := make([]byte, len(vec)*uint64Len)
+	for i := 0; i < len(vec); i++ {
+		binary.LittleEndian.PutUint64(byteVec[i*uint64Len:i*uint64Len+uint64Len], math.Float64bits(vec[i]))
+	}
+	return byteVec
+}
+
+func Float32FromByteVector(vecByte []byte) []float32 {
+	vector := make([]float32, len(vecByte)/uint32Len)
+
+	for i := 0; i < len(vector); i++ {
+		asUint := binary.LittleEndian.Uint32(vecByte[i*uint32Len : i*uint32Len+uint32Len])
+		vector[i] = math.Float32frombits(asUint)
+	}
+	return vector
+}
+
+func Float64FromByteVector(vecByte []byte) []float64 {
+	vector := make([]float64, len(vecByte)/uint64Len)
+
+	for i := 0; i < len(vector); i++ {
+		asUint := binary.LittleEndian.Uint64(vecByte[i*uint64Len : i*uint64Len+uint64Len])
+		vector[i] = math.Float64frombits(asUint)
+	}
+	return vector
 }

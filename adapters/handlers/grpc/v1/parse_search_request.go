@@ -12,11 +12,10 @@
 package v1
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
@@ -91,12 +90,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		var vector []float32
 		// bytes vector has precedent for being more efficient
 		if len(hs.VectorBytes) > 0 {
-			vector = make([]float32, len(hs.VectorBytes)/4)
-
-			for i := 0; i < len(vector); i++ {
-				asUint := binary.LittleEndian.Uint32(hs.VectorBytes[i*4 : i*4+4])
-				vector[i] = math.Float32frombits(asUint)
-			}
+			vector = byteops.Float32FromByteVector(hs.VectorBytes)
 		} else if len(hs.Vector) > 0 {
 			vector = hs.Vector
 		}
@@ -112,12 +106,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		var vector []float32
 		// bytes vector has precedent for being more efficient
 		if len(nv.VectorBytes) > 0 {
-			vector = make([]float32, len(nv.VectorBytes)/4)
-
-			for i := 0; i < len(vector); i++ {
-				asUint := binary.LittleEndian.Uint32(nv.VectorBytes[i*4 : i*4+4])
-				vector[i] = math.Float32frombits(asUint)
-			}
+			vector = byteops.Float32FromByteVector(nv.VectorBytes)
 		} else {
 			vector = nv.Vector
 		}
