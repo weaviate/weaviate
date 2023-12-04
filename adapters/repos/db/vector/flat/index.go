@@ -73,7 +73,6 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		logger = l
 	}
 
-	var bqCache cache.Cache[uint64]
 	index := &flat{
 		id:                cfg.ID,
 		logger:            logger,
@@ -83,7 +82,6 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		compression:       extractCompression(uc),
 		pool:              newPools(),
 		store:             store,
-		bqCache:           bqCache,
 	}
 	index.initBuckets(context.Background())
 	if uc.BQ.Enabled && uc.BQ.Cache {
@@ -237,10 +235,8 @@ func (index *flat) Add(id uint64, vector []float32) error {
 			return err
 		}
 		if index.isBQCached() {
-			index.Lock()
 			index.bqCache.Grow(id)
 			index.bqCache.Preload(id, vectorBQ)
-			index.Unlock()
 		}
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
