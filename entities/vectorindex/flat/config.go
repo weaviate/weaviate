@@ -12,6 +12,7 @@
 package flat
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -19,20 +20,23 @@ import (
 )
 
 const (
-	DefaultEF          = -1 // indicates "let Weaviate pick"
-	DefaultFullyOnDisk = true
-	DefaultCompression = CompressionNone
-
-	CompressionNone = "none"
-	CompressionBQ   = "binary"
-	CompressionPQ   = "product-quantisation"
+	DefaultVectorCache           = false
+	DefaultVectorCacheMaxObjects = 1e12
+	DefaultCompressionEnabled    = false
+	DefaultCompressionRescore    = -1 // indicates "let Weaviate pick"
 )
 
+type CompressionUserConfig struct {
+	Enabled      bool `json:"enabled"`
+	RescoreLimit int  `json:"rescoreLimit"`
+	Cache        bool `json:"cache"`
+}
+
 type UserConfig struct {
-	EF          int    `json:"ef"`
-	Distance    string `json:"distance"`
-	FullyOnDisk bool   `json:"fullyOnDisk"`
-	Compression string `json:"compression"`
+	Distance              string                `json:"distance"`
+	VectorCacheMaxObjects int                   `json:"vectorCacheMaxObjects"`
+	PQ                    CompressionUserConfig `json:"pq"`
+	BQ                    CompressionUserConfig `json:"bq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -47,11 +51,14 @@ func (u UserConfig) DistanceName() string {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-	u.EF = DefaultEF
-	u.FullyOnDisk = DefaultFullyOnDisk
-	u.Compression = DefaultCompression
-	u.FullyOnDisk = DefaultFullyOnDisk
+	u.PQ.Cache = DefaultVectorCache
+	u.BQ.Cache = DefaultVectorCache
+	u.VectorCacheMaxObjects = DefaultVectorCacheMaxObjects
 	u.Distance = vectorindexcommon.DefaultDistanceMetric
+	u.PQ.Enabled = DefaultCompressionEnabled
+	u.PQ.RescoreLimit = DefaultCompressionRescore
+	u.BQ.Enabled = DefaultCompressionEnabled
+	u.BQ.RescoreLimit = DefaultCompressionRescore
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -69,31 +76,90 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 		return uc, fmt.Errorf("input must be a non-nil map")
 	}
 
-	if err := vectorindexcommon.OptionalIntFromMap(asMap, "ef", func(v int) {
-		uc.EF = v
-	}); err != nil {
-		return uc, err
-	}
-
 	if err := vectorindexcommon.OptionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
 	}); err != nil {
 		return uc, err
 	}
 
-	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "fullyOnDisk", func(v bool) {
-		uc.FullyOnDisk = v
+	if err := vectorindexcommon.OptionalIntFromMap(asMap, "vectorCacheMaxObjects", func(v int) {
+		uc.VectorCacheMaxObjects = v
 	}); err != nil {
 		return uc, err
 	}
 
-	if err := vectorindexcommon.OptionalStringFromMap(asMap, "compression", func(v string) {
-		uc.Compression = v
-	}); err != nil {
+	if err := parseCompressionMap(asMap, &uc); err != nil {
 		return uc, err
 	}
 
 	return uc, nil
+}
+
+func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
+	pqConfigValue, pqOk := in["pq"]
+	bqConfigValue, bqOk := in["bq"]
+	if !pqOk && !bqOk {
+		return nil
+	}
+
+	if pqOk {
+		pqConfigMap, ok := pqConfigValue.(map[string]interface{})
+		if ok {
+			if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
+				uc.PQ.Enabled = v
+			}); err != nil {
+				return err
+			}
+
+			if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "cache", func(v bool) {
+				uc.PQ.Cache = v
+			}); err != nil {
+				return err
+			}
+
+			if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescore", func(v int) {
+				uc.PQ.RescoreLimit = v
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
+	if bqOk {
+		bqConfigMap, ok := bqConfigValue.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+
+		if err := vectorindexcommon.OptionalBoolFromMap(bqConfigMap, "enabled", func(v bool) {
+			uc.BQ.Enabled = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalBoolFromMap(bqConfigMap, "cache", func(v bool) {
+			uc.BQ.Cache = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalIntFromMap(bqConfigMap, "rescore", func(v int) {
+			uc.BQ.RescoreLimit = v
+		}); err != nil {
+			return err
+		}
+
+	}
+	if uc.PQ.Cache && !uc.PQ.Enabled {
+		return errors.New("not possible to use the cache without compression")
+	}
+	if uc.BQ.Cache && !uc.BQ.Enabled {
+		return errors.New("not possible to use the cache without compression")
+	}
+	if uc.PQ.Enabled && uc.BQ.Enabled {
+		return errors.New("cannot activate dual compression. Select either PQ or BQ please")
+	}
+	return nil
 }
 
 func NewDefaultUserConfig() UserConfig {
