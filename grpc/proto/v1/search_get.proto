@@ -42,6 +42,8 @@ message SearchRequest {
   optional NearVideoSearch near_video = 48;
 
   optional GenerativeSearch generative = 60;
+
+  bool uses_marshalling = 100 [deprecated = true];
 }
 
 message GroupBy {
@@ -147,7 +149,7 @@ message Hybrid {
   string query = 1;
   repeated string properties = 2;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 3;  // will be removed in the future, use vector_bytes
+  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vector_bytes
   float alpha = 4;
   enum FusionType {
     FUSION_TYPE_UNSPECIFIED = 0;
@@ -205,7 +207,7 @@ message RefPropertiesRequest {
 
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 1;  // will be removed in the future, use vector_bytes
+  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
   optional double certainty = 2;
   optional double distance = 3;
   bytes vector_bytes = 4;
@@ -240,7 +242,7 @@ message SearchResult {
 message MetadataResult {
   string id = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 2;
+  repeated float vector = 2 [deprecated = true];
   int64 creation_time_unix = 3;
   bool creation_time_unix_present = 4;
   int64 last_update_time_unix = 5;
@@ -265,12 +267,12 @@ message PropertiesResult {
   repeated RefPropertiesResult ref_props = 2;
   string target_collection = 3;
   MetadataResult metadata = 4;
-  repeated NumberArrayProperties number_array_properties = 5;
-  repeated IntArrayProperties int_array_properties = 6;
-  repeated TextArrayProperties text_array_properties = 7;
-  repeated BooleanArrayProperties boolean_array_properties = 8;
-  repeated ObjectProperties object_properties = 9;
-  repeated ObjectArrayProperties object_array_properties = 10;
+  repeated NumberArrayProperties number_array_properties = 5 [deprecated = true];
+  repeated IntArrayProperties int_array_properties = 6 [deprecated = true];
+  repeated TextArrayProperties text_array_properties = 7 [deprecated = true];
+  repeated BooleanArrayProperties boolean_array_properties = 8 [deprecated = true];
+  repeated ObjectProperties object_properties = 9 [deprecated = true];
+  repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
 }
 
 message RefPropertiesResult {
