@@ -63,18 +63,18 @@ func TestBackup_DBLevel(t *testing.T) {
 			AllPhysicalShards()[0]
 		testShd := db.GetIndex(schema.ClassName(className)).
 			shards.Load(expectedShardName)
-		expectedCounterPath, _ := filepath.Rel(testShd.index.Config.RootPath, testShd.counter.FileName())
-		expectedCounter, err := os.ReadFile(testShd.counter.FileName())
+		expectedCounterPath, _ := filepath.Rel(testShd.Index().Config.RootPath, testShd.Counter().FileName())
+		expectedCounter, err := os.ReadFile(testShd.Counter().FileName())
 		require.Nil(t, err)
-		expectedPropLengthPath, _ := filepath.Rel(testShd.index.Config.RootPath, testShd.propLengths.FileName())
-		expectedShardVersionPath, _ := filepath.Rel(testShd.index.Config.RootPath, testShd.versioner.path)
-		expectedShardVersion, err := os.ReadFile(testShd.versioner.path)
+		expectedPropLengthPath, _ := filepath.Rel(testShd.Index().Config.RootPath, testShd.GetPropertyLengthTracker().FileName())
+		expectedShardVersionPath, _ := filepath.Rel(testShd.Index().Config.RootPath, testShd.Versioner().path)
+		expectedShardVersion, err := os.ReadFile(testShd.Versioner().path)
 		require.Nil(t, err)
-		expectedPropLength, err := os.ReadFile(testShd.propLengths.FileName())
+		expectedPropLength, err := os.ReadFile(testShd.GetPropertyLengthTracker().FileName())
 		require.Nil(t, err)
-		expectedShardState, err := testShd.index.getSchema.CopyShardingState(className).JSON()
+		expectedShardState, err := testShd.Index().getSchema.CopyShardingState(className).JSON()
 		require.Nil(t, err)
-		expectedSchema, err := testShd.index.getSchema.GetSchemaSkipAuth().
+		expectedSchema, err := testShd.Index().getSchema.GetSchemaSkipAuth().
 			Objects.Classes[0].MarshalBinary()
 		require.Nil(t, err)
 
@@ -182,7 +182,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
-		err := shard.putObject(ctx, &storobj.Object{
+		err := shard.PutObject(ctx, &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
 				ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",
@@ -197,16 +197,16 @@ func TestBackup_BucketLevel(t *testing.T) {
 	})
 
 	t.Run("perform backup sequence", func(t *testing.T) {
-		objBucket := shard.store.Bucket("objects")
+		objBucket := shard.Store().Bucket("objects")
 		require.NotNil(t, objBucket)
 
-		err := shard.store.PauseCompaction(ctx)
+		err := shard.Store().PauseCompaction(ctx)
 		require.Nil(t, err)
 
 		err = objBucket.FlushMemtable()
 		require.Nil(t, err)
 
-		files, err := objBucket.ListFiles(ctx, shard.index.Config.RootPath)
+		files, err := objBucket.ListFiles(ctx, shard.Index().Config.RootPath)
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
@@ -216,7 +216,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|bloom|cna)", shard.index.Config.RootPath))
+			re := path.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|bloom|cna)", shard.Index().Config.RootPath))
 
 			// we expect to see only four files inside the bucket at this point:
 			//   1. a *.db file - the segment itself
@@ -243,20 +243,23 @@ func TestBackup_BucketLevel(t *testing.T) {
 			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary)
 		})
 
-		err = shard.store.ResumeCompaction(ctx)
+		err = shard.Store().ResumeCompaction(ctx)
 		require.Nil(t, err)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
-		require.Nil(t, shard.shutdown(ctx))
-		require.Nil(t, os.RemoveAll(shard.index.Config.RootPath))
+		require.Nil(t, shard.Shutdown(ctx))
+		require.Nil(t, os.RemoveAll(shard.Index().Config.RootPath))
 	})
 }
 
 func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	db, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  rootDir,

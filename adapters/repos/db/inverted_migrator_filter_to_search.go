@@ -140,9 +140,9 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 		if _, ok := migrationState.MissingFilterableClass2Props[index.Config.ClassName.String()]; !ok {
 			continue
 		}
-		index.ForEachShard(func(name string, shard *Shard) error {
+		index.ForEachShard(func(name string, shard ShardLike) error {
 			m.logShard(shard).Debug("setting fallback mode for shard")
-			shard.fallbackToSearchable = true
+			shard.setFallbackToSearchable(true)
 			return nil
 		})
 	}
@@ -168,12 +168,12 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		if !(inverted.HasFilterableIndex(prop) && inverted.HasSearchableIndex(prop)) {
 			continue
 		}
-		if err := index.ForEachShard(func(name string, shard *Shard) error {
+		if err := index.ForEachShard(func(name string, shard ShardLike) error {
 			if toFix, err := m.isPropToFix(prop, shard); toFix {
-				if _, ok := shard2PropsToFix[shard.name]; !ok {
-					shard2PropsToFix[shard.name] = map[string]struct{}{}
+				if _, ok := shard2PropsToFix[shard.Name()]; !ok {
+					shard2PropsToFix[shard.Name()] = map[string]struct{}{}
 				}
-				shard2PropsToFix[shard.name][prop.Name] = struct{}{}
+				shard2PropsToFix[shard.Name()][prop.Name] = struct{}{}
 				uniquePropsToFix[prop.Name] = struct{}{}
 			} else if err != nil {
 				m.logShard(shard).WithError(err).Error("failed discovering props to fix")
@@ -216,7 +216,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 	return uniquePropsToFix, nil
 }
 
-func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard *Shard,
+func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard ShardLike,
 	props map[string]struct{},
 ) error {
 	m.logShard(shard).Debug("started migration of shard")
@@ -234,7 +234,7 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 			WithField("prop", propName).
 			Debug("replacing buckets")
 
-		if err := shard.store.ReplaceBuckets(ctx, dstBucketName, srcBucketName); err != nil {
+		if err := shard.Store().ReplaceBuckets(ctx, dstBucketName, srcBucketName); err != nil {
 			return err
 		}
 	}
@@ -243,13 +243,13 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 	return nil
 }
 
-func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard *Shard) (bool, error) {
-	bucketFilterable := shard.store.Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard ShardLike) (bool, error) {
+	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 	if bucketFilterable != nil &&
 		bucketFilterable.Strategy() == lsmkv.StrategyMapCollection &&
 		bucketFilterable.DesiredStrategy() == lsmkv.StrategyRoaringSet {
 
-		bucketSearchable := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+		bucketSearchable := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
 		if bucketSearchable != nil &&
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 
@@ -273,31 +273,31 @@ func (m *filterableToSearchableMigrator) isEmptyMapBucket(bucket *lsmkv.Bucket) 
 }
 
 func (m *filterableToSearchableMigrator) pauseStoreActivity(
-	ctx context.Context, shard *Shard,
+	ctx context.Context, shard ShardLike,
 ) error {
 	m.logShard(shard).Debug("pausing store activity")
 
-	if err := shard.store.PauseCompaction(ctx); err != nil {
+	if err := shard.Store().PauseCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", shard.ID())
 	}
-	if err := shard.store.FlushMemtables(ctx); err != nil {
+	if err := shard.Store().FlushMemtables(ctx); err != nil {
 		return errors.Wrapf(err, "failed flushing memtables for shard '%s'", shard.ID())
 	}
-	shard.store.UpdateBucketsStatus(storagestate.StatusReadOnly)
+	shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly)
 
 	m.logShard(shard).Debug("paused store activity")
 	return nil
 }
 
 func (m *filterableToSearchableMigrator) resumeStoreActivity(
-	ctx context.Context, shard *Shard,
+	ctx context.Context, shard ShardLike,
 ) error {
 	m.logShard(shard).Debug("resuming store activity")
 
-	if err := shard.store.ResumeCompaction(ctx); err != nil {
+	if err := shard.Store().ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", shard.ID())
 	}
-	shard.store.UpdateBucketsStatus(storagestate.StatusReady)
+	shard.Store().UpdateBucketsStatus(storagestate.StatusReady)
 
 	m.logShard(shard).Debug("resumed store activity")
 	return nil
@@ -311,8 +311,8 @@ func (m *filterableToSearchableMigrator) logIndex(index *Index) *logrus.Entry {
 	return m.log().WithField("index", index.ID())
 }
 
-func (m *filterableToSearchableMigrator) logShard(shard *Shard) *logrus.Entry {
-	return m.logIndex(shard.index).WithField("shard", shard.ID())
+func (m *filterableToSearchableMigrator) logShard(shard ShardLike) *logrus.Entry {
+	return m.logIndex(shard.Index()).WithField("shard", shard.ID())
 }
 
 func (m *filterableToSearchableMigrator) uniquePropsToSlice(uniqueProps map[string]struct{}) []string {

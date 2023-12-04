@@ -36,7 +36,7 @@ func (s *Shard) Dimensions() int {
 	return sum
 }
 
-func (s *Shard) quantizedDimensions(segments int) int {
+func (s *Shard) QuantizedDimensions(segments int) int {
 	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
 	// as the segment size
 	if segments <= 0 {
@@ -87,7 +87,7 @@ func (s *Shard) clearDimensionMetrics() {
 func (s *Shard) publishDimensionMetrics() {
 	pqEnabled, segments := s.getSegments()
 	if pqEnabled {
-		count := s.quantizedDimensions(segments)
+		count := s.QuantizedDimensions(segments)
 		s.sendVectorSegmentsMetric(count)
 		s.sendVectorDimensionsMetric(0)
 

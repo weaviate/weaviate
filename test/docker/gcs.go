@@ -56,7 +56,7 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, nat.Port("9090/tcp"), "")
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,9 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
 	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, "9090")
 	envSettings["BACKUP_GCS_USE_AUTH"] = "false"
-	return &DockerContainer{GCS, endpoint, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"9090/tcp", uri}
+	return &DockerContainer{GCS, endpoints, container, envSettings}, nil
 }
 
 func dockerFileFromString(dockerFile string) (testcontainers.FromDockerfile, error) {

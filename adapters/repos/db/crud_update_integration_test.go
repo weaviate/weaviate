@@ -42,7 +42,10 @@ func TestUpdateJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -376,13 +379,13 @@ func extractPropValues(in search.Results, propName string) []interface{} {
 
 func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker {
 	index := repo.GetIndex("UpdateTestClass")
-	var shard *Shard
-	index.ForEachShard(func(name string, shardv *Shard) error {
+	var shard ShardLike
+	index.ForEachShard(func(name string, shardv ShardLike) error {
 		shard = shardv
 		return nil
 	})
 
-	tracker := shard.propLengths
+	tracker := shard.GetPropertyLengthTracker()
 
 	return tracker
 }

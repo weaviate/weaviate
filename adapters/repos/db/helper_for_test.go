@@ -21,11 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -207,7 +206,7 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
@@ -220,14 +219,13 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 	require.Nil(t, err)
 
 	shardState := singleShardState()
-	class := models.Class{Class: className}
+	class := &models.Class{Class: className}
 	sch := schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{&class},
+			Classes: []*models.Class{class},
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
-	queue := make(chan job, 100000)
 
 	idx := &Index{
 		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
@@ -235,7 +233,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
 		logger:                logger,
 		getSchema:             schemaGetter,
-		centralJobQueue:       queue,
+		centralJobQueue:       repo.jobQueueCh,
 	}
 	if err = os.Mkdir(idx.path(), os.ModePerm); err != nil {
 		panic(err)
@@ -248,14 +246,13 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 
 	shardName := shardState.AllPhysicalShards()[0]
 
-	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh, nil)
+	shard, err := idx.initShard(ctx, shardName, class, nil)
 	if err != nil {
 		panic(err)
 	}
+	idx.shards.Store(shardName, shard)
 
-	idx.shards.Store(shardName, shd)
-
-	return shd, idx
+	return shard, idx
 }
 
 func testObject(className string) *storobj.Object {

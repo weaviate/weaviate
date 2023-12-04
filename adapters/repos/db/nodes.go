@@ -139,14 +139,14 @@ func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
 }
 
 func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCount int64) {
-	i.ForEachShard(func(name string, shard *Shard) error {
-		objectCount := int64(shard.objectCount())
+	i.ForEachShard(func(name string, shard ShardLike) error {
+		objectCount := int64(shard.ObjectCount())
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,
-			Class:                shard.index.Config.ClassName.String(),
+			Class:                shard.Index().Config.ClassName.String(),
 			ObjectCount:          objectCount,
-			VectorIndexingStatus: shard.getStatus().String(),
-			VectorQueueLength:    shard.queue.Size(),
+			VectorIndexingStatus: shard.GetStatus().String(),
+			VectorQueueLength:    shard.Queue().Size(),
 		}
 		totalCount += objectCount
 		*status = append(*status, shardStatus)
