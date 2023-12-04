@@ -92,7 +92,18 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, errors.Wrap(err, "wand")
 	}
 
-	return objs, scores, nil
+	//Remove all objects with a score of 0 or less
+	out := make([]*storobj.Object, 0, len(objs))
+	outScores := make([]float32, 0, len(objs))
+	for i := 0; i < len(objs); i++ {
+		if scores[i] > 0 {
+
+			out = append(out, objs[i])
+			outScores = append(outScores, scores[i])
+		}
+	}
+
+	return out, outScores, nil
 }
 
 func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {

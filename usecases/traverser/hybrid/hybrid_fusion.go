@@ -52,13 +52,11 @@ func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) 
 
 	// Sort the results
 	var (
-		concat = make([]*Result, len(combinedResults))
-		i      = 0
+		concat = make([]*Result, 0,len(combinedResults))
 	)
 	for _, res := range combinedResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
-		concat[i] = res
-		i++
+		concat = append(concat, res)
 	}
 
 	sort.Slice(concat, func(i, j int) bool {
@@ -139,6 +137,9 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 
 	concat := make([]*Result, 0, len(mapResults))
 	for _, res := range mapResults {
+		if res.Score <= 0 {
+			continue
+		}
 		concat = append(concat, res)
 	}
 

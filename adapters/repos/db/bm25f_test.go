@@ -485,7 +485,7 @@ func TestBM25FSingleProp(t *testing.T) {
 	require.Nil(t, err)
 	// Check results in correct order
 	require.Equal(t, uint64(3), res[0].DocID())
-	require.Equal(t, uint64(4), res[3].DocID())
+	require.Equal(t, uint64(2), res[1].DocID())
 
 	// Check scores
 	EqualFloats(t, float32(0.1248), res[0].Score(), 5)

@@ -221,7 +221,7 @@ func TestSearcher(t *testing.T) {
 							Object: models.Object{
 								Class:      class,
 								ID:         "1889a225-3b28-477d-b8fc-5f6071bb4731",
-								Properties: map[string]any{"prop": "val"},
+								Properties: map[string]any{"propA": "val"},
 								Vector:     []float32{1, 2, 3},
 								Additional: map[string]interface{}{"score": float32(0.008)},
 							},
@@ -240,6 +240,7 @@ func TestSearcher(t *testing.T) {
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
+
 			},
 		},
 		{
