@@ -6,6 +6,7 @@
 //
 //  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
+//  CONTACT: hello@weaviate.io
 //
 
 package clients
@@ -127,12 +128,10 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 func (v *anyscale) getAnyscaleUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	/*
-		if headerBaseURL := v.getValueFromContext(ctx, "X-Anyscale-Baseurl"); headerBaseURL != "" {
-			passedBaseURL = headerBaseURL
-		}
-	*/
-	return passedBaseURL
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Anyscale-Baseurl"); headerBaseURL != "" {
+		passedBaseURL = headerBaseURL
+	}
+	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
 }
 
 func (v *anyscale) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
@@ -181,8 +180,8 @@ func (v *anyscale) getApiKey(ctx context.Context) (string, error) {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-OpenAI-Api-Key " +
-		"nor in environment variable under OPENAI_API_KEY")
+		"neither in request header: X-Anyscale-Api-Key " +
+		"nor in environment variable under ANYSCALE_APIKEY")
 }
 
 type generateInput struct {
@@ -213,12 +212,6 @@ type generateResponse struct {
 	Error   *anyscaleApiError `json:"error,omitempty"`
 }
 
-type generation struct {
-	Text string `json:"text"`
-}
-
-// need to check this
-// I think you just get message
 type anyscaleApiError struct {
 	Message string `json:"message"`
 }

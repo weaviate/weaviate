@@ -87,7 +87,7 @@ func TestGetAnswer(t *testing.T) {
 
 	t.Run("when X-Anyscale-BaseURL header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
-		baseUrl := "https://api.endpoints.anyscale.com/v1/chat/completions"
+		baseUrl := "https://api.endpoints.anyscale.com"
 		buildURL := c.getAnyscaleUrl(context.Background(), baseUrl)
 		assert.Equal(t, "https://api.endpoints.anyscale.com/v1/chat/completions", buildURL)
 	})
@@ -101,7 +101,7 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/", r.URL.String())
+	assert.Equal(f.t, "/v1/chat/completions", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
