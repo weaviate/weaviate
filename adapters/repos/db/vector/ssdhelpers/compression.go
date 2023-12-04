@@ -84,6 +84,8 @@ type VectorCompressor interface {
 	NewDistancerFromID(id uint64) CompressorDistancer
 	ReturnDistancer(distancer CompressorDistancer)
 	NewBag() CompressionDistanceBag
+
+	ExposeFields() PQData
 }
 
 type quantizer[T byte | uint64] interface {
@@ -95,6 +97,7 @@ type quantizer[T byte | uint64] interface {
 	ReturnQuantizerDistancer(distancer QuantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
+	ExposeFields() PQData
 }
 
 type QuantizedVectorsCompressor[T byte | uint64] struct {
@@ -307,6 +310,10 @@ func RestorePQCompressor(
 	return pqVectorsCompressor, nil
 }
 
+func (compressor *QuantizedVectorsCompressor[T]) ExposeFields() PQData {
+	return compressor.quantizer.ExposeFields()
+}
+
 func NewBQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
@@ -321,6 +328,10 @@ func NewBQCompressor(
 	bqVectorsCompressor.initCompressedStore()
 	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
 	return bqVectorsCompressor, nil
+}
+
+func (bq *BinaryQuantizer) ExposeFields() PQData {
+	return PQData{}
 }
 
 func (bq *BinaryQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, y []uint64) (float32, error) {
