@@ -322,7 +322,6 @@ func TestSearcher(t *testing.T) {
 				}
 				provider := &fakeModuleProvider{}
 
-
 				res, err := Search(ctx, params, logger, sparse, dense, nil, provider)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -427,10 +426,6 @@ type fakeModuleProvider struct {
 func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	return f.vector, nil
 }
-
-
-
-
 
 func TestSearchWithModuleProvider(t *testing.T) {
 	ctx := context.Background()
@@ -733,6 +728,7 @@ func TestWithNearVectorSubsearchFilter(t *testing.T) {
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
 }
+
 func TestWithAllSubsearchFilters(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()

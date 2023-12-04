@@ -37,10 +37,9 @@ func inputSet() []hybridTestSet {
 	cases := []hybridTestSet{
 		{
 			Documents: []*storobj.Object{
-				&storobj.Object{Object: models.Object{}, Vector: []float32{1, 2, 3}, VectorLen: 3, DocID: 12345},
-				&storobj.Object{Object: models.Object{}, Vector: []float32{4, 5, 6}, VectorLen: 3, DocID: 12346},
-				&storobj.Object{Object: models.Object{}, Vector: []float32{7, 8, 9}, VectorLen: 3, DocID: 12347},
-
+				{Object: models.Object{}, Vector: []float32{1, 2, 3}, VectorLen: 3, DocID: 12345},
+				{Object: models.Object{}, Vector: []float32{4, 5, 6}, VectorLen: 3, DocID: 12346},
+				{Object: models.Object{}, Vector: []float32{7, 8, 9}, VectorLen: 3, DocID: 12347},
 			},
 			Weights:        []float64{0.5, 0.5},
 			InputScores:    [][]float32{{1, 2, 3}, {0, 1, 2}},
@@ -65,7 +64,6 @@ func inputSet() []hybridTestSet {
 	return cases
 }
 
-
 func TestScoreFusionSearchWithoutModuleProvider(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
@@ -80,8 +78,12 @@ func TestScoreFusionSearchWithoutModuleProvider(t *testing.T) {
 		},
 		Class: class,
 	}
-	sparse := func() ([]*storobj.Object, []float32, error) { return inputs[0].Documents, inputs[0].InputScores[0], nil }
-	dense := func([]float32) ([]*storobj.Object, []float32, error) { return inputs[0].Documents, inputs[0].InputScores[1], nil }
+	sparse := func() ([]*storobj.Object, []float32, error) {
+		return inputs[0].Documents, inputs[0].InputScores[0], nil
+	}
+	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+		return inputs[0].Documents, inputs[0].InputScores[1], nil
+	}
 
 	res, err := Search(ctx, params, logger, sparse, dense, nil, nil)
 	require.Nil(t, err)
@@ -107,7 +109,6 @@ func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
 	_, err := Search(ctx, params, logger, sparse, dense, nil, provider)
 	require.Nil(t, err)
 }
-
 
 func TestScoreFusionSearchWithSparseSearchOnly(t *testing.T) {
 	ctx := context.Background()
@@ -378,6 +379,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
 }
+
 func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
