@@ -31,6 +31,7 @@ type MemtableThreaded struct {
 	wgWorkers        *sync.WaitGroup
 	path             string
 	numWorkers       int
+	strategy         string
 	requestsChannels []chan ThreadedMemtableRequest
 	workerAssignment string
 	secondaryIndices uint16
@@ -168,6 +169,10 @@ func ThreadedCommitlogUpdatePath(m *Memtable, request ThreadedMemtableRequest) T
 	return ThreadedMemtableResponse{}
 }
 
+func ThreadedCommitlogDelete(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{error: m.Commitlog().delete()}
+}
+
 func ThreadedFlush(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.flush()
 	return ThreadedMemtableResponse{error: err}
@@ -271,6 +276,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 			wgWorkers:        wgWorkers,
 			path:             path,
 			numWorkers:       numWorkers,
+			strategy:         strategy,
 			requestsChannels: requestsChannels,
 			secondaryIndices: secondaryIndices,
 			lastWrite:        time.Now(),
@@ -286,7 +292,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 }
 
 func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needOutput bool, operationName string) ThreadedMemtableResponse {
-	if operationName == "WriteWAL" || operationName == "Flush" || operationName == "CommitlogUpdatePath" || operationName == "CommitlogPause" || operationName == "CommitlogUnpause" {
+	if operationName == "WriteWAL" || operationName == "Flush" || operationName == "CommitlogUpdatePath" || operationName == "CommitlogDelete" || operationName == "CommitlogPause" || operationName == "CommitlogUnpause" {
 		multiMemtableRequest(m, data, true)
 		return ThreadedMemtableResponse{}
 	} else if operationName == "Size" || operationName == "CommitlogFileSize" {

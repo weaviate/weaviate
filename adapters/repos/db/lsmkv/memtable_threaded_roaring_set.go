@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"os"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -202,8 +201,7 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset
 	return flat[:mergedNodesIndex], nil
 }
 
-func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) ([]segmentindex.Key, error) {
-	totalSize := len(flat)
+func writeRoaringSet(flat []*roaringset.BinarySearchNode, f *bufio.Writer) ([]segmentindex.Key, error) {
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
@@ -212,12 +210,6 @@ func writeRoaringSet(flat []*roaringset.BinarySearchNode, path string) ([]segmen
 		SecondaryIndices: 0,
 		Strategy:         segmentindex.StrategyRoaringSet,
 	}
-
-	file, err := os.Create(path + ".db")
-	if err != nil {
-		return nil, err
-	}
-	f := bufio.NewWriterSize(file, int(float64(totalSize)*1.3))
 
 	n, err := header.WriteTo(f)
 	if err != nil {
