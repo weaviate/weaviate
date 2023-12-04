@@ -35,7 +35,7 @@ var availableAnyscaleModels = []string{
 
 // note we might want to separate the baseURL and completions URL in the future. Fine-tuned models also use this URL. 12/3/23
 var (
-	DefaultBaseURL             = "https://api.endpoints.anyscale.com/v1/chat/completions"
+	DefaultBaseURL             = "https://api.endpoints.anyscale.com"
 	DefaultAnyscaleModel       = "meta-llama/Llama-2-70b-chat-hf"
 	DefaultAnyscaleTemperature = 0
 )
@@ -110,24 +110,6 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 		return defaultValue
 	}
 	return nil
-}
-
-func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("generative-anyscale")[name]
-	if ok {
-		asStringList, ok := model.([]string)
-		if ok {
-			return &asStringList
-		}
-		var empty []string
-		return &empty
-	}
-	return &defaultValue
 }
 
 func (ic *classSettings) validateModel(model string) bool {
