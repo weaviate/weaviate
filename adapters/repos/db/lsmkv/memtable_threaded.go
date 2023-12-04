@@ -143,6 +143,14 @@ func ThreadedSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtable
 	return ThreadedMemtableResponse{size: m.size}
 }
 
+func ThreadedActiveDuration(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{duration: m.ActiveDuration()}
+}
+
+func ThreadedIdleDuration(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{duration: m.IdleDuration()}
+}
+
 func ThreadeCountStats(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{countStats: m.countStats()}
 }
@@ -278,10 +286,10 @@ func newMemtableThreadedDebug(path string, strategy string,
 }
 
 func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needOutput bool, operationName string) ThreadedMemtableResponse {
-	if operationName == "WriteWAL" {
+	if operationName == "WriteWAL" || operationName == "Flush" || operationName == "CommitlogUpdatePath" || operationName == "CommitlogPause" || operationName == "CommitlogUnpause" {
 		multiMemtableRequest(m, data, true)
 		return ThreadedMemtableResponse{}
-	} else if operationName == "Size" {
+	} else if operationName == "Size" || operationName == "CommitlogFileSize" {
 		responses := multiMemtableRequest(m, data, true)
 		var maxSize uint64
 		for _, response := range responses {
@@ -290,16 +298,7 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			}
 		}
 		return ThreadedMemtableResponse{size: maxSize}
-	} else if operationName == "ActiveDuration" {
-		responses := multiMemtableRequest(m, data, true)
-		var maxDuration time.Duration
-		for _, response := range responses {
-			if response.duration > maxDuration {
-				maxDuration = response.duration
-			}
-		}
-		return ThreadedMemtableResponse{duration: maxDuration}
-	} else if operationName == "IdleDuration" {
+	} else if operationName == "IdleDuration" || operationName == "ActiveDuration" {
 		responses := multiMemtableRequest(m, data, true)
 		var maxDuration time.Duration
 		for _, response := range responses {
@@ -371,29 +370,11 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			innerCursors: cursors,
 		}
 		return ThreadedMemtableResponse{cursorReplace: cursor}
-	} else if operationName == "Flush" {
-		multiMemtableRequest(m, data, true)
-		return ThreadedMemtableResponse{}
-	} else if operationName == "CommitlogUpdatePath" {
-		multiMemtableRequest(m, data, true)
-		return ThreadedMemtableResponse{}
-	} else if operationName == "CommitlogPause" {
-		multiMemtableRequest(m, data, true)
-		return ThreadedMemtableResponse{}
-	} else if operationName == "CommitlogUnpause" {
-		multiMemtableRequest(m, data, true)
-		return ThreadedMemtableResponse{}
-	} else if operationName == "CommitlogFileSize" {
-		responses := multiMemtableRequest(m, data, true)
-		var maxSize uint64
-		for _, response := range responses {
-			if response.size > maxSize {
-				maxSize = response.size
-			}
-		}
-		return ThreadedMemtableResponse{size: maxSize}
 	}
+	return singleMemtableRequest(data, m, needOutput)
+}
 
+func singleMemtableRequest(data ThreadedMemtableRequest, m *MemtableThreaded, needOutput bool) ThreadedMemtableResponse {
 	key := data.key
 	workerID := 0
 	if m.workerAssignment == "single-channel" {
@@ -559,7 +540,7 @@ func (m *MemtableThreaded) ActiveDuration() time.Duration {
 		return m.baseline.ActiveDuration()
 	} else {
 		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedSize,
+			operation: ThreadedActiveDuration,
 		}, false, "ActiveDuration")
 		return output.duration
 	}
@@ -570,7 +551,7 @@ func (m *MemtableThreaded) IdleDuration() time.Duration {
 		return m.baseline.IdleDuration()
 	} else {
 		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedSize,
+			operation: ThreadedIdleDuration,
 		}, false, "IdleDuration")
 		return output.duration
 	}
