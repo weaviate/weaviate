@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// WARNING: this test will sometimes fail  due to the unknown/random order the operations are sent to the MemTableThreaded.
+// Must be disabled before sending to prod.
 func TestMemtableConcurrentMergeManual(t *testing.T) {
 	numWorkers := runtime.NumCPU()
 
