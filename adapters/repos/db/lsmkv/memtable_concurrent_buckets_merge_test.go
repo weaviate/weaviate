@@ -59,15 +59,6 @@ func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssi
 	// TODO: merge the buckets and compare to the non-concurrent version
 
 	// dirName := "multi_thread/segment"
-	dirName := t.TempDir()
-	startTime := time.Now()
-
-	startTime = time.Now()
-
-	_, err := writeRoaringSet(nodes, dirName)
-	require.Nil(t, err)
-
-	times.Shutdown = int(time.Since(startTime).Milliseconds())
 
 	fmt.Println()
 	fmt.Println("Concurrent buckets:")
@@ -75,7 +66,6 @@ func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssi
 	fmt.Println("\tInsert:", times.Insert)
 	fmt.Println("\tCopy:", times.Copy)
 	fmt.Println("\tMerge:", times.Merge)
-	fmt.Println("\tBucket shutdown:", times.Shutdown)
 
 	compareTime := time.Now()
 

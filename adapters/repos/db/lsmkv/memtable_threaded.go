@@ -530,6 +530,7 @@ func (m *MemtableThreaded) appendMapSorted(key []byte, pair MapPair) error {
 	}
 }
 
+// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableThreaded) Size() uint64 {
 	if m.baseline != nil {
 		return m.baseline.Size()
@@ -591,6 +592,7 @@ func (m *MemtableThreaded) writeWAL() error {
 	}
 }
 
+// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableThreaded) CommitlogSize() int64 {
 	if m.baseline != nil {
 		return m.baseline.Commitlog().Size()
@@ -652,6 +654,7 @@ func (m *MemtableThreaded) CommitlogUnpause() {
 	}
 }
 
+// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableThreaded) CommitlogFileSize() (int64, error) {
 	if m.baseline != nil {
 		stat, err := m.baseline.Commitlog().file.Stat()
