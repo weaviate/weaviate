@@ -15,8 +15,20 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 )
 
+type EndpointName string
+
+var (
+	HTTP EndpointName = "http"
+	GRPC EndpointName = "grpc"
+)
+
+type endpoint struct {
+	port, uri string
+}
+
 type DockerContainer struct {
-	name, uri   string
+	name        string
+	endpoints   map[EndpointName]endpoint
 	container   testcontainers.Container
 	envSettings map[string]string
 }
@@ -26,5 +38,12 @@ func (d *DockerContainer) Name() string {
 }
 
 func (d *DockerContainer) URI() string {
-	return d.uri
+	return d.GetEndpoint(HTTP)
+}
+
+func (d *DockerContainer) GetEndpoint(name EndpointName) string {
+	if endpoint, ok := d.endpoints[name]; ok {
+		return endpoint.uri
+	}
+	return ""
 }

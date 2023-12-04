@@ -509,8 +509,8 @@ github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9f
 github.com/urfave/cli v1.22.1/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
 github.com/vishvananda/netlink v1.1.0/go.mod h1:cTgwzPIzzgDAYoQrMm0EdrjRUBkTqKYppBueQtXaqoE=
 github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df/go.mod h1:JP3t17pCcGlemwknint6hfoeCVQrEMVwxRLRjXpq+BU=
-github.com/weaviate/weaviate v1.22.4 h1:QYt3oabGqKteWQxrZypt2TEOwBVsIqkK5ZrIPcpFur0=
-github.com/weaviate/weaviate v1.22.4/go.mod h1:vh5inv9tXq31wsXMypLz31aT3YwigVzYkpY2qffajPY=
+github.com/weaviate/weaviate v1.22.6-0.20231203091511-9bbd792e0c06 h1:QVLviXyRDn53aA7hfYSjRp6JAafhX7RrfpLZjqnULWg=
+github.com/weaviate/weaviate v1.22.6-0.20231203091511-9bbd792e0c06/go.mod h1:jL1gAl+4G617FVSrN7ALF5QMt3olF7BTCS9Xi16ZtuY=
 github.com/weaviate/weaviate-go-client/v4 v4.11.0 h1:pzq2tlbd8OIsLVjzRtJbZC/7uB52l02/IzD++qujs+k=
 github.com/weaviate/weaviate-go-client/v4 v4.11.0/go.mod h1:BJHgOwLxDo0JdBfpm5uRdM1sRuXC5s8usB5CuTBXqJU=
 github.com/xdg-go/pbkdf2 v1.0.0/go.mod h1:jrpuAogTd400dnrH08LKmI/xc1MbPOebTwRqcT5RDeI=
