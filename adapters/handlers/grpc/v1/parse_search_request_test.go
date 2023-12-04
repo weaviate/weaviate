@@ -67,6 +67,7 @@ func TestGRPCRequest(t *testing.T) {
 					Class: refClass1,
 					Properties: []*models.Property{
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
+						{Name: "somethings", DataType: schema.DataTypeTextArray.PropString()},
 						{Name: "ref2", DataType: []string{refClass2}},
 					},
 					VectorIndexConfig: hnsw.UserConfig{Distance: hnsw.DefaultDistanceMetric},
@@ -216,7 +217,7 @@ func TestGRPCRequest(t *testing.T) {
 			name: "ref returns no values given",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{RefProperties: []*pb.RefPropertiesRequest{{ReferenceProperty: "ref", TargetCollection: refClass1}}}},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}}}}},
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}, {Name: "somethings", IsPrimitive: true}}}}}},
 			},
 			error: false,
 		},
@@ -420,6 +421,33 @@ func TestGRPCRequest(t *testing.T) {
 						},
 						Operator: filters.OperatorLessThan,
 						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter reference on array prop with contains",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_CONTAINS_ANY, TestValue: &pb.Filters_ValueTextArray{ValueTextArray: &pb.TextArray{Values: []string{"text"}}}, On: []string{"ref", refClass1, "somethings"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child: &filters.Path{
+								Class:    schema.ClassName(refClass1),
+								Property: "somethings",
+							},
+						},
+						Operator: filters.ContainsAny,
+						Value:    &filters.Value{Value: []string{"text"}, Type: schema.DataTypeText},
 					},
 				},
 			},
