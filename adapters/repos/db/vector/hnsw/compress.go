@@ -62,9 +62,9 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			}
 			h.compressor.Preload(index, data[index])
 		})
-	/*if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
+	if err := h.commitLog.AddPQ(h.compressor.ExposeFields()); err != nil {
 		return errors.Wrap(err, "Adding PQ to the commit logger")
-	}*/
+	}
 
 	h.compressed.Store(true)
 	h.cache.Drop()
