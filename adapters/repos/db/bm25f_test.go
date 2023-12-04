@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"testing"
 
+	"log"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -733,7 +734,7 @@ func TestBM25FCompare(t *testing.T) {
 
 		require.Equal(t, len(withBM25Fobjs), len(objs))
 		for i := range objs {
-			t.Logf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
+			log.Printf("%v: BM25F score: %v, BM25 score: %v", i, withBM25Fscores[i], scores[i])
 			EqualFloats(t, withBM25Fscores[i], scores[i], 9)
 		}
 
