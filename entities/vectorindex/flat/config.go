@@ -104,26 +104,24 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 
 	if pqOk {
 		pqConfigMap, ok := pqConfigValue.(map[string]interface{})
-		if !ok {
-			return nil
-		}
+		if ok {
+			if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
+				uc.PQ.Enabled = v
+			}); err != nil {
+				return err
+			}
 
-		if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
-			uc.PQ.Enabled = v
-		}); err != nil {
-			return err
-		}
+			if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "cache", func(v bool) {
+				uc.PQ.Cache = v
+			}); err != nil {
+				return err
+			}
 
-		if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "cache", func(v bool) {
-			uc.PQ.Cache = v
-		}); err != nil {
-			return err
-		}
-
-		if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescore", func(v int) {
-			uc.PQ.RescoreLimit = v
-		}); err != nil {
-			return err
+			if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescore", func(v int) {
+				uc.PQ.RescoreLimit = v
+			}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -150,6 +148,13 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 		}); err != nil {
 			return err
 		}
+
+	}
+	if uc.PQ.Cache && !uc.PQ.Enabled {
+		return errors.New("not possible to use the cache without compression")
+	}
+	if uc.BQ.Cache && !uc.BQ.Enabled {
+		return errors.New("not possible to use the cache without compression")
 	}
 	if uc.PQ.Enabled && uc.BQ.Enabled {
 		return errors.New("cannot activate dual compression. Select either PQ or BQ please")
