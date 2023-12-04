@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -52,7 +53,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	// check nodes api response on empty DB
-	nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
+	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 
@@ -120,7 +121,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Nil(t, batchRes[1].Err)
 
 	// check nodes api after importing 2 objects to DB
-	nodeStatues, err = repo.GetNodeStatus(context.Background(), "")
+	nodeStatues, err = repo.GetNodeStatus(context.Background(), "", verbosity.OutputMinimal)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 

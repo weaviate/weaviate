@@ -13,7 +13,6 @@ package nodes
 
 import (
 	"context"
-
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -24,7 +23,7 @@ type authorizer interface {
 }
 
 type db interface {
-	GetNodeStatus(ctx context.Context, className string) ([]*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
 }
 
 type Manager struct {
@@ -41,10 +40,10 @@ func NewManager(logger logrus.FieldLogger, authorizer authorizer,
 }
 
 func (m *Manager) GetNodeStatus(ctx context.Context,
-	principal *models.Principal, className string,
+	principal *models.Principal, className string, verbosity string,
 ) ([]*models.NodeStatus, error) {
 	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
 		return nil, err
 	}
-	return m.db.GetNodeStatus(ctx, className)
+	return m.db.GetNodeStatus(ctx, className, verbosity)
 }

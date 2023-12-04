@@ -22,7 +22,7 @@ import (
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
-func (db *DB) GetNodeStatus(ctx context.Context, className string) ([]*models.NodeStatus, error) {
+func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		status, err := db.getNodeStatus(ctx, nodeName, className)
