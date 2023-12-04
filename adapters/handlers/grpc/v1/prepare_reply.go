@@ -582,7 +582,7 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 			}
 			props.NumberArrayProperties = append(
 				props.NumberArrayProperties,
-				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat)},
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat), Values: propFloat},
 			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
