@@ -201,7 +201,6 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						assert.Greater(t, recall, targetRecall)
 						assert.Less(t, latency, float32(1_000_000))
 					})
-
 				})
 			}
 		})
