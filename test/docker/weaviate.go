@@ -82,7 +82,7 @@ func startWeaviate(ctx context.Context,
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},
 		},
-		ExposedPorts: []string{"8080/tcp"},
+		ExposedPorts: []string{"8080/tcp", "50051/tcp"},
 		Env:          env,
 		WaitingFor: wait.
 			ForHTTP("/v1/.well-known/ready").
@@ -96,9 +96,16 @@ func startWeaviate(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	uri, err := c.Endpoint(ctx, "")
+	httpUri, err := c.PortEndpoint(ctx, nat.Port("8080/tcp"), "")
 	if err != nil {
 		return nil, err
 	}
-	return &DockerContainer{containerName, uri, c, nil}, nil
+	grpcUri, err := c.PortEndpoint(ctx, nat.Port("50051/tcp"), "")
+	if err != nil {
+		return nil, err
+	}
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"8080/tcp", httpUri}
+	endpoints[GRPC] = endpoint{"50051/tcp", grpcUri}
+	return &DockerContainer{containerName, endpoints, c, nil}, nil
 }
