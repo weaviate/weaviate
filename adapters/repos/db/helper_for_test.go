@@ -235,6 +235,8 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 		getSchema:             schemaGetter,
 		centralJobQueue:       repo.jobQueueCh,
 	}
+	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
+
 	if err = os.Mkdir(idx.path(), os.ModePerm); err != nil {
 		panic(err)
 	}
