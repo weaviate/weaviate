@@ -31,7 +31,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
+func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took: float32(tookSeconds),
@@ -40,7 +40,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme)
+			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesMarshalling)
 			if err != nil {
 				return nil, err
 			}
@@ -48,7 +48,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false)
+		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesMarshalling)
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +58,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	return out, nil
 }
 
-func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, error) {
+func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup, usesMarshalling bool) ([]*pb.SearchResult, string, error) {
 	results := make([]*pb.SearchResult, len(res))
 	generativeGroupResultsReturn := ""
 	for i, raw := range res {
@@ -68,7 +68,14 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 		}
 		firstObject := i == 0
 
-		props, err := extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		var props *pb.PropertiesResult
+		var err error
+
+		if usesMarshalling {
+			props, err = extractPropertiesAnswerMarshalling(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		} else {
+			props, err = extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		}
 		if err != nil {
 			return nil, "", err
 		}
@@ -263,7 +270,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	return additionalProps, generativeGroupResults, nil
 }
 
-func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
+func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.GroupByResult, string, error) {
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse result %v", raw)
@@ -301,7 +308,7 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*p
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, groupedGenerativeResults, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true)
+	objects, groupedGenerativeResults, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true, usesMarshalling)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
@@ -312,6 +319,117 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*p
 }
 
 func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	nonRefProps := make(map[string]interface{}, 0)
+	refProps := make([]*pb.RefPropertiesResult, 0)
+	objProps := make([]*pb.ObjectProperties, 0)
+	objArrayProps := make([]*pb.ObjectArrayProperties, 0)
+	for _, prop := range properties {
+		propRaw, ok := results[prop.Name]
+		if !ok {
+			continue
+		}
+		if prop.IsPrimitive {
+			nonRefProps[prop.Name] = propRaw
+			continue
+		}
+		if prop.IsObject {
+			nested, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(prop.Name))
+			if err != nil {
+				return nil, errors.Wrap(err, "getting property")
+			}
+			singleObj, ok := propRaw.(map[string]interface{})
+			if ok {
+				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
+				if err != nil {
+					return nil, errors.Wrap(err, "extracting nested properties")
+				}
+				objProps = append(objProps, &pb.ObjectProperties{
+					PropName: prop.Name,
+					Value:    extractedNestedProp,
+				})
+				continue
+			}
+			arrayObjs, ok := propRaw.([]interface{})
+			if ok {
+				extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(arrayObjs))
+				for _, obj := range arrayObjs {
+					singleObj, ok := obj.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
+					if err != nil {
+						return nil, err
+					}
+					extractedNestedProps = append(extractedNestedProps, extractedNestedProp)
+				}
+				objArrayProps = append(objArrayProps,
+					&pb.ObjectArrayProperties{
+						PropName: prop.Name,
+						Values:   extractedNestedProps,
+					},
+				)
+				continue
+			}
+		}
+		refs, ok := propRaw.([]interface{})
+		if !ok {
+			continue
+		}
+		extractedRefProps := make([]*pb.PropertiesResult, 0, len(refs))
+		for _, ref := range refs {
+			refLocal, ok := ref.(search.LocalRef)
+			if !ok {
+				continue
+			}
+			extractedRefProp, err := extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			if err != nil {
+				continue
+			}
+			additionalProps, _, err := extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			if err != nil {
+				return nil, err
+			}
+			extractedRefProp.Metadata = additionalProps
+			extractedRefProps = append(extractedRefProps, extractedRefProp)
+		}
+
+		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
+		refProps = append(refProps, &refProp)
+	}
+	props := pb.PropertiesResult{}
+	if len(nonRefProps) > 0 {
+		outProps := pb.ObjectPropertiesValue{}
+		if err := extractArrayTypesRoot(scheme, className, nonRefProps, &outProps); err != nil {
+			return nil, errors.Wrap(err, "extracting non-primitive types")
+		}
+		newStruct, err := structpb.NewStruct(nonRefProps)
+		if err != nil {
+			return nil, errors.Wrap(err, "creating non-ref-prop struct")
+		}
+		props.NonRefProperties = newStruct
+		props.IntArrayProperties = outProps.IntArrayProperties
+		props.NumberArrayProperties = outProps.NumberArrayProperties
+		props.TextArrayProperties = outProps.TextArrayProperties
+		props.BooleanArrayProperties = outProps.BooleanArrayProperties
+		props.ObjectProperties = outProps.ObjectProperties
+		props.ObjectArrayProperties = outProps.ObjectArrayProperties
+	}
+	if len(refProps) > 0 {
+		props.RefProps = refProps
+	}
+	if len(objProps) > 0 {
+		props.ObjectProperties = objProps
+	}
+	if len(objArrayProps) > 0 {
+		props.ObjectArrayProperties = objArrayProps
+	}
+
+	props.TargetCollection = className
+	return &props, nil
+}
+
+func extractPropertiesAnswerMarshalling(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := &structpb.Struct{
 		Fields: make(map[string]*structpb.Value, 0),
 	}
@@ -344,7 +462,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			extractedRefProp, err := extractPropertiesAnswerMarshalling(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}

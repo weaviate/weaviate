@@ -94,6 +94,7 @@ func TestGRPCReply(t *testing.T) {
 					Class: refClass1,
 					Properties: []*models.Property{
 						{Name: "something", DataType: schema.DataTypeText.PropString()},
+						{Name: "nums", DataType: schema.DataTypeIntArray.PropString()},
 						{Name: "ref2", DataType: []string{refClass2}},
 					},
 				},
@@ -150,12 +151,13 @@ func TestGRPCReply(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		res           []any
-		searchParams  dto.GetParams // only a few things are needed to control what is returned
-		outSearch     []*pb.SearchResult
-		outGenerative string
-		outGroup      []*pb.GroupByResult
+		name            string
+		res             []any
+		searchParams    dto.GetParams // only a few things are needed to control what is returned
+		outSearch       []*pb.SearchResult
+		outGenerative   string
+		outGroup        []*pb.GroupByResult
+		usesMarshalling bool
 	}{
 		{
 			name: "vector only",
@@ -172,6 +174,7 @@ func TestGRPCReply(t *testing.T) {
 				{Metadata: &pb.MetadataResult{Vector: []float32{1}, VectorBytes: byteVector([]float32{1})}, Properties: &pb.PropertiesResult{}},
 				{Metadata: &pb.MetadataResult{Vector: []float32{2}, VectorBytes: byteVector([]float32{2})}, Properties: &pb.PropertiesResult{}},
 			},
+			usesMarshalling: true,
 		},
 		{
 			name: "all additional",
@@ -291,7 +294,7 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "array properties",
+			name: "array properties with marshalling",
 			res: []interface{}{
 				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
 			},
@@ -305,14 +308,39 @@ func TestGRPCReply(t *testing.T) {
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
 						NonRefProperties: newStruct(t, map[string]interface{}{
-							"nums": []float64{1, 2, 3},
+							"nums": []int64{1, 2, 3},
 						}),
 					},
 				},
 			},
+			usesMarshalling: true,
 		},
 		{
-			name: "nested object properties",
+			name: "array properties without marshalling",
+			res: []interface{}{
+				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
+			},
+			searchParams: dto.GetParams{
+				ClassName:  className,
+				Properties: search.SelectProperties{{Name: "nums", IsPrimitive: true}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProperties: newStruct(t, map[string]interface{}{}),
+						IntArrayProperties: []*pb.IntArrayProperties{{
+							PropName: "nums",
+							Values:   []int64{1, 2, 3},
+						}},
+					},
+				},
+			},
+			usesMarshalling: false,
+		},
+		{
+			name: "nested object properties with marshalling",
 			res: []interface{}{
 				map[string]interface{}{
 					"something": map[string]interface{}{
@@ -391,6 +419,110 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
+			usesMarshalling: true,
+		},
+		{
+			name: "nested object properties without marshalling",
+			res: []interface{}{
+				map[string]interface{}{
+					"something": map[string]interface{}{
+						"name":  "Bob",
+						"names": []string{"Jo", "Jill"},
+						"else": map[string]interface{}{
+							"name":  "Bill",
+							"names": []string{"Jo", "Jill"},
+						},
+						"objs": []interface{}{
+							map[string]interface{}{"name": "Bill"},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: objClass,
+				Properties: search.SelectProperties{{
+					Name:        "something",
+					IsPrimitive: false,
+					IsObject:    true,
+					Props: []search.SelectProperty{
+						{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "names",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "else",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{
+								{
+									Name:        "name",
+									IsPrimitive: true,
+								},
+								{
+									Name:        "names",
+									IsPrimitive: true,
+								},
+							},
+						},
+						{
+							Name:        "objs",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{{
+								Name:        "name",
+								IsPrimitive: true,
+							}},
+						},
+					},
+				}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: objClass,
+						ObjectProperties: []*pb.ObjectProperties{
+							{
+								PropName: "something",
+								Value: &pb.ObjectPropertiesValue{
+									NonRefProperties: newStruct(t, map[string]interface{}{
+										"name": "Bob",
+									}),
+									TextArrayProperties: []*pb.TextArrayProperties{{
+										PropName: "names",
+										Values:   []string{"Jo", "Jill"},
+									}},
+									ObjectProperties: []*pb.ObjectProperties{{
+										PropName: "else",
+										Value: &pb.ObjectPropertiesValue{
+											NonRefProperties: newStruct(t, map[string]interface{}{
+												"name": "Bill",
+											}),
+											TextArrayProperties: []*pb.TextArrayProperties{{
+												PropName: "names",
+												Values:   []string{"Jo", "Jill"},
+											}},
+										},
+									}},
+									ObjectArrayProperties: []*pb.ObjectArrayProperties{{
+										PropName: "objs",
+										Values: []*pb.ObjectPropertiesValue{{
+											NonRefProperties: newStruct(t, map[string]interface{}{
+												"name": "Bill",
+											}),
+										}},
+									}},
+								},
+							},
+						},
+					},
+				},
+			},
+			usesMarshalling: false,
 		},
 		{
 			name: "primitive and ref properties",
@@ -473,6 +605,114 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "primitive and ref array properties with marshalling",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+					"ref": []interface{}{
+						search.LocalRef{
+							Class: refClass1,
+							Fields: map[string]interface{}{
+								"nums":        []float64{1, 2, 3}, // ints are encoded as float64 in json
+								"_additional": map[string]interface{}{"vector": []float32{3}},
+							},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+						{
+							ClassName:            refClass1,
+							RefProperties:        search.SelectProperties{{Name: "nums", IsPrimitive: true}},
+							AdditionalProperties: additional.Properties{Vector: true},
+						},
+					}},
+				},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProperties: newStruct(t, map[string]interface{}{
+							"word": "word",
+						}),
+						RefProps: []*pb.RefPropertiesResult{{
+							PropName: "ref",
+							Properties: []*pb.PropertiesResult{
+								{
+									TargetCollection: refClass1,
+									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
+									NonRefProperties: newStruct(t, map[string]interface{}{"nums": []int64{1, 2, 3}}),
+								},
+							},
+						}},
+					},
+				},
+			},
+			usesMarshalling: true,
+		},
+		{
+			name: "primitive and ref array properties without marshalling",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+					"ref": []interface{}{
+						search.LocalRef{
+							Class: refClass1,
+							Fields: map[string]interface{}{
+								"nums":        []float64{1, 2, 3}, // ints are encoded as float64 in json
+								"_additional": map[string]interface{}{"vector": []float32{3}},
+							},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+						{
+							ClassName:            refClass1,
+							RefProperties:        search.SelectProperties{{Name: "nums", IsPrimitive: true}},
+							AdditionalProperties: additional.Properties{Vector: true},
+						},
+					}},
+				},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProperties: newStruct(t, map[string]interface{}{
+							"word": "word",
+						}),
+						RefProps: []*pb.RefPropertiesResult{{
+							PropName: "ref",
+							Properties: []*pb.PropertiesResult{
+								{
+									TargetCollection: refClass1,
+									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
+									NonRefProperties: newStruct(t, map[string]interface{}{}),
+									IntArrayProperties: []*pb.IntArrayProperties{{
+										PropName: "nums",
+										Values:   []int64{1, 2, 3},
+									}},
+								},
+							},
+						}},
+					},
+				},
+			},
+			usesMarshalling: false,
 		},
 		{
 			name: "generative single only with ID",
@@ -664,7 +904,7 @@ func TestGRPCReply(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme)
+			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme, tt.usesMarshalling)
 			require.Nil(t, err)
 			for i := range tt.outSearch {
 				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
