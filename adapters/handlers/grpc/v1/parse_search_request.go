@@ -475,7 +475,7 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		if err != nil {
 			return dataType, err
 		}
-		return schema.DataType(prop.DataType[0]), nil
+		dataType = schema.DataType(prop.DataType[0])
 	} else {
 		propToCheck := on[0]
 		_, isPropLengthFilter := schema.IsPropertyLength(propToCheck, 0)
