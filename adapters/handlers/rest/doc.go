@@ -18,7 +18,7 @@
 //	  https
 //	Host: localhost
 //	BasePath: /v1
-//	Version: 1.22.5
+//	Version: 1.22.6
 //	Contact: Weaviate<hello@weaviate.io> https://github.com/weaviate
 //
 //	Consumes:
