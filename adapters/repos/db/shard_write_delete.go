@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -62,10 +62,6 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
 	if err = s.queue.Delete(docID); err != nil {
 		return fmt.Errorf("delete from vector index: %w", err)
 	}
@@ -74,7 +70,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err = s.vectorIndex.Flush(); err != nil {
+	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
@@ -119,10 +115,6 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
 	if err = s.queue.Delete(docID); err != nil {
 		return fmt.Errorf("delete from vector index: %w", err)
 	}
@@ -131,7 +123,7 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err = s.vectorIndex.Flush(); err != nil {
+	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
@@ -145,7 +137,7 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	}
 
 	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.analyzeObject(previousObject)
+	previousInvertProps, _, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}

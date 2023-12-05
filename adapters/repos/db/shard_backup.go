@@ -21,8 +21,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// beginBackup stops compaction, and flushing memtable and commit log to begin with the backup
-func (s *Shard) beginBackup(ctx context.Context) (err error) {
+// BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
+func (s *Shard) BeginBackup(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
@@ -43,14 +43,14 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
+	if err = s.VectorIndex().SwitchCommitLogs(ctx); err != nil {
 		return fmt.Errorf("switch commit logs: %w", err)
 	}
 	return nil
 }
 
-// listBackupFiles lists all files used to backup a shard
-func (s *Shard) listBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+// ListBackupFiles lists all files used to backup a shard
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
 	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
 		return err
@@ -59,7 +59,7 @@ func (s *Shard) listBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
 		return err
 	}
-	files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+	files, err := s.VectorIndex().ListFiles(ctx, s.index.Config.RootPath)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	if err != nil {
 		return fmt.Errorf("docid counter path: %w", err)
 	}
-	fpath = s.propLengths.FileName()
+	fpath = s.GetPropertyLengthTracker().FileName()
 	if d.PropLengthTracker, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard prop-lengths %s: %w", fpath, err)
 	}

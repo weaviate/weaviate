@@ -19,16 +19,17 @@ import (
 	"os"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
@@ -55,21 +56,20 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	uc.VectorCacheMaxObjects = 10e12
 	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}}
 
-	index, _ := hnsw.New(
-		hnsw.Config{
-			RootPath:              t.TempDir(),
-			ID:                    "recallbenchmark",
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)], nil
-			},
-			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
-				copy(container.Slice, vectors[int(id)])
-				return container.Slice, nil
-			},
-		}, uc,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	index, _ := hnsw.New(hnsw.Config{
+		RootPath:              t.TempDir(),
+		ID:                    "recallbenchmark",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 	defer index.Shutdown(context.Background())
 	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
@@ -134,7 +134,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			return vectors[int(id)], nil
 		},
 		TempVectorForIDThunk: hnsw.TempVectorForIDThunk(vectors),
-	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 
 	require.NoError(t, err)
 
@@ -174,4 +174,13 @@ func TestHnswPqNilVectors(t *testing.T) {
 		err = index.Add(uint64(id)+start, vectors[id+start])
 		require.Nil(t, err)
 	})
+}
+
+func newDummyStore(t testing.TB) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	storeDir := t.TempDir()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
 }

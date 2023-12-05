@@ -14,41 +14,31 @@ package hnsw
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func (h *hnsw) initCompressedStore() error {
-	store, err := lsmkv.New(h.compressedStoreLSMPath(), "", h.logger, nil,
-		h.shardCompactionCallbacks, h.shardFlushCallbacks)
+func (h *hnsw) initCompressedBucket() error {
+	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsHNSWPQBucketLSM)
 	if err != nil {
-		return errors.Wrap(err, "Init lsmkv (compressed vectors store)")
+		return fmt.Errorf("create or load bucket (compressed vectors store): %w", err)
 	}
-	err = store.CreateOrLoadBucket(context.Background(), helpers.CompressedObjectsBucketLSM)
-	if err != nil {
-		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
-	}
-	h.compressedStore = store
+	h.compressedBucket = h.store.Bucket(helpers.VectorsHNSWPQBucketLSM)
 	return nil
-}
-
-func (h *hnsw) compressedStoreLSMPath() string {
-	return fmt.Sprintf("%s/%s/%s", h.rootPath, h.className, h.shardName)
 }
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	if h.isEmpty() {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
-	err := h.initCompressedStore()
+	err := h.initCompressedBucket()
 	if err != nil {
-		return errors.Wrap(err, "Initializing compressed vector store")
+		return fmt.Errorf("init compressed vector store: %w", err)
 	}
 
 	dims := int(h.dims)
@@ -60,7 +50,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)
 	if err != nil {
-		return errors.Wrap(err, "Compressing vectors.")
+		return fmt.Errorf("compress vectors: %w", err)
 	}
 
 	data := h.cache.All()
@@ -87,7 +77,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			h.compressedVectorsCache.Preload(index, encoded)
 		})
 	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
-		return errors.Wrap(err, "Adding PQ to the commit logger")
+		return fmt.Errorf("add PQ to commit logger: %w", err)
 	}
 
 	h.compressed.Store(true)
@@ -95,22 +85,32 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	return nil
 }
 
-func (h *hnsw) storeCompressedVector(index uint64, vector []byte) {
-	Id := make([]byte, 8)
-	binary.LittleEndian.PutUint64(Id, index)
-	h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Put(Id, vector)
+func (h *hnsw) storeCompressedVector(id uint64, vector []byte) {
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, id)
+	h.compressedBucket.Put(key, vector)
 }
 
 func (h *hnsw) getCompressedVectorForID(ctx context.Context, id uint64) ([]byte, error) {
-	vec, err := h.vectorForID(ctx, id)
-	if err != nil {
-		return nil, errors.Wrap(err, "Getting vector for id")
-	}
-	if h.distancerProvider.Type() == "cosine-dot" {
-		// cosine-dot requires normalized vectors, as the dot product and cosine
-		// similarity are only identical if the vector is normalized
-		vec = distancer.Normalize(vec)
+	key := make([]byte, 8)
+	binary.LittleEndian.PutUint64(key, id)
+
+	if vec, err := h.compressedBucket.Get(key); err == nil {
+		return vec, nil
+	} else if err != entlsmkv.NotFound {
+		return nil, fmt.Errorf("getting vector '%d' from compressed store: %w", id, err)
 	}
 
-	return h.pq.Encode(vec), nil
+	// not found, fallback to uncompressed source
+	h.logger.
+		WithField("action", "compress").
+		WithField("vector", id).
+		Warnf("Vector not found in compressed store")
+
+	vec, err := h.VectorForIDThunk(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("getting vector '%d' from store: %w", id, err)
+	}
+
+	return h.pq.Encode(h.normalizeVec(vec)), nil
 }

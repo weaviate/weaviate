@@ -12,6 +12,8 @@
 package v1
 
 import (
+	"encoding/binary"
+	"math"
 	"testing"
 	"time"
 
@@ -39,6 +41,16 @@ func newStruct(t *testing.T, values map[string]interface{}) *structpb.Struct {
 	s, err := structpb.NewStruct(values)
 	require.Nil(t, err)
 	return s
+}
+
+func byteVector(vec []float32) []byte {
+	vector := make([]byte, len(vec)*4)
+
+	for i := 0; i < len(vec); i++ {
+		binary.LittleEndian.PutUint32(vector[i*4:i*4+4], math.Float32bits(vec[i]))
+	}
+
+	return vector
 }
 
 func TestGRPCReply(t *testing.T) {
@@ -152,8 +164,8 @@ func TestGRPCReply(t *testing.T) {
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vector: true}},
 			outSearch: []*pb.SearchResult{
-				{Metadata: &pb.MetadataResult{Vector: []float32{1}}, Properties: &pb.PropertiesResult{}},
-				{Metadata: &pb.MetadataResult{Vector: []float32{2}}, Properties: &pb.PropertiesResult{}},
+				{Metadata: &pb.MetadataResult{Vector: []float32{1}, VectorBytes: byteVector([]float32{1})}, Properties: &pb.PropertiesResult{}},
+				{Metadata: &pb.MetadataResult{Vector: []float32{2}, VectorBytes: byteVector([]float32{2})}, Properties: &pb.PropertiesResult{}},
 			},
 		},
 		{
@@ -206,6 +218,7 @@ func TestGRPCReply(t *testing.T) {
 						ScorePresent:              true,
 						IsConsistent:              &truePointer,
 						IsConsistentPresent:       true,
+						VectorBytes:               byteVector([]float32{1}),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -227,6 +240,7 @@ func TestGRPCReply(t *testing.T) {
 						ScorePresent:              true,
 						IsConsistent:              &truePointer,
 						IsConsistentPresent:       true,
+						VectorBytes:               byteVector([]float32{2}),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -447,7 +461,7 @@ func TestGRPCReply(t *testing.T) {
 							Properties: []*pb.PropertiesResult{
 								{
 									TargetCollection: refClass1,
-									Metadata:         &pb.MetadataResult{Vector: []float32{3}},
+									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
 									NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
 								},
 							},
@@ -466,7 +480,7 @@ func TestGRPCReply(t *testing.T) {
 							Properties: []*pb.PropertiesResult{
 								{
 									TargetCollection: refClass1,
-									Metadata:         &pb.MetadataResult{Vector: []float32{4}},
+									Metadata:         &pb.MetadataResult{Vector: []float32{4}, VectorBytes: byteVector([]float32{4})},
 									NonRefProperties: newStruct(t, map[string]interface{}{"something": "thing"}),
 								},
 							},

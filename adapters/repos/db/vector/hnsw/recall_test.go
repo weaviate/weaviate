@@ -71,7 +71,7 @@ func TestRecall(t *testing.T) {
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
 			EF:             ef,
-		})
+		}, newDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
 

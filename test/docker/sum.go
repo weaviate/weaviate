@@ -57,5 +57,7 @@ func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*D
 	}
 	envSettings := make(map[string]string)
 	envSettings["SUM_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", SUMTransformers, "8080")
-	return &DockerContainer{SUMTransformers, uri, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	return &DockerContainer{SUMTransformers, endpoints, container, envSettings}, nil
 }

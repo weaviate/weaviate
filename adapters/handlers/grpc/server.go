@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"

@@ -40,10 +40,11 @@ message BatchObject {
 
   string uuid = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 2;
+  repeated float vector = 2; // deprecated, will be removed
   Properties properties = 3;
   string collection = 4;
   string tenant = 5;
+  bytes vector_bytes = 6;
 }
 
 message BatchObjectsReply {
