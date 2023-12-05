@@ -4,6 +4,7 @@ package weaviate.v1;
 
 import "google/protobuf/struct.proto";
 import "v1/base.proto";
+import "v1/struct.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
@@ -43,7 +44,7 @@ message SearchRequest {
 
   optional GenerativeSearch generative = 60;
 
-  bool uses_marshalling = 100 [deprecated = true];
+  bool uses_weaviate_struct = 100 [deprecated = true];
 }
 
 message GroupBy {
@@ -263,7 +264,7 @@ message MetadataResult {
 }
 
 message PropertiesResult {
-  google.protobuf.Struct non_ref_properties = 1;
+  google.protobuf.Struct non_ref_properties = 1 [deprecated = true];
   repeated RefPropertiesResult ref_props = 2;
   string target_collection = 3;
   MetadataResult metadata = 4;
@@ -273,6 +274,7 @@ message PropertiesResult {
   repeated BooleanArrayProperties boolean_array_properties = 8 [deprecated = true];
   repeated ObjectProperties object_properties = 9 [deprecated = true];
   repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
+  Struct non_ref_props = 11;
 }
 
 message RefPropertiesResult {

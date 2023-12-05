@@ -12,7 +12,6 @@
 package v1
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -430,24 +428,36 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 }
 
 func extractPropertiesAnswerMarshalling(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
-	nonRefProps := &structpb.Struct{
-		Fields: make(map[string]*structpb.Value, 0),
+	nonRefProps := &pb.Struct{
+		Fields: make(map[string]*pb.Value, 0),
 	}
 	refProps := make([]*pb.RefPropertiesResult, 0)
+	class := scheme.GetClass(schema.ClassName(className))
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
 		if !ok {
 			continue
 		}
-		if prop.IsPrimitive || prop.IsObject {
-			b, err := json.Marshal(propRaw)
+		if prop.IsPrimitive {
+			dataType, err := schema.GetPropertyDataType(class, prop.Name)
 			if err != nil {
-				return nil, errors.Wrap(err, "marshalling non-ref value")
+				return nil, errors.Wrap(err, "getting primitive property datatype")
 			}
-			value := &structpb.Value{}
-			err = protojson.Unmarshal(b, value)
+			value, err := NewPrimitiveValue(propRaw, *dataType)
 			if err != nil {
-				return nil, errors.Wrap(err, "creating non-ref value")
+				return nil, errors.Wrap(err, "creating primitive value")
+			}
+			nonRefProps.Fields[prop.Name] = value
+			continue
+		}
+		if prop.IsObject {
+			nested, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(prop.Name))
+			if err != nil {
+				return nil, errors.Wrap(err, "getting nested property")
+			}
+			value, err := NewNestedValue(propRaw, schema.DataType(nested.DataType[0]), &Property{Property: nested})
+			if err != nil {
+				return nil, errors.Wrap(err, "creating object value")
 			}
 			nonRefProps.Fields[prop.Name] = value
 			continue
@@ -479,7 +489,7 @@ func extractPropertiesAnswerMarshalling(scheme schema.Schema, results map[string
 	}
 	props := pb.PropertiesResult{}
 	if len(nonRefProps.Fields) != 0 {
-		props.NonRefProperties = nonRefProps
+		props.NonRefProps = nonRefProps
 	}
 	if len(refProps) != 0 {
 		props.RefProps = refProps

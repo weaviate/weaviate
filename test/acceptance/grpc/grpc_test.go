@@ -82,7 +82,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesMarshalling: true,
+				UsesWeaviateStruct: true,
 			},
 		},
 		{
@@ -92,7 +92,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesMarshalling: true,
+				UsesWeaviateStruct: true,
 			},
 		},
 	}
@@ -109,10 +109,10 @@ func TestGRPC(t *testing.T) {
 				id := res.Metadata.Id
 
 				assert.True(t, id == books.Dune.String() || id == books.ProjectHailMary.String() || id == books.TheLordOfTheIceGarden.String())
-				title, ok := res.Properties.NonRefProperties.AsMap()["title"]
+				title, ok := res.Properties.NonRefProps.AsMap()["title"]
 				require.True(t, ok)
 
-				metaRaw := res.Properties.NonRefProperties.AsMap()["meta"]
+				metaRaw := res.Properties.NonRefProps.AsMap()["meta"]
 				require.NotNil(t, metaRaw)
 				meta, ok := metaRaw.(map[string]interface{})
 				require.True(t, ok)
@@ -132,7 +132,7 @@ func TestGRPC(t *testing.T) {
 				objEntry, ok := objs[0].(map[string]interface{})
 				require.True(t, ok)
 
-				reviewsRaw := res.Properties.NonRefProperties.AsMap()["reviews"]
+				reviewsRaw := res.Properties.NonRefProps.AsMap()["reviews"]
 				require.NotNil(t, reviewsRaw)
 				reviews, ok := reviewsRaw.([]interface{})
 				require.True(t, ok)
