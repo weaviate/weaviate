@@ -62,8 +62,6 @@ message Struct {
 message Value {
   // The kind of value.
   oneof kind {
-    // Represents a null value.
-    NullValue null_value = 1;
     // Represents a double value.
     double number_value = 2;
     // Represents a string value.
@@ -81,15 +79,6 @@ message Value {
     // Represents an integer value.
     int64 int_value = 9;
   }
-}
-
-// `NullValue` is a singleton enumeration to represent the null value for the
-// `Value` type union.
-//
-// The JSON representation for `NullValue` is JSON `null`.
-enum NullValue {
-  // Null value.
-  NULL_VALUE = 0;
 }
 
 // `ListValue` is a wrapper around a repeated field of values.

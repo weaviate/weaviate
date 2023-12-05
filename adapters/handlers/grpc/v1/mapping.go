@@ -35,7 +35,6 @@ func parseArray[T float64 | bool | string](v interface{}, dt schema.DataType) (*
 //	╔════════════════════════╤════════════════════════════════════════════╗
 //	║ Go type                │ Conversion                                 ║
 //	╠════════════════════════╪════════════════════════════════════════════╣
-//	║ nil                    │ stored as NullValue                        ║
 //	║ bool                   │ stored as BoolValue                        ║
 //	║ int, int32, int64      │ stored as NumberValue                      ║
 //	║ uint, uint32, uint64   │ stored as NumberValue                      ║
@@ -156,11 +155,6 @@ func NewObject[P schema.PropertyInterface](v map[string]interface{}, prop P) (*p
 		}
 	}
 	return x, nil
-}
-
-// NewNullValue constructs a new null Value.
-func NewNullValue() *pb.Value {
-	return &pb.Value{Kind: &pb.Value_NullValue{NullValue: pb.NullValue_NULL_VALUE}}
 }
 
 // NewBoolValue constructs a new boolean Value.
