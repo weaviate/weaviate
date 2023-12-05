@@ -26,9 +26,9 @@ import (
 )
 
 type hybridTestSet struct {
-	Documents      []*storobj.Object
-	Weights        []float64
-	InputScores    [][]float32
+	documents      []*storobj.Object
+	weights        []float64
+	inputScores    [][]float32
 	ExpectedScores []float32
 	ExpectedOrder  []uint64
 }
@@ -46,9 +46,9 @@ func inputSet() []hybridTestSet {
 			ExpectedScores: []float32{1, 0.5, 0},
 			ExpectedOrder:  []uint64{2, 1, 0},
 		},
-	}
 
-	/*
+
+
 			{weights: []float64{0.5, 0.5}, inputScores: [][]float32{{0, 2, 0.1}, {0, 0.2, 2}}, expectedScores: []float32{0.55, 0.525, 0}, expectedOrder: []uint64{1, 2, 0}},
 			{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{0.5, 0.5, 0}, {0, 0.01, 0.001}}, expectedScores: []float32{1, 0.75, 0.025}, expectedOrder: []uint64{1, 0, 2}},
 			{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{}, {}}, expectedScores: []float32{}, expectedOrder: []uint64{}},
@@ -60,7 +60,7 @@ func inputSet() []hybridTestSet {
 			{weights: []float64{1}, inputScores: [][]float32{{1, 2, 3}}, expectedScores: []float32{1, 0.5, 0}, expectedOrder: []uint64{2, 1, 0}},
 			{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{1, 2, 3, 4}, {1, 2, 3}}, expectedScores: []float32{0.75, 0.75, 0.375, 0}, expectedOrder: []uint64{3, 2, 1, 0}},
 		}
-	*/
+
 	return cases
 }
 
@@ -133,6 +133,8 @@ func TestScoreFusionSearchWithSparseSearchOnly(t *testing.T) {
 					Vector:     []float32{1, 2, 3},
 				},
 				Vector: []float32{1, 2, 3},
+				VectorLen: 3,
+				DocID: 1,
 			},
 		}, []float32{0.008}, nil
 	}
@@ -141,7 +143,7 @@ func TestScoreFusionSearchWithSparseSearchOnly(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'keyword') Document")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set keyword) Document")
 	assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -172,6 +174,8 @@ func TestScoreFusionSearchWithDenseSearchOnly(t *testing.T) {
 					Vector:     []float32{1, 2, 3},
 				},
 				Vector: []float32{1, 2, 3},
+				VectorLen: 3,
+				DocID: 1,
 			},
 		}, []float32{0.008}, nil
 	}
@@ -180,7 +184,7 @@ func TestScoreFusionSearchWithDenseSearchOnly(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'vector') Document")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector) Document")
 	assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -210,6 +214,8 @@ func TestScoreFusionCombinedHybridSearch(t *testing.T) {
 					Vector:     []float32{1, 2, 3},
 				},
 				Vector: []float32{1, 2, 3},
+				VectorLen: 3,
+				DocID: 1,
 			},
 		}, []float32{0.008}, nil
 	}
@@ -223,6 +229,8 @@ func TestScoreFusionCombinedHybridSearch(t *testing.T) {
 					Vector:     []float32{4, 5, 6},
 				},
 				Vector: []float32{4, 5, 6},
+				VectorLen: 3,
+				DocID: 2,
 			},
 		}, []float32{0.008}, nil
 	}
@@ -231,11 +239,11 @@ func TestScoreFusionCombinedHybridSearch(t *testing.T) {
 	assert.Len(t, res, 2)
 	assert.NotNil(t, res[0])
 	assert.NotNil(t, res[1])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'vector') Document")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector) Document")
 	assert.Contains(t, res[0].Result.ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Equal(t, res[0].Result.Vector, []float32{4, 5, 6})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
-	assert.Contains(t, res[1].Result.ExplainScore, "(Result Set 'keyword') Document")
+	assert.Contains(t, res[1].Result.ExplainScore, "(Result Set keyword) Document")
 	assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[1].Result.Dist, float32(0.008))
@@ -281,7 +289,7 @@ func TestScoreFusionWithSparseSubsearchFilter(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'bm25f') Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -327,7 +335,7 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'vector,nearText') Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearText) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -374,7 +382,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'vector,nearVector') Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearVector) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -452,11 +460,11 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 	assert.Len(t, res, 2)
 	assert.NotNil(t, res[0])
 	assert.NotNil(t, res[1])
-	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set 'vector,nearText') Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearText) Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Contains(t, res[0].Result.ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Equal(t, res[0].Result.Vector, []float32{4, 5, 6})
 	assert.Equal(t, res[0].Result.Dist, float32(0.008))
-	assert.Contains(t, res[1].Result.ExplainScore, "(Result Set 'bm25f') Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[1].Result.ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[1].Result.Dist, float32(0.008))
