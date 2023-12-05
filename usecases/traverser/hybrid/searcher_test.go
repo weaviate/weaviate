@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -97,7 +98,7 @@ func TestSearcher(t *testing.T) {
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
-				assert.Contains(t, res[0].Result.ExplainScore, "(bm25)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set keyword) Document")
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -134,7 +135,7 @@ func TestSearcher(t *testing.T) {
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
-				assert.Contains(t, res[0].Result.ExplainScore, "(vector)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector) Document")
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -183,11 +184,11 @@ func TestSearcher(t *testing.T) {
 				assert.Len(t, res, 2)
 				assert.NotNil(t, res[0])
 				assert.NotNil(t, res[1])
-				assert.Contains(t, res[0].Result.ExplainScore, "(vector)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector) Document")
 				assert.Contains(t, res[0].Result.ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 				assert.Equal(t, res[0].Result.Vector, []float32{4, 5, 6})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
-				assert.Contains(t, res[1].Result.ExplainScore, "(bm25)")
+				assert.Contains(t, res[1].Result.ExplainScore, "(Result Set keyword) Document")
 				assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[1].Result.Dist, float32(0.008))
@@ -425,4 +426,92 @@ type fakeModuleProvider struct {
 
 func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
 	return f.vector, nil
+}
+
+func TestNullScores(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	class := "HybridClass"
+
+	params := &Params{
+		HybridSearch: &searchparams.HybridSearch{
+			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
+			Type: "hybrid",
+			SubSearches: []searchparams.WeightedSearchResult{
+				{
+					Type: "nearVector",
+					SearchParams: searchparams.NearVector{
+						Vector:    []float32{1, 2, 3},
+						Certainty: 0.8,
+					},
+					Weight: 100,
+				},
+				{
+					Type: "nearText",
+					SearchParams: searchparams.NearTextParams{
+						Values:    []string{"some query"},
+						Certainty: 0.8,
+					},
+					Weight: 2,
+				},
+				{
+					Type: "sparseSearch",
+					SearchParams: searchparams.KeywordRanking{
+						Type:       "bm25",
+						Properties: []string{"propA", "propB"},
+						Query:      "some query",
+					},
+					Weight: 3,
+				},
+			},
+		},
+		Class: class,
+	}
+	sparse := func() ([]*storobj.Object, []float32, error) {
+		return []*storobj.Object{
+			{
+				Object: models.Object{
+					Class:      class,
+					ID:         "1889a225-3b28-477d-b8fc-5f6071bb4731",
+					Properties: map[string]any{"prop": "val"},
+					Vector:     []float32{1, 2, 3},
+					Additional: map[string]interface{}{"score": float32(0.008)},
+				},
+				Vector: []float32{1, 2, 3},
+				VectorLen: 3,
+
+			},
+		}, []float32{0.008}, nil
+	}
+	dense := func([]float32) ([]*storobj.Object, []float32, error) {
+		return []*storobj.Object{
+			{
+				Object: models.Object{
+					Class:      class,
+					ID:         "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
+					Properties: map[string]any{"prop": "val"},
+					Vector:     []float32{4, 5, 6},
+					Additional: map[string]interface{}{"score": float32(0.8)},
+				},
+				Vector: []float32{4, 5, 6},
+				VectorLen: 3,
+
+			},
+		}, []float32{0.008}, nil
+	}
+	provider := &fakeModuleProvider{}
+	res, err := Search(ctx, params, logger, sparse, dense, nil, provider)
+	require.Nil(t, err)
+	assert.Len(t, res, 2)
+	assert.NotNil(t, res[0])
+	assert.NotNil(t, res[1])
+	assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearVector) Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
+	assert.Contains(t, res[0].Result.ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
+	assert.Equal(t, res[0].Result.Vector, []float32{4, 5, 6})
+	assert.Equal(t, res[0].Result.Dist, float32(0.008))
+	assert.Contains(t, res[1].Result.ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
+	assert.Equal(t, res[1].Result.Dist, float32(0.008))
+
 }
