@@ -436,7 +436,7 @@ func TestNullScores(t *testing.T) {
 	params := &Params{
 		HybridSearch: &searchparams.HybridSearch{
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-			Type: "hybrid",
+			Type:            "hybrid",
 			SubSearches: []searchparams.WeightedSearchResult{
 				{
 					Type: "nearVector",
@@ -477,9 +477,8 @@ func TestNullScores(t *testing.T) {
 					Vector:     []float32{1, 2, 3},
 					Additional: map[string]interface{}{"score": float32(0.008)},
 				},
-				Vector: []float32{1, 2, 3},
+				Vector:    []float32{1, 2, 3},
 				VectorLen: 3,
-
 			},
 		}, []float32{0.008}, nil
 	}
@@ -493,9 +492,8 @@ func TestNullScores(t *testing.T) {
 					Vector:     []float32{4, 5, 6},
 					Additional: map[string]interface{}{"score": float32(0.8)},
 				},
-				Vector: []float32{4, 5, 6},
+				Vector:    []float32{4, 5, 6},
 				VectorLen: 3,
-
 			},
 		}, []float32{0.008}, nil
 	}
@@ -513,5 +511,4 @@ func TestNullScores(t *testing.T) {
 	assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[1].Result.Dist, float32(0.008))
-
 }
