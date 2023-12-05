@@ -3983,7 +3983,7 @@ func init() {
         "compressed": {
           "description": "The status of vector compression/quantization.",
           "format": "boolean",
-          "x-omitempty": true
+          "x-omitempty": false
         },
         "name": {
           "description": "The name of the shard.",
@@ -9150,7 +9150,7 @@ func init() {
         "compressed": {
           "description": "The status of vector compression/quantization.",
           "format": "boolean",
-          "x-omitempty": true
+          "x-omitempty": false
         },
         "name": {
           "description": "The name of the shard.",
