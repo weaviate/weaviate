@@ -253,7 +253,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 				WithField("shard", r.shard.Name()).
 				Debugf("iterating through objects: %d done", i)
 		}
-		docID := object.GetDocID()
+		docID := object.DocID
 		properties, nilProperties, err := r.shard.AnalyzeObject(object)
 		if err != nil {
 			return errors.Wrapf(err, "failed analyzying object")

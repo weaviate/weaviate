@@ -274,7 +274,7 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.GetDocID())
+		_, err = scan(&properties, elem.DocID)
 		return err
 	})
 
@@ -299,7 +299,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.GetDocID())
+		_, err = scan(&properties, elem.DocID)
 		if err != nil {
 			return err
 		}
