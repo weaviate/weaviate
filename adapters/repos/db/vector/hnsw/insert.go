@@ -20,7 +20,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -94,12 +93,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		h.metrics.InsertVector()
 
-		if h.distancerProvider.Type() == "cosine-dot" {
-			// cosine-dot requires normalized vectors, as the dot product and cosine
-			// similarity are only identical if the vector is normalized
-			vector = distancer.Normalize(vector)
-		}
-
+		vector = h.normalizeVec(vector)
 		err := h.addOne(vector, node)
 		if err != nil {
 			return err

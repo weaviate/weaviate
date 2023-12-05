@@ -15,8 +15,9 @@ enum ConsistencyLevel {
 }
 
 message NumberArrayProperties {
-  repeated double values = 1;
+  repeated double values = 1;  // will be removed in the future, use vector_bytes
   string prop_name = 2;
+  bytes values_bytes = 3;
 }
 
 message IntArrayProperties {

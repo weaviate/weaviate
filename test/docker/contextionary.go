@@ -54,5 +54,7 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 	}
 	envSettings := make(map[string]string)
 	envSettings["CONTEXTIONARY_URL"] = fmt.Sprintf("%s:%s", Text2VecContextionary, "9999")
-	return &DockerContainer{Text2VecContextionary, uri, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"9999/tcp", uri}
+	return &DockerContainer{Text2VecContextionary, endpoints, container, envSettings}, nil
 }

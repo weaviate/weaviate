@@ -267,7 +267,7 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 // PreloadShard goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(shard *Shard) error {
+func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	if !asyncEnabled() {
 		return nil
 	}
@@ -283,7 +283,7 @@ func (q *IndexQueue) PreloadShard(shard *Shard) error {
 
 	start := time.Now()
 
-	maxDocID := shard.counter.Get()
+	maxDocID := shard.Counter().Get()
 
 	var counter int
 
@@ -293,7 +293,7 @@ func (q *IndexQueue) PreloadShard(shard *Shard) error {
 	for i := checkpoint; i < maxDocID; i++ {
 		binary.LittleEndian.PutUint64(buf, i)
 
-		v, err := shard.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
+		v, err := shard.Store().Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
 		if err != nil {
 			return errors.Wrap(err, "get last indexed object")
 		}
@@ -305,7 +305,7 @@ func (q *IndexQueue) PreloadShard(shard *Shard) error {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
 		id := obj.DocID()
-		if shard.vectorIndex.ContainsNode(id) {
+		if shard.VectorIndex().ContainsNode(id) {
 			continue
 		}
 		if len(obj.Vector) == 0 {

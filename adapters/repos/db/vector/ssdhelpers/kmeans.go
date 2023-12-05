@@ -32,7 +32,7 @@ type KMeans struct {
 	dimensions         int         // Dimensions of the data
 	segment            int         // Segment where it operates
 
-	data KMeansPartitionData // Non persistent data used only during the fitting process
+	data KMeansPartitionData // Non-persistent data used only during the fitting process
 }
 
 // String prints some minimal information about the encoder. This can be
@@ -220,7 +220,7 @@ func (m *KMeans) stopCondition(iterations int, dataSize int) bool {
 func (m *KMeans) Fit(data [][]float32) error { // init centers using min/max per dimension
 	dataSize := len(data)
 	if dataSize < m.K {
-		return errors.New("Too few data to fit KMeans")
+		return errors.New("not enough data to fit kmeans")
 	}
 	m.initCenters(data)
 	m.data.points = make([]uint64, dataSize)

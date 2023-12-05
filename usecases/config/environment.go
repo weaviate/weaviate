@@ -55,6 +55,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+		config.DisableLazyLoadShards = true
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true

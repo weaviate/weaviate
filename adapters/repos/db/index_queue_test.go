@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -673,7 +675,7 @@ func TestIndexQueue(t *testing.T) {
 					return container.Slice, nil
 				},
 			}, uc,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 		defer index.Shutdown(context.Background())
 
 		q, err := NewIndexQueue("1", new(mockShard), index, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
@@ -967,4 +969,13 @@ func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
 	}
 
 	return nil
+}
+
+func newDummyStore(t *testing.T) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	storeDir := t.TempDir()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
 }
