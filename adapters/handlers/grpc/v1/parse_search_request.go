@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 
@@ -76,9 +77,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 		out.Properties = returnProps
 	}
-	if len(out.Properties) == 0 && isIdOnlyRequest(req.Metadata) {
-		// This is a pure-ID query without any properties or additional metadata.
-		// Indicate this to the DB, so it can optimize accordingly
+	if len(out.Properties) == 0 {
 		out.AdditionalProperties.NoProps = true
 	}
 
@@ -87,7 +86,16 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: hs.Vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
+
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(hs.VectorBytes) > 0 {
+			vector = byteops.Float32FromByteVector(hs.VectorBytes)
+		} else if len(hs.Vector) > 0 {
+			vector = hs.Vector
+		}
+
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
@@ -95,8 +103,15 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if nv := req.NearVector; nv != nil {
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(nv.VectorBytes) > 0 {
+			vector = byteops.Float32FromByteVector(nv.VectorBytes)
+		} else {
+			vector = nv.Vector
+		}
 		out.NearVector = &searchparams.NearVector{
-			Vector: nv.Vector,
+			Vector: vector,
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -463,7 +478,7 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		if err != nil {
 			return dataType, err
 		}
-		return schema.DataType(prop.DataType[0]), nil
+		dataType = schema.DataType(prop.DataType[0])
 	} else {
 		propToCheck := on[0]
 		_, isPropLengthFilter := schema.IsPropertyLength(propToCheck, 0)
