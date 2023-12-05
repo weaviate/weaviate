@@ -82,6 +82,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
+				UsesMarshalling: true,
 			},
 		},
 		{
@@ -91,6 +92,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
+				UsesMarshalling: true,
 			},
 		},
 	}
