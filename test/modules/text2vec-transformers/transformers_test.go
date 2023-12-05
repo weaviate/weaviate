@@ -41,7 +41,7 @@ func Test_T2VTransformers(t *testing.T) {
 					Books(
 						nearText: {
 							concepts: ["Frank Herbert"]
-							distance: 0.7
+							distance: 0.3
 						}
 					){
 						title

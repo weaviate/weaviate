@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
@@ -167,7 +169,8 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if ok {
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
-				additionalProps.Vector = vectorfmt
+				additionalProps.Vector = vectorfmt // deprecated, remove in a bit
+				additionalProps.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
 			}
 		}
 	}
@@ -573,10 +576,14 @@ func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, pr
 				}
 				return fmt.Errorf("property %v with datatype %v needs to be []float64, got %T", propName, dataType, prop)
 			}
+
 			if props.NumberArrayProperties == nil {
 				props.NumberArrayProperties = make([]*pb.NumberArrayProperties, 0)
 			}
-			props.NumberArrayProperties = append(props.NumberArrayProperties, &pb.NumberArrayProperties{PropName: propName, Values: propFloat})
+			props.NumberArrayProperties = append(
+				props.NumberArrayProperties,
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat), Values: propFloat},
+			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:
 			propString, ok := prop.([]string)

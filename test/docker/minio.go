@@ -42,7 +42,7 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 			Cmd: []string{"server", "/data"},
 			WaitingFor: wait.
 				ForHTTP("/minio/health/ready").
-				WithPort(nat.Port("9000")).
+				WithPort(nat.Port("9000/tcp")).
 				WithStartupTimeout(60 * time.Second),
 		},
 		Started: true,
@@ -50,7 +50,7 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, nat.Port("9000/tcp"), "")
 	if err != nil {
 		return nil, err
 	}
@@ -59,5 +59,7 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	envSettings["BACKUP_S3_USE_SSL"] = "false"
 	envSettings["AWS_ACCESS_KEY_ID"] = "aws_access_key"
 	envSettings["AWS_SECRET_KEY"] = "aws_secret_key"
-	return &DockerContainer{MinIO, endpoint, container, envSettings}, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{"9000/tcp", uri}
+	return &DockerContainer{MinIO, endpoints, container, envSettings}, nil
 }

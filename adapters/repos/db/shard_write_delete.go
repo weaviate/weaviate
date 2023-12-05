@@ -62,10 +62,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
 	if err = s.queue.Delete(docID); err != nil {
 		return fmt.Errorf("delete from vector index: %w", err)
 	}
@@ -118,10 +114,6 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
-
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
 
 	if err = s.queue.Delete(docID); err != nil {
 		return fmt.Errorf("delete from vector index: %w", err)
