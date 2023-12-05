@@ -81,8 +81,6 @@ type ShardLike interface {
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                      // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ID() string // Get the shard id
-	// TODO tests only
-	DBPathLSM() string
 	drop() error
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
@@ -383,14 +381,14 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 }
 
 func (s *Shard) ID() string {
-	return fmt.Sprintf("%s_%s", s.index.ID(), s.name)
+	return shardId(s.index.ID(), s.name)
 }
 
 func (s *Shard) path() string {
-	return path.Join(s.index.path(), s.name)
+	return shardPath(s.index.path(), s.name)
 }
 
-func (s *Shard) DBPathLSM() string {
+func (s *Shard) pathLSM() string {
 	return path.Join(s.path(), "lsm")
 }
 
@@ -411,10 +409,10 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
-	store, err := lsmkv.New(s.DBPathLSM(), s.path(), annotatedLogger, metrics,
+	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 	if err != nil {
-		return errors.Wrapf(err, "init lsmkv store at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "init lsmkv store at %s", s.pathLSM())
 	}
 
 	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
@@ -435,6 +433,13 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 	return nil
 }
 
+// IMPORTANT:
+// Be advised there exists LazyLoadShard::drop() implementation intended
+// to drop shard that was not loaded (instantiated) yet.
+// It deletes shard by performing required actions and removing entire shard directory.
+// If there is any action that needs to be performed beside files/dirs being removed
+// from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
+// method to keep drop behaviour consistent.
 func (s *Shard) drop() error {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.replicationMap.clear()
@@ -466,46 +471,46 @@ func (s *Shard) drop() error {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
-	if _, err := os.Stat(s.DBPathLSM()); err == nil {
-		err := os.RemoveAll(s.DBPathLSM())
+	if _, err := os.Stat(s.pathLSM()); err == nil {
+		err := os.RemoveAll(s.pathLSM())
 		if err != nil {
-			return errors.Wrapf(err, "remove lsm store at %s", s.DBPathLSM())
+			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())
 		}
 	}
 	// delete indexcount
 	err := s.counter.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove indexcount at %s", s.path())
 	}
 
-	// delete indexcount
+	// delete version
 	err = s.versioner.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove indexcount at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove version at %s", s.path())
 	}
 
 	// delete queue cursor
 	err = s.queue.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove minindexed at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "close queue at %s", s.path())
 	}
 	// remove vector index
 	err = s.VectorIndex().Drop(ctx)
 	if err != nil {
-		return errors.Wrapf(err, "remove vector index at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove vector index at %s", s.path())
 	}
 
-	// delete indexcount
+	// delete property length tracker
 	err = s.GetPropertyLengthTracker().Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove prop length tracker at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
 	}
 
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
 	if err != nil {
-		return errors.Wrapf(err, "remove property specific indices at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
 
 	return nil
@@ -785,4 +790,12 @@ func (s *Shard) tenant() string {
 		return s.name
 	}
 	return ""
+}
+
+func shardId(indexId, shardName string) string {
+	return fmt.Sprintf("%s_%s", indexId, shardName)
+}
+
+func shardPath(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName)
 }
