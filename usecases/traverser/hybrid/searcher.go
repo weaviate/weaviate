@@ -176,7 +176,6 @@ func processSparseSearch(results []*storobj.Object, weights []float32, err error
 	for i, obj := range results {
 		sr := obj.SearchResultWithDist(additional.Properties{}, weights[i])
 		sr.SecondarySortValue = sr.Score
-		sr.ExplainScore = "(bm25)" + sr.ExplainScore
 		out[i] = &Result{obj.DocID, &sr}
 	}
 	return out, nil
@@ -197,9 +196,6 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
 		sr.SecondarySortValue = 1 - sr.Dist
-		sr.ExplainScore = fmt.Sprintf(
-			"(vector) %v %v ", truncateVectorString(10, vector),
-			res[i].ExplainScore())
 		out[i] = &Result{obj.DocID, &sr}
 	}
 	return out, nil
