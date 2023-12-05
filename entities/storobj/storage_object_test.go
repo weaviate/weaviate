@@ -52,7 +52,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -136,7 +136,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -174,7 +174,7 @@ func TestNewStorageObject(t *testing.T) {
 		})
 
 		t.Run("reassign index id", func(t *testing.T) {
-			so.SetDocID(13)
+			so.DocID = 13
 			assert.Equal(t, uint64(13), so.DocID)
 		})
 
@@ -210,7 +210,7 @@ func TestNewStorageObject(t *testing.T) {
 						"foo": "bar",
 					},
 				}, nil)
-				alt.SetDocID(13)
+				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
 			})
@@ -228,7 +228,7 @@ func TestNewStorageObject(t *testing.T) {
 		})
 
 		t.Run("reassign index id", func(t *testing.T) {
-			so.SetDocID(13)
+			so.DocID = 13
 			assert.Equal(t, uint64(13), so.DocID)
 		})
 
@@ -264,7 +264,7 @@ func TestNewStorageObject(t *testing.T) {
 						"foo": "bar",
 					},
 				}, nil)
-				alt.SetDocID(13)
+				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
 			})
@@ -300,7 +300,7 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -371,7 +371,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		[]float32{1, 2, 0.7},
 	)
 
-	before.SetDocID(7)
+	before.DocID = 7
 	byteObject, err := before.MarshalBinary()
 	require.Nil(t, err)
 
@@ -444,7 +444,7 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 		},
 		[]float32{1, 2, 0.7},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -526,7 +526,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					},
 					vector,
 				)
-				before.SetDocID(7)
+				before.DocID = 7
 
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)
@@ -559,7 +559,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					},
 					vector,
 				)
-				before.SetDocID(7)
+				before.DocID = 7
 
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)

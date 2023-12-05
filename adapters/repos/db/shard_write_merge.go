@@ -95,7 +95,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		return nil, status, errors.Wrap(err, "check insert/update status")
 	}
 
-	nextObj.SetDocID(status.docID)
+	nextObj.DocID = status.docID
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
 		lock.Unlock()
@@ -164,7 +164,7 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	}
 	out.status = status
 
-	nextObj.SetDocID(status.docID) // is not changed
+	nextObj.DocID = status.docID // is not changed
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
 		return out, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())

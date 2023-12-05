@@ -145,7 +145,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	}
 	s.metrics.PutObjectDetermineStatus(before)
 
-	object.SetDocID(status.docID)
+	object.DocID = status.docID
 	data, err := object.MarshalBinary()
 	if err != nil {
 		lock.Unlock()
