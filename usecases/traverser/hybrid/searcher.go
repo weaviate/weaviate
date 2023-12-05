@@ -228,6 +228,7 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.SecondarySortValue = sr.Score
 		out[i] = &Result{obj.DocID, &sr}
 	}
 
@@ -253,6 +254,7 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.SecondarySortValue = 1 - sr.Dist
 		out[i] = &Result{obj.DocID, &sr}
 	}
 
@@ -270,6 +272,7 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
+		sr.SecondarySortValue = 1 - sr.Dist
 		out[i] = &Result{obj.DocID, &sr}
 	}
 
