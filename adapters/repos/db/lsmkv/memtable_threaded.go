@@ -243,8 +243,8 @@ func newMemtableThreaded(path string, strategy string,
 	if len(workerAssignment) == 0 {
 		workerAssignment = "hash"
 	}
-	// enableForSet := map[string]bool{}
-	enableForSet := map[string]bool{StrategyMapCollection: true, StrategyRoaringSet: true, StrategyReplace: true, StrategySetCollection: true}
+	enableForSet := map[string]bool{}
+	// enableForSet := map[string]bool{StrategyMapCollection: true, StrategyRoaringSet: true, StrategyReplace: true, StrategySetCollection: true}
 
 	enableFor := os.Getenv("MEMTABLE_THREADED_ENABLE_TYPES")
 	if len(enableFor) != 0 {
