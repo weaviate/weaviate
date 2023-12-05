@@ -114,7 +114,7 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	times.Insert = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()
 
-	buckets := m.getNodesRoaringSet()
+	buckets := m.flattenNodesRoaringSet()
 
 	times.Copy = int(time.Since(startTime).Milliseconds())
 

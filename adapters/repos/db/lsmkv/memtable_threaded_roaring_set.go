@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"os"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -54,8 +55,20 @@ func ThreadedRoaringSetAddRemoveBitmaps(m *Memtable, request ThreadedMemtableReq
 	return ThreadedMemtableResponse{error: m.roaringSetAddRemoveBitmaps(request.key, request.additions, request.deletions)}
 }
 
-func ThreadedRoaringSetFlattenInOrder(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{nodes: m.RoaringSet().FlattenInOrder()}
+func ThreadedFlattenInOrderRoaringSet(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{nodesRoaring: m.RoaringSet().FlattenInOrder()}
+}
+
+func ThreadedFlattenInOrderKey(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{nodesKey: m.key.flattenInOrder()}
+}
+
+func ThreadedFlattenInOrderKeyMulti(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{nodesMulti: m.keyMulti.flattenInOrder()}
+}
+
+func ThreadedFlattenInOrderKeyMap(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{nodesMap: m.keyMap.flattenInOrder()}
 }
 
 func (m *MemtableThreaded) roaringSetAddOne(key []byte, value uint64) error {
@@ -235,4 +248,33 @@ func writeRoaringSet(flat []*roaringset.BinarySearchNode, f *bufio.Writer) ([]se
 		totalWritten = ki.ValueEnd
 	}
 	return keys, nil
+}
+
+func (m *MemtableThreaded) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
+	if m.baseline != nil {
+		return m.baseline.RoaringSet().FlattenInOrder()
+	} else {
+		output := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedFlattenInOrderRoaringSet,
+		}, true, "FlattenInOrderRoaringSet")
+		return output.nodesRoaring
+	}
+}
+
+func (m *MemtableThreaded) flushRoaringSet() error {
+	flat := m.flattenNodesRoaringSet()
+	totalSize := len(flat)
+
+	f, err := os.Create(m.path + ".db")
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriterSize(f, int(float64(totalSize)*1.3))
+
+	keys, err := writeRoaringSet(flat, w)
+	if err != nil {
+		return err
+	}
+
+	return m.writeIndex(keys, w, f)
 }

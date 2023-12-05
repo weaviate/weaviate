@@ -70,7 +70,10 @@ type ThreadedMemtableRequest struct {
 type ThreadedMemtableResponse struct {
 	error                 error
 	bitmap                roaringset.BitmapLayer
-	nodes                 []*roaringset.BinarySearchNode
+	nodesRoaring          []*roaringset.BinarySearchNode
+	nodesKey              []*binarySearchNode
+	nodesMulti            []*binarySearchNodeMulti
+	nodesMap              []*binarySearchNodeMap
 	result                []byte
 	values                []value
 	mapNodes              []MapPair
@@ -180,6 +183,10 @@ func ThreadedCommitlogDelete(m *Memtable, request ThreadedMemtableRequest) Threa
 	return ThreadedMemtableResponse{error: m.Commitlog().delete()}
 }
 
+func ThreadedCommitlogClose(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+	return ThreadedMemtableResponse{error: m.Commitlog().close()}
+}
+
 func ThreadedFlush(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.flush()
 	return ThreadedMemtableResponse{error: err}
@@ -236,8 +243,8 @@ func newMemtableThreaded(path string, strategy string,
 	if len(workerAssignment) == 0 {
 		workerAssignment = "hash"
 	}
-	enableForSet := map[string]bool{}
-	// enableForSet := map[string]bool{StrategyMapCollection: true, StrategyRoaringSet: true, StrategyReplace: true}
+	// enableForSet := map[string]bool{}
+	enableForSet := map[string]bool{StrategyMapCollection: true, StrategyRoaringSet: true, StrategyReplace: true, StrategySetCollection: true}
 
 	enableFor := os.Getenv("MEMTABLE_THREADED_ENABLE_TYPES")
 	if len(enableFor) != 0 {
@@ -301,7 +308,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 }
 
 func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needOutput bool, operationName string) ThreadedMemtableResponse {
-	if operationName == "WriteWAL" || operationName == "Flush" || operationName == "CommitlogUpdatePath" || operationName == "CommitlogDelete" || operationName == "CommitlogPause" || operationName == "CommitlogUnpause" {
+	if operationName == "WriteWAL" || operationName == "Flush" || operationName == "CommitlogUpdatePath" || operationName == "CommitlogDelete" || operationName == "CommitlogPause" || operationName == "CommitlogUnpause" || operationName == "CommitlogClose" {
 		multiMemtableRequest(m, data, true)
 		return ThreadedMemtableResponse{}
 	} else if operationName == "Size" || operationName == "CommitlogFileSize" {
@@ -333,14 +340,38 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			countStats.tombstonedKeys = append(countStats.tombstonedKeys, response.countStats.tombstonedKeys...)
 		}
 		return ThreadedMemtableResponse{countStats: countStats}
-	} else if operationName == "RoaringSetFlattenInOrder" {
+	} else if operationName == "FlattenInOrderRoaringSet" {
 		responses := multiMemtableRequest(m, data, true)
 		var nodes [][]*roaringset.BinarySearchNode
 		for _, response := range responses {
-			nodes = append(nodes, response.nodes)
+			nodes = append(nodes, response.nodesRoaring)
 		}
 		merged, err := mergeRoaringSets(nodes)
-		return ThreadedMemtableResponse{nodes: merged, error: err}
+		return ThreadedMemtableResponse{nodesRoaring: merged, error: err}
+	} else if operationName == "FlattenInOrderKey" {
+		responses := multiMemtableRequest(m, data, true)
+		var nodes [][]*binarySearchNode
+		for _, response := range responses {
+			nodes = append(nodes, response.nodesKey)
+		}
+		merged, err := mergeKeyNodes(nodes)
+		return ThreadedMemtableResponse{nodesKey: merged, error: err}
+	} else if operationName == "FlattenInOrderKeyMulti" {
+		responses := multiMemtableRequest(m, data, true)
+		var nodes [][]*binarySearchNodeMulti
+		for _, response := range responses {
+			nodes = append(nodes, response.nodesMulti)
+		}
+		merged, err := mergeMultiNodes(nodes)
+		return ThreadedMemtableResponse{nodesMulti: merged, error: err}
+	} else if operationName == "FlattenInOrderKeyMap" {
+		responses := multiMemtableRequest(m, data, true)
+		var nodes [][]*binarySearchNodeMap
+		for _, response := range responses {
+			nodes = append(nodes, response.nodesMap)
+		}
+		merged, err := mergeMapNodes(nodes)
+		return ThreadedMemtableResponse{nodesMap: merged, error: err}
 	} else if operationName == "NewCollectionCursor" {
 		responses := multiMemtableRequest(m, data, true)
 		var cursors []innerCursorCollection
@@ -670,6 +701,28 @@ func (m *MemtableThreaded) CommitlogUnpause() {
 		m.threadedOperation(ThreadedMemtableRequest{
 			operation: ThreadedCommitlogUnpause,
 		}, false, "CommitlogUnpause")
+	}
+}
+
+func (m *MemtableThreaded) CommitlogClose() error {
+	if m.baseline != nil {
+		return m.baseline.Commitlog().close()
+	} else {
+		result := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedCommitlogClose,
+		}, true, "CommitlogClose")
+		return result.error
+	}
+}
+
+func (m *MemtableThreaded) CommitlogDelete() error {
+	if m.baseline != nil {
+		return m.baseline.Commitlog().delete()
+	} else {
+		result := m.threadedOperation(ThreadedMemtableRequest{
+			operation: ThreadedCommitlogDelete,
+		}, true, "CommitlogDelete")
+		return result.error
 	}
 }
 
