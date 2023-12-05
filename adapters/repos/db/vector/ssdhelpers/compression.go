@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -213,6 +214,9 @@ func (compressor *QuantizedVectorsCompressor[T]) getCompressedVectorForID(ctx co
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
 	}
+	if len(vec) == 0 {
+		return nil, storobj.NewErrNotFoundf(id, "getCompressedVectorForID")
+	}
 
 	return compressor.quantizer.FromCompressedBytes(vec), nil
 }
@@ -233,7 +237,11 @@ func (compressor *QuantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) C
 }
 
 func (compressor *QuantizedVectorsCompressor[T]) ReturnDistancer(distancer CompressorDistancer) {
-	compressor.quantizer.ReturnQuantizerDistancer(distancer.(*QuantizedCompressorDistancer[T]).distancer)
+	dst := distancer.(*QuantizedCompressorDistancer[T]).distancer
+	if dst == nil {
+		return
+	}
+	compressor.quantizer.ReturnQuantizerDistancer(dst)
 }
 
 func (compressor *QuantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag {

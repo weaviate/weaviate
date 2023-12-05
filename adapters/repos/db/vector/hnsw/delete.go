@@ -403,7 +403,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return false, err
 	}
 
-	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
+	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}

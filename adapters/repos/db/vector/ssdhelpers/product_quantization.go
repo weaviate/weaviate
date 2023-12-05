@@ -341,6 +341,10 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
 }
 
 func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
+	if d.lut == nil {
+		dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
+		return dist, err == nil, err
+	}
 	return d.pq.Distance(x, d.lut), true, nil
 }
 

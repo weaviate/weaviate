@@ -180,8 +180,10 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	results := h.pools.pqResults.GetMax(ef)
 	var floatDistancer distancer.Distancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancer(queryVector)
-		defer h.compressor.ReturnDistancer(compressorDistancer)
+		if compressorDistancer == nil {
+			compressorDistancer = h.compressor.NewDistancer(queryVector)
+			defer h.compressor.ReturnDistancer(compressorDistancer)
+		}
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
 	}

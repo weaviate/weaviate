@@ -184,7 +184,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(node, entryPointID, vector,
+	if err := h.findAndConnectNeighbors(node, entryPointID, vector, distancer,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
