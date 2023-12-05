@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 
 	"github.com/buger/jsonparser"
@@ -25,12 +24,21 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+var bufPool *bufferPool
+
+func init() {
+	// a 10kB buffer should be large enough for typical cases, it can fit a
+	// 1536d uncompressed vector and about 3kB of object payload. If the
+	// initial size is not large enoug, the caller can always allocate a larger
+	// buffer and return that to the pool instead.
+	bufPool = newBufferPool(10 * 1024)
+}
 
 type Object struct {
 	MarshallerVersion uint8
@@ -112,94 +120,88 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties,
 ) (*Object, error) {
-	if addProp.NoProps {
-		return FromBinaryUUIDOnly(data)
-	}
-
 	ko := &Object{}
 
-	var version uint8
-	r := bytes.NewReader(data)
-	le := binary.LittleEndian
-	if err := binary.Read(r, le, &version); err != nil {
-		return nil, err
+	rw := byteops.NewReadWriter(data)
+	ko.MarshallerVersion = rw.ReadUint8()
+	if ko.MarshallerVersion != 1 {
+		return nil, errors.Errorf("unsupported binary marshaller version %d", ko.MarshallerVersion)
 	}
-
-	if version != 1 {
-		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
+	ko.DocID = rw.ReadUint64()
+	rw.MoveBufferPositionForward(1) // ignore kind-byte
+	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid: %w", err)
 	}
+	uuidParsed := strfmt.UUID(uuidObj.String())
 
-	ko.MarshallerVersion = version
-
-	var (
-		kindByte            uint8
-		uuidBytes           = make([]byte, 16)
-		createTime          int64
-		updateTime          int64
-		vectorLength        uint16
-		classNameLength     uint16
-		schemaLength        uint32
-		metaLength          uint32
-		vectorWeightsLength uint32
-	)
-
-	ec := &errorcompounder.ErrorCompounder{}
-	ec.AddWrap(binary.Read(r, le, &ko.DocID), "doc id")
-	ec.AddWrap(binary.Read(r, le, &kindByte), "kind")
-	_, err := r.Read(uuidBytes)
-	ec.AddWrap(err, "uuid")
-	ec.AddWrap(binary.Read(r, le, &createTime), "create time")
-	ec.AddWrap(binary.Read(r, le, &updateTime), "update time")
-	ec.AddWrap(binary.Read(r, le, &vectorLength), "vector length")
+	createTime := int64(rw.ReadUint64())
+	updateTime := int64(rw.ReadUint64())
+	vectorLength := rw.ReadUint16()
+	// The vector length should always be returned (for usage metrics purposes) even if the vector itself is skipped
 	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
-		ko.Vector = make([]float32, vectorLength)
-		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
+		ko.Object.Vector = make([]float32, vectorLength)
+		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
+		for i := 0; i < int(vectorLength); i++ {
+			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
+			ko.Object.Vector[i] = math.Float32frombits(bits)
+		}
 	} else {
-		io.CopyN(io.Discard, r, int64(vectorLength)*4)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
+		ko.Object.Vector = nil
 	}
-	ec.AddWrap(binary.Read(r, le, &classNameLength), "class name length")
-	className := make([]byte, classNameLength)
-	_, err = r.Read(className)
-	ec.AddWrap(err, "class name")
-	ec.AddWrap(binary.Read(r, le, &schemaLength), "schema length")
-	schema := make([]byte, schemaLength)
-	_, err = r.Read(schema)
-	ec.AddWrap(err, "schema")
-	ec.AddWrap(binary.Read(r, le, &metaLength), "additional length")
+	ko.Vector = ko.Object.Vector
+
+	classNameLen := rw.ReadUint16()
+	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+
+	propLength := rw.ReadUint32()
+	var props []byte
+	if addProp.NoProps {
+		rw.MoveBufferPositionForward(uint64(propLength))
+	} else {
+		props = rw.ReadBytesFromBuffer(uint64(propLength))
+	}
+
 	var meta []byte
+	metaLength := rw.ReadUint32()
 	if addProp.Classification || len(addProp.ModuleParams) > 0 {
-		meta = make([]byte, metaLength)
-		_, err = r.Read(meta)
-		ec.AddWrap(err, "read additional")
+		meta = rw.ReadBytesFromBuffer(uint64(metaLength))
 	} else {
-		io.CopyN(io.Discard, r, int64(metaLength))
+		rw.MoveBufferPositionForward(uint64(metaLength))
 	}
 
-	ec.AddWrap(binary.Read(r, le, &vectorWeightsLength), "vector weights length")
-	vectorWeights := make([]byte, vectorWeightsLength)
-	_, err = r.Read(vectorWeights)
-	ec.AddWrap(err, "vector weights")
+	vectorWeightsLength := rw.ReadUint32()
+	vectorWeights := rw.ReadBytesFromBuffer(uint64(vectorWeightsLength))
 
-	if err := ec.ToError(); err != nil {
-		return nil, errors.Wrap(err, "compound err")
-	}
+	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
+	if len(props) > 0 ||
+		len(meta) > 0 ||
+		vectorWeightsLength > 0 &&
+			!( // if the length is 4 and the encoded value is "null" (in ascii), vectorweights are not actually present
+			vectorWeightsLength == 4 &&
+				vectorWeights[0] == 110 && // n
+				vectorWeights[1] == 117 && // u
+				vectorWeights[2] == 108 && // l
+				vectorWeights[3] == 108) { // l
 
-	uuidParsed, err := uuid.FromBytes(uuidBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := ko.parseObject(
-		strfmt.UUID(uuidParsed.String()),
-		createTime,
-		updateTime,
-		string(className),
-		schema,
-		meta,
-		vectorWeights,
-	); err != nil {
-		return nil, errors.Wrap(err, "parse")
+		if err := ko.parseObject(
+			uuidParsed,
+			createTime,
+			updateTime,
+			className,
+			props,
+			meta,
+			vectorWeights,
+		); err != nil {
+			return nil, errors.Wrap(err, "parse")
+		}
+	} else {
+		ko.Object.ID = uuidParsed
+		ko.Object.CreationTimeUnix = createTime
+		ko.Object.LastUpdateTimeUnix = updateTime
+		ko.Object.Class = className
 	}
 
 	return ko, nil
@@ -207,6 +209,7 @@ func FromBinaryOptional(data []byte,
 
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
+	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
@@ -220,14 +223,21 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		docIDBuf = make([]byte, 8)
 		out      = make([]*Object, len(ids))
 		i        = 0
+		lsmBuf   = bufPool.Get()
 	)
+
+	defer func() {
+		bufPool.Put(lsmBuf)
+	}()
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
-		res, err := bucket.GetBySecondary(0, docIDBuf)
+		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
 		if err != nil {
 			return nil, err
 		}
+
+		lsmBuf = newBuf // may have changed, e.g. because it was grown
 
 		if res == nil {
 			continue
@@ -732,14 +742,14 @@ func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	schemaB []byte, additionalB []byte, vectorWeightsB []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte,
 ) error {
-	var schema map[string]interface{}
-	if err := json.Unmarshal(schemaB, &schema); err != nil {
+	var props map[string]interface{}
+	if err := json.Unmarshal(propsB, &props); err != nil {
 		return err
 	}
 
-	if err := enrichSchemaTypes(schema, false); err != nil {
+	if err := enrichSchemaTypes(props, false); err != nil {
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
@@ -806,7 +816,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
-		Properties:         schema,
+		Properties:         props,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
 	}

@@ -175,10 +175,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		if filters != nil {
 			objs, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.GetSchemaSkipAuth(),
-				s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-				s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
-				s.tenant(), s.index.Config.QueryNestedRefLimit).
+				s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices,
+				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit).
 				DocIDs(ctx, filters, additional, s.index.Config.ClassName)
 			if err != nil {
 				return nil, nil, err
@@ -189,7 +188,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		className := s.index.Config.ClassName
 		bm25Config := s.index.getInvertedIndexConfig().BM25
-		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store, s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher, s.deletedDocIDs, s.GetPropertyLengthTracker(), s.index.logger, s.versioner.Version())
+		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
+			s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher,
+			s.GetPropertyLengthTracker(), s.index.logger, s.versioner.Version())
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
 		if err != nil {
 			return nil, nil, err
@@ -203,11 +204,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 			cursor, additional, s.index.Config.ClassName)
 		return objs, nil, err
 	}
-	objs, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
-		s.tenant(), s.index.Config.QueryNestedRefLimit).
+	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.GetSchemaSkipAuth(),
+		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit).
 		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
 	return objs, nil, err
 }
@@ -361,11 +360,9 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 }
 
 func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
-	list, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(),
-		s.propertyIndices, s.index.classSearcher, s.deletedDocIDs,
-		s.index.stopwords, s.versioner.Version(), s.isFallbackToSearchable,
-		s.tenant(), s.index.Config.QueryNestedRefLimit).
+	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.GetSchemaSkipAuth(),
+		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "build inverted filter allow list")
@@ -430,10 +427,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
 	}
-
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
 
 	if err := s.queue.Delete(docID); err != nil {
 		return errors.Wrap(err, "delete from vector index")

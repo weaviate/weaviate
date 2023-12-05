@@ -103,7 +103,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 
 	bucket := shd.Store().Bucket(bucketName)
 	require.NotNil(t, bucket)
-	dirName := path.Join(shd.DBPathLSM(), bucketName)
+	dirName := path.Join(shd.Index().path(), shd.Name(), "lsm", bucketName)
 
 	t.Run("generate random data", func(t *testing.T) {
 		for i := range keys {
