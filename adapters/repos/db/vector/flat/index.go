@@ -220,7 +220,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
 
 		if index.isBQ() {
-			index.bq = ssdhelpers.NewBinaryQuantizer()
+			index.bq = ssdhelpers.NewBinaryQuantizer(nil)
 		}
 	})
 	if len(vector) != int(index.dims) {

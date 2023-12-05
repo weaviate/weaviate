@@ -539,6 +539,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			},
 		}
 	)
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -551,7 +552,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -674,6 +675,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		}
 	)
 
+	store := testinghelpers.NewDummyStore(t)
+
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              rootPath,
@@ -685,7 +688,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
