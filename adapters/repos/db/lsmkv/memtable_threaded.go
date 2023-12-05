@@ -26,6 +26,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
+type DummyCommitlog struct{}
+
+func (*DummyCommitlog) close() error {
+	return nil
+}
+
 type MemtableThreaded struct {
 	baseline         *Memtable
 	wgWorkers        *sync.WaitGroup
@@ -38,6 +44,7 @@ type MemtableThreaded struct {
 	lastWrite        time.Time
 	createdAt        time.Time
 	metrics          *memtableMetrics
+	commitlog        *DummyCommitlog
 }
 
 type ThreadedMemtableFunc func(*Memtable, ThreadedMemtableRequest) ThreadedMemtableResponse
@@ -230,6 +237,8 @@ func newMemtableThreaded(path string, strategy string,
 		workerAssignment = "hash"
 	}
 	enableForSet := map[string]bool{}
+	// enableForSet := map[string]bool{StrategyMapCollection: true, StrategyRoaringSet: true, StrategyReplace: true}
+
 	enableFor := os.Getenv("MEMTABLE_THREADED_ENABLE_TYPES")
 	if len(enableFor) != 0 {
 		for _, t := range strings.Split(enableFor, ",") {
@@ -376,6 +385,16 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 			innerCursors: cursors,
 		}
 		return ThreadedMemtableResponse{cursorReplace: cursor}
+	} else if operationName == "GetBySecondary" {
+		// The worker that has the data for the secondary key is one that was the primary key, not the one in the secondary hash key space
+		// Makes Test_MemtableSecondaryKeyBug work
+		responses := multiMemtableRequest(m, data, true)
+		for _, response := range responses {
+			if response.result != nil {
+				return ThreadedMemtableResponse{result: response.result, error: response.error}
+			}
+		}
+		return ThreadedMemtableResponse{error: responses[0].error}
 	}
 	return singleMemtableRequest(data, m, needOutput)
 }
