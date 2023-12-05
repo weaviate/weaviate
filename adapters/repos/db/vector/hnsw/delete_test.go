@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -134,6 +135,8 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
 
+	store := testinghelpers.NewDummyStore(t)
+
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -153,7 +156,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -248,6 +251,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	// there is a single bulk clean event after all the deletes
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -268,7 +272,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
 		index.randFunc = func() float64 { return 0.1 }
 
@@ -369,7 +373,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 }
 
-func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32) (index *hnsw, remainingResult []uint64) {
+func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32, store *lsmkv.Store) (index *hnsw, remainingResult []uint64) {
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "delete-test",
@@ -388,7 +392,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 
 	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
@@ -450,9 +454,10 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	// TODO to be simplified after fixing WEAVIATE-179, all results should be the same
 	var controlRemainingResult []uint64
 	var controlRemainingResultAfterCleanup []uint64
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("create control index", func(t *testing.T) {
-		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors)
+		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
 	})
 
 	t.Run("count all cleanup tombstones stops", func(t *testing.T) {
@@ -486,7 +491,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	})
 
 	for i := 0; i < possibleStopsCount; i++ {
-		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors)
+		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
 
 		t.Run("stop cleanup at place", func(t *testing.T) {
 			require.Nil(t, index.CleanUpTombstonedNodes(genStopAtFunc(i)))
