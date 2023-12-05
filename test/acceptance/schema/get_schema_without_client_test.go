@@ -49,6 +49,9 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"dynamicEfMax":           float64(500),
 					"dynamicEfFactor":        float64(8),
 					"distance":               "cosine",
+					"bq": map[string]interface{}{
+						"enabled": false,
+					},
 					"pq": map[string]interface{}{
 						"bitCompression": false,
 						"centroids":      float64(256),
