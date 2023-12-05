@@ -968,9 +968,11 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 			return err
 		}
 	}
+	// TODO: Find a prettier way of doing this. We don't know the exact number of thread used for flushing, so we have to loop through all possible numbers.
+	// A better way of doing this would be to loop from existing files that match the path.
 	for i := 0; i < 1000; i++ {
-		if stat, _ := os.Stat(path + "_" + string(i) + ".db"); stat != nil {
-			if err := b.disk.add(path + "_" + string(i) + ".db"); err != nil {
+		if stat, _ := os.Stat(path + "_" + fmt.Sprint(i) + ".db"); stat != nil {
+			if err := b.disk.add(path + "_" + fmt.Sprint(i) + ".db"); err != nil {
 				return err
 			}
 			break
