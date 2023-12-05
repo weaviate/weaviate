@@ -197,7 +197,7 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset
 		indices[smallestNodeIndex]++
 	}
 
-	fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
+	// fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
 	return flat[:mergedNodesIndex], nil
 }
 

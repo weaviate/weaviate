@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -47,7 +48,7 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
-		if filepath.Join(b.dir, fileInfo.Name()) == b.active.path+".wal" {
+		if strings.HasPrefix(filepath.Join(b.dir, fileInfo.Name()), b.active.Path()) {
 			// this is the new one which was just created
 			continue
 		}

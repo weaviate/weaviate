@@ -196,7 +196,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 			}
 
 			bucket.flushLock.RLock()
-			activePath := bucket.active.path
+			activePath := bucket.active.Path()
 			activeSize := bucket.active.Size()
 			bucket.flushLock.RUnlock()
 
