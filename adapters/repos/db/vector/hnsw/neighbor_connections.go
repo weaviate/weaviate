@@ -18,13 +18,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
-	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, distancer ssdhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
-	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, targetLevel,
+	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList)
 
 	return nfc.Do()
@@ -36,6 +37,7 @@ type neighborFinderConnector struct {
 	entryPointID    uint64
 	entryPointDist  float32
 	nodeVec         []float32
+	distancer       ssdhelpers.CompressorDistancer
 	targetLevel     int
 	currentMaxLevel int
 	denyList        helpers.AllowList
@@ -43,7 +45,7 @@ type neighborFinderConnector struct {
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
-	nodeVec []float32, targetLevel, currentMaxLevel int,
+	nodeVec []float32, distancer ssdhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
@@ -51,6 +53,7 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 		node:            node,
 		entryPointID:    entryPointID,
 		nodeVec:         nodeVec,
+		distancer:       distancer,
 		targetLevel:     targetLevel,
 		currentMaxLevel: currentMaxLevel,
 		denyList:        denyList,
@@ -77,8 +80,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	eps := priorityqueue.NewMin(1)
 	eps.Insert(n.entryPointID, n.entryPointDist)
 
-	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
-		level, nil)
+	results, err := n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
+		level, nil, n.distancer)
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
@@ -290,7 +293,14 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	dist, ok, err := n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	var dist float32
+	var ok bool
+	var err error
+	if n.distancer == nil {
+		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	} else {
+		dist, ok, err = n.distancer.DistanceToNode(candidate)
+	}
 	if err != nil {
 		// not an error we could recover from - fail!
 		return false, errors.Wrapf(err,
