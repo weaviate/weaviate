@@ -13,6 +13,7 @@ package nodes
 
 import (
 	"context"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
