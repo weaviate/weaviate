@@ -16,9 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 )
 
 // BeginBackup prepares the hnsw index so a backup can be created
@@ -115,17 +113,5 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 		i++
 	}
 
-	return files, nil
-}
-
-func (h *hnsw) listCompressedFiles(ctx context.Context, basePath string) ([]string, error) {
-	files, err := h.compressor.ListFiles(ctx, basePath)
-	if err != nil {
-		return nil, fmt.Errorf("list compressed files: %w", err)
-	}
-	for i, file := range files {
-		withoutRoot := strings.Split(file, "/")
-		files[i] = path.Join(withoutRoot[1:]...)
-	}
 	return files, nil
 }
