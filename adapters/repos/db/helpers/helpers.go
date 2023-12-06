@@ -18,12 +18,11 @@ import (
 )
 
 var (
-	ObjectsBucket          = []byte("objects")
-	ObjectsBucketLSM       = "objects"
-	VectorsHNSWPQBucketLSM = "vectors_hnsw_pq"
-	VectorsFlatBucketLSM   = "vectors_flat"
-	VectorsFlatBQBucketLSM = "vectors_flat_bq"
-	DimensionsBucketLSM    = "dimensions"
+	ObjectsBucket              = []byte("objects")
+	ObjectsBucketLSM           = "objects"
+	VectorsCompressedBucketLSM = "vectors_compressed"
+	VectorsBucketLSM           = "vectors"
+	DimensionsBucketLSM        = "dimensions"
 )
 
 // MetaCountProp helps create an internally used propName for meta props that
