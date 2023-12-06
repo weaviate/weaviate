@@ -319,7 +319,7 @@ func Test_UserConfig(t *testing.T) {
 					"centroids":      float64(DefaultPQCentroids),
 					"trainingLimit":  float64(DefaultPQTrainingLimit),
 					"encoder": map[string]interface{}{
-						"type": "kmeans",
+						"type": PQEncoderTypeKMeans,
 					},
 				},
 			},

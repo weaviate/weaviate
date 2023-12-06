@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -205,7 +206,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 		cfg := ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         "kmeans",
+				Type:         hnsw.PQEncoderTypeKMeans,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			Centroids:     centroids,

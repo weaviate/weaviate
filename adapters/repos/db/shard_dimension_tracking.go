@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/schema"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (s *Shard) Dimensions() int {
@@ -61,67 +63,21 @@ func (s *Shard) QuantizedDimensions(segments int) int {
 	return sum
 }
 
-func (s *Shard) getSegments() (bool, int) {
-	// Detect if vector index is HNSW
-	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
-	if !ok {
-		return false, 0
-	}
-	if hnswUserConfig.PQ.Enabled {
-		return true, hnswUserConfig.PQ.Segments
-	}
-	return false, 0
-}
-
 func (s *Shard) clearDimensionMetrics() {
-	pqEnabled, _ := s.getSegments()
-	if pqEnabled {
-		s.sendVectorSegmentsMetric(0)
-		s.sendVectorDimensionsMetric(0)
-
-	} else {
-		s.sendVectorDimensionsMetric(0)
-	}
+	clearDimensionMetrics(s.promMetrics, s.index.Config.ClassName.String(),
+		s.name, s.index.vectorIndexUserConfig)
 }
 
 func (s *Shard) publishDimensionMetrics() {
-	pqEnabled, segments := s.getSegments()
-	if pqEnabled {
-		count := s.QuantizedDimensions(segments)
-		s.sendVectorSegmentsMetric(count)
-		s.sendVectorDimensionsMetric(0)
+	className := s.index.Config.ClassName.String()
 
+	if pqEnabled, segments := getPQSegments(s.index.vectorIndexUserConfig); pqEnabled {
+		count := s.QuantizedDimensions(segments)
+		sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
+		sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
 	} else {
 		count := s.Dimensions()
-		s.sendVectorDimensionsMetric(count)
-	}
-}
-
-func (s *Shard) sendVectorDimensionsMetric(count int) {
-	if s.promMetrics != nil {
-		// Important: Never group classes/shards for this metric. We need the
-		// granularity here as this tracks an absolute value per shard that changes
-		// independently over time.
-		//
-		// If we need to reduce metrics further, an alternative could be to not
-		// make dimension tracking shard-centric, but rather make it node-centric.
-		// Then have a single metric that aggregates all dimensions first, then
-		// observes only the sum
-		metric, err := s.promMetrics.VectorDimensionsSum.
-			GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
-		if err == nil {
-			metric.Set(float64(count))
-		}
-	}
-}
-
-func (s *Shard) sendVectorSegmentsMetric(count int) {
-	if s.promMetrics != nil {
-		metric, err := s.promMetrics.VectorSegmentsSum.
-			GetMetricWithLabelValues(s.index.Config.ClassName.String(), s.name)
-		if err == nil {
-			metric.Set(float64(count))
-		}
+		sendVectorDimensionsMetric(s.promMetrics, className, s.name, count)
 	}
 }
 
@@ -142,5 +98,56 @@ func (s *Shard) initDimensionTracking() {
 				}
 			}
 		}()
+	}
+}
+
+func getPQSegments(cfg schema.VectorIndexConfig) (bool, int) {
+	// Detect if vector index is HNSW
+	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok && hnswUserConfig.PQ.Enabled {
+		return true, hnswUserConfig.PQ.Segments
+	}
+	return false, 0
+}
+
+func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
+	className, shardName string, count int,
+) {
+	if promMetrics != nil {
+		metric, err := promMetrics.VectorSegmentsSum.
+			GetMetricWithLabelValues(className, shardName)
+		if err == nil {
+			metric.Set(float64(count))
+		}
+	}
+}
+
+func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
+	className, shardName string, count int,
+) {
+	if promMetrics != nil {
+		// Important: Never group classes/shards for this metric. We need the
+		// granularity here as this tracks an absolute value per shard that changes
+		// independently over time.
+		//
+		// If we need to reduce metrics further, an alternative could be to not
+		// make dimension tracking shard-centric, but rather make it node-centric.
+		// Then have a single metric that aggregates all dimensions first, then
+		// observes only the sum
+		metric, err := promMetrics.VectorDimensionsSum.
+			GetMetricWithLabelValues(className, shardName)
+		if err == nil {
+			metric.Set(float64(count))
+		}
+	}
+}
+
+func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
+	className, shardName string, cfg schema.VectorIndexConfig,
+) {
+	if pqEnabled, _ := getPQSegments(cfg); pqEnabled {
+		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+	} else {
+		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
 	}
 }
