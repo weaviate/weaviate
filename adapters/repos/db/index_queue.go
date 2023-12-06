@@ -66,6 +66,8 @@ type IndexQueue struct {
 type vectorDescriptor struct {
 	id     uint64
 	vector []float32
+	// run the callback when the vector is indexed
+	onIndexed func()
 }
 
 type IndexQueueOptions struct {
