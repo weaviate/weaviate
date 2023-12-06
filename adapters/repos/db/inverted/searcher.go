@@ -42,7 +42,6 @@ type Searcher struct {
 	schema                 schema.Schema
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	deletedDocIDs          DeletedDocIDChecker
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
@@ -51,14 +50,9 @@ type Searcher struct {
 	nestedCrossRefLimit int64
 }
 
-type DeletedDocIDChecker interface {
-	Contains(id uint64) bool
-}
-
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	schema schema.Schema,
-	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
-	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
+	schema schema.Schema, propIndices propertyspecific.Indices,
+	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 ) *Searcher {
@@ -68,7 +62,6 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		schema:                 schema,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,

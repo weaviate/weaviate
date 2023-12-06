@@ -20,22 +20,20 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
-	if h.isEmpty() {
+	dims := int(atomic.LoadInt32(&h.dims))
+
+	// no vectors exist
+	if dims == 0 {
 		return nil
 	}
-	// check if vector length is the same as existing nodes
-	existingNodeVector, err := h.cache.Get(context.Background(), h.entryPointID)
-	if err != nil {
-		return err
-	}
 
-	if len(existingNodeVector) != len(vector) {
+	// check if vector length is the same as existing nodes
+	if dims != len(vector) {
 		return fmt.Errorf("new node has a vector with length %v. "+
-			"Existing nodes have vectors with length %v", len(vector), len(existingNodeVector))
+			"Existing nodes have vectors with length %v", len(vector), dims)
 	}
 
 	return nil
@@ -68,11 +66,10 @@ func (h *hnsw) addBatch(ctx context.Context, ids []uint64, vectors [][]float32, 
 		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
 	}
 	h.RLock()
-	previousSize := uint64(len(h.nodes))
-	if maxId >= previousSize {
+	if maxId >= uint64(len(h.nodes)) {
 		h.RUnlock()
 		h.Lock()
-		if maxId >= previousSize {
+		if maxId >= uint64(len(h.nodes)) {
 			err := h.growIndexToAccomodateNode(maxId, h.logger)
 			if err != nil {
 				h.Unlock()
@@ -107,12 +104,9 @@ func (h *hnsw) addBatch(ctx context.Context, ids []uint64, vectors [][]float32, 
 
 		h.metrics.InsertVector()
 
-		if !compressed && h.distancerProvider.Type() == "cosine-dot" {
-			// cosine-dot requires normalized vectors, as the dot product and cosine
-			// similarity are only identical if the vector is normalized
-			vector = distancer.Normalize(vector)
+		if !compressed {
+			vector = h.normalizeVec(vector)
 		}
-
 		err := h.addOne(vector, compressedVector, node)
 		if err != nil {
 			return err

@@ -52,7 +52,10 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			IndexSearchable: &vFalse,
 		}},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,

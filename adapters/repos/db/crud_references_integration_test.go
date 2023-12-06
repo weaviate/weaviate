@@ -118,7 +118,10 @@ func TestNestedReferences(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -513,7 +516,7 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
-	index.ForEachShard(func(name string, shard *Shard) error {
+	index.ForEachShard(func(name string, shard ShardLike) error {
 		sum += shard.Dimensions()
 		return nil
 	})
@@ -527,8 +530,8 @@ func GetQuantizedDimensionsFromRepo(repo *DB, className string, segments int) in
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
-	index.ForEachShard(func(name string, shard *Shard) error {
-		sum += shard.quantizedDimensions(segments)
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		sum += shard.QuantizedDimensions(segments)
 		return nil
 	})
 	return sum
@@ -572,7 +575,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,

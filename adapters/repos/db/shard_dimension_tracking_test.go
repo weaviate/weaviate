@@ -39,7 +39,10 @@ func Benchmark_Migration(b *testing.B) {
 
 			shardState := singleShardState()
 			logger := logrus.New()
-			schemaGetter := &fakeSchemaGetter{shardState: shardState}
+			schemaGetter := &fakeSchemaGetter{
+				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+				shardState: shardState,
+			}
 			repo, err := New(logger, Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
@@ -101,7 +104,10 @@ func Test_Migration(t *testing.T) {
 
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
@@ -166,7 +172,10 @@ func Test_DimensionTracking(t *testing.T) {
 
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -234,9 +243,9 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard *Shard) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 12800, shard.Dimensions())
-			assert.Equal(t, 6400, shard.quantizedDimensions(64))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(64))
 			return nil
 		})
 	})
@@ -257,9 +266,9 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after delete", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard *Shard) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 11520, shard.Dimensions())
-			assert.Equal(t, 5760, shard.quantizedDimensions(64))
+			assert.Equal(t, 5760, shard.QuantizedDimensions(64))
 			return nil
 		})
 	})
@@ -306,10 +315,10 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard *Shard) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 6400, shard.Dimensions())
-			assert.Equal(t, 3200, shard.quantizedDimensions(64))
-			assert.Equal(t, 1600, shard.quantizedDimensions(32))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(64))
+			assert.Equal(t, 1600, shard.QuantizedDimensions(32))
 			return nil
 		})
 	})
@@ -356,10 +365,10 @@ func Test_DimensionTracking(t *testing.T) {
 
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
-		idx.ForEachShard(func(name string, shard *Shard) error {
+		idx.ForEachShard(func(name string, shard ShardLike) error {
 			assert.Equal(t, 12800, shard.Dimensions())
-			assert.Equal(t, 6400, shard.quantizedDimensions(64))
-			assert.Equal(t, 12800, shard.quantizedDimensions(0))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(64))
+			assert.Equal(t, 12800, shard.QuantizedDimensions(0))
 			return nil
 		})
 	})

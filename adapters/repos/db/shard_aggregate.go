@@ -18,12 +18,11 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
-func (s *Shard) aggregate(ctx context.Context,
+func (s *Shard) Aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	return aggregator.New(s.store, params, s.index.getSchema,
-		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords, s.versioner.Version(),
-		s.queue, s.index.logger, s.propLengths, s.isFallbackToSearchable, s.tenant(),
-		s.index.Config.QueryNestedRefLimit).
+	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
+		s.index.stopwords, s.versioner.Version(), s.queue, s.index.logger, s.GetPropertyLengthTracker(),
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit).
 		Do(ctx)
 }

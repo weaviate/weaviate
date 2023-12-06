@@ -60,7 +60,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 			logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}
-		appState.GraphQL = gql
+		appState.SetGraphQL(gql)
 	}
 }
 

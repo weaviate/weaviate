@@ -143,8 +143,7 @@ func New(logger logrus.FieldLogger, config Config,
 		asyncIndexRetryInterval: 5 * time.Second,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
-		memMonitor: memwatch.NewMonitor(runtime.MemProfile,
-			debug.SetMemoryLimit, runtime.MemProfileRate, 0.97),
+		memMonitor:              memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97),
 	}
 
 	// make sure memMonitor has an initial state
@@ -192,6 +191,7 @@ type Config struct {
 	ServerVersion             string
 	GitHash                   string
 	AvoidMMap                 bool
+	DisableLazyLoadShards     bool
 	Replication               replication.GlobalConfig
 }
 

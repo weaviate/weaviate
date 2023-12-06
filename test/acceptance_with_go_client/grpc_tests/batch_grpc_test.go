@@ -18,23 +18,57 @@ import (
 	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/grpc"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 func TestGRPC_Batch(t *testing.T) {
 	ctx := context.Background()
-	config := wvt.Config{Scheme: "http", Host: "localhost:8080", GrpcConfig: grpc.Config{Enabled: true, Host: "localhost:50051"}}
+	config := wvt.Config{Scheme: "http", Host: "localhost:8080", GrpcConfig: &grpc.Config{Host: "localhost:50051"}}
 	client, err := wvt.NewClient(config)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	// clean DB
 	err = client.Schema().AllDeleter().Do(ctx)
 	require.NoError(t, err)
-	t.Run("all properties", func(t *testing.T) {
+	t.Run("all properties", testGRPCBatchAPI(ctx, client))
+}
+
+func TestGRPC_Batch_Cluster(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviateCluster().
+		WithText2VecContextionary().
+		Start(ctx)
+	if err != nil {
+		panic(errors.Wrapf(err, "cannot start"))
+	}
+
+	httpUri := compose.GetWeaviate().GetEndpoint(docker.HTTP)
+	grpcUri := compose.GetWeaviate().GetEndpoint(docker.GRPC)
+
+	config := wvt.Config{Scheme: "http", Host: httpUri, GrpcConfig: &grpc.Config{Host: grpcUri}}
+	client, err := wvt.NewClient(config)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	// clean DB
+	err = client.Schema().AllDeleter().Do(ctx)
+	require.NoError(t, err)
+
+	t.Run("all properties", testGRPCBatchAPI(ctx, client))
+
+	if err := compose.Terminate(ctx); err != nil {
+		panic(errors.Wrapf(err, "cannot terminate"))
+	}
+}
+
+func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T) {
+	return func(t *testing.T) {
 		class := fixtures.AllPropertiesClass
 		className := fixtures.AllPropertiesClassName
 		id1 := fixtures.AllPropertiesID1
@@ -68,5 +102,5 @@ func TestGRPC_Batch(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, len(properties), len(props))
 		})
-	})
+	}
 }

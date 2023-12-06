@@ -14,6 +14,7 @@ package state
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
@@ -48,6 +49,7 @@ type State struct {
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
+	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
 	Modules               *modules.Provider
 	SchemaManager         *schema.Manager
@@ -73,5 +75,14 @@ type State struct {
 //
 // type gqlProvider interface { GetGraphQL graphql.GraphQL }
 func (s *State) GetGraphQL() graphql.GraphQL {
-	return s.GraphQL
+	s.gqlMutex.Lock()
+	gql := s.GraphQL
+	s.gqlMutex.Unlock()
+	return gql
+}
+
+func (s *State) SetGraphQL(gql graphql.GraphQL) {
+	s.gqlMutex.Lock()
+	s.GraphQL = gql
+	s.gqlMutex.Unlock()
 }

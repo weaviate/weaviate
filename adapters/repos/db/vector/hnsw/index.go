@@ -17,8 +17,6 @@ import (
 	"io"
 	"math"
 	"math/rand"
-	"os"
-	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -153,17 +151,19 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed             atomic.Bool
-	doNotRescore           bool
+	compressed   atomic.Bool
+	doNotRescore bool
+
 	pq                     *ssdhelpers.ProductQuantizer
 	pqConfig               ent.PQConfig
 	compressedVectorsCache cache.Cache[byte]
-	compressedStore        *lsmkv.Store
+	compressedBucket       *lsmkv.Bucket
 	compressActionLock     *sync.RWMutex
 	className              string
 	shardName              string
 	VectorForIDThunk       common.VectorForID[float32]
-	shardedNodeLocks       shardedNodeLocks
+	shardedNodeLocks       *common.ShardedLocks
+	store                  *lsmkv.Store
 }
 
 type CommitLogger interface {
@@ -200,8 +200,8 @@ type MakeCommitLogger func() (CommitLogger, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(cfg Config, uc ent.UserConfig,
-	tombstoneCallbacks, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
+func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallbacks,
+	shardFlushCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*hnsw, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
@@ -265,7 +265,8 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     newShardedNodeLocks(),
+		shardedNodeLocks:     common.NewDefaultShardedLocks(),
+		store:                store,
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -275,6 +276,10 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
+	if err := index.init(cfg); err != nil {
+		return nil, errors.Wrapf(err, "init index %q", index.id)
+	}
+
 	// TODO common_cycle_manager move to poststartup?
 	id := strings.Join([]string{
 		"hnsw", "tombstone_cleanup",
@@ -282,10 +287,6 @@ func New(cfg Config, uc ent.UserConfig,
 	}, "/")
 	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
 	index.insertMetrics = newInsertMetrics(index.metrics)
-
-	if err := index.init(cfg); err != nil {
-		return nil, errors.Wrapf(err, "init index %q", index.id)
-	}
 
 	return index, nil
 }
@@ -646,21 +647,11 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 func (h *hnsw) Drop(ctx context.Context) error {
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
-		return fmt.Errorf("hnsw drop: %w", err)
+		return errors.Wrap(err, "hnsw drop")
 	}
 
 	if h.compressed.Load() {
 		h.compressedVectorsCache.Drop()
-		if err := h.compressedStore.Shutdown(ctx); err != nil {
-			return fmt.Errorf("failed to shutdown compressed store")
-		}
-		storeRoot, _ := path.Split(h.compressedStoreLSMPath())
-		if _, err := os.Stat(storeRoot); err == nil {
-			err := os.RemoveAll(storeRoot)
-			if err != nil {
-				return fmt.Errorf("remove compressed store at %s: %w", storeRoot, err)
-			}
-		}
 	} else {
 		// cancel vector cache goroutine
 		h.cache.Drop()
@@ -670,7 +661,7 @@ func (h *hnsw) Drop(ctx context.Context) error {
 	// write while it's still running
 	err := h.commitLog.Drop(ctx)
 	if err != nil {
-		return fmt.Errorf("commit log drop: %w", err)
+		return errors.Wrap(err, "commit log drop")
 	}
 
 	return nil
@@ -687,9 +678,6 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 
 	if h.compressed.Load() {
 		h.compressedVectorsCache.Drop()
-		if err := h.compressedStore.Shutdown(ctx); err != nil {
-			return errors.Wrap(err, "hnsw shutdown")
-		}
 	} else {
 		h.cache.Drop()
 	}
@@ -755,4 +743,13 @@ func (h *hnsw) Compressed() bool {
 
 func (h *hnsw) AlreadyIndexed() uint64 {
 	return uint64(h.cache.CountVectors())
+}
+
+func (h *hnsw) normalizeVec(vec []float32) []float32 {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		return distancer.Normalize(vec)
+	}
+	return vec
 }

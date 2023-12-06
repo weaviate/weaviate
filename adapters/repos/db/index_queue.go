@@ -108,12 +108,12 @@ type batchIndexer interface {
 	DistancerProvider() distancer.Provider
 	PQDistancer(x []float32) *ssdhelpers.PQDistancer
 	ReturnDistancer(distancer *ssdhelpers.PQDistancer)
-	ShouldCompress() (bool, int)
 	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
 	Compressed() bool
 	AlreadyIndexed() uint64
 	TurnOnCompression(callback func()) error
 	CompressVector(vector []float32) []byte
+	ShouldCompress() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -181,7 +181,6 @@ func NewIndexQueue(
 	// when compression is enabled
 	// these workers will occupy 25% of the available CPU cores
 	// to compress vectors in the background.
-	// TODO: test this with multiple shards
 	w := runtime.GOMAXPROCS(0) / 4
 	if w == 0 {
 		w = 1
@@ -332,7 +331,7 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 // PreloadShard goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(shard *Shard) error {
+func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	if !asyncEnabled() {
 		return nil
 	}
@@ -348,7 +347,7 @@ func (q *IndexQueue) PreloadShard(shard *Shard) error {
 
 	start := time.Now()
 
-	maxDocID := shard.counter.Get()
+	maxDocID := shard.Counter().Get()
 
 	var counter int
 
@@ -358,7 +357,7 @@ func (q *IndexQueue) PreloadShard(shard *Shard) error {
 	for i := checkpoint; i < maxDocID; i++ {
 		binary.LittleEndian.PutUint64(buf, i)
 
-		v, err := shard.store.Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
+		v, err := shard.Store().Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
 		if err != nil {
 			return errors.Wrap(err, "get last indexed object")
 		}
@@ -370,7 +369,7 @@ func (q *IndexQueue) PreloadShard(shard *Shard) error {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
 		id := obj.DocID()
-		if shard.vectorIndex.ContainsNode(id) {
+		if shard.VectorIndex().ContainsNode(id) {
 			continue
 		}
 		if len(obj.Vector) == 0 {

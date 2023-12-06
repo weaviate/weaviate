@@ -369,7 +369,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(i uint64) {
 			pq.kms[i] = NewKMeans(
-				int(pq.ks),
+				pq.ks,
 				pq.ds,
 				int(i),
 			)

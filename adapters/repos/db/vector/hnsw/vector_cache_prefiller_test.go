@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestVectorCachePrefilling(t *testing.T) {
@@ -24,7 +25,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 	index := &hnsw{
 		nodes:               generateDummyVertices(100),
 		currentMaximumLayer: 3,
-		shardedNodeLocks:    newShardedNodeLocks(),
+		shardedNodeLocks:    common.NewDefaultShardedLocks(),
 	}
 
 	logger, _ := test.NewNullLogger()
