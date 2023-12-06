@@ -445,7 +445,7 @@ func extractPropertiesAnswerMarshalling(scheme schema.Schema, results map[string
 			}
 			value, err := NewPrimitiveValue(propRaw, *dataType)
 			if err != nil {
-				return nil, errors.Wrap(err, "creating primitive value")
+				return nil, errors.Wrapf(err, "creating primitive value for %v", prop.Name)
 			}
 			nonRefProps.Fields[prop.Name] = value
 			continue
@@ -455,7 +455,7 @@ func extractPropertiesAnswerMarshalling(scheme schema.Schema, results map[string
 			if err != nil {
 				return nil, errors.Wrap(err, "getting nested property")
 			}
-			value, err := NewNestedValue(propRaw, schema.DataType(nested.DataType[0]), &Property{Property: nested})
+			value, err := NewNestedValue(propRaw, schema.DataType(nested.DataType[0]), &Property{Property: nested}, prop)
 			if err != nil {
 				return nil, errors.Wrap(err, "creating object value")
 			}
