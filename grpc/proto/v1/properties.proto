@@ -48,7 +48,7 @@ option csharp_namespace = "Google.Protobuf.WellKnownTypes";
 // with the proto support for the language.
 //
 // The JSON representation for `Struct` is JSON object.
-message Struct {
+message Properties {
   // Unordered map of dynamically typed values.
   map<string, Value> fields = 1;
 }
@@ -69,7 +69,7 @@ message Value {
     // Represents a boolean value.
     bool bool_value = 4;
     // Represents a nested object value.
-    Struct object_value = 5;
+    Properties object_value = 5;
     // Represents a repeated `Value`.
     ListValue list_value = 6;
     // Represents a date value.
