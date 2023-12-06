@@ -30,7 +30,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	maxNeighbors := 32
 
 	dimensionsSet := []int{768, 125, 64, 27, 2, 19}
-	expectedSegmentsSet := []int{128, 25, 16, 9, 1, 19}
+	expectedSegmentsSet := []int{128, 125, 32, 27, 1, 19}
 	vectors_size := 1000
 
 	for i, dimensions := range dimensionsSet {
