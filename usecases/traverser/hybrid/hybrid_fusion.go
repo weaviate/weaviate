@@ -131,7 +131,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 				explainScore += " - " + previousResult.ExplainScore
 			}
 			res.Score = score
-			res.ExplainScore = explainScore
+			res.ExplainScore = res.ExplainScore + "\n" + explainScore
 
 			mapResults[res.ID] = res
 		}
