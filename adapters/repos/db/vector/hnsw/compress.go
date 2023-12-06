@@ -39,6 +39,19 @@ func (h *hnsw) initCompressedStore() error {
 	return nil
 }
 
+func (h *hnsw) calculateOptimalSegments(dims int) int {
+	if dims >= 2048 && dims%8 == 0 {
+		return dims / 8
+	} else if dims >= 768 && dims%6 == 0 {
+		return dims / 6
+	} else if dims >= 256 && dims%4 == 0 {
+		return dims / 4
+	} else if dims%2 == 0 {
+		return dims / 2
+	}
+	return dims
+}
+
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	if h.isEmpty() {
 		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
@@ -51,14 +64,8 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 	dims := int(h.dims)
 
 	if cfg.Segments <= 0 {
-		for i := 6; i > 0; i-- {
-			if dims%i == 0 {
-				cfg.Segments = dims / i
-				h.pqConfig.Segments = cfg.Segments
-				break
-			}
-		}
-		h.logger.Error(dims, cfg.Segments)
+		cfg.Segments = h.calculateOptimalSegments(dims)
+		h.pqConfig.Segments = cfg.Segments
 	}
 
 	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)
