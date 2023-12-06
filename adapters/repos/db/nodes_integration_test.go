@@ -121,7 +121,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Nil(t, batchRes[1].Err)
 
 	// check nodes api after importing 2 objects to DB
-	nodeStatues, err = repo.GetNodeStatus(context.Background(), "", verbosity.OutputMinimal)
+	nodeStatues, err = repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 

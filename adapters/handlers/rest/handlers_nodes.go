@@ -50,7 +50,7 @@ func (n *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 	}
 
 	n.metricRequestsTotal.logOk("")
-	return nodes.NewNodesGetOK().WithPayload(n.nodesStatusResponse(status, output))
+	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
 func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
@@ -69,16 +69,7 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 	}
 
 	n.metricRequestsTotal.logOk("")
-	return nodes.NewNodesGetOK().WithPayload(n.nodesStatusResponse(status, output))
-}
-
-func (n *nodesHandlers) nodesStatusResponse(resp *models.NodesStatusResponse, output string) *models.NodesStatusResponse {
-	if output == verbosity.OutputMinimal {
-		for _, node := range resp.Nodes {
-			node.Shards = nil
-		}
-	}
-	return resp
+	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
 func (n *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
