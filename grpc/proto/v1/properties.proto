@@ -32,13 +32,9 @@ syntax = "proto3";
 
 package weaviate.v1;
 
-option cc_enable_arenas = true;
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
-option java_package = "com.google.protobuf";
-option java_outer_classname = "StructProto";
-option java_multiple_files = true;
-option objc_class_prefix = "GPB";
-option csharp_namespace = "Google.Protobuf.WellKnownTypes";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoProperties";
 
 // `Struct` represents a structured data value, consisting of fields
 // which map to dynamically typed values. In some languages, `Struct`
