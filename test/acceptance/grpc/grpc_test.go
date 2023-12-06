@@ -109,44 +109,50 @@ func TestGRPC(t *testing.T) {
 				id := res.Metadata.Id
 
 				assert.True(t, id == books.Dune.String() || id == books.ProjectHailMary.String() || id == books.TheLordOfTheIceGarden.String())
-				title, ok := res.Properties.NonRefProps.AsMap()["title"]
-				require.True(t, ok)
+				titleRaw := res.Properties.NonRefProps.Fields["title"]
+				require.NotNil(t, titleRaw)
+				title := titleRaw.GetStringValue()
+				require.NotNil(t, title)
 
-				metaRaw := res.Properties.NonRefProps.AsMap()["meta"]
+				metaRaw := res.Properties.NonRefProps.Fields["meta"]
 				require.NotNil(t, metaRaw)
-				meta, ok := metaRaw.(map[string]interface{})
-				require.True(t, ok)
-				isbn, ok := meta["isbn"]
-				require.True(t, ok)
+				meta := metaRaw.GetObjectValue()
+				require.NotNil(t, meta)
+				isbnRaw := meta.GetFields()["isbn"]
+				require.NotNil(t, isbnRaw)
+				isbn := isbnRaw.GetStringValue()
+				require.NotNil(t, isbn)
 
-				objRaw := meta["obj"]
+				objRaw := meta.GetFields()["obj"]
 				require.NotNil(t, objRaw)
-				obj, ok := objRaw.(map[string]interface{})
-				require.True(t, ok)
+				obj := objRaw.GetObjectValue()
+				require.NotNil(t, obj)
 
-				objsRaw := meta["objs"]
+				objsRaw := meta.GetFields()["objs"]
 				require.NotNil(t, objsRaw)
-				objs, ok := objsRaw.([]interface{})
-				require.True(t, ok)
+				objs := objsRaw.GetListValue()
+				require.NotNil(t, objs)
 
-				objEntry, ok := objs[0].(map[string]interface{})
-				require.True(t, ok)
+				objEntryRaw := objs.Values[0]
+				require.NotNil(t, objEntryRaw)
+				objEntry := objEntryRaw.GetObjectValue()
+				require.NotNil(t, objEntry)
 
-				reviewsRaw := res.Properties.NonRefProps.AsMap()["reviews"]
+				reviewsRaw := res.Properties.NonRefProps.Fields["reviews"]
 				require.NotNil(t, reviewsRaw)
-				reviews, ok := reviewsRaw.([]interface{})
-				require.True(t, ok)
-				require.Len(t, reviews, 1)
+				reviews := reviewsRaw.GetListValue()
+				require.NotNil(t, reviews)
+				require.Len(t, reviews.Values, 1)
 
-				review := (reviews[0]).(map[string]interface{})
+				review := reviews.Values[0].GetObjectValue()
 				require.NotNil(t, review)
 
-				tags := review["tags"]
+				tags := review.Fields["tags"].GetListValue()
 				require.NotNil(t, tags)
 
-				strTags := make([]string, len(tags.([]interface{})))
-				for i, tag := range tags.([]interface{}) {
-					strTags[i] = tag.(string)
+				strTags := make([]string, len(tags.Values))
+				for i, tag := range tags.Values {
+					strTags[i] = tag.GetStringValue()
 				}
 
 				expectedTitle := ""
@@ -170,8 +176,14 @@ func TestGRPC(t *testing.T) {
 				assert.Equal(t, expectedTitle, title)
 				assert.Equal(t, expectedIsbn, isbn)
 				assert.Equal(t, expectedTags, strTags)
-				assert.Equal(t, map[string]interface{}{"text": "some text"}, obj)
-				assert.Equal(t, map[string]interface{}{"text": "some text"}, objEntry)
+
+				expectedObj := &pb.Properties{
+					Fields: map[string]*pb.Value{
+						"text": {Kind: &pb.Value_StringValue{StringValue: "some text"}},
+					},
+				}
+				assert.Equal(t, expectedObj, obj)
+				assert.Equal(t, expectedObj, objEntry)
 			}
 		})
 	}
