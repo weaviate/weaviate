@@ -462,7 +462,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 	return returnFilter, nil
 }
 
-func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+func extractDataTypeProperty(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
 	var dataType schema.DataType
 	if operator == filters.OperatorIsNull {
 		dataType = schema.DataTypeBoolean
@@ -499,6 +499,17 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		}
 	}
 	return dataType, nil
+}
+
+func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+	propToFilterOn := on[len(on)-1]
+	if propToFilterOn == filters.InternalPropID {
+		return schema.DataTypeText, nil
+	} else if propToFilterOn == filters.InternalPropCreationTimeUnix || propToFilterOn == filters.InternalPropLastUpdateTimeUnix {
+		return schema.DataTypeDate, nil
+	} else {
+		return extractDataTypeProperty(scheme, operator, classname, on)
+	}
 }
 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
