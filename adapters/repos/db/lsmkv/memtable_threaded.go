@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -253,11 +254,21 @@ func newMemtableThreaded(path string, strategy string,
 		}
 	}
 
-	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment, enableForSet)
+	numThreadsInt := runtime.NumCPU()
+	numThreads := os.Getenv("MEMTABLE_THREADED_THREAD_COUNT")
+	if len(numThreads) > 0 {
+		numThreadsIntParsed, err := strconv.Atoi(numThreads)
+		if err != nil {
+			return nil, err
+		}
+		numThreadsInt = numThreadsIntParsed
+	}
+
+	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment, enableForSet, numThreadsInt)
 }
 
 func newMemtableThreadedDebug(path string, strategy string,
-	secondaryIndices uint16, metrics *Metrics, workerAssignment string, enableFor map[string]bool,
+	secondaryIndices uint16, metrics *Metrics, workerAssignment string, enableFor map[string]bool, numThreads int,
 ) (*MemtableThreaded, error) {
 	if !enableFor[strategy] {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
@@ -272,7 +283,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 	} else {
 
 		var wgWorkers *sync.WaitGroup
-		numWorkers := runtime.NumCPU()
+		numWorkers := numThreads
 		numChannels := numWorkers
 		requestsChannels := make([]chan ThreadedMemtableRequest, numChannels)
 
@@ -313,13 +324,18 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 		return ThreadedMemtableResponse{}
 	} else if operationName == "Size" || operationName == "CommitlogFileSize" {
 		responses := multiMemtableRequest(m, data, true)
-		var maxSize uint64
+		var size uint64
 		for _, response := range responses {
-			if response.size > maxSize {
-				maxSize = response.size
-			}
+			size += response.size
 		}
-		return ThreadedMemtableResponse{size: maxSize}
+		return ThreadedMemtableResponse{size: size}
+		//var maxSize uint64
+		//for _, response := range responses {
+		//	if response.size > maxSize {
+		//		maxSize = response.size
+		//	}
+		//}
+		//return ThreadedMemtableResponse{size: maxSize}
 	} else if operationName == "IdleDuration" || operationName == "ActiveDuration" {
 		responses := multiMemtableRequest(m, data, true)
 		var maxDuration time.Duration
