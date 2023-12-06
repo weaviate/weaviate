@@ -306,10 +306,3 @@ func vectorFromModuleInput(ctx context.Context, class, input string, modules mod
 	}
 	return vector, nil
 }
-
-func truncateVectorString(maxLength int, vector []float32) string {
-	if len(vector) <= maxLength {
-		return fmt.Sprintf("%v", vector)
-	}
-	return fmt.Sprintf("%v...", vector[:maxLength])
-}
