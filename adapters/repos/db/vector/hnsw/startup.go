@@ -139,6 +139,11 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 		h.cache.Drop()
 
+		// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
+		if h.pqConfig.Segments == 0 {
+			h.pqConfig.Segments = int(state.PQData.Dimensions)
+		}
+
 		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
 			h.pqConfig,
 			h.distancerProvider,

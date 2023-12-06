@@ -32,28 +32,33 @@ func (h *hnsw) initCompressedBucket() error {
 	return nil
 }
 
-func (h *hnsw) Compress(cfg ent.PQConfig) error {
-	h.shardedNodeLocks.RLock(0)
-	node := h.nodes[0]
-	h.shardedNodeLocks.RUnlock(0)
+func (h *hnsw) calculateOptimalSegments(dims int) int {
+	if dims >= 2048 && dims%8 == 0 {
+		return dims / 8
+	} else if dims >= 768 && dims%6 == 0 {
+		return dims / 6
+	} else if dims >= 256 && dims%4 == 0 {
+		return dims / 4
+	} else if dims%2 == 0 {
+		return dims / 2
+	}
+	return dims
+}
 
-	if node == nil {
-		return errors.New("data must be inserted before compress command can be executed")
+func (h *hnsw) Compress(cfg ent.PQConfig) error {
+	if h.isEmpty() {
+		return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 	}
 	err := h.initCompressedBucket()
 	if err != nil {
 		return fmt.Errorf("init compressed vector store: %w", err)
 	}
 
-	vec, err := h.vectorForID(context.Background(), node.id)
-	if err != nil {
-		return fmt.Errorf("infer vector dimensions: %w", err)
-	}
-	dims := len(vec)
+	dims := int(h.dims)
 
-	// segments == 0 (default value) means use as many segments as dimensions
 	if cfg.Segments <= 0 {
-		cfg.Segments = dims
+		cfg.Segments = h.calculateOptimalSegments(dims)
+		h.pqConfig.Segments = cfg.Segments
 	}
 
 	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)

@@ -61,6 +61,8 @@ type IndexQueue struct {
 	pqMaxPool *pqMaxPool
 
 	checkpoints *indexcheckpoint.Checkpoints
+
+	paused atomic.Bool
 }
 
 type vectorDescriptor struct {
@@ -89,7 +91,7 @@ type IndexQueueOptions struct {
 }
 
 type batchIndexer interface {
-	AddBatch(id []uint64, vector [][]float32) error
+	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
@@ -97,6 +99,13 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+}
+
+type compressedIndexer interface {
+	Compressed() bool
+	AlreadyIndexed() uint64
+	TurnOnCompression(callback func()) error
+	ShouldCompress() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -259,7 +268,7 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 // PreloadShard goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(ctx context.Context, shard ShardLike) error {
+func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	if !asyncEnabled() {
 		return nil
 	}
@@ -278,6 +287,8 @@ func (q *IndexQueue) PreloadShard(ctx context.Context, shard ShardLike) error {
 	maxDocID := shard.Counter().Get()
 
 	var counter int
+
+	ctx := context.Background()
 
 	buf := make([]byte, 8)
 	for i := checkpoint; i < maxDocID; i++ {
@@ -350,6 +361,9 @@ func (q *IndexQueue) indexer() {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				continue
 			}
+			if q.paused.Load() {
+				continue
+			}
 			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
@@ -369,6 +383,7 @@ func (q *IndexQueue) indexer() {
 				// then for indexing them.
 				q.pushToWorkers(1, true)
 			}
+			q.checkCompressionSettings()
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -474,6 +489,41 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	}
 
 	return ids, dists, nil
+}
+
+func (q *IndexQueue) checkCompressionSettings() {
+	ci, ok := q.Index.(compressedIndexer)
+	if !ok {
+		return
+	}
+
+	shouldCompress, shouldCompressAt := ci.ShouldCompress()
+	if !shouldCompress || ci.Compressed() {
+		return
+	}
+
+	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
+		q.pauseIndexing()
+		err := ci.TurnOnCompression(q.resumeIndexing)
+		if err != nil {
+			q.Logger.WithError(err).Error("failed to turn on compression")
+		}
+	}
+}
+
+// pause indexing and wait for the workers to finish their current tasks
+// related to this queue.
+func (q *IndexQueue) pauseIndexing() {
+	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
+	q.paused.Store(true)
+	q.queue.wait(q.ctx)
+	q.Logger.Debug("indexing paused")
+}
+
+// resume indexing
+func (q *IndexQueue) resumeIndexing() {
+	q.paused.Store(false)
+	q.Logger.Debug("indexing resumed")
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
