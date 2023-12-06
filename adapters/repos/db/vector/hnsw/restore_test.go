@@ -13,6 +13,8 @@ package hnsw
 
 import (
 	"context"
+	"io"
+	"os"
 	"path"
 	"testing"
 
@@ -25,6 +27,19 @@ import (
 )
 
 func Test_RestartFromZeroSegments(t *testing.T) {
+	testPath := t.TempDir()
+	src := path.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments", "1234567")
+	source, err := os.Open(src)
+	assert.Nil(t, err)
+	dstPath := path.Join(testPath, "main.hnsw.commitlog.d")
+	assert.Nil(t, os.Mkdir(dstPath, 0o777))
+	destination, err := os.Create(path.Join(dstPath, "1234567"))
+	assert.Nil(t, err)
+	_, err = io.Copy(destination, source)
+	assert.Nil(t, err)
+	source.Close()
+	destination.Close()
+
 	efConstruction := 64
 	ef := 32
 	maxNeighbors := 32
@@ -40,7 +55,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 	uc.VectorCacheMaxObjects = 10e12
 	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: ent.PQEncoderTypeKMeans, Distribution: ent.PQEncoderDistributionNormal}}
 	config := Config{
-		RootPath:              path.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments"),
+		RootPath:              testPath,
 		ID:                    "main",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
@@ -53,7 +68,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 		},
 	}
 
-	_, err := New(
+	_, err = New(
 		config, uc,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 
