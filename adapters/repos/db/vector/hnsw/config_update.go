@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"os"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -131,7 +132,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 }
 
 func asyncEnabled() bool {
-	return config.Enabled("ASYNC_INDEXING")
+	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) TurnOnCompression(callback func()) error {
