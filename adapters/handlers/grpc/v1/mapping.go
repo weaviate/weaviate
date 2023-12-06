@@ -14,6 +14,7 @@ package v1
 import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/runtime/protoimpl"
 )
@@ -63,6 +64,8 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 			return parseArray[string](v, innerDt)
 		case schema.DataTypeTextArray:
 			return parseArray[string](v, innerDt)
+		case schema.DataTypeUUIDArray:
+			return parseArray[string](v, innerDt)
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
@@ -104,19 +107,25 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing text property", v)
 			}
 			return NewStringValue(val), nil
+		case schema.DataTypeUUID:
+			val, ok := v.(string)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing uuid property", v)
+			}
+			return NewUuidValue(val), nil
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
 	}
 }
 
-func NewNestedValue[P schema.PropertyInterface](v interface{}, dt schema.DataType, prop P) (*pb.Value, error) {
+func NewNestedValue[P schema.PropertyInterface](v interface{}, dt schema.DataType, parent P, prop search.SelectProperty) (*pb.Value, error) {
 	switch dt {
 	case schema.DataTypeObject:
 		if _, ok := v.(map[string]interface{}); !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected map[string]interface{}", v)
 		}
-		obj, err := NewObject(v.(map[string]interface{}), prop)
+		obj, err := NewObject(v.(map[string]interface{}), parent, prop)
 		if err != nil {
 			return nil, errors.Wrap(err, "creating nested object")
 		}
@@ -125,7 +134,7 @@ func NewNestedValue[P schema.PropertyInterface](v interface{}, dt schema.DataTyp
 		if _, ok := v.([]interface{}); !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected []map[string]interface{}", v)
 		}
-		list, err := NewObjectList(v.([]interface{}), prop)
+		list, err := NewObjectList(v.([]interface{}), parent, prop)
 		if err != nil {
 			return nil, errors.Wrap(err, "creating nested object array")
 		}
@@ -138,21 +147,68 @@ func NewNestedValue[P schema.PropertyInterface](v interface{}, dt schema.DataTyp
 // NewStruct constructs a Struct from a general-purpose Go map.
 // The map keys must be valid UTF-8.
 // The map values are converted using NewValue.
-func NewObject[P schema.PropertyInterface](v map[string]interface{}, prop P) (*pb.Struct, error) {
+func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, selectProp search.SelectProperty) (*pb.Struct, error) {
+	if !selectProp.IsObject {
+		return nil, errors.New("select property is not an object")
+	}
 	x := &pb.Struct{Fields: make(map[string]*pb.Value, len(v))}
-	for _, nested := range prop.GetNestedProperties() {
-		dt, err := schema.GetNestedPropertyDataType(prop, nested.Name)
+	for _, selectProp := range selectProp.Props {
+		dt, err := schema.GetNestedPropertyDataType(parent, selectProp.Name)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "getting data type of nested property %s", selectProp.Name)
 		}
 		if *dt == schema.DataTypeObject || *dt == schema.DataTypeObjectArray {
-			x.Fields[nested.Name], err = NewNestedValue(v[nested.Name], *dt, &NestedProperty{NestedProperty: nested})
+			nested, err := schema.GetNestedPropertyByName(parent, selectProp.Name)
+			if err != nil {
+				return nil, errors.Wrapf(err, "getting nested property %s", selectProp.Name)
+			}
+			x.Fields[selectProp.Name], err = NewNestedValue(v[selectProp.Name], *dt, &NestedProperty{NestedProperty: nested}, selectProp)
+			if err != nil {
+				return nil, errors.Wrapf(err, "creating nested object value %s", selectProp.Name)
+			}
 		} else {
-			x.Fields[nested.Name], err = NewPrimitiveValue(v[nested.Name], *dt)
+			x.Fields[selectProp.Name], err = NewPrimitiveValue(v[selectProp.Name], *dt)
+			if err != nil {
+				return nil, errors.Wrapf(err, "creating nested primitive value %s", selectProp.Name)
+			}
 		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "serializing field %s", selectProp.Name)
+		}
+	}
+	return x, nil
+}
+
+// NewList constructs a ListValue from a general-purpose Go slice.
+// The slice elements are converted using NewValue.
+func NewPrimitiveList[T bool | float64 | string](v []T, dt schema.DataType) (*pb.ListValue, error) {
+	x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
+	for i, v := range v {
+		var err error
+		x.Values[i], err = NewPrimitiveValue(v, dt)
 		if err != nil {
 			return nil, err
 		}
+	}
+	return x, nil
+}
+
+// NewList constructs a ListValue from a general-purpose Go slice.
+// The slice elements are converted using NewValue.
+func NewObjectList[P schema.PropertyInterface](v []interface{}, parent P, selectProp search.SelectProperty) (*pb.ListValue, error) {
+	if !selectProp.IsObject {
+		return nil, errors.New("select property is not an object")
+	}
+	x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
+	for i, v := range v {
+		if _, ok := v.(map[string]interface{}); !ok {
+			return nil, protoimpl.X.NewError("invalid type: %T expected map[string]interface{}", v)
+		}
+		value, err := NewObject(v.(map[string]interface{}), parent, selectProp)
+		if err != nil {
+			return nil, err
+		}
+		x.Values[i] = NewObjectValue(value)
 	}
 	return x, nil
 }
@@ -195,35 +251,4 @@ func NewObjectValue(v *pb.Struct) *pb.Value {
 // NewListValue constructs a new list Value.
 func NewListValue(v *pb.ListValue) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: v}}
-}
-
-// NewList constructs a ListValue from a general-purpose Go slice.
-// The slice elements are converted using NewValue.
-func NewPrimitiveList[T bool | float64 | string](v []T, dt schema.DataType) (*pb.ListValue, error) {
-	x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
-	for i, v := range v {
-		var err error
-		x.Values[i], err = NewPrimitiveValue(v, dt)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return x, nil
-}
-
-// NewList constructs a ListValue from a general-purpose Go slice.
-// The slice elements are converted using NewValue.
-func NewObjectList[P schema.PropertyInterface](v []interface{}, prop P) (*pb.ListValue, error) {
-	x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
-	for i, v := range v {
-		if _, ok := v.(map[string]interface{}); !ok {
-			return nil, protoimpl.X.NewError("invalid type: %T expected map[string]interface{}", v)
-		}
-		value, err := NewObject(v.(map[string]interface{}), prop)
-		if err != nil {
-			return nil, err
-		}
-		x.Values[i] = NewObjectValue(value)
-	}
-	return x, nil
 }
