@@ -384,10 +384,10 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
-		//Score is filled in later
-		ExplainScore:         ko.ExplainScore(),
-		IsConsistent:         ko.IsConsistent,
-		Tenant:               tenant, // not part of the binary
+		// Score is filled in later
+		ExplainScore: ko.ExplainScore(),
+		IsConsistent: ko.IsConsistent,
+		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
 }
