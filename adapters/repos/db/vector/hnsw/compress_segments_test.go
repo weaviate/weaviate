@@ -29,6 +29,8 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	ef := 32
 	maxNeighbors := 32
 
+	store := newDummyStore(t)
+
 	dimensionsSet := []int{768, 125, 64, 27, 2, 19}
 	expectedSegmentsSet := []int{128, 125, 32, 27, 1, 19}
 	vectors_size := 1000
@@ -65,7 +67,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 					return container.Slice, nil
 				},
 			}, uc,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
 		defer index.Shutdown(context.Background())
 		ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 			index.Add(uint64(id), vectors[id])
