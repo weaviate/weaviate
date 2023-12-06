@@ -6,7 +6,7 @@ OUT_DIR="$GEN_DIR/protocol"
 
 echo "Generating Go protocol stubs..."
 
-grep -r "constructors" $OUT_DIR | cut -d: -f1 | sort | uniq | xargs rm -f && mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \
+rm -fr $OUT_DIR && mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \
     --proto_path=../proto \
     --go_out=paths=source_relative:protocol \
     --go-grpc_out=paths=source_relative:protocol \
