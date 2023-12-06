@@ -63,21 +63,21 @@ message Value {
   // The kind of value.
   oneof kind {
     // Represents a double value.
-    double number_value = 2;
+    double number_value = 1;
     // Represents a string value.
-    string string_value = 3;
+    string string_value = 2;
     // Represents a boolean value.
-    bool bool_value = 4;
+    bool bool_value = 3;
     // Represents a nested object value.
-    Properties object_value = 5;
+    Properties object_value = 4;
     // Represents a repeated `Value`.
-    ListValue list_value = 6;
+    ListValue list_value = 5;
     // Represents a date value.
-    string date_value = 7;
+    string date_value = 6;
     // Represents a UUID value.
-    string uuid_value = 8;
+    string uuid_value = 7;
     // Represents an integer value.
-    int64 int_value = 9;
+    int64 int_value = 8;
   }
 }
 
