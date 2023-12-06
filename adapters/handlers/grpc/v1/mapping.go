@@ -20,6 +20,9 @@ import (
 )
 
 func parseArray[T float64 | bool | string](v interface{}, dt schema.DataType) (*pb.Value, error) {
+	if _, ok := v.([]interface{}); ok {
+		return &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}}, nil
+	}
 	val, ok := v.([]T)
 	if !ok {
 		return nil, protoimpl.X.NewError("invalid type: %T when serializing %v", v, dt.String())
