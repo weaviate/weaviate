@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -40,7 +41,7 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 // asyncEnabled is a quick and dirty way to create a feature flag for async
 // indexing.
 func asyncEnabled() bool {
-	return os.Getenv("ASYNC_INDEXING") == "true"
+	return config.Enabled("ASYNC_INDEXING")
 }
 
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
