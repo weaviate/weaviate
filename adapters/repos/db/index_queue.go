@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -100,11 +99,13 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
-	ShouldCompress() (bool, int)
-	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
+}
+
+type compressedIndexer interface {
 	Compressed() bool
 	AlreadyIndexed() uint64
 	TurnOnCompression(callback func()) error
+	ShouldCompress() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -491,14 +492,19 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 }
 
 func (q *IndexQueue) checkCompressionSettings() {
-	shouldCompress, shouldCompressAt := q.Index.ShouldCompress()
-	if !shouldCompress || q.Index.Compressed() {
+	ci, ok := q.Index.(compressedIndexer)
+	if !ok {
 		return
 	}
 
-	if q.Index.AlreadyIndexed() > uint64(shouldCompressAt) {
+	shouldCompress, shouldCompressAt := ci.ShouldCompress()
+	if !shouldCompress || ci.Compressed() {
+		return
+	}
+
+	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
 		q.pauseIndexing()
-		err := q.Index.TurnOnCompression(q.resumeIndexing)
+		err := ci.TurnOnCompression(q.resumeIndexing)
 		if err != nil {
 			q.Logger.WithError(err).Error("failed to turn on compression")
 		}

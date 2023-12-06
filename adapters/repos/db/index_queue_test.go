@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -949,10 +948,6 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 
 func (m *mockBatchIndexer) ShouldCompress() (bool, int) {
 	return m.shouldCompress, m.threshold
-}
-
-func (m *mockBatchIndexer) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
-	return false, 0
 }
 
 func (m *mockBatchIndexer) Compressed() bool {

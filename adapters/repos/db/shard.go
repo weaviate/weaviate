@@ -227,8 +227,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	s.NotifyReady()
-
 	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
 	if err != nil {
 		return nil, err
