@@ -180,6 +180,10 @@ type Index struct {
 
 	backupMutex backupMutex
 	lastBackup  atomic.Pointer[BackupState]
+
+	// canceled when either Shutdown or Drop called
+	closingCtx    context.Context
+	closingCancel context.CancelFunc
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -244,6 +248,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:    indexCheckpoints,
 	}
+	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
+
 	index.initCycleCallbacks()
 
 	if err := index.checkSingleShardMigration(shardState); err != nil {
@@ -307,11 +313,30 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		i.shards.Store(shardName, shard)
 	}
 
-	go i.ForEachShard(func(name string, shard ShardLike) error {
-		shard.(*LazyLoadShard).Load(context.Background())
-		time.Sleep(1 * time.Second)
-		return nil
-	})
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		i.ForEachShard(func(name string, shard ShardLike) error {
+			// prioritize closingCtx over ticker:
+			// check closing again in case of ticker was selected when both
+			// cases where available
+			select {
+			case <-i.closingCtx.Done():
+				// break loop by returning error
+				return i.closingCtx.Err()
+			case <-ticker.C:
+				select {
+				case <-i.closingCtx.Done():
+					// break loop by returning error
+					return i.closingCtx.Err()
+				default:
+					shard.(*LazyLoadShard).Load(context.Background())
+					return nil
+				}
+			}
+		})
+	}()
 
 	return nil
 }
@@ -1621,6 +1646,8 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
+	i.closingCancel()
+
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
@@ -1712,6 +1739,8 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
+	i.closingCancel()
+
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
 
