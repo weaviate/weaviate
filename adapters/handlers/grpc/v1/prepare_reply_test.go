@@ -298,7 +298,7 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "array properties with pb.Struct",
+			name: "array properties",
 			res: []interface{}{
 				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
 			},
@@ -322,7 +322,7 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
-			name: "array properties without pb.Struct",
+			name: "array properties deprecated",
 			res: []interface{}{
 				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
 			},
@@ -346,7 +346,7 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: false,
 		},
 		{
-			name: "nested object properties with pb.Struct",
+			name: "nested object properties",
 			res: []interface{}{
 				map[string]interface{}{
 					"something": map[string]interface{}{
@@ -444,7 +444,7 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
-			name: "nested object properties without pb.Struct",
+			name: "nested object properties deprecated",
 			res: []interface{}{
 				map[string]interface{}{
 					"something": map[string]interface{}{
@@ -629,7 +629,7 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "primitive and ref array properties with pb.Struct",
+			name: "primitive and ref array properties",
 			res: []interface{}{
 				map[string]interface{}{
 					"word": "word",
@@ -687,7 +687,7 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
-			name: "primitive and ref array properties without pb.Properties",
+			name: "primitive and ref array properties deprecated",
 			res: []interface{}{
 				map[string]interface{}{
 					"word": "word",

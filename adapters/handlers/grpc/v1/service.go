@@ -134,7 +134,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams, scheme, !req.UsesWeaviateStruct)
+		proto, err := searchResultsToProto(res, before, searchParams, scheme, req.UsesWeaviateStruct)
 		c <- reply{
 			Result: proto,
 			Error:  err,

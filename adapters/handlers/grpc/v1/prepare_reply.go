@@ -29,7 +29,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, isDeprecated bool) (*pb.SearchReply, error) {
+func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, usesNewStruct bool) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took: float32(tookSeconds),
@@ -38,7 +38,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, isDeprecated)
+			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesNewStruct)
 			if err != nil {
 				return nil, err
 			}
@@ -46,7 +46,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, isDeprecated)
+		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesNewStruct)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +56,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	return out, nil
 }
 
-func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup, isDeprecated bool) ([]*pb.SearchResult, string, error) {
+func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup, usesNewStruct bool) ([]*pb.SearchResult, string, error) {
 	results := make([]*pb.SearchResult, len(res))
 	generativeGroupResultsReturn := ""
 	for i, raw := range res {
@@ -69,10 +69,10 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 		var props *pb.PropertiesResult
 		var err error
 
-		if isDeprecated {
-			props, err = extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
-		} else {
+		if usesNewStruct {
 			props, err = extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		} else {
+			props, err = extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		}
 		if err != nil {
 			return nil, "", err
@@ -268,7 +268,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	return additionalProps, generativeGroupResults, nil
 }
 
-func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, isDeprecated bool) (*pb.GroupByResult, string, error) {
+func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.GroupByResult, string, error) {
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse result %v", raw)
@@ -306,7 +306,7 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, isD
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, groupedGenerativeResults, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true, isDeprecated)
+	objects, groupedGenerativeResults, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true, usesMarshalling)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
