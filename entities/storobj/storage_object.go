@@ -271,17 +271,6 @@ func (ko *Object) CreationTimeUnix() int64 {
 	return ko.Object.CreationTimeUnix
 }
 
-func (ko *Object) Score() float32 {
-	props := ko.AdditionalProperties()
-	if props != nil {
-		iface := props["score"]
-		if iface != nil {
-			return iface.(float32)
-		}
-	}
-	return 0
-}
-
 func (ko *Object) ExplainScore() string {
 	props := ko.AdditionalProperties()
 	if props != nil {
@@ -395,7 +384,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
-		Score:                ko.Score(),
+		//Score is filled in later
 		ExplainScore:         ko.ExplainScore(),
 		IsConsistent:         ko.IsConsistent,
 		Tenant:               tenant, // not part of the binary
@@ -407,6 +396,12 @@ func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32)
 	res := ko.SearchResult(addl, "")
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	return *res
+}
+
+func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
+	res := ko.SearchResult(addl, "")
+	res.Score = score
 	return *res
 }
 

@@ -304,13 +304,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		oldLimit := params.Pagination.Limit
 		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
 
-		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
+		res, scores, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {
 			return nil, nil, err
 		}
 		params.Pagination.Limit = oldLimit
 
-		return res, dists, nil
+		return res, scores, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {

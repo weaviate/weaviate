@@ -1120,12 +1120,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
 			for ii := range outObjects {
 				oo := outObjects[ii]
-				os := outScores[ii]
 
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
 				}
-				oo.Object.Additional["score"] = os
+
+				// Additional score is filled in by the top level function
 
 				// Collect all keys starting with "BM25F" and add them to the Additional
 				if keywordRanking.AdditionalExplanations {

@@ -167,14 +167,14 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	return fused, nil
 }
 
-func processSparseSearch(results []*storobj.Object, weights []float32, err error) ([]*Result, error) {
+func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
 
 	out := make([]*Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithDist(additional.Properties{}, weights[i])
+		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
 		sr.SecondarySortValue = sr.Score
 		out[i] = &Result{obj.DocID, &sr}
 	}

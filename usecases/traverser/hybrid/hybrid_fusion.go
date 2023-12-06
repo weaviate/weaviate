@@ -34,12 +34,12 @@ func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) 
 			previousResult, ok := combinedResults[docId]
 			if ok {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
-					"%v\n(Result Set %v) Document %v contributed %v to the score",
+					"%v\nHybrid (Result Set %v) Document %v contributed %v to the score",
 					previousResult.AdditionalProperties["explainScore"], setNames[resultSetIndex], tempResult.ID, score)
 				score += float64(previousResult.Score)
 			} else {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
-					"%v\n(Result Set %v) Document %v contributed %v to the score",
+					"%v\nHybrid (Result Set %v) Document %v contributed %v to the score",
 					tempResult.ExplainScore, setNames[resultSetIndex], tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score
@@ -107,7 +107,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 		}
 	}
 
-	// normalize scores between 0 and 1 and sum uo the normalized scores from different sources
+	// normalize scores between 0 and 1 and sum up the normalized scores from different sources
 	// pre-allocate map, at this stage we do not know how many total, combined results there are, but it is at least the
 	// length of the longer input list
 	numResults := len(resultSets[0])
@@ -125,7 +125,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 			}
 
 			previousResult, ok := mapResults[res.ID]
-			explainScore := fmt.Sprintf("(Result Set %v) Document %v: original score %v, normalized score: %v", names[i], res.ID, res.SecondarySortValue, score)
+			explainScore := fmt.Sprintf("Hybrid (Result Set %v) Document %v: original score %v, normalized score: %v", names[i], res.ID, res.SecondarySortValue, score)
 			if ok {
 				score += previousResult.Score
 				explainScore += " - " + previousResult.ExplainScore

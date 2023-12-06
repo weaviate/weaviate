@@ -101,7 +101,7 @@ func TestSearcher(t *testing.T) {
 				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set keyword) Document")
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
-				assert.Equal(t, res[0].Result.Dist, float32(0.008))
+				assert.Equal(t, res[0].Result.Dist, float32(0.000))
 			},
 		},
 		{
@@ -191,7 +191,8 @@ func TestSearcher(t *testing.T) {
 				assert.Contains(t, res[1].Result.ExplainScore, "(Result Set keyword) Document")
 				assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
-				assert.Equal(t, res[1].Result.Dist, float32(0.008))
+				assert.Equal(t, res[1].Result.Dist, float32(0.000))
+				assert.Equal(t, float32(0.008196721), res[0].Result.Score)
 			},
 		},
 		{
