@@ -38,7 +38,7 @@ func Test_RestartFromZeroSegments(t *testing.T) {
 	uc.EFConstruction = efConstruction
 	uc.EF = ef
 	uc.VectorCacheMaxObjects = 10e12
-	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "kmeans", Distribution: "normal"}}
+	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: ent.PQEncoderTypeKMeans, Distribution: ent.PQEncoderDistributionNormal}}
 	config := Config{
 		RootPath:              path.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments"),
 		ID:                    "main",
