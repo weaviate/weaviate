@@ -46,8 +46,8 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		uc.PQ = ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
-				Type:         "kmeans",
-				Distribution: "normal",
+				Type:         ent.PQEncoderTypeKMeans,
+				Distribution: ent.PQEncoderDistributionNormal,
 			},
 		}
 
