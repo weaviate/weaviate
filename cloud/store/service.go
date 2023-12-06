@@ -23,6 +23,28 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type ClusterMetaStore interface {
+	Open(context.Context, DB) error
+	Close(ctx context.Context) (err error)
+	Ready() bool
+
+	SchemaReader() *schema
+	AddClass(*models.Class, *sharding.State) error
+	UpdateClass(*models.Class, *sharding.State) error
+	DeleteClass(string) error
+	RestoreClass(*models.Class, *sharding.State) error
+	AddProperty(string, *models.Property) error
+	UpdateShardStatus(string, string, string) error
+	AddTenants(string, *cmd.AddTenantsRequest) error
+	UpdateTenants(string, *cmd.UpdateTenantsRequest) error
+	DeleteTenants(string, *cmd.DeleteTenantsRequest) error
+	Execute(*cmd.ApplyRequest) error
+	Join(context.Context, string, string, bool) error
+	Remove(context.Context, string) error
+	Stats() map[string]string
+	WaitUntilDBRestored(context.Context, time.Duration) error
+}
+
 // Service abstracts away the Raft store, providing clients with an interface that encompasses all write operations.
 // It ensures that these operations are executed on the current leader, regardless of the specific leader in the cluster.
 type Service struct {

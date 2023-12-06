@@ -29,6 +29,22 @@ var (
 	errShardNotFound = errors.New("shard not found")
 )
 
+type ClusterSchema interface {
+	ClassInfo(string) ClassInfo
+	MultiTenancy(string) bool
+	Read(string, func(*models.Class, *sharding.State) error) error
+	ReadOnlyClass(string) *models.Class
+	ReadOnlySchema() models.Schema
+	ClassEqual(string) string
+
+	ShardOwner(string, string) (string, error)
+	ShardFromUUID(string, []byte) string
+	ShardReplicas(string, string) ([]string, error)
+	TenantShard(string, string) (string, string)
+	CopyShardingState(string) *sharding.State
+	GetShardsStatus(string) (models.ShardStatusList, error)
+}
+
 type schema struct {
 	nodeID      string
 	shardReader shardReader

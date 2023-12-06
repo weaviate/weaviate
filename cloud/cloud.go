@@ -10,6 +10,14 @@ import (
 	"github.com/weaviate/weaviate/cloud/transport"
 )
 
+type ClusterService interface {
+	Open(context.Context, []string, store.DB) error
+	Close(context.Context) error
+	Ready() bool
+
+	GetClusterMetaStore() store.ClusterMetaStore
+}
+
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
 
@@ -22,12 +30,12 @@ type Service struct {
 	logger     *slog.Logger
 }
 
-func New(cfg store.Config) Service {
+func New(cfg store.Config) ClusterService {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort))
 	fsm := store.New(cfg)
 	server := store.NewService(&fsm, cl)
-	return Service{
+	return &Service{
 		Service:    server,
 		nodeName:   cfg.NodeID,
 		raftAddr:   fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
@@ -70,4 +78,8 @@ func (c *Service) Close(ctx context.Context) (err error) {
 
 func (c *Service) Ready() bool {
 	return c.Service.Ready()
+}
+
+func (c *Service) GetClusterMetaStore() store.ClusterMetaStore {
+	return c.Service
 }

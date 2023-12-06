@@ -69,7 +69,7 @@ type State struct {
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
 	/// TODO-RAFT START
-	CloudService cloud.Service
+	CloudService cloud.ClusterService
 	/// TODO-RAFT END
 }
 

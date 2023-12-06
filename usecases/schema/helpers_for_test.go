@@ -40,7 +40,7 @@ import (
 func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 	cfg := config.Config{}
 	srv := startRaftCluster(t, db)
-	reader := srv.SchemaReader()
+	metaStore := srv.GetClusterMetaStore()
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
@@ -48,14 +48,14 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 		},
 	}
 	handler, err := NewHandler(
-		srv.Service, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		metaStore, metaStore.SchemaReader(), &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, func() { srv.Close(context.TODO()) }
 }
 
-func startRaftCluster(t *testing.T, db store.DB) cloud.Service {
+func startRaftCluster(t *testing.T, db store.DB) cloud.ClusterService {
 	node := "node-1"
 	nodeUrl := newRandomHostURL(t)
 	raftUrl := newRandomHostURL(t)
