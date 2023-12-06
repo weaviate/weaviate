@@ -88,7 +88,7 @@ func (x *ListValue) UnmarshalJSON(b []byte) error {
 
 // AsMap converts x to a general-purpose Go map.
 // The map values are converted by calling Value.AsInterface.
-func (x *Struct) AsMap() map[string]interface{} {
+func (x *Properties) AsMap() map[string]interface{} {
 	f := x.GetFields()
 	vs := make(map[string]interface{}, len(f))
 	for k, v := range f {
@@ -97,10 +97,10 @@ func (x *Struct) AsMap() map[string]interface{} {
 	return vs
 }
 
-func (x *Struct) MarshalJSON() ([]byte, error) {
+func (x *Properties) MarshalJSON() ([]byte, error) {
 	return protojson.Marshal(x)
 }
 
-func (x *Struct) UnmarshalJSON(b []byte) error {
+func (x *Properties) UnmarshalJSON(b []byte) error {
 	return protojson.Unmarshal(b, x)
 }

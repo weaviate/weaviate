@@ -311,7 +311,7 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
-						NonRefProps: &pb.Struct{
+						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
 								"nums": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]float64{1, 2, 3}, schema.DataTypeInt))}},
 							},
@@ -409,15 +409,15 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: objClass,
-						NonRefProps: &pb.Struct{
+						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
 								"something": {Kind: &pb.Value_ObjectValue{
-									ObjectValue: &pb.Struct{
+									ObjectValue: &pb.Properties{
 										Fields: map[string]*pb.Value{
 											"name":  {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
 											"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
 											"else": {Kind: &pb.Value_ObjectValue{
-												ObjectValue: &pb.Struct{
+												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
 														"name":  {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
 														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
@@ -426,7 +426,7 @@ func TestGRPCReply(t *testing.T) {
 											}},
 											"objs": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
 												Values: []*pb.Value{{Kind: &pb.Value_ObjectValue{
-													ObjectValue: &pb.Struct{
+													ObjectValue: &pb.Properties{
 														Fields: map[string]*pb.Value{
 															"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
 														},
@@ -662,7 +662,7 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
-						NonRefProps: &pb.Struct{
+						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
 								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
 							},
@@ -673,7 +673,7 @@ func TestGRPCReply(t *testing.T) {
 								{
 									TargetCollection: refClass1,
 									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
-									NonRefProps: &pb.Struct{
+									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
 											"nums": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]float64{1, 2, 3}, schema.DataTypeInt))}},
 										},
@@ -687,7 +687,7 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
-			name: "primitive and ref array properties without pb.Struct",
+			name: "primitive and ref array properties without pb.Properties",
 			res: []interface{}{
 				map[string]interface{}{
 					"word": "word",

@@ -150,11 +150,11 @@ func NewNestedValue[P schema.PropertyInterface](v interface{}, dt schema.DataTyp
 // NewStruct constructs a Struct from a general-purpose Go map.
 // The map keys must be valid UTF-8.
 // The map values are converted using NewValue.
-func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, selectProp search.SelectProperty) (*pb.Struct, error) {
+func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, selectProp search.SelectProperty) (*pb.Properties, error) {
 	if !selectProp.IsObject {
 		return nil, errors.New("select property is not an object")
 	}
-	x := &pb.Struct{Fields: make(map[string]*pb.Value, len(v))}
+	x := &pb.Properties{Fields: make(map[string]*pb.Value, len(v))}
 	for _, selectProp := range selectProp.Props {
 		dt, err := schema.GetNestedPropertyDataType(parent, selectProp.Name)
 		if err != nil {
@@ -247,7 +247,7 @@ func NewUuidValue(v string) *pb.Value {
 }
 
 // NewObjectValue constructs a new struct Value.
-func NewObjectValue(v *pb.Struct) *pb.Value {
+func NewObjectValue(v *pb.Properties) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_ObjectValue{ObjectValue: v}}
 }
 
