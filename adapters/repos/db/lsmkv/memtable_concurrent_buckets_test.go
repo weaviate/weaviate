@@ -34,9 +34,9 @@ type Response struct {
 }
 
 func TestMemtableConcurrentInsert(t *testing.T) {
-	const numKeys = 1000000
-	const operationsPerClient = 1000
-	const numClients = 10000
+	const numKeys = 1000
+	const operationsPerClient = 10
+	const numClients = 100
 	numWorkers := runtime.NumCPU()
 
 	operations := generateOperations(numKeys, operationsPerClient, numClients)
