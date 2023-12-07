@@ -342,6 +342,15 @@ func TestHybridExplainScore(t *testing.T) {
 			require.Contains(t, explainScore, "contributed 0.004098360655737705 to the score")
 			require.Contains(t, explainScore, "contributed 0.012295081967213115 to the score")
 	})
+	t.Run("hybrid explainscore relative score fusion", func(t *testing.T) {
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\", fusionType: relativeScoreFusion, properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
+		require.Nil(t, err)
+		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+		require.Len(t, result, 5)
+		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
+		require.Contains(t, explainScore, "normalized score: 0.75")
+		require.Contains(t, explainScore, "normalized score: 0.25")
+})
 }
 
 func TestNearTextAutocut(t *testing.T) {
