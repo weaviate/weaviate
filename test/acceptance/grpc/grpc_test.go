@@ -82,7 +82,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesWeaviateStruct: true,
+				UsesPropertiesMessage: true,
 			},
 		},
 		{
@@ -92,7 +92,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesWeaviateStruct: true,
+				UsesPropertiesMessage: true,
 			},
 		},
 	}

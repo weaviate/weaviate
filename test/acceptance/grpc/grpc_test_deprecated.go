@@ -82,7 +82,7 @@ func TestGRPCDeprecated(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesWeaviateStruct: false,
+				UsesPropertiesMessage: false,
 			},
 		},
 		{
@@ -92,7 +92,7 @@ func TestGRPCDeprecated(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesWeaviateStruct: false,
+				UsesPropertiesMessage: false,
 			},
 		},
 	}
