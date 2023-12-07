@@ -27,10 +27,16 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
-type DummyCommitlog struct{}
+type DummyCommitlog struct {
+	path string
+}
 
 func (*DummyCommitlog) close() error {
 	return nil
+}
+
+func (*DummyCommitlog) Size() int64 {
+	return 0
 }
 
 type MemtableThreaded struct {
@@ -667,6 +673,15 @@ func (m *MemtableThreaded) CommitlogSize() int64 {
 			operation: ThreadedSize,
 		}, false, "CommitlogSize")
 		return int64(output.size)
+	}
+}
+
+func (m *MemtableThreaded) CommitlogPath() string {
+	if m.baseline != nil {
+		return m.baseline.Commitlog().path
+	} else {
+		// this one should always exists
+		return m.path + fmt.Sprintf("_%d", 0)
 	}
 }
 
