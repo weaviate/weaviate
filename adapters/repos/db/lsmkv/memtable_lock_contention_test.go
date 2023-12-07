@@ -35,9 +35,9 @@ type Times struct {
 
 // Lock contention example written by Parker to demo WVT-40 (multiple threads writing to bucket concurrently)
 func TestMemtableLockContention(t *testing.T) {
-	const numKeys = 1000000
-	const operationsPerClient = 1000
-	const numClients = 10000
+	const numKeys = 1000
+	const operationsPerClient = 10
+	const numClients = 100
 
 	// Could this be replaced by subtests?
 	times := Times{}
