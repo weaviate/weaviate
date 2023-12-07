@@ -834,6 +834,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	if err := b.active.flush(); err != nil {
 		return err
 	}
+	if b.active != nil {
+		b.active.closeRequestChannels()
+	}
 	b.flushLock.Unlock()
 
 	if b.flushing == nil {
@@ -978,6 +981,9 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 			break
 		}
 	}
+	if b.flushing != nil {
+		b.flushing.closeRequestChannels()
+	}
 	b.flushing = nil
 
 	if b.strategy == StrategyReplace && b.monitorCount {
@@ -992,7 +998,9 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 func (b *Bucket) atomicallySwitchMemtable() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
-
+	if b.flushing != nil {
+		b.flushing.closeRequestChannels()
+	}
 	b.flushing = b.active
 	return b.setNewActiveMemtable()
 }

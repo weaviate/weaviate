@@ -21,10 +21,12 @@ import (
 )
 
 func (m *MemtableThreaded) closeRequestChannels() {
-	for _, channel := range m.requestsChannels {
-		close(channel)
+	if m.baseline == nil {
+		for _, channel := range m.requestsChannels {
+			close(channel)
+		}
+		m.wgWorkers.Wait()
 	}
-	m.wgWorkers.Wait()
 }
 
 func (m *MemtableThreaded) flush() error {
@@ -61,7 +63,6 @@ func (m *MemtableThreaded) flush() error {
 		if err != nil {
 			return err
 		}
-		m.closeRequestChannels()
 		return nil
 	}
 }
