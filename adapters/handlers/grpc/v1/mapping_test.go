@@ -19,200 +19,140 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func TestParseArray(t *testing.T) {
+type innerTest struct {
+	datatype    schema.DataType
+	out         *pb.Value
+	shouldError bool
+}
+
+func makeTestList(succeedingInnerTests map[schema.DataType]*pb.Value) []innerTest {
+	dtypes := append(schema.PrimitiveDataTypes, schema.DeprecatedPrimitiveDataTypes...)
+	list := make([]innerTest, len(dtypes))
+	for idx := range dtypes {
+		out, ok := succeedingInnerTests[dtypes[idx]]
+		if ok {
+			list[idx] = innerTest{
+				datatype:    dtypes[idx],
+				out:         out,
+				shouldError: false,
+			}
+		} else {
+			list[idx] = innerTest{
+				datatype:    dtypes[idx],
+				out:         nil,
+				shouldError: true,
+			}
+		}
+	}
+	return list
+}
+
+func TestNewPrimitiveValue(t *testing.T) {
 	tests := []struct {
 		name  string
 		in    any
-		tests []struct {
-			datatype    schema.DataType
-			out         *pb.Value
-			shouldError bool
-		}
+		tests []innerTest
 	}{
 		{
-			name: "bool",
+			name: "bools",
 			in:   []bool{true, false},
-			tests: []struct {
-				datatype    schema.DataType
-				out         *pb.Value
-				shouldError bool
-			}{
-				{
-					datatype: schema.DataTypeBoolean,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_BoolValue{BoolValue: true}},
-						{Kind: &pb.Value_BoolValue{BoolValue: false}},
-					}}}},
-					shouldError: false,
-				},
-				{
-					datatype:    schema.DataTypeDate,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeInt,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeNumber,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeString,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeText,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeUUID,
-					out:         nil,
-					shouldError: true,
-				},
-			},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeBooleanArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_BoolValue{BoolValue: true}},
+					{Kind: &pb.Value_BoolValue{BoolValue: false}},
+				}}}},
+			}),
 		},
 		{
-			name: "float64",
+			name: "strings",
+			in:   []string{"a string", "another string"},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeDateArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_DateValue{DateValue: "a string"}},
+					{Kind: &pb.Value_DateValue{DateValue: "another string"}},
+				}}}},
+				schema.DataTypeStringArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_StringValue{StringValue: "a string"}},
+					{Kind: &pb.Value_StringValue{StringValue: "another string"}},
+				}}}},
+				schema.DataTypeTextArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_StringValue{StringValue: "a string"}},
+					{Kind: &pb.Value_StringValue{StringValue: "another string"}},
+				}}}},
+				schema.DataTypeUUIDArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+					{Kind: &pb.Value_UuidValue{UuidValue: "another string"}},
+				}}}},
+			}),
+		},
+		{
+			name: "float64s",
 			in:   []float64{1.1, 2.2, 3.3},
-			tests: []struct {
-				datatype    schema.DataType
-				out         *pb.Value
-				shouldError bool
-			}{
-				{
-					datatype:    schema.DataTypeBoolean,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeDate,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype: schema.DataTypeInt,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_IntValue{IntValue: 1}},
-						{Kind: &pb.Value_IntValue{IntValue: 2}},
-						{Kind: &pb.Value_IntValue{IntValue: 3}},
-					}}}},
-					shouldError: false,
-				},
-				{
-					datatype: schema.DataTypeNumber,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_NumberValue{NumberValue: 1.1}},
-						{Kind: &pb.Value_NumberValue{NumberValue: 2.2}},
-						{Kind: &pb.Value_NumberValue{NumberValue: 3.3}},
-					}}}},
-					shouldError: false,
-				},
-				{
-					datatype:    schema.DataTypeString,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeText,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeUUID,
-					out:         nil,
-					shouldError: true,
-				},
-			},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeNumberArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_NumberValue{NumberValue: 1.1}},
+					{Kind: &pb.Value_NumberValue{NumberValue: 2.2}},
+					{Kind: &pb.Value_NumberValue{NumberValue: 3.3}},
+				}}}},
+				schema.DataTypeIntArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
+					{Kind: &pb.Value_IntValue{IntValue: 1}},
+					{Kind: &pb.Value_IntValue{IntValue: 2}},
+					{Kind: &pb.Value_IntValue{IntValue: 3}},
+				}}}},
+			}),
+		},
+		{
+			name: "empty array",
+			in:   []interface{}{},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeBooleanArray: {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+				schema.DataTypeDateArray:    {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+				schema.DataTypeNumberArray:  {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+				schema.DataTypeIntArray:     {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+				schema.DataTypeStringArray:  {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+				schema.DataTypeTextArray:    {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+				schema.DataTypeUUIDArray:    {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}},
+			}),
+		},
+		{
+			name: "bool",
+			in:   true,
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeBoolean: {Kind: &pb.Value_BoolValue{BoolValue: true}},
+			}),
 		},
 		{
 			name: "string",
-			in:   []string{"a string", "another string"},
-			tests: []struct {
-				datatype    schema.DataType
-				out         *pb.Value
-				shouldError bool
-			}{
-				{
-					datatype:    schema.DataTypeBoolean,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype: schema.DataTypeDate,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_DateValue{DateValue: "a string"}},
-						{Kind: &pb.Value_DateValue{DateValue: "another string"}},
-					}}}},
-					shouldError: false,
-				},
-				{
-					datatype:    schema.DataTypeInt,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype:    schema.DataTypeNumber,
-					out:         nil,
-					shouldError: true,
-				},
-				{
-					datatype: schema.DataTypeString,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_StringValue{StringValue: "a string"}},
-						{Kind: &pb.Value_StringValue{StringValue: "another string"}},
-					}}}},
-					shouldError: false,
-				},
-				{
-					datatype: schema.DataTypeText,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_StringValue{StringValue: "a string"}},
-						{Kind: &pb.Value_StringValue{StringValue: "another string"}},
-					}}}},
-					shouldError: false,
-				},
-				{
-					datatype: schema.DataTypeUUID,
-					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
-						{Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
-						{Kind: &pb.Value_UuidValue{UuidValue: "another string"}},
-					}}}},
-					shouldError: false,
-				},
-			},
+			in:   "a string",
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeDate:   {Kind: &pb.Value_DateValue{DateValue: "a string"}},
+				schema.DataTypeString: {Kind: &pb.Value_StringValue{StringValue: "a string"}},
+				schema.DataTypeText:   {Kind: &pb.Value_StringValue{StringValue: "a string"}},
+				schema.DataTypeUUID:   {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+			}),
+		},
+		{
+			name: "float64",
+			in:   1.1,
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeNumber: {Kind: &pb.Value_NumberValue{NumberValue: 1.1}},
+				schema.DataTypeInt:    {Kind: &pb.Value_IntValue{IntValue: 1}},
+			}),
 		},
 	}
 
 	for _, tt := range tests {
 		for _, test := range tt.tests {
-			if tt.name == "bool" {
-				testValue(t, tt.in.([]bool), test.out, test.datatype, test.shouldError)
-			}
-			if tt.name == "float64" {
-				testValue(t, tt.in.([]float64), test.out, test.datatype, test.shouldError)
-			}
-			if tt.name == "string" {
-				testValue(t, tt.in.([]string), test.out, test.datatype, test.shouldError)
+			out, err := NewPrimitiveValue(tt.in, test.datatype)
+			if test.shouldError {
+				if err == nil {
+					t.Logf("expected an error for %v and %s", tt.in, test.datatype)
+				}
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, test.out, out)
 			}
 		}
-	}
-}
-
-func testValue[T bool | float64 | string](t *testing.T, in []T, expected *pb.Value, dt schema.DataType, shouldError bool) {
-	out, err := parseArray[T](in, dt)
-	if shouldError {
-		if err == nil {
-			t.Logf("expected an error for %v and %s", in, dt)
-		}
-		require.Error(t, err)
-	} else {
-		require.NoError(t, err)
-		require.Equal(t, expected, out)
 	}
 }
