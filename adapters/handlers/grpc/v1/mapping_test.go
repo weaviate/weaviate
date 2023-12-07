@@ -19,22 +19,24 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-type innerTest struct {
-	datatype    schema.DataType
-	out         *pb.Value
-	shouldError bool
-}
-
 func TestParseArray(t *testing.T) {
 	tests := []struct {
 		name  string
 		in    any
-		tests []innerTest
+		tests []struct {
+			datatype    schema.DataType
+			out         *pb.Value
+			shouldError bool
+		}
 	}{
 		{
 			name: "bool",
 			in:   []bool{true, false},
-			tests: []innerTest{
+			tests: []struct {
+				datatype    schema.DataType
+				out         *pb.Value
+				shouldError bool
+			}{
 				{
 					datatype: schema.DataTypeBoolean,
 					out: &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{
@@ -78,7 +80,11 @@ func TestParseArray(t *testing.T) {
 		{
 			name: "float64",
 			in:   []float64{1.1, 2.2, 3.3},
-			tests: []innerTest{
+			tests: []struct {
+				datatype    schema.DataType
+				out         *pb.Value
+				shouldError bool
+			}{
 				{
 					datatype:    schema.DataTypeBoolean,
 					out:         nil,
@@ -127,7 +133,11 @@ func TestParseArray(t *testing.T) {
 		{
 			name: "string",
 			in:   []string{"a string", "another string"},
-			tests: []innerTest{
+			tests: []struct {
+				datatype    schema.DataType
+				out         *pb.Value
+				shouldError bool
+			}{
 				{
 					datatype:    schema.DataTypeBoolean,
 					out:         nil,
