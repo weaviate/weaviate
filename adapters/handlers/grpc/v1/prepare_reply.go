@@ -29,7 +29,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, usesNewStruct bool) (*pb.SearchReply, error) {
+func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, UsesPropertiesMessage bool) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took: float32(tookSeconds),
@@ -38,7 +38,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesNewStruct)
+			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, UsesPropertiesMessage)
 			if err != nil {
 				return nil, err
 			}
@@ -46,7 +46,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesNewStruct)
+		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, UsesPropertiesMessage)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +56,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	return out, nil
 }
 
-func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup, usesNewStruct bool) ([]*pb.SearchResult, string, error) {
+func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup, UsesPropertiesMessage bool) ([]*pb.SearchResult, string, error) {
 	results := make([]*pb.SearchResult, len(res))
 	generativeGroupResultsReturn := ""
 	for i, raw := range res {
@@ -69,7 +69,7 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 		var props *pb.PropertiesResult
 		var err error
 
-		if usesNewStruct {
+		if UsesPropertiesMessage {
 			props, err = extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		} else {
 			props, err = extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)

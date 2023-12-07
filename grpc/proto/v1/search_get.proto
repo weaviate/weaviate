@@ -44,7 +44,7 @@ message SearchRequest {
 
   optional GenerativeSearch generative = 60;
 
-  bool uses_weaviate_struct = 100 [deprecated = true];
+  bool uses_properties_message = 100 [deprecated = true];
 }
 
 message GroupBy {
