@@ -40,10 +40,13 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 				"MINIO_ROOT_PASSWORD": "aws_secret_key",
 			},
 			Cmd: []string{"server", "/data"},
-			WaitingFor: wait.
-				ForHTTP("/minio/health/ready").
-				WithPort(nat.Port("9000/tcp")).
-				WithStartupTimeout(60 * time.Second),
+			WaitingFor: wait.ForAll(
+				wait.ForListeningPort(nat.Port("9000/tcp")),
+				wait.
+					ForHTTP("/minio/health/ready").
+					WithPort(nat.Port("9000/tcp")).
+					WithStartupTimeout(60*time.Second),
+			),
 		},
 		Started: true,
 	})

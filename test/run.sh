@@ -11,6 +11,8 @@ function main() {
   run_unit_tests=false
   run_integration_tests=false
   run_benchmark=false
+  run_module_only_backup_tests=false
+  run_module_except_backup_tests=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -19,7 +21,9 @@ function main() {
           --unit-only) run_all_tests=false; run_unit_tests=true;;
           --integration-only) run_all_tests=false; run_integration_tests=true;;
           --benchmark-only) run_all_tests=false; run_benchmark=true;;
-          --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
+          --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
+          --acceptance-module-tests-only-backup) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
+          --acceptance-module-tests-except-backup) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
           --help|-h) printf '%s\n' \
               "Options:"\
               "--acceptance-only"\
@@ -27,6 +31,8 @@ function main() {
               "--unit-only-integration-only" \
               "--benchmark-only" \
               "--acceptance-module-tests-only"\
+              "--acceptance-module-tests-only-backup"\
+              "--acceptance-module-tests-except-backup"\
               "--help|-h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
@@ -130,14 +136,31 @@ function run_acceptance_tests() {
   ./test/acceptance/run.sh --include-slow
 }
 
+function run_module_only_backup_tests() {
+  for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_module_except_backup_tests() {
+  for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/backup'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
 function run_module_tests() {
-  # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/modules'); do
-      if ! go test -count 1 -race "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        return 1
-      fi
-    done
+  if $run_module_only_backup_tests; then
+    run_module_only_backup_tests "$@"
+  fi
+  if $run_module_except_backup_tests; then
+    run_module_except_backup_tests "$@"
+  fi
 }
 
 suppress_on_success() {

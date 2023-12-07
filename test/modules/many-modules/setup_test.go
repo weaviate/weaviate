@@ -32,11 +32,12 @@ func TestMain(m *testing.M) {
 		WithText2VecCohere().
 		WithText2VecPaLM().
 		WithText2VecHuggingFace().
+		WithText2VecAWS().
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
 		WithGenerativePaLM().
 		WithGenerativeAWS().
-		WithSUMTransformers().
+		WithGenerativeAnyscale().
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		Start(ctx)

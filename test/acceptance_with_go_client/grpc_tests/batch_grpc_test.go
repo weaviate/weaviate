@@ -14,6 +14,7 @@ package grpc_tests
 import (
 	"context"
 	"testing"
+	"time"
 
 	"acceptance_tests_with_client/fixtures"
 
@@ -52,7 +53,11 @@ func TestGRPC_Batch_Cluster(t *testing.T) {
 	httpUri := compose.GetWeaviate().GetEndpoint(docker.HTTP)
 	grpcUri := compose.GetWeaviate().GetEndpoint(docker.GRPC)
 
-	config := wvt.Config{Scheme: "http", Host: httpUri, GrpcConfig: &grpc.Config{Host: grpcUri}}
+	config := wvt.Config{
+		Scheme: "http", Host: httpUri,
+		GrpcConfig:     &grpc.Config{Host: grpcUri},
+		StartupTimeout: 30 * time.Second,
+	}
 	client, err := wvt.NewClient(config)
 	require.NoError(t, err)
 	require.NotNil(t, client)

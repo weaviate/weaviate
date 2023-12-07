@@ -24,10 +24,11 @@ import (
 const Azurite = "azurite"
 
 func startAzurite(ctx context.Context, networkName string) (*DockerContainer, error) {
+	blobPort, _ := nat.NewPort("tcp", "10000")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "mcr.microsoft.com/azure-storage/azurite",
-			ExposedPorts: []string{"10000/tcp", "10001/tcp", "10002/tcp"},
+			ExposedPorts: []string{blobPort.Port(), "10001/tcp", "10002/tcp"},
 			Hostname:     Azurite,
 			AutoRemove:   true,
 			Networks:     []string{networkName},
@@ -40,7 +41,7 @@ func startAzurite(ctx context.Context, networkName string) (*DockerContainer, er
 					wait.ForLog("Azurite Blob service is successfully listening at http://0.0.0.0:10000"),
 					wait.ForLog("Azurite Queue service is successfully listening at http://0.0.0.0:10001"),
 					wait.ForLog("Azurite Table service is successfully listening at http://0.0.0.0:10002"),
-					wait.ForListeningPort("10000/tcp"),
+					wait.ForListeningPort(blobPort),
 					wait.ForListeningPort("10001/tcp"),
 					wait.ForListeningPort("10002/tcp"),
 				).WithDeadline(60 * time.Second),
@@ -59,6 +60,6 @@ func startAzurite(ctx context.Context, networkName string) (*DockerContainer, er
 	blobEndpoint := fmt.Sprintf("%s:%s", Azurite, "10000")
 	envSettings["AZURE_STORAGE_CONNECTION_STRING"] = fmt.Sprintf(connectionString, blobEndpoint)
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"10000/tcp", uri}
+	endpoints[HTTP] = endpoint{blobPort, uri}
 	return &DockerContainer{Azurite, endpoints, container, envSettings}, nil
 }
