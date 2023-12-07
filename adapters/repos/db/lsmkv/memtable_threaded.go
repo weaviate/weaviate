@@ -27,18 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
-type DummyCommitlog struct {
-	path string
-}
-
-func (*DummyCommitlog) close() error {
-	return nil
-}
-
-func (*DummyCommitlog) Size() int64 {
-	return 0
-}
-
 type MemtableThreaded struct {
 	baseline         *Memtable
 	wgWorkers        *sync.WaitGroup
@@ -51,7 +39,6 @@ type MemtableThreaded struct {
 	lastWrite        time.Time
 	createdAt        time.Time
 	metrics          *memtableMetrics
-	commitlog        *DummyCommitlog
 }
 
 type ThreadedMemtableFunc func(*Memtable, ThreadedMemtableRequest) ThreadedMemtableResponse
