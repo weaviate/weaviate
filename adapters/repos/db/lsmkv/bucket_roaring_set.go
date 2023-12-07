@@ -60,7 +60,6 @@ func (b *Bucket) RoaringSetRemoveList(key []byte, values []uint64) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.roaringSetRemoveList(key, values)
-
 }
 
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {

@@ -351,8 +351,6 @@ func (m *Memtable) writeWAL() error {
 }
 
 func (m *Memtable) Commitlog() *commitLogger {
-	//m.RLock()
-	//defer m.RUnlock()
 	return m.commitlog
 }
 
