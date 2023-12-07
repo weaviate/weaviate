@@ -305,7 +305,6 @@ func TestNearVectorAndObjectAutocut(t *testing.T) {
 	})
 }
 
-
 func TestHybridExplainScore(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
@@ -323,24 +322,24 @@ func TestHybridExplainScore(t *testing.T) {
 		}, "num": 4}).Do(ctx)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-		t.Run("hybrid explainscore 1", func(t *testing.T) {
-			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain nice\", alpha: 0.5, properties: [\"contents\"]}){num _additional { score explainScore id }}}}", className)).Do(ctx)
+	t.Run("hybrid explainscore 1", func(t *testing.T) {
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain nice\", alpha: 0.5, properties: [\"contents\"]}){num _additional { score explainScore id }}}}", className)).Do(ctx)
 
-			require.Nil(t, err)
-			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
-			require.Len(t, result, 5)
-			explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
-			require.Contains(t, explainScore, "contributed 0.008064516129032258 to the score")
-			require.Contains(t, explainScore, "contributed 0.00819672131147541 to the score")
-		})
-		t.Run("hybrid explainscore 2", func(t *testing.T) {
-			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\", properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
-			require.Nil(t, err)
-			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
-			require.Len(t, result, 5)
-			explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
-			require.Contains(t, explainScore, "contributed 0.004098360655737705 to the score")
-			require.Contains(t, explainScore, "contributed 0.012295081967213115 to the score")
+		require.Nil(t, err)
+		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+		require.Len(t, result, 5)
+		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
+		require.Contains(t, explainScore, "contributed 0.008064516129032258 to the score")
+		require.Contains(t, explainScore, "contributed 0.00819672131147541 to the score")
+	})
+	t.Run("hybrid explainscore 2", func(t *testing.T) {
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\", properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
+		require.Nil(t, err)
+		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+		require.Len(t, result, 5)
+		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
+		require.Contains(t, explainScore, "contributed 0.004098360655737705 to the score")
+		require.Contains(t, explainScore, "contributed 0.012295081967213115 to the score")
 	})
 	t.Run("hybrid explainscore relative score fusion", func(t *testing.T) {
 		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\", fusionType: relativeScoreFusion, properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
@@ -350,7 +349,7 @@ func TestHybridExplainScore(t *testing.T) {
 		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
 		require.Contains(t, explainScore, "normalized score: 0.75")
 		require.Contains(t, explainScore, "normalized score: 0.25")
-})
+	})
 }
 
 func TestNearTextAutocut(t *testing.T) {
