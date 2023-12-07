@@ -13,6 +13,7 @@ package multi_node
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -35,7 +36,9 @@ func TestBm25MultiNode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for i := 0; i < 5; i++ {
-		runBM25MultinodeTest(t, ctx)
+		t.Run(fmt.Sprintf("iteration: %v", i), func(t *testing.T) {
+			runBM25MultinodeTest(t, ctx)
+		})
 	}
 }
 
@@ -43,7 +46,7 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	compose, err := docker.New().
 		WithWeaviateCluster().
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -51,13 +54,13 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
+
 	paragraphClass := articles.ParagraphsClass()
 	helper.CreateClass(t, paragraphClass)
 	for _, par := range paragraphs {
 		obj := articles.NewParagraph().
 			WithContents(par).
 			Object()
-		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateObject(t, obj)
 	}
 
@@ -73,7 +76,4 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 	resParagraph := result.Get("Get", "Paragraph").AsSlice()
 	require.Equal(t, resParagraph[0].(map[string]interface{})["contents"], paragraphs[0])
-	timeout := time.Second
-	require.Nil(t, compose.Stop(ctx, compose.GetWeaviate().Name(), &timeout))
-	require.Nil(t, compose.Stop(ctx, compose.GetWeaviateNode2().Name(), &timeout))
 }

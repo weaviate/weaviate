@@ -32,7 +32,7 @@ const (
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
-	weaviateImage, hostname string,
+	weaviateImage, hostname string, exposeGRPCPort bool,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -74,6 +74,12 @@ func startWeaviate(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
+	httpPort, _ := nat.NewPort("tcp", "8080")
+	grpcPort, _ := nat.NewPort("tcp", "50051")
+	exposedPorts := []string{httpPort.Port()}
+	if exposeGRPCPort {
+		exposedPorts = append(exposedPorts, grpcPort.Port())
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -82,12 +88,16 @@ func startWeaviate(ctx context.Context,
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},
 		},
-		ExposedPorts: []string{"8080/tcp", "50051/tcp"},
+		ExposedPorts: exposedPorts,
 		Env:          env,
-		WaitingFor: wait.
-			ForHTTP("/v1/.well-known/ready").
-			WithPort(nat.Port("8080")).
-			WithStartupTimeout(120 * time.Second),
+		WaitingFor: wait.ForAll(
+			wait.ForListeningPort(httpPort).WithStartupTimeout(120*time.Second),
+			wait.ForListeningPort(grpcPort).WithStartupTimeout(120*time.Second),
+			wait.
+				ForHTTP("/v1/.well-known/ready").
+				WithPort(httpPort).
+				WithStartupTimeout(120*time.Second),
+		),
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -96,16 +106,18 @@ func startWeaviate(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	httpUri, err := c.PortEndpoint(ctx, nat.Port("8080/tcp"), "")
-	if err != nil {
-		return nil, err
-	}
-	grpcUri, err := c.PortEndpoint(ctx, nat.Port("50051/tcp"), "")
+	httpUri, err := c.PortEndpoint(ctx, httpPort, "")
 	if err != nil {
 		return nil, err
 	}
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"8080/tcp", httpUri}
-	endpoints[GRPC] = endpoint{"50051/tcp", grpcUri}
+	endpoints[HTTP] = endpoint{httpPort, httpUri}
+	if exposeGRPCPort {
+		grpcUri, err := c.PortEndpoint(ctx, grpcPort, "")
+		if err != nil {
+			return nil, err
+		}
+		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
+	}
 	return &DockerContainer{containerName, endpoints, c, nil}, nil
 }

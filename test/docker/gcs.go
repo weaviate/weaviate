@@ -39,10 +39,13 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 			Env: map[string]string{
 				"PORT": "9090",
 			},
-			WaitingFor: wait.
-				ForHTTP("/").
-				WithPort(nat.Port("9090")).
-				WithStartupTimeout(60 * time.Second),
+			WaitingFor: wait.ForAll(
+				wait.ForListeningPort(nat.Port("9090/tcp")),
+				wait.
+					ForHTTP("/").
+					WithPort(nat.Port("9090/tcp")).
+					WithStartupTimeout(60*time.Second),
+			),
 		},
 		Started: true,
 	})
