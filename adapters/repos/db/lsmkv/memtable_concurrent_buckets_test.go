@@ -81,7 +81,7 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	path := t.TempDir()
 	strategy := StrategyRoaringSet
 
-	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment, useThreadedFor)
+	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment, useThreadedFor, numWorkers)
 	if err != nil {
 		t.Fatal(err)
 	}
