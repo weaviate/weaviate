@@ -19,17 +19,17 @@ import (
 	"google.golang.org/protobuf/runtime/protoimpl"
 )
 
-func parseArray[T float64 | bool | string](v interface{}, dt schema.DataType) (*pb.Value, error) {
+func parseArray[T float64 | bool | string](v interface{}, innerDt schema.DataType) (*pb.Value, error) {
 	if _, ok := v.([]interface{}); ok {
 		return &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}}, nil
 	}
 	val, ok := v.([]T)
 	if !ok {
-		return nil, protoimpl.X.NewError("invalid type: %T when serializing %v", v, dt.String())
+		return nil, protoimpl.X.NewError("invalid type: %T when serializing %v", v, innerDt.String())
 	}
-	list, err := NewPrimitiveList(val, dt)
+	list, err := NewPrimitiveList(val, innerDt)
 	if err != nil {
-		return nil, errors.Wrapf(err, "serializing array with type %v", dt)
+		return nil, errors.Wrapf(err, "serializing array with type %v", innerDt)
 	}
 	return NewListValue(list), nil
 }
@@ -185,9 +185,9 @@ func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, s
 // NewList constructs a ListValue from a general-purpose Go slice.
 // The slice elements are converted using NewValue.
 func NewPrimitiveList[T bool | float64 | string](v []T, dt schema.DataType) (*pb.ListValue, error) {
+	var err error
 	x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
 	for i, v := range v {
-		var err error
 		x.Values[i], err = NewPrimitiveValue(v, dt)
 		if err != nil {
 			return nil, err
