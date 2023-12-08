@@ -576,7 +576,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			Segments:       0,
 			Centroids:      256,
 		}
-		index.Compress(cfg)
+		userConfig.PQ = cfg
+		index.Compress(userConfig)
 	})
 
 	var control []uint64
@@ -712,7 +713,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			Segments:       0,
 			Centroids:      256,
 		}
-		index.Compress(cfg)
+		userConfig.PQ = cfg
+		index.Compress(userConfig)
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)

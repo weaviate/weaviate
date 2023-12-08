@@ -95,12 +95,11 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if !parsed.PQ.Enabled {
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled {
 		callback()
 		return nil
 	}
 
-	// ToDo: check atomic operation
 	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
 		h.turnOnCompression(parsed, callback)
@@ -129,7 +128,7 @@ func (h *hnsw) turnOnCompression(cfg ent.UserConfig, callback func()) error {
 func (h *hnsw) compressThenCallback(cfg ent.UserConfig, callback func()) {
 	defer callback()
 
-	if err := h.Compress(cfg.PQ); err != nil {
+	if err := h.Compress(cfg); err != nil {
 		h.logger.Error(err)
 		return
 	}
