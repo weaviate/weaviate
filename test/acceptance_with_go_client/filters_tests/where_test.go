@@ -31,7 +31,9 @@ func TestWhereFilter_Cluster(t *testing.T) {
 		WithText2VecContextionary().
 		Start(ctx)
 	require.NoError(t, err)
-	defer require.NoError(t, compose.Terminate(ctx))
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
 	endpoint := compose.GetWeaviate().URI()
 

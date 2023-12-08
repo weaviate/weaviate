@@ -16,24 +16,25 @@ function main() {
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
-          --acceptance-only) run_all_tests=false; run_acceptance_tests=true ;;
-          --unit-and-integration-only) run_all_tests=false; run_unit_and_integration_tests=true;;
-          --unit-only) run_all_tests=false; run_unit_tests=true;;
-          --integration-only) run_all_tests=false; run_integration_tests=true;;
-          --benchmark-only) run_all_tests=false; run_benchmark=true;;
-          --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
-          --acceptance-module-tests-only-backup) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
-          --acceptance-module-tests-except-backup) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
+          --unit-only|-u) run_all_tests=false; run_unit_tests=true;;
+          --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
+          --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
+          --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
+          --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
+          --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
+          --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --help|-h) printf '%s\n' \
               "Options:"\
-              "--acceptance-only"\
-              "--unit-and-integration-only"\
-              "--unit-only-integration-only" \
-              "--benchmark-only" \
-              "--acceptance-module-tests-only"\
-              "--acceptance-module-tests-only-backup"\
-              "--acceptance-module-tests-except-backup"\
-              "--help|-h"; exit 1;;
+              "--unit-only | -u"\
+              "--unit-and-integration-only | -ui"\
+              "--integration-only | -i"\
+              "--acceptance-only | -a"\
+              "--acceptance-module-tests-only | --modules-only | -m"\
+              "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
+              "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
+              "--benchmark-only | -b" \
+              "--help | -h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
       shift

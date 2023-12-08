@@ -42,11 +42,8 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 			Cmd: []string{"server", "/data"},
 			WaitingFor: wait.ForAll(
 				wait.ForListeningPort(nat.Port("9000/tcp")),
-				wait.
-					ForHTTP("/minio/health/ready").
-					WithPort(nat.Port("9000/tcp")).
-					WithStartupTimeout(60*time.Second),
-			),
+				wait.ForHTTP("/minio/health/ready").WithPort(nat.Port("9000/tcp")),
+			).WithDeadline(60 * time.Second),
 		},
 		Started: true,
 	})

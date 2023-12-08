@@ -14,6 +14,8 @@ package docker
 import (
 	"context"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -44,14 +46,27 @@ func startWeaviate(ctx context.Context,
 			if strings.Contains(path, "test/acceptance_with_go_client") {
 				return path[:strings.Index(path, "/test/acceptance_with_go_client")]
 			}
+			if strings.Contains(path, "test/acceptance") {
+				return path[:strings.Index(path, "/test/acceptance")]
+			}
 			return path[:strings.Index(path, "/test/modules")]
 		}
-		// this must be an absolute path
+		targetArch := runtime.GOARCH
+		gitHashBytes, err := exec.Command("git", "rev-parse", "--short", "HEAD").CombinedOutput()
+		if err != nil {
+			return nil, err
+		}
+		gitHash := strings.ReplaceAll(string(gitHashBytes), "\n", "")
 		contextPath := getContextPath(path)
 		fromDockerFile = testcontainers.FromDockerfile{
-			Context:       contextPath,
-			Dockerfile:    "Dockerfile",
+			Context:    contextPath,
+			Dockerfile: "Dockerfile",
+			BuildArgs: map[string]*string{
+				"TARGETARCH": &targetArch,
+				"GITHASH":    &gitHash,
+			},
 			PrintBuildLog: true,
+			KeepImage:     false,
 		}
 	}
 	containerName := Weaviate
@@ -77,16 +92,13 @@ func startWeaviate(ctx context.Context,
 	httpPort, _ := nat.NewPort("tcp", "8080")
 	exposedPorts := []string{httpPort.Port()}
 	waitStrategies := []wait.Strategy{
-		wait.ForListeningPort(httpPort).WithStartupTimeout(120 * time.Second),
-		wait.
-			ForHTTP("/v1/.well-known/ready").
-			WithPort(httpPort).
-			WithStartupTimeout(120 * time.Second),
+		wait.ForListeningPort(httpPort),
+		wait.ForHTTP("/v1/.well-known/ready").WithPort(httpPort),
 	}
 	grpcPort, _ := nat.NewPort("tcp", "50051")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, grpcPort.Port())
-		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort).WithStartupTimeout(120*time.Second))
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
@@ -98,7 +110,7 @@ func startWeaviate(ctx context.Context,
 		},
 		ExposedPorts: exposedPorts,
 		Env:          env,
-		WaitingFor:   wait.ForAll(waitStrategies...),
+		WaitingFor:   wait.ForAll(waitStrategies...).WithStartupTimeoutDefault(120 * time.Second),
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,

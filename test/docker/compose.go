@@ -254,7 +254,6 @@ func (d *Compose) WithRerankerTransformers() *Compose {
 
 func (d *Compose) WithWeaviate() *Compose {
 	d.withWeaviate = true
-	d.withWeaviateExposeGRPCPort = false
 	return d
 }
 
@@ -266,14 +265,12 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 
 func (d *Compose) WithSecondWeaviate() *Compose {
 	d.withSecondWeaviate = true
-	d.withWeaviateExposeGRPCPort = false
 	return d
 }
 
 func (d *Compose) WithWeaviateCluster() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateCluster = true
-	d.withWeaviateExposeGRPCPort = false
 	return d
 }
 
@@ -290,14 +287,12 @@ func (d *Compose) WithWeaviateClusterWithBasicAuth(username, password string) *C
 	d.withWeaviateBasicAuth = true
 	d.withWeaviateBasicAuthUsername = username
 	d.withWeaviateBasicAuthPassword = password
-	d.withWeaviateExposeGRPCPort = false
 	return d
 }
 
 func (d *Compose) WithWeaviateAuth() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateAuth = true
-	d.withWeaviateExposeGRPCPort = false
 	return d
 }
 

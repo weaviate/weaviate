@@ -14,7 +14,6 @@ package replication
 import "testing"
 
 func TestReplication(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("immediate replica CRUD", immediateReplicaCRUD)
 	t.Run("eventual replica CRUD", eventualReplicaCRUD)
 	t.Run("multishard scale out", multiShardScaleOut)

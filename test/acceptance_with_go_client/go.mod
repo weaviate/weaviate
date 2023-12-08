@@ -7,7 +7,7 @@ require (
 	github.com/google/uuid v1.3.1
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
-	github.com/weaviate/weaviate v1.23.0-rc.0.0.20231208142057-00d47befe586
+	github.com/weaviate/weaviate v1.23.0-rc.0.0.20231208151114-433aeb39bb77
 	github.com/weaviate/weaviate-go-client/v4 v4.12.0
 )
 
