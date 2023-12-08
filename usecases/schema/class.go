@@ -129,6 +129,8 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	shardingState.ApplyNodeMapping(m)
+
 	return h.metaWriter.RestoreClass(class, &shardingState)
 }
 
