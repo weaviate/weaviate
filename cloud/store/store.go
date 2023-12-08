@@ -68,6 +68,7 @@ type Config struct {
 	Parser      Parser
 	Logger      *slog.Logger
 	LogLevel    string
+	Voter       bool
 	IsLocalHost bool
 }
 
@@ -92,8 +93,10 @@ type Store struct {
 
 	bootstrapped atomic.Bool
 	logStore     *raftbolt.BoltStore
-	mutex        sync.Mutex
-	candidates   map[string]string
+	transport    *raft.NetworkTransport
+
+	mutex      sync.Mutex
+	candidates map[string]string
 
 	// initialLastAppliedIndex represents the index of the last applied command when the store is opened.
 	initialLastAppliedIndex uint64
@@ -131,6 +134,8 @@ func (st *Store) Close(ctx context.Context) (err error) {
 		return ft.Error()
 	}
 	st.open.Store(false)
+
+	st.transport.Close()
 
 	st.log.Info("closing log store ...")
 	err = st.logStore.Close()

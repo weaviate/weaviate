@@ -15,8 +15,10 @@ import (
 
 type Service struct {
 	*store.Service
-	nodeName   string
-	raftAddr   string
+	nodeName string
+	raftAddr string
+	voter    bool
+
 	client     *transport.Client
 	rpcService *transport.Cluster
 	logger     *slog.Logger
@@ -31,6 +33,7 @@ func New(cfg store.Config) Service {
 		Service:    server,
 		nodeName:   cfg.NodeID,
 		raftAddr:   fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+		voter:      cfg.Voter,
 		client:     cl,
 		rpcService: transport.NewCluster(&fsm, server, addr, cfg.Logger),
 		logger:     cfg.Logger,
@@ -52,7 +55,7 @@ func (c *Service) Open(ctx context.Context, servers []string, db store.DB) error
 	bTimeout := time.Second * 60 // TODO make timeout configurable
 	bCtx, bCancel := context.WithTimeout(ctx, bTimeout)
 	defer bCancel()
-	if err := bs.Do(bCtx, servers, c.logger); err != nil {
+	if err := bs.Do(bCtx, servers, c.logger, c.voter); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 	if err := c.WaitUntilDBRestored(ctx, 10*time.Second); err != nil {
