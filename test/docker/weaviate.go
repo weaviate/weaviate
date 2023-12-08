@@ -75,10 +75,18 @@ func startWeaviate(ctx context.Context,
 		env[key] = value
 	}
 	httpPort, _ := nat.NewPort("tcp", "8080")
-	grpcPort, _ := nat.NewPort("tcp", "50051")
 	exposedPorts := []string{httpPort.Port()}
+	waitStrategies := []wait.Strategy{
+		wait.ForListeningPort(httpPort).WithStartupTimeout(120 * time.Second),
+		wait.
+			ForHTTP("/v1/.well-known/ready").
+			WithPort(httpPort).
+			WithStartupTimeout(120 * time.Second),
+	}
+	grpcPort, _ := nat.NewPort("tcp", "50051")
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, grpcPort.Port())
+		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort).WithStartupTimeout(120*time.Second))
 	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
@@ -90,14 +98,7 @@ func startWeaviate(ctx context.Context,
 		},
 		ExposedPorts: exposedPorts,
 		Env:          env,
-		WaitingFor: wait.ForAll(
-			wait.ForListeningPort(httpPort).WithStartupTimeout(120*time.Second),
-			wait.ForListeningPort(grpcPort).WithStartupTimeout(120*time.Second),
-			wait.
-				ForHTTP("/v1/.well-known/ready").
-				WithPort(httpPort).
-				WithStartupTimeout(120*time.Second),
-		),
+		WaitingFor:   wait.ForAll(waitStrategies...),
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
