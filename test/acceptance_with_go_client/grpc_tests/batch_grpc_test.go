@@ -19,7 +19,6 @@ import (
 	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
@@ -43,12 +42,11 @@ func TestGRPC_Batch(t *testing.T) {
 func TestGRPC_Batch_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		WithWeaviateClusterWithGRPC().
 		WithText2VecContextionary().
 		Start(ctx)
-	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
-	}
+	require.NoError(t, err)
+	defer require.NoError(t, compose.Terminate(ctx))
 
 	httpUri := compose.GetWeaviate().GetEndpoint(docker.HTTP)
 	grpcUri := compose.GetWeaviate().GetEndpoint(docker.GRPC)
@@ -66,10 +64,6 @@ func TestGRPC_Batch_Cluster(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("all properties", testGRPCBatchAPI(ctx, client))
-
-	if err := compose.Terminate(ctx); err != nil {
-		panic(errors.Wrapf(err, "cannot terminate"))
-	}
 }
 
 func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T) {
