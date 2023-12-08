@@ -816,7 +816,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 		}
 
 		if results.Len() < k || dist < results.Top().Dist {
-			results.Insert(id, dist, false)
+			results.Insert(id, dist)
 			for results.Len() > k {
 				results.Pop()
 			}
@@ -867,7 +867,7 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 		}
 
 		if results.Len() < int(maxLimit) || dist < results.Top().Dist {
-			results.Insert(id, dist, false)
+			results.Insert(id, dist)
 			for results.Len() > int(maxLimit) {
 				results.Pop()
 			}

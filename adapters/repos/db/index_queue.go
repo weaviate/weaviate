@@ -452,7 +452,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 		vector = distancer.Normalize(vector)
 	}
 
-	var results *priorityqueue.Queue[priorityqueue.Rescored]
+	var results *priorityqueue.Queue[any]
 	var seen map[uint64]struct{}
 
 	err = q.queue.Iterate(allowList, func(objects []vectorDescriptor) error {
@@ -461,7 +461,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 			seen = make(map[uint64]struct{}, len(indexedResults))
 			for i := range indexedResults {
 				seen[indexedResults[i]] = struct{}{}
-				results.Insert(indexedResults[i], distances[i], false)
+				results.Insert(indexedResults[i], distances[i])
 			}
 		}
 
@@ -527,7 +527,7 @@ func (q *IndexQueue) resumeIndexing() {
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
-	results *priorityqueue.Queue[priorityqueue.Rescored], allowList helpers.AllowList,
+	results *priorityqueue.Queue[any], allowList helpers.AllowList,
 	maxDistance float32, seen map[uint64]struct{},
 ) error {
 	for i := range snapshot {
@@ -559,7 +559,7 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 		}
 
 		if k < 0 || results.Len() < k || dist < results.Top().Dist {
-			results.Insert(snapshot[i].id, dist, false)
+			results.Insert(snapshot[i].id, dist)
 			if k > 0 {
 				for results.Len() > k {
 					results.Pop()
@@ -578,14 +578,14 @@ func newPqMaxPool(defaultCap int) *pqMaxPool {
 	return &pqMaxPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return priorityqueue.NewMax[priorityqueue.Rescored](defaultCap)
+				return priorityqueue.NewMax[any](defaultCap)
 			},
 		},
 	}
 }
 
-func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue[priorityqueue.Rescored] {
-	pq := pqh.pool.Get().(*priorityqueue.Queue[priorityqueue.Rescored])
+func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue[any] {
+	pq := pqh.pool.Get().(*priorityqueue.Queue[any])
 	if pq.Cap() < capacity {
 		pq.ResetCap(capacity)
 	} else {
@@ -595,7 +595,7 @@ func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue[priorityqueue.Re
 	return pq
 }
 
-func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue[priorityqueue.Rescored]) {
+func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue[any]) {
 	pqh.pool.Put(pq)
 }
 

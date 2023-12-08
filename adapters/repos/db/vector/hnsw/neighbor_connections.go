@@ -74,8 +74,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrap(err, "pick entrypoint at level beginning")
 	}
 
-	eps := priorityqueue.NewMin[priorityqueue.Rescored](1)
-	eps.Insert(n.entryPointID, n.entryPointDist, false)
+	eps := priorityqueue.NewMin[any](1)
+	eps.Insert(n.entryPointID, n.entryPointDist)
 
 	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
 		level, nil)
@@ -169,8 +169,8 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return nil
 		}
 
-		candidates := priorityqueue.NewMax[priorityqueue.Rescored](len(currentConnections) + 1)
-		candidates.Insert(n.node.id, dist, false)
+		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
+		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
 			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
@@ -183,7 +183,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 				continue
 			}
 
-			candidates.Insert(existingConnection, dist, false)
+			candidates.Insert(existingConnection, dist)
 		}
 
 		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)

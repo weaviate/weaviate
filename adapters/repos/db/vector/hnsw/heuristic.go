@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[priorityqueue.Rescored],
+func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 	max int, denyList helpers.AllowList,
 ) error {
 	if input.Len() < max {
@@ -34,12 +34,12 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[priorityqueue
 	i := uint64(0)
 	for input.Len() > 0 {
 		elem := input.Pop()
-		closestFirst.Insert(elem.ID, elem.Dist, i)
+		closestFirst.InsertWithValue(elem.ID, elem.Dist, i)
 		ids[i] = elem.ID
 		i++
 	}
 
-	var returnList []priorityqueue.Item[priorityqueue.Index]
+	var returnList []priorityqueue.Item[uint64]
 
 	if h.compressed.Load() {
 		vecs := make([][]byte, 0, len(ids))
@@ -51,7 +51,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[priorityqueue
 			vecs = append(vecs, v)
 		}
 
-		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[priorityqueue.Index])
+		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
 
 		for closestFirst.Len() > 0 && len(returnList) < max {
 			curr := closestFirst.Pop()
@@ -80,7 +80,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[priorityqueue
 
 		vecs, errs := h.multiVectorForID(context.TODO(), ids)
 
-		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[priorityqueue.Index])
+		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
 
 		for closestFirst.Len() > 0 && len(returnList) < max {
 			curr := closestFirst.Pop()
@@ -122,7 +122,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[priorityqueue
 	h.pools.pqHeuristic.Put(closestFirst)
 
 	for _, retElem := range returnList {
-		input.Insert(retElem.ID, retElem.Dist, false)
+		input.Insert(retElem.ID, retElem.Dist)
 	}
 
 	// rewind and return to pool

@@ -38,7 +38,7 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		visitedListsLock: &sync.Mutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
-				return make([]priorityqueue.Item[priorityqueue.Index], 0, maxConnectionsLayerZero)
+				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
 			},
 		},
 		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
@@ -56,14 +56,14 @@ func newPqMinPool(defaultCap int) *pqMinPool {
 	return &pqMinPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return priorityqueue.NewMin[priorityqueue.Rescored](defaultCap)
+				return priorityqueue.NewMin[any](defaultCap)
 			},
 		},
 	}
 }
 
-func (pqh *pqMinPool) GetMin(capacity int) *priorityqueue.Queue[priorityqueue.Rescored] {
-	pq := pqh.pool.Get().(*priorityqueue.Queue[priorityqueue.Rescored])
+func (pqh *pqMinPool) GetMin(capacity int) *priorityqueue.Queue[any] {
+	pq := pqh.pool.Get().(*priorityqueue.Queue[any])
 	if pq.Cap() < capacity {
 		pq.ResetCap(capacity)
 	} else {
@@ -73,7 +73,7 @@ func (pqh *pqMinPool) GetMin(capacity int) *priorityqueue.Queue[priorityqueue.Re
 	return pq
 }
 
-func (pqh *pqMinPool) Put(pq *priorityqueue.Queue[priorityqueue.Rescored]) {
+func (pqh *pqMinPool) Put(pq *priorityqueue.Queue[any]) {
 	pqh.pool.Put(pq)
 }
 
@@ -85,14 +85,14 @@ func newPqMinWithIndexPool(defaultCap int) *pqMinWithIndexPool {
 	return &pqMinWithIndexPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return priorityqueue.NewMin[priorityqueue.Index](defaultCap)
+				return priorityqueue.NewMin[uint64](defaultCap)
 			},
 		},
 	}
 }
 
-func (pqh *pqMinWithIndexPool) GetMin(capacity int) *priorityqueue.Queue[priorityqueue.Index] {
-	pq := pqh.pool.Get().(*priorityqueue.Queue[priorityqueue.Index])
+func (pqh *pqMinWithIndexPool) GetMin(capacity int) *priorityqueue.Queue[uint64] {
+	pq := pqh.pool.Get().(*priorityqueue.Queue[uint64])
 	if pq.Cap() < capacity {
 		pq.ResetCap(capacity)
 	} else {
@@ -102,6 +102,6 @@ func (pqh *pqMinWithIndexPool) GetMin(capacity int) *priorityqueue.Queue[priorit
 	return pq
 }
 
-func (pqh *pqMinWithIndexPool) Put(pq *priorityqueue.Queue[priorityqueue.Index]) {
+func (pqh *pqMinWithIndexPool) Put(pq *priorityqueue.Queue[uint64]) {
 	pqh.pool.Put(pq)
 }

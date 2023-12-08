@@ -157,9 +157,9 @@ func (h *hnsw) shouldRescore() bool {
 }
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
-	entrypoints *priorityqueue.Queue[priorityqueue.Rescored], ef int, level int,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList,
-) (*priorityqueue.Queue[priorityqueue.Rescored], error,
+) (*priorityqueue.Queue[any], error,
 ) {
 	var byteDistancer *ssdhelpers.PQDistancer
 	if h.compressed.Load() {
@@ -170,9 +170,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
-	entrypoints *priorityqueue.Queue[priorityqueue.Rescored], ef int, level int,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, byteDistancer *ssdhelpers.PQDistancer,
-) (*priorityqueue.Queue[priorityqueue.Rescored], error) {
+) (*priorityqueue.Queue[any], error) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.Unlock()
@@ -278,7 +278,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			}
 
 			if distance < worstResultDistance || results.Len() < ef {
-				candidates.Insert(neighborID, distance, false)
+				candidates.Insert(neighborID, distance)
 				if level == 0 && allowList != nil {
 					// we are on the lowest level containing the actual candidates and we
 					// have an allow list (i.e. the user has probably set some sort of a
@@ -293,7 +293,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					continue
 				}
 
-				results.Insert(neighborID, distance, false)
+				results.Insert(neighborID, distance)
 
 				if h.compressed.Load() {
 					h.compressedVectorsCache.Prefetch(candidates.Top().ID)
@@ -323,13 +323,13 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
-	entrypoints, candidates, results *priorityqueue.Queue[priorityqueue.Rescored], level int,
+	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
-		candidates.Insert(ep.ID, ep.Dist, false)
+		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
 			// we are on the lowest level containing the actual candidates and we
 			// have an allow list (i.e. the user has probably set some sort of a
@@ -344,11 +344,11 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			continue
 		}
 
-		results.Insert(ep.ID, ep.Dist, false)
+		results.Insert(ep.ID, ep.Dist)
 	}
 }
 
-func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[priorityqueue.Rescored],
+func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[any],
 	distancer distancer.Distancer,
 ) (float32, error) {
 	if results.Len() > 0 {
@@ -373,7 +373,7 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[pr
 	}
 }
 
-func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[priorityqueue.Rescored],
+func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any],
 	distancer *ssdhelpers.PQDistancer,
 ) (float32, error) {
 	if results.Len() > 0 {
@@ -509,8 +509,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin[priorityqueue.Rescored](10)
-		eps.Insert(entryPointID, entryPointDistance, false)
+		eps := priorityqueue.NewMin[any](10)
+		eps.Insert(entryPointID, entryPointDistance)
 
 		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, byteDistancer)
 		if err != nil {
@@ -553,8 +553,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		h.pools.pqResults.Put(res)
 	}
 
-	eps := priorityqueue.NewMin[priorityqueue.Rescored](10)
-	eps.Insert(entryPointID, entryPointDistance, false)
+	eps := priorityqueue.NewMin[any](10)
+	eps.Insert(entryPointID, entryPointDistance)
 	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, byteDistancer)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
@@ -571,7 +571,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		res.Reset()
 		for _, id := range ids {
 			dist, _, _ := h.distanceFromBytesToFloatNode(byteDistancer, id)
-			res.Insert(id, dist, false)
+			res.Insert(id, dist)
 			if res.Len() > ef {
 				res.Pop()
 			}

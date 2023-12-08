@@ -396,7 +396,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
-		eps := priorityqueue.NewMin[priorityqueue.Rescored](1)
+		eps := priorityqueue.NewMin[any](1)
 		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return 0, errors.Wrapf(err,
@@ -406,7 +406,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			continue
 		}
 
-		eps.Insert(entryPointID, dist, false)
+		eps.Insert(entryPointID, dist)
 		res, err := h.searchLayerByVector(nodeVec, eps, 1, level, nil)
 		if err != nil {
 			return 0,
