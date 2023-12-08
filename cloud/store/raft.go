@@ -66,6 +66,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft: log cache: %w", err)
 	}
+
 	// file snapshot store
 	snapshotStore, err := raft.NewFileSnapshotStore(st.raftDir, nRetainedSnapShots, os.Stdout)
 	if err != nil {
@@ -79,7 +80,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("net.ResolveTCPAddr address=%v: %w", address, err)
 	}
 
-	transport, err := raft.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, os.Stdout)
+	st.transport, err = raft.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
@@ -97,7 +98,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 
 	// raft node
-	st.raft, err = raft.NewRaft(st.configureRaft(), st, logCache, st.logStore, snapshotStore, transport)
+	st.raft, err = raft.NewRaft(st.configureRaft(), st, logCache, st.logStore, snapshotStore, st.transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
