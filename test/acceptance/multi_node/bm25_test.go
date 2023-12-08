@@ -32,7 +32,6 @@ var paragraphs = []string{
 }
 
 func TestBm25MultiNode(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for i := 0; i < 5; i++ {
@@ -54,7 +53,6 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-
 	paragraphClass := articles.ParagraphsClass()
 	helper.CreateClass(t, paragraphClass)
 	for _, par := range paragraphs {

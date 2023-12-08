@@ -85,7 +85,7 @@ func (d *DockerCompose) waitUntilRunning(name string, container testcontainers.C
 		if container.IsRunning() {
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		if time.Now().After(start.Add(waitTimeout)) {
 			return fmt.Errorf("container %q: was still not running after %v", name, waitTimeout)
 		}

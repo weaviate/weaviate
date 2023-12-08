@@ -46,10 +46,12 @@ func TestGRPC_Batch_Cluster(t *testing.T) {
 		WithText2VecContextionary().
 		Start(ctx)
 	require.NoError(t, err)
-	defer require.NoError(t, compose.Terminate(ctx))
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
-	httpUri := compose.GetWeaviate().GetEndpoint(docker.HTTP)
-	grpcUri := compose.GetWeaviate().GetEndpoint(docker.GRPC)
+	httpUri := compose.GetWeaviateNode2().GetEndpoint(docker.HTTP)
+	grpcUri := compose.GetWeaviateNode2().GetEndpoint(docker.GRPC)
 
 	config := wvt.Config{
 		Scheme: "http", Host: httpUri,

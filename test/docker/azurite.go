@@ -51,13 +51,13 @@ func startAzurite(ctx context.Context, networkName string) (*DockerContainer, er
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.PortEndpoint(ctx, nat.Port("10000/tcp"), "")
+	uri, err := container.PortEndpoint(ctx, blobPort, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
 	connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-	blobEndpoint := fmt.Sprintf("%s:%s", Azurite, "10000")
+	blobEndpoint := fmt.Sprintf("%s:%s", Azurite, blobPort.Port())
 	envSettings["AZURE_STORAGE_CONNECTION_STRING"] = fmt.Sprintf(connectionString, blobEndpoint)
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{blobPort, uri}
