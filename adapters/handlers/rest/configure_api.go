@@ -259,6 +259,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 		LogLevel:        logLevel(),
 		IsLocalHost:     isLocalhost,
 	}
+	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
+		if strings.Contains(name, rConfig.NodeID) {
+			rConfig.Voter = true
+			break
+		}
+	}
 
 	appState.CloudService = cloud.New(rConfig)
 	executor, err := schema.NewExecutor(migrator, appState.CloudService.SchemaReader(), appState.Logger)
