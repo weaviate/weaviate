@@ -129,6 +129,8 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	shardingState.ApplyNodeMapping(m)
+
 	return h.metaWriter.RestoreClass(class, &shardingState)
 }
 
@@ -409,6 +411,17 @@ func (h *Handler) validateProperty(
 		relaxCrossRefValidation, schema.ClassName(className))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+	}
+
+	if propertyDataType.IsNested() {
+		if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			return err
+		}
+	} else {
+		if len(property.NestedProperties) > 0 {
+			return fmt.Errorf("property '%s': nestedProperties not allowed for data types other than object/object[]",
+				property.Name)
+		}
 	}
 
 	if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
