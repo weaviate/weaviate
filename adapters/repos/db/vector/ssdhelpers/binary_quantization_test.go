@@ -54,14 +54,14 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		before := time.Now()
 		query, _ := bq.Encode(queryVecs[i])
-		heap := priorityqueue.NewMax(correctedK)
+		heap := priorityqueue.NewMax[priorityqueue.Rescored](correctedK)
 		for j := range codes {
 			d, _ := bq.DistanceBetweenCompressedVectors(codes[j], query)
 			if heap.Len() < correctedK || heap.Top().Dist > d {
 				if heap.Len() == correctedK {
 					heap.Pop()
 				}
-				heap.Insert(uint64(j), d)
+				heap.Insert(uint64(j), d, false)
 			}
 		}
 		ids := make([]uint64, correctedK)

@@ -19,7 +19,7 @@ import (
 func (h *hnsw) flatSearch(queryVector []float32, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	results := priorityqueue.NewMax(limit)
+	results := priorityqueue.NewMax[priorityqueue.Rescored](limit)
 
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
@@ -57,10 +57,10 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 		}
 
 		if results.Len() < limit {
-			results.Insert(candidate, dist)
+			results.Insert(candidate, dist, false)
 		} else if results.Top().Dist > dist {
 			results.Pop()
-			results.Insert(candidate, dist)
+			results.Insert(candidate, dist, false)
 		}
 	}
 

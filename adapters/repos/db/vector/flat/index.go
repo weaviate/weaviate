@@ -388,8 +388,9 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
-func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
-	cursorFn func() *lsmkv.CursorReplace, distanceCalc distanceCalc,
+func (index *flat) findTopVectors(heap *priorityqueue.Queue[priorityqueue.Rescored],
+	allow helpers.AllowList, limit int, cursorFn func() *lsmkv.CursorReplace,
+	distanceCalc distanceCalc,
 ) error {
 	var key []byte
 	var v []byte
@@ -432,8 +433,8 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.Allow
 
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
-func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
-	vectorBQ []uint64,
+func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[priorityqueue.Rescored],
+	allow helpers.AllowList, limit int, vectorBQ []uint64,
 ) error {
 	var id uint64
 	allowMax := uint64(0)
@@ -473,16 +474,19 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue, allow helpers
 	return nil
 }
 
-func (index *flat) insertToHeap(heap *priorityqueue.Queue, limit int, id uint64, distance float32) {
+func (index *flat) insertToHeap(heap *priorityqueue.Queue[priorityqueue.Rescored],
+	limit int, id uint64, distance float32,
+) {
 	if heap.Len() < limit {
-		heap.Insert(id, distance)
+		heap.Insert(id, distance, false)
 	} else if heap.Top().Dist > distance {
 		heap.Pop()
-		heap.Insert(id, distance)
+		heap.Insert(id, distance, false)
 	}
 }
 
-func (index *flat) extractHeap(heap *priorityqueue.Queue) ([]uint64, []float32) {
+func (index *flat) extractHeap(heap *priorityqueue.Queue[priorityqueue.Rescored],
+) ([]uint64, []float32) {
 	len := heap.Len()
 
 	ids := make([]uint64, len)

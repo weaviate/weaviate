@@ -26,7 +26,7 @@ func TestPriorityQueueMin(t *testing.T) {
 		4: 0.88,
 		5: 1,
 	}
-	expectedResults := []Item{
+	expectedResults := []Item[Rescored]{
 		{Dist: 0, ID: 0},
 		{Dist: 0.222, ID: 3},
 		{Dist: 0.23, ID: 1},
@@ -35,13 +35,13 @@ func TestPriorityQueueMin(t *testing.T) {
 		{Dist: 1, ID: 5},
 	}
 
-	pq := NewMin(6)
+	pq := NewMin[Rescored](6)
 
 	for id, dist := range values {
-		pq.Insert(id, dist)
+		pq.Insert(id, dist, false)
 	}
 
-	var results []Item
+	var results []Item[Rescored]
 	for pq.Len() > 0 {
 		results = append(results, pq.Pop())
 	}
@@ -58,7 +58,7 @@ func TestPriorityQueueMax(t *testing.T) {
 		4: 0.88,
 		5: 1,
 	}
-	expectedResults := []Item{
+	expectedResults := []Item[Rescored]{
 		{Dist: 1, ID: 5},
 		{Dist: 0.88, ID: 4},
 		{Dist: 0.8, ID: 2},
@@ -67,13 +67,13 @@ func TestPriorityQueueMax(t *testing.T) {
 		{Dist: 0, ID: 0},
 	}
 
-	pq := NewMax(6)
+	pq := NewMax[Rescored](6)
 
 	for id, dist := range values {
-		pq.Insert(id, dist)
+		pq.Insert(id, dist, false)
 	}
 
-	var results []Item
+	var results []Item[Rescored]
 	for pq.Len() > 0 {
 		results = append(results, pq.Pop())
 	}

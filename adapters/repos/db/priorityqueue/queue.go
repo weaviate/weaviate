@@ -11,106 +11,115 @@
 
 package priorityqueue
 
-type Item struct {
-	ID       uint64
-	Dist     float32
-	Rescored bool
+type Rescored = bool
+
+type Index = uint64
+
+type valueType interface {
+	Rescored | Index
 }
 
-type Queue struct {
-	items []Item
-	less  func(items []Item, i, j int) bool
+type Item[T valueType] struct {
+	ID    uint64
+	Dist  float32
+	Value T
 }
 
-func NewMin(capacity int) *Queue {
-	return &Queue{
-		items: make([]Item, 0, capacity),
-		less: func(items []Item, i, j int) bool {
+type Queue[T valueType] struct {
+	items []Item[T]
+	less  func(items []Item[T], i, j int) bool
+}
+
+func NewMin[T valueType](capacity int) *Queue[T] {
+	return &Queue[T]{
+		items: make([]Item[T], 0, capacity),
+		less: func(items []Item[T], i, j int) bool {
 			return items[i].Dist < items[j].Dist
 		},
 	}
 }
 
-func NewMax(capacity int) *Queue {
-	return &Queue{
-		items: make([]Item, 0, capacity),
-		less: func(items []Item, i, j int) bool {
+func NewMax[T valueType](capacity int) *Queue[T] {
+	return &Queue[T]{
+		items: make([]Item[T], 0, capacity),
+		less: func(items []Item[T], i, j int) bool {
 			return items[i].Dist > items[j].Dist
 		},
 	}
 }
 
-func (l *Queue) left(i int) int {
-	return 2*i + 1
-}
-
-func (l *Queue) right(i int) int {
-	return 2*i + 2
-}
-
-func (l *Queue) parent(i int) int {
-	return (i - 1) / 2
-}
-
-func (l *Queue) swap(i, j int) {
-	l.items[i], l.items[j] = l.items[j], l.items[i]
-}
-
-func (l *Queue) heapify(i int) {
-	left := l.left(i)
-	right := l.right(i)
-	smallest := i
-	if left < len(l.items) && l.less(l.items, left, i) {
-		smallest = left
-	}
-
-	if right < len(l.items) && l.less(l.items, right, smallest) {
-		smallest = right
-	}
-
-	if smallest != i {
-		l.swap(i, smallest)
-		l.heapify(smallest)
-	}
-}
-
-func (l *Queue) Insert(id uint64, distance float32) int {
-	l.items = append(l.items, Item{
-		ID:   id,
-		Dist: distance,
+func (q *Queue[T]) Insert(id uint64, distance float32, val T) int {
+	q.items = append(q.items, Item[T]{
+		ID:    id,
+		Dist:  distance,
+		Value: val,
 	})
-	i := len(l.items) - 1
-	for i != 0 && l.less(l.items, i, l.parent(i)) {
-		l.swap(i, l.parent(i))
-		i = l.parent(i)
+	i := len(q.items) - 1
+	for i != 0 && q.less(q.items, i, q.parent(i)) {
+		q.swap(i, q.parent(i))
+		i = q.parent(i)
 	}
 	return i
 }
 
-func (l *Queue) Pop() Item {
-	out := l.items[0]
-	l.items[0] = l.items[len(l.items)-1]
-	l.items = l.items[:len(l.items)-1]
-	l.heapify(0)
+func (q *Queue[T]) Pop() Item[T] {
+	out := q.items[0]
+	q.items[0] = q.items[len(q.items)-1]
+	q.items = q.items[:len(q.items)-1]
+	q.heapify(0)
 	return out
 }
 
-func (l *Queue) Top() Item {
-	return l.items[0]
+func (q *Queue[T]) Top() Item[T] {
+	return q.items[0]
 }
 
-func (l *Queue) Len() int {
-	return len(l.items)
+func (q *Queue[T]) Len() int {
+	return len(q.items)
 }
 
-func (l *Queue) Cap() int {
-	return cap(l.items)
+func (q *Queue[T]) Cap() int {
+	return cap(q.items)
 }
 
-func (l *Queue) Reset() {
-	l.items = l.items[:0]
+func (q *Queue[T]) Reset() {
+	q.items = q.items[:0]
 }
 
-func (l *Queue) ResetCap(capacity int) {
-	l.items = make([]Item, 0, capacity)
+func (q *Queue[T]) ResetCap(capacity int) {
+	q.items = make([]Item[T], 0, capacity)
+}
+
+func (q *Queue[T]) left(i int) int {
+	return 2*i + 1
+}
+
+func (q *Queue[T]) right(i int) int {
+	return 2*i + 2
+}
+
+func (q *Queue[T]) parent(i int) int {
+	return (i - 1) / 2
+}
+
+func (q *Queue[T]) swap(i, j int) {
+	q.items[i], q.items[j] = q.items[j], q.items[i]
+}
+
+func (q *Queue[T]) heapify(i int) {
+	left := q.left(i)
+	right := q.right(i)
+	smallest := i
+	if left < len(q.items) && q.less(q.items, left, i) {
+		smallest = left
+	}
+
+	if right < len(q.items) && q.less(q.items, right, smallest) {
+		smallest = right
+	}
+
+	if smallest != i {
+		q.swap(i, smallest)
+		q.heapify(smallest)
+	}
 }
