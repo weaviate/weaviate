@@ -51,7 +51,7 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string) *Bootstrapper {
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger) error {
+func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger, voter bool) error {
 	// TODO handle empty server list
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	defer ticker.Stop()
@@ -61,21 +61,25 @@ func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger
 			return ctx.Err()
 		case <-ticker.C:
 			// try to join an existing cluster
-			if leader, err := b.join(ctx, servers); err == nil {
+			if leader, err := b.join(ctx, servers, voter); err == nil {
 				lg.Info("successfully joined cluster", "leader", leader)
 				return nil
 			}
-			// notify other servers about readiness of this node to be joined
-			if err := b.notify(ctx, servers); err != nil {
-				lg.Error("notify all peers", "servers", servers, "err", err)
+
+			if voter {
+				// notify other servers about readiness of this node to be joined
+				if err := b.notify(ctx, servers); err != nil {
+					lg.Error("notify all peers", "servers", servers, "err", err)
+				}
 			}
+
 		}
 	}
 }
 
-func (b *Bootstrapper) join(ctx context.Context, servers []string) (leader string, err error) {
+func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (leader string, err error) {
 	var resp *cmd.JoinPeerResponse
-	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: true}
+	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: voter}
 	for _, addr := range servers {
 		resp, err = b.joiner.Join(ctx, addr, req)
 		if err == nil {
