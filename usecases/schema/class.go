@@ -129,6 +129,8 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	shardingState.ApplyNodeMapping(m)
+
 	return h.metaWriter.RestoreClass(class, &shardingState)
 }
 
@@ -412,7 +414,7 @@ func migratePropertyIndexInverted(prop *models.Property) {
 	prop.IndexInverted = nil
 }
 
-func (m *Handler) validateProperty(
+func (h *Handler) validateProperty(
 	property *models.Property, class *models.Class,
 	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
@@ -449,7 +451,7 @@ func (m *Handler) validateProperty(
 		}
 	}
 
-	if err := m.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+	if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 		return err
 	}
 
@@ -457,7 +459,7 @@ func (m *Handler) validateProperty(
 		return err
 	}
 
-	if err := m.validatePropModuleConfig(class, property); err != nil {
+	if err := h.validatePropModuleConfig(class, property); err != nil {
 		return err
 	}
 
@@ -492,11 +494,11 @@ func (h *Handler) validateCanAddClass(
 	ctx context.Context, class *models.Class,
 	relaxCrossRefValidation bool,
 ) error {
-	if err := m.validateClassNameUniqueness(class.Class); err != nil {
+	if err := h.validateClassNameUniqueness(class.Class); err != nil {
 		return err
 	}
 
-	if err := m.validateClassName(ctx, class.Class); err != nil {
+	if err := h.validateClassName(ctx, class.Class); err != nil {
 		return err
 	}
 
@@ -508,7 +510,7 @@ func (h *Handler) validateCanAddClass(
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := m.validateVectorSettings(class); err != nil {
+	if err := h.validateVectorSettings(class); err != nil {
 		return err
 	}
 

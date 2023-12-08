@@ -14,18 +14,15 @@ package schema
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cloud"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/entities/models"
@@ -37,10 +34,9 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
+func newTestHandler(t *testing.T, db store.DB) (*Handler, *fakeMetaHandler) {
 	cfg := config.Config{}
-	srv := startRaftCluster(t, db)
-	reader := srv.SchemaReader()
+	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
@@ -48,46 +44,11 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, func()) {
 		},
 	}
 	handler, err := NewHandler(
-		srv.Service, reader, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		metaHandler, metaHandler, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
-	return &handler, func() { srv.Close(context.TODO()) }
-}
-
-func startRaftCluster(t *testing.T, db store.DB) cloud.Service {
-	node := "node-1"
-	nodeUrl := newRandomHostURL(t)
-	raftUrl := newRandomHostURL(t)
-	t.Logf("node: %s, nodeUrl: %s:%d", node, nodeUrl.host, nodeUrl.port)
-	t.Logf("raft: %s, raftUrl: %s:%d", node, raftUrl.host, raftUrl.port)
-	logger := slog.Default()
-
-	root := t.TempDir()
-	clusterstate := newFakeClusterState()
-
-	// First init the store
-	cfg := store.Config{
-		WorkDir:              root,
-		NodeID:               node,
-		Host:                 nodeUrl.host,
-		RaftPort:             raftUrl.port,
-		RPCPort:              nodeUrl.port,
-		RaftElectionTimeout:  500 * time.Millisecond,
-		RaftHeartbeatTimeout: 500 * time.Millisecond,
-		Parser:               NewParser(clusterstate, dummyParseVectorConfig),
-		BootstrapExpect:      1,
-		Logger:               logger,
-		LogLevel:             "info",
-		Voter:                true,
-	}
-	srv := cloud.New(cfg)
-
-	servers := []string{fmt.Sprintf("%s:%d", raftUrl.host, raftUrl.port)}
-	err := srv.Open(context.TODO(), servers, db)
-	require.Nil(t, err)
-
-	return srv
+	return &handler, metaHandler
 }
 
 type randomHostURL struct {
