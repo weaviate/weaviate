@@ -150,6 +150,10 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 		}
 
 	}
+	// TODO: remove once PQ is supported
+	if uc.PQ.Enabled {
+		return errors.New("PQ is not currently supported for flat indices")
+	}
 	if uc.PQ.Cache && !uc.PQ.Enabled {
 		return errors.New("not possible to use the cache without compression")
 	}

@@ -33,11 +33,11 @@ func TestFlatUserConfigUpdates(t *testing.T) {
 		tests := []test{
 			{
 				name:    "attempting to change pq enabled",
-				initial: ent.UserConfig{PQ: ent.CompressionUserConfig{Enabled: true}},
-				update:  ent.UserConfig{PQ: ent.CompressionUserConfig{Enabled: false}},
+				initial: ent.UserConfig{PQ: ent.CompressionUserConfig{Enabled: false}},
+				update:  ent.UserConfig{PQ: ent.CompressionUserConfig{Enabled: true}},
 				expectedError: errors.Errorf(
 					"pq is immutable: " +
-						"attempted change from \"true\" to \"false\""),
+						"attempted change from \"false\" to \"true\""),
 			},
 			{
 				name:    "attempting to change bq enabled",
