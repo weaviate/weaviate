@@ -20,41 +20,49 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func (h *hnsw) Compress(cfg ent.PQConfig) error {
-	h.shardedNodeLocks.RLock(0)
-	node := h.nodes[0]
-	h.shardedNodeLocks.RUnlock(0)
-
-	if node == nil {
-		return errors.New("data must be inserted before compress command can be executed")
-	}
-
-	vec, err := h.vectorForID(context.Background(), node.id)
-	if err != nil {
-		return fmt.Errorf("infer vector dimensions: %w", err)
-	}
-	dims := len(vec)
-
-	// segments == 0 (default value) means use as many segments as dimensions
-	if cfg.Segments <= 0 {
-		cfg.Segments = dims
-	}
-
-	data := h.cache.All()
-	cleanData := make([][]float32, 0, len(data))
-	for _, point := range data {
-		if point == nil {
-			continue
-		}
-		cleanData = append(cleanData, point)
-	}
-	h.compressor, err = ssdhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
-	if err != nil {
-		return errors.Wrap(err, "Compressing vectors.")
-	}
-
+func (h *hnsw) Compress(cfg ent.UserConfig) error {
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
+	data := h.cache.All()
+	if cfg.PQ.Enabled {
+		h.shardedNodeLocks.RLock(0)
+		node := h.nodes[0]
+		h.shardedNodeLocks.RUnlock(0)
+
+		if node == nil {
+			return errors.New("data must be inserted before compress command can be executed")
+		}
+
+		vec, err := h.vectorForID(context.Background(), node.id)
+		if err != nil {
+			return fmt.Errorf("infer vector dimensions: %w", err)
+		}
+		dims := len(vec)
+
+		// segments == 0 (default value) means use as many segments as dimensions
+		if cfg.PQ.Segments <= 0 {
+			cfg.PQ.Segments = dims
+		}
+
+		cleanData := make([][]float32, 0, len(data))
+		for _, point := range data {
+			if point == nil {
+				continue
+			}
+			cleanData = append(cleanData, point)
+		}
+
+		h.compressor, err = ssdhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+		if err != nil {
+			return errors.Wrap(err, "Compressing vectors.")
+		}
+	} else {
+		var err error
+		h.compressor, err = ssdhelpers.NewBQCompressor(h.distancerProvider, 1e12, h.logger, h.store)
+		if err != nil {
+			return err
+		}
+	}
 	ssdhelpers.Concurrently(uint64(len(data)),
 		func(index uint64) {
 			if data[index] == nil {
@@ -62,9 +70,6 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			}
 			h.compressor.Preload(index, data[index])
 		})
-	if err := h.commitLog.AddPQ(h.compressor.ExposeFields()); err != nil {
-		return errors.Wrap(err, "Adding PQ to the commit logger")
-	}
 
 	h.compressed.Store(true)
 	h.cache.Drop()
