@@ -45,6 +45,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	if err != nil {
 		return
 	}
+
 	if err = validateActivityStatuses(validated, true); err != nil {
 		return
 	}
