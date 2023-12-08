@@ -85,7 +85,7 @@ func Test_FlatUserConfig(t *testing.T) {
 				},
 			},
 			expectErr:    true,
-			expectErrMsg: "pq is not currently supported for flat indices",
+			expectErrMsg: "PQ is not currently supported for flat indices",
 			// expected: UserConfig{
 			// 	VectorCacheMaxObjects: 100,
 			// 	Distance:              common.DefaultDistanceMetric,
