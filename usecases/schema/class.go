@@ -411,6 +411,17 @@ func (h *Handler) validateProperty(
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
 
+	if propertyDataType.IsNested() {
+		if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+			return err
+		}
+	} else {
+		if len(property.NestedProperties) > 0 {
+			return fmt.Errorf("property '%s': nestedProperties not allowed for data types other than object/object[]",
+				property.Name)
+		}
+	}
+
 	if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
 		return err
 	}
