@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
@@ -36,17 +37,15 @@ func TestHandler_AddProperty(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("adds property of each data type", func(t *testing.T) {
-		handler, shutdown := newTestHandler(t, &fakeDB{})
-		defer func() {
-			shutdown()
-		}()
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
 			Class:      "NewClass",
 			Vectorizer: "none",
 		}
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		require.NoError(t, handler.AddClass(ctx, nil, &class))
-
+		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
 		dataTypes := []schema.DataType{
 			schema.DataTypeInt,
 			schema.DataTypeIntArray,
@@ -60,12 +59,9 @@ func TestHandler_AddProperty(t *testing.T) {
 			schema.DataTypeDateArray,
 			schema.DataTypeUUID,
 			schema.DataTypeUUIDArray,
-			schema.DataTypeObject,
-			schema.DataTypeObjectArray,
 			schema.DataTypeBlob,
 			schema.DataTypeGeoCoordinates,
 			schema.DataTypePhoneNumber,
-
 			schema.DataTypeString,
 			schema.DataTypeStringArray,
 		}
@@ -73,43 +69,22 @@ func TestHandler_AddProperty(t *testing.T) {
 		t.Run("adds properties", func(t *testing.T) {
 			for _, dt := range dataTypes {
 				t.Run(dt.AsName(), func(t *testing.T) {
-					err := handler.AddClassProperty(ctx, nil, class.Class,
-						&models.Property{
-							Name:     dt.AsName(),
-							DataType: dt.PropString(),
-						})
+					prop := &models.Property{
+						Name:     dt.AsName(),
+						DataType: dt.PropString(),
+					}
+					fakeMetaHandler.On("AddProperty", class.Class, prop).Return(nil)
+					fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+					err := handler.AddClassProperty(ctx, nil, class.Class, prop)
 					require.NoError(t, err)
 				})
 			}
-		})
-
-		t.Run("verify properties exist in schema", func(t *testing.T) {
-			properties := handler.GetSchemaSkipAuth().Objects.Classes[0].Properties
-			for i, dt := range dataTypes {
-				t.Run(dt.AsName(), func(t *testing.T) {
-					var expectedDt schema.DataType
-
-					switch dt {
-					case schema.DataTypeString:
-						expectedDt = schema.DataTypeText
-					case schema.DataTypeStringArray:
-						expectedDt = schema.DataTypeTextArray
-					default:
-						expectedDt = dt
-					}
-
-					require.Equal(t, dt.AsName(), properties[i].Name)
-					require.Equal(t, expectedDt.PropString(), properties[i].DataType)
-				})
-			}
+			fakeMetaHandler.AssertExpectations(t)
 		})
 	})
 
 	t.Run("fails adding property of existing name", func(t *testing.T) {
-		handler, shutdown := newTestHandler(t, &fakeDB{})
-		defer func() {
-			shutdown()
-		}()
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
 			Class: "NewClass",
@@ -125,6 +100,8 @@ func TestHandler_AddProperty(t *testing.T) {
 			},
 			Vectorizer: "none",
 		}
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
 		require.NoError(t, handler.AddClass(ctx, nil, &class))
 
 		existingNames := []string{
@@ -136,30 +113,58 @@ func TestHandler_AddProperty(t *testing.T) {
 		}
 
 		t.Run("adding properties", func(t *testing.T) {
+			fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
 			for _, propName := range existingNames {
 				t.Run(propName, func(t *testing.T) {
-					err := handler.AddClassProperty(ctx, nil, class.Class,
-						&models.Property{
-							Name:     propName,
-							DataType: schema.DataTypeInt.PropString(),
-						})
+					prop := &models.Property{
+						Name:     propName,
+						DataType: schema.DataTypeInt.PropString(),
+					}
+					err := handler.AddClassProperty(ctx, nil, class.Class, prop)
 					require.ErrorContains(t, err, "conflict for property")
 					require.ErrorContains(t, err, "already in use or provided multiple times")
 				})
 			}
+			fakeMetaHandler.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
 		})
+	})
+}
 
-		t.Run("verify properties do not exist in schema", func(t *testing.T) {
-			properties := handler.GetSchemaSkipAuth().Objects.Classes[0].Properties
-			require.Len(t, properties, 2)
+// TestHandler_AddProperty_Object verifies that we can add properties on class with the Object and ObjectArray type.
+// This test is different than TestHandler_AddProperty because Object and ObjectArray require nested properties to be validated.
+func TestHandler_AddProperty_Object(t *testing.T) {
+	ctx := context.Background()
 
-			myProp := properties[0]
-			require.Equal(t, "my_prop", myProp.Name)
-			require.Equal(t, schema.DataTypeText.PropString(), myProp.DataType)
+	t.Run("adds property of each object data type", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 
-			otherProp := properties[1]
-			require.Equal(t, "otherProp", otherProp.Name)
-			require.Equal(t, schema.DataTypeText.PropString(), otherProp.DataType)
+		class := models.Class{
+			Class:      "NewClass",
+			Vectorizer: "none",
+		}
+		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		require.NoError(t, handler.AddClass(ctx, nil, &class))
+		dataTypes := []schema.DataType{
+			schema.DataTypeObject,
+			schema.DataTypeObjectArray,
+		}
+
+		t.Run("adds properties", func(t *testing.T) {
+			for _, dt := range dataTypes {
+				t.Run(dt.AsName(), func(t *testing.T) {
+					prop := &models.Property{
+						Name:             dt.AsName(),
+						DataType:         dt.PropString(),
+						NestedProperties: []*models.NestedProperty{{Name: "test", DataType: schema.DataTypeInt.PropString()}},
+					}
+					fakeMetaHandler.On("AddProperty", class.Class, prop).Return(nil)
+					fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+					err := handler.AddClassProperty(ctx, nil, class.Class, prop)
+					require.NoError(t, err)
+				})
+			}
+			fakeMetaHandler.AssertExpectations(t)
 		})
 	})
 }
@@ -167,22 +172,10 @@ func TestHandler_AddProperty(t *testing.T) {
 func TestHandler_AddProperty_Tokenization(t *testing.T) {
 	ctx := context.Background()
 
-	handler, shutdown := newTestHandler(t, &fakeDB{})
-	defer func() {
-		shutdown()
-	}()
-
 	class := models.Class{
 		Class:      "NewClass",
 		Vectorizer: "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, &class))
-
-	refClass := models.Class{
-		Class:      "RefClass",
-		Vectorizer: "none",
-	}
-	require.NoError(t, handler.AddClass(ctx, nil, &refClass))
 
 	type testCase struct {
 		dataType             schema.DataType
@@ -193,6 +186,11 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 
 	runTestCases := func(t *testing.T, testCases []testCase) {
 		for _, tc := range testCases {
+			// Set up schema independently for each test
+			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+			fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+			fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
+
 			strTokenization := "empty"
 			if tc.tokenization != "" {
 				strTokenization = tc.tokenization
@@ -200,28 +198,29 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 			propName := fmt.Sprintf("%s_%s", tc.dataType.AsName(), strTokenization)
 
 			t.Run(propName, func(t *testing.T) {
-				err := handler.AddClassProperty(ctx, nil, class.Class,
-					&models.Property{
-						Name:         propName,
-						DataType:     tc.dataType.PropString(),
-						Tokenization: tc.tokenization,
-					})
+				prop := &models.Property{
+					Name:         propName,
+					DataType:     tc.dataType.PropString(),
+					Tokenization: tc.tokenization,
+				}
 
+				// If the dataType is a nested data type ensure we pass validation by adding a dummy nested property
+				if tc.dataType == schema.DataTypeObject || tc.dataType == schema.DataTypeObjectArray {
+					prop.NestedProperties = []*models.NestedProperty{{Name: "test", DataType: schema.DataTypeInt.PropString()}}
+				}
+
+				// If we expect no error, assert that the call is made with the property, else assert that no call was made to add the
+				// property
+				fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+				if len(tc.expectedErrContains) == 0 {
+					fakeMetaHandler.On("AddProperty", class.Class, prop).Return(nil)
+				} else {
+					fakeMetaHandler.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
+				}
+
+				err := handler.AddClassProperty(ctx, nil, class.Class, prop)
 				if len(tc.expectedErrContains) == 0 {
 					require.NoError(t, err)
-
-					classes := handler.GetSchemaSkipAuth().Objects.Classes
-					found := false
-					for _, c := range classes {
-						if c.Class == class.Class {
-							found = true
-							property := c.Properties[len(c.Properties)-1]
-							assert.Equal(t, propName, property.Name)
-							assert.Equal(t, tc.expectedTokenization, property.Tokenization)
-							break
-						}
-					}
-					require.Truef(t, found, "class %s not found in schema", class.Class)
 				} else {
 					for i := range tc.expectedErrContains {
 						assert.ErrorContains(t, err, tc.expectedErrContains[i])
@@ -405,71 +404,80 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 
 		runTestCases(t, testCases)
 	})
+}
 
-	t.Run("reference", func(t *testing.T) {
-		dataType := []string{refClass.Class}
+func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
+	ctx := context.Background()
 
-		// all tokenizations
-		for _, tokenization := range helpers.Tokenizations {
-			propName := fmt.Sprintf("ref_%s", tokenization)
-			t.Run(propName, func(t *testing.T) {
-				err := handler.AddClassProperty(ctx, nil, class.Class,
-					&models.Property{
-						Name:         propName,
-						DataType:     dataType,
-						Tokenization: tokenization,
-					})
+	handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 
-				assert.ErrorContains(t, err, "Tokenization is not allowed for reference data type")
-			})
-		}
+	class := models.Class{
+		Class:      "NewClass",
+		Vectorizer: "none",
+	}
+	refClass := models.Class{
+		Class:      "RefClass",
+		Vectorizer: "none",
+	}
+	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class, &refClass}})
+	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+	fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+	require.NoError(t, handler.AddClass(ctx, nil, &class))
+	require.NoError(t, handler.AddClass(ctx, nil, &refClass))
 
-		// empty tokenization
-		propName := "ref_empty"
+	dataType := []string{refClass.Class}
+
+	// all tokenizations
+	for _, tokenization := range helpers.Tokenizations {
+		propName := fmt.Sprintf("ref_%s", tokenization)
 		t.Run(propName, func(t *testing.T) {
 			err := handler.AddClassProperty(ctx, nil, class.Class,
 				&models.Property{
 					Name:         propName,
 					DataType:     dataType,
-					Tokenization: "",
-				})
-
-			require.NoError(t, err)
-
-			classes := handler.GetSchemaSkipAuth().Objects.Classes
-			found := false
-			for _, c := range classes {
-				if c.Class == class.Class {
-					found = true
-					property := c.Properties[len(c.Properties)-1]
-					assert.Equal(t, propName, property.Name)
-					assert.Equal(t, "", property.Tokenization)
-					break
-				}
-			}
-			require.Truef(t, found, "class %s not found in schema", class.Class)
-		})
-
-		// non-existent tokenization
-		propName = "ref_nonExistent"
-		t.Run(propName, func(t *testing.T) {
-			err := handler.AddClassProperty(ctx, nil, class.Class,
-				&models.Property{
-					Name:         propName,
-					DataType:     dataType,
-					Tokenization: "nonExistent",
+					Tokenization: tokenization,
 				})
 
 			assert.ErrorContains(t, err, "Tokenization is not allowed for reference data type")
 		})
+	}
+
+	fakeMetaHandler.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
+
+	// non-existent tokenization
+	propName := "ref_nonExistent"
+	t.Run(propName, func(t *testing.T) {
+		err := handler.AddClassProperty(ctx, nil, class.Class,
+			&models.Property{
+				Name:         propName,
+				DataType:     dataType,
+				Tokenization: "nonExistent",
+			})
+
+		assert.ErrorContains(t, err, "Tokenization is not allowed for reference data type")
+	})
+
+	fakeMetaHandler.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
+
+	// empty tokenization
+	propName = "ref_empty"
+	t.Run(propName, func(t *testing.T) {
+		fakeMetaHandler.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
+		err := handler.AddClassProperty(ctx, nil, class.Class,
+			&models.Property{
+				Name:         propName,
+				DataType:     dataType,
+				Tokenization: "",
+			})
+
+		require.NoError(t, err)
+		fakeMetaHandler.AssertExpectations(t)
 	})
 }
 
 func Test_Validation_PropertyTokenization(t *testing.T) {
-	handler, shutdown := newTestHandler(t, &fakeDB{})
-	defer func() {
-		shutdown()
-	}()
+	handler, _ := newTestHandler(t, &fakeDB{})
 
 	type testCase struct {
 		name                string
@@ -717,10 +725,7 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 	vFalse := false
 	vTrue := true
 
-	handler, shutdown := newTestHandler(t, &fakeDB{})
-	defer func() {
-		shutdown()
-	}()
+	handler, _ := newTestHandler(t, &fakeDB{})
 
 	t.Run("validates indexInverted + indexFilterable + indexSearchable combinations", func(t *testing.T) {
 		type testCase struct {
@@ -820,739 +825,6 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 		}
 	})
 }
-
-// TODO: Fix me
-//func Test_Validation_NestedProperties(t *testing.T) {
-//	vFalse := false
-//	vTrue := true
-//
-//	t.Run("does not validate wrong names", func(t *testing.T) {
-//		for _, name := range []string{"prop@1", "prop-2", "prop$3", "4prop"} {
-//			t.Run(name, func(t *testing.T) {
-//				nestedProperties := []*models.NestedProperty{
-//					{
-//						Name:            name,
-//						DataType:        schema.DataTypeInt.PropString(),
-//						IndexFilterable: &vFalse,
-//						IndexSearchable: &vFalse,
-//						Tokenization:    "",
-//					},
-//				}
-//
-//				for _, ndt := range schema.NestedDataTypes {
-//					t.Run(ndt.String(), func(t *testing.T) {
-//						propPrimitives := &models.Property{
-//							Name:             "objectProp",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						}
-//						propLvl2Primitives := &models.Property{
-//							Name:            "objectPropLvl2",
-//							DataType:        ndt.PropString(),
-//							IndexFilterable: &vFalse,
-//							IndexSearchable: &vFalse,
-//							Tokenization:    "",
-//							NestedProperties: []*models.NestedProperty{
-//								{
-//									Name:             "nested_object",
-//									DataType:         ndt.PropString(),
-//									IndexFilterable:  &vFalse,
-//									IndexSearchable:  &vFalse,
-//									Tokenization:     "",
-//									NestedProperties: nestedProperties,
-//								},
-//							},
-//						}
-//
-//						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//							t.Run(prop.Name, func(t *testing.T) {
-//								err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//								assert.ErrorContains(t, err, prop.Name)
-//								assert.ErrorContains(t, err, "is not a valid nested property name")
-//							})
-//						}
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("validates primitive data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{}
-//		for _, pdt := range schema.PrimitiveDataTypes {
-//			tokenization := ""
-//			switch pdt {
-//			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
-//				// skip - not supported as nested
-//				continue
-//			case schema.DataTypeText, schema.DataTypeTextArray:
-//				tokenization = models.PropertyTokenizationWord
-//			default:
-//				// do nothing
-//			}
-//
-//			nestedProperties = append(nestedProperties, &models.NestedProperty{
-//				Name:            "nested_" + pdt.AsName(),
-//				DataType:        pdt.PropString(),
-//				IndexFilterable: &vFalse,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    tokenization,
-//			})
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propPrimitives := &models.Property{
-//					Name:             "objectProp",
-//					DataType:         ndt.PropString(),
-//					IndexFilterable:  &vFalse,
-//					IndexSearchable:  &vFalse,
-//					Tokenization:     "",
-//					NestedProperties: nestedProperties,
-//				}
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.NoError(t, err)
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate deprecated primitive types", func(t *testing.T) {
-//		for _, pdt := range schema.DeprecatedPrimitiveDataTypes {
-//			t.Run(pdt.String(), func(t *testing.T) {
-//				nestedProperties := []*models.NestedProperty{
-//					{
-//						Name:            "nested_" + pdt.AsName(),
-//						DataType:        pdt.PropString(),
-//						IndexFilterable: &vFalse,
-//						IndexSearchable: &vFalse,
-//						Tokenization:    "",
-//					},
-//				}
-//
-//				for _, ndt := range schema.NestedDataTypes {
-//					t.Run(ndt.String(), func(t *testing.T) {
-//						propPrimitives := &models.Property{
-//							Name:             "objectProp",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						}
-//						propLvl2Primitives := &models.Property{
-//							Name:            "objectPropLvl2",
-//							DataType:        ndt.PropString(),
-//							IndexFilterable: &vFalse,
-//							IndexSearchable: &vFalse,
-//							Tokenization:    "",
-//							NestedProperties: []*models.NestedProperty{
-//								{
-//									Name:             "nested_object",
-//									DataType:         ndt.PropString(),
-//									IndexFilterable:  &vFalse,
-//									IndexSearchable:  &vFalse,
-//									Tokenization:     "",
-//									NestedProperties: nestedProperties,
-//								},
-//							},
-//						}
-//
-//						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//							t.Run(prop.Name, func(t *testing.T) {
-//								err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//								assert.ErrorContains(t, err, prop.Name)
-//								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' is deprecated and not allowed as nested property", pdt.String()))
-//							})
-//						}
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate unsupported primitive types", func(t *testing.T) {
-//		for _, pdt := range []schema.DataType{schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber} {
-//			t.Run(pdt.String(), func(t *testing.T) {
-//				nestedProperties := []*models.NestedProperty{
-//					{
-//						Name:            "nested_" + pdt.AsName(),
-//						DataType:        pdt.PropString(),
-//						IndexFilterable: &vFalse,
-//						IndexSearchable: &vFalse,
-//						Tokenization:    "",
-//					},
-//				}
-//
-//				for _, ndt := range schema.NestedDataTypes {
-//					t.Run(ndt.String(), func(t *testing.T) {
-//						propPrimitives := &models.Property{
-//							Name:             "objectProp",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						}
-//						propLvl2Primitives := &models.Property{
-//							Name:            "objectPropLvl2",
-//							DataType:        ndt.PropString(),
-//							IndexFilterable: &vFalse,
-//							IndexSearchable: &vFalse,
-//							Tokenization:    "",
-//							NestedProperties: []*models.NestedProperty{
-//								{
-//									Name:             "nested_object",
-//									DataType:         ndt.PropString(),
-//									IndexFilterable:  &vFalse,
-//									IndexSearchable:  &vFalse,
-//									Tokenization:     "",
-//									NestedProperties: nestedProperties,
-//								},
-//							},
-//						}
-//
-//						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//							t.Run(prop.Name, func(t *testing.T) {
-//								err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//								assert.ErrorContains(t, err, prop.Name)
-//								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' not allowed as nested property", pdt.String()))
-//							})
-//						}
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate ref types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{
-//			{
-//				Name:            "nested_ref",
-//				DataType:        []string{"SomeClass"},
-//				IndexFilterable: &vFalse,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    "",
-//			},
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propPrimitives := &models.Property{
-//					Name:             "objectProp",
-//					DataType:         ndt.PropString(),
-//					IndexFilterable:  &vFalse,
-//					IndexSearchable:  &vFalse,
-//					Tokenization:     "",
-//					NestedProperties: nestedProperties,
-//				}
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.ErrorContains(t, err, prop.Name)
-//						assert.ErrorContains(t, err, "reference data type not allowed")
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate empty nested properties", func(t *testing.T) {
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propPrimitives := &models.Property{
-//					Name:            "objectProp",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//				}
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:            "nested_object",
-//							DataType:        ndt.PropString(),
-//							IndexFilterable: &vFalse,
-//							IndexSearchable: &vFalse,
-//							Tokenization:    "",
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.ErrorContains(t, err, prop.Name)
-//						assert.ErrorContains(t, err, "At least one nested property is required for data type object/object[]")
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate tokenization on non text/text[] primitive data types", func(t *testing.T) {
-//		for _, pdt := range schema.PrimitiveDataTypes {
-//			switch pdt {
-//			case schema.DataTypeText, schema.DataTypeTextArray:
-//				continue
-//			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
-//				// skip - not supported as nested
-//				continue
-//			default:
-//				// do nothing
-//			}
-//
-//			t.Run(pdt.String(), func(t *testing.T) {
-//				nestedProperties := []*models.NestedProperty{
-//					{
-//						Name:            "nested_" + pdt.AsName(),
-//						DataType:        pdt.PropString(),
-//						IndexFilterable: &vFalse,
-//						IndexSearchable: &vFalse,
-//						Tokenization:    models.PropertyTokenizationWord,
-//					},
-//				}
-//
-//				for _, ndt := range schema.NestedDataTypes {
-//					t.Run(ndt.String(), func(t *testing.T) {
-//						propPrimitives := &models.Property{
-//							Name:             "objectProp",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						}
-//						propLvl2Primitives := &models.Property{
-//							Name:            "objectPropLvl2",
-//							DataType:        ndt.PropString(),
-//							IndexFilterable: &vFalse,
-//							IndexSearchable: &vFalse,
-//							Tokenization:    "",
-//							NestedProperties: []*models.NestedProperty{
-//								{
-//									Name:             "nested_object",
-//									DataType:         ndt.PropString(),
-//									IndexFilterable:  &vFalse,
-//									IndexSearchable:  &vFalse,
-//									Tokenization:     "",
-//									NestedProperties: nestedProperties,
-//								},
-//							},
-//						}
-//
-//						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//							t.Run(prop.Name, func(t *testing.T) {
-//								err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//								assert.ErrorContains(t, err, prop.Name)
-//								assert.ErrorContains(t, err, fmt.Sprintf("Tokenization is not allowed for data type '%s'", pdt.String()))
-//							})
-//						}
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate tokenization on nested data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{
-//			{
-//				Name:            "nested_int",
-//				DataType:        schema.DataTypeInt.PropString(),
-//				IndexFilterable: &vFalse,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    "",
-//			},
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     models.PropertyTokenizationWord,
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.ErrorContains(t, err, prop.Name)
-//						assert.ErrorContains(t, err, "Tokenization is not allowed for object/object[] data types")
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("validates indexFilterable on primitive data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{}
-//		for _, pdt := range schema.PrimitiveDataTypes {
-//			tokenization := ""
-//			switch pdt {
-//			case schema.DataTypeBlob:
-//				// skip - not indexable
-//				continue
-//			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
-//				// skip - not supported as nested
-//				continue
-//			case schema.DataTypeText, schema.DataTypeTextArray:
-//				tokenization = models.PropertyTokenizationWord
-//			default:
-//				// do nothing
-//			}
-//
-//			nestedProperties = append(nestedProperties, &models.NestedProperty{
-//				Name:            "nested_" + pdt.AsName(),
-//				DataType:        pdt.PropString(),
-//				IndexFilterable: &vTrue,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    tokenization,
-//			})
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propPrimitives := &models.Property{
-//					Name:             "objectProp",
-//					DataType:         ndt.PropString(),
-//					IndexFilterable:  &vFalse,
-//					IndexSearchable:  &vFalse,
-//					Tokenization:     "",
-//					NestedProperties: nestedProperties,
-//				}
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.NoError(t, err)
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate indexFilterable on blob data type", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{
-//			{
-//				Name:            "nested_blob",
-//				DataType:        schema.DataTypeBlob.PropString(),
-//				IndexFilterable: &vTrue,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    "",
-//			},
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propPrimitives := &models.Property{
-//					Name:             "objectProp",
-//					DataType:         ndt.PropString(),
-//					IndexFilterable:  &vFalse,
-//					IndexSearchable:  &vFalse,
-//					Tokenization:     "",
-//					NestedProperties: nestedProperties,
-//				}
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.ErrorContains(t, err, prop.Name)
-//						assert.ErrorContains(t, err, "indexFilterable is not allowed for blob data type")
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("validates indexFilterable on nested data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{
-//			{
-//				Name:            "nested_int",
-//				DataType:        schema.DataTypeInt.PropString(),
-//				IndexFilterable: &vFalse,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    "",
-//			},
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vTrue,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.NoError(t, err)
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("validates indexSearchable on text/text[] data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{}
-//		for _, pdt := range []schema.DataType{schema.DataTypeText, schema.DataTypeTextArray} {
-//			nestedProperties = append(nestedProperties, &models.NestedProperty{
-//				Name:            "nested_" + pdt.AsName(),
-//				DataType:        pdt.PropString(),
-//				IndexFilterable: &vFalse,
-//				IndexSearchable: &vTrue,
-//				Tokenization:    models.PropertyTokenizationWord,
-//			})
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propPrimitives := &models.Property{
-//					Name:             "objectProp",
-//					DataType:         ndt.PropString(),
-//					IndexFilterable:  &vFalse,
-//					IndexSearchable:  &vFalse,
-//					Tokenization:     "",
-//					NestedProperties: nestedProperties,
-//				}
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.NoError(t, err)
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate indexSearchable on primitive data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{}
-//		for _, pdt := range schema.PrimitiveDataTypes {
-//			switch pdt {
-//			case schema.DataTypeText, schema.DataTypeTextArray:
-//				continue
-//			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
-//				// skip - not supported as nested
-//				continue
-//			default:
-//				// do nothing
-//			}
-//
-//			t.Run(pdt.String(), func(t *testing.T) {
-//				nestedProperties = append(nestedProperties, &models.NestedProperty{
-//					Name:            "nested_" + pdt.AsName(),
-//					DataType:        pdt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vTrue,
-//					Tokenization:    "",
-//				})
-//
-//				for _, ndt := range schema.NestedDataTypes {
-//					t.Run(ndt.String(), func(t *testing.T) {
-//						propPrimitives := &models.Property{
-//							Name:             "objectProp",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vFalse,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						}
-//						propLvl2Primitives := &models.Property{
-//							Name:            "objectPropLvl2",
-//							DataType:        ndt.PropString(),
-//							IndexFilterable: &vFalse,
-//							IndexSearchable: &vFalse,
-//							Tokenization:    "",
-//							NestedProperties: []*models.NestedProperty{
-//								{
-//									Name:             "nested_object",
-//									DataType:         ndt.PropString(),
-//									IndexFilterable:  &vFalse,
-//									IndexSearchable:  &vFalse,
-//									Tokenization:     "",
-//									NestedProperties: nestedProperties,
-//								},
-//							},
-//						}
-//
-//						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
-//							t.Run(prop.Name, func(t *testing.T) {
-//								err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//								assert.ErrorContains(t, err, prop.Name)
-//								assert.ErrorContains(t, err, "`indexSearchable` is not allowed for other than text/text[] data types")
-//							})
-//						}
-//					})
-//				}
-//			})
-//		}
-//	})
-//
-//	t.Run("does not validate indexSearchable on nested data types", func(t *testing.T) {
-//		nestedProperties := []*models.NestedProperty{
-//			{
-//				Name:            "nested_int",
-//				DataType:        schema.DataTypeInt.PropString(),
-//				IndexFilterable: &vFalse,
-//				IndexSearchable: &vFalse,
-//				Tokenization:    "",
-//			},
-//		}
-//
-//		for _, ndt := range schema.NestedDataTypes {
-//			t.Run(ndt.String(), func(t *testing.T) {
-//				propLvl2Primitives := &models.Property{
-//					Name:            "objectPropLvl2",
-//					DataType:        ndt.PropString(),
-//					IndexFilterable: &vFalse,
-//					IndexSearchable: &vFalse,
-//					Tokenization:    "",
-//					NestedProperties: []*models.NestedProperty{
-//						{
-//							Name:             "nested_object",
-//							DataType:         ndt.PropString(),
-//							IndexFilterable:  &vFalse,
-//							IndexSearchable:  &vTrue,
-//							Tokenization:     "",
-//							NestedProperties: nestedProperties,
-//						},
-//					},
-//				}
-//
-//				for _, prop := range []*models.Property{propLvl2Primitives} {
-//					t.Run(prop.Name, func(t *testing.T) {
-//						err := validateNestedProperties(prop.NestedProperties, prop.Name)
-//						assert.ErrorContains(t, err, prop.Name)
-//						assert.ErrorContains(t, err, "`indexSearchable` is not allowed for other than text/text[] data types")
-//					})
-//				}
-//			})
-//		}
-//	})
-//}
 
 type fakePropertyDataType struct {
 	primitiveDataType schema.DataType

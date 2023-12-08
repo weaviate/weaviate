@@ -16,7 +16,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -34,11 +36,6 @@ func TestAddTenants(t *testing.T) {
 		repConfig = &models.ReplicationConfig{Factor: 1}
 	)
 
-	handler, shutdown := newTestHandler(t, &fakeDB{})
-	defer func() {
-		shutdown()
-	}()
-
 	mtNilClass := &models.Class{
 		Class:              "MTnil",
 		MultiTenancyConfig: nil,
@@ -46,8 +43,6 @@ func TestAddTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtNilClass))
-
 	mtDisabledClass := &models.Class{
 		Class:              "MTdisabled",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
@@ -55,8 +50,6 @@ func TestAddTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtDisabledClass))
-
 	mtEnabledClass := &models.Class{
 		Class:              "MTenabled",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -64,13 +57,12 @@ func TestAddTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtEnabledClass))
-
 	type test struct {
-		name    string
-		class   string
-		tenants []*models.Tenant
-		errMsgs []string
+		name      string
+		class     string
+		tenants   []*models.Tenant
+		errMsgs   []string
+		mockCalls func(fakeMetaHandler *fakeMetaHandler)
 	}
 
 	tests := []test{
@@ -79,18 +71,27 @@ func TestAddTenants(t *testing.T) {
 			class:   mtNilClass.Class,
 			tenants: tenants,
 			errMsgs: []string{"not enabled"},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: false})
+			},
 		},
 		{
 			name:    "MTDisabled",
 			class:   mtDisabledClass.Class,
 			tenants: tenants,
 			errMsgs: []string{"not enabled"},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: false})
+			},
 		},
 		{
 			name:    "UnknownClass",
 			class:   "UnknownClass",
 			tenants: tenants,
 			errMsgs: []string{ErrNotFound.Error()},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: false})
+			},
 		},
 		{
 			name:  "EmptyTenantValue",
@@ -100,7 +101,8 @@ func TestAddTenants(t *testing.T) {
 				{Name: ""},
 				{Name: "Bbbb"},
 			},
-			errMsgs: []string{"tenant"},
+			errMsgs:   []string{"tenant"},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "InvalidActivityStatus",
@@ -114,6 +116,7 @@ func TestAddTenants(t *testing.T) {
 				"DOES_NOT_EXIST_1",
 				"DOES_NOT_EXIST_2",
 			},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "UnsupportedActivityStatus",
@@ -127,6 +130,7 @@ func TestAddTenants(t *testing.T) {
 				models.TenantActivityStatusWARM,
 				models.TenantActivityStatusFROZEN,
 			},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "Success",
@@ -137,6 +141,11 @@ func TestAddTenants(t *testing.T) {
 				{Name: "Cccc", ActivityStatus: models.TenantActivityStatusCOLD},
 			},
 			errMsgs: []string{},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: true})
+				fakeMetaHandler.On("Read", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+			},
 		},
 		// TODO test with replication factor >= 2
 	}
@@ -144,29 +153,20 @@ func TestAddTenants(t *testing.T) {
 	// AddTenants
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// Isolate schema for each tests
+			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+
+			test.mockCalls(fakeMetaHandler)
+
 			err := handler.AddTenants(ctx, nil, test.class, test.tenants)
+
+			fakeMetaHandler.AssertExpectations(t)
+
 			if len(test.errMsgs) == 0 {
 				require.NoError(t, err)
-
-				existingTenants, err := handler.GetTenants(ctx, nil, test.class)
-				require.NoError(t, err)
-				existingTenantsMap := map[string]struct{}{}
-				for i := range existingTenants {
-					existingTenantsMap[existingTenants[i].Name] = struct{}{}
-				}
-
-				for i := range test.tenants {
-					assert.Contains(t, existingTenantsMap, test.tenants[i].Name)
-				}
 			} else {
 				for _, msg := range test.errMsgs {
 					assert.ErrorContains(t, err, msg)
-				}
-
-				if test.class == mtEnabledClass.Class {
-					existingTenants, err := handler.GetTenants(ctx, nil, test.class)
-					require.NoError(t, err)
-					assert.Len(t, existingTenants, 0)
 				}
 			}
 		})
@@ -189,11 +189,6 @@ func TestUpdateTenants(t *testing.T) {
 		repConfig = &models.ReplicationConfig{Factor: 1}
 	)
 
-	handler, shutdown := newTestHandler(t, &fakeDB{})
-	defer func() {
-		shutdown()
-	}()
-
 	mtNilClass := &models.Class{
 		Class:              "MTnil",
 		MultiTenancyConfig: nil,
@@ -201,8 +196,6 @@ func TestUpdateTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtNilClass))
-
 	mtDisabledClass := &models.Class{
 		Class:              "MTdisabled",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
@@ -210,8 +203,6 @@ func TestUpdateTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtDisabledClass))
-
 	mtEnabledClass := &models.Class{
 		Class:              "MTenabled",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -219,8 +210,6 @@ func TestUpdateTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtEnabledClass))
-	require.NoError(t, handler.AddTenants(ctx, nil, mtEnabledClass.Class, tenants))
 
 	type test struct {
 		name            string
@@ -228,6 +217,7 @@ func TestUpdateTenants(t *testing.T) {
 		updateTenants   []*models.Tenant
 		errMsgs         []string
 		expectedTenants []*models.Tenant
+		mockCalls       func(fakeMetaHandler *fakeMetaHandler)
 	}
 
 	tests := []test{
@@ -237,6 +227,9 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         []string{"not enabled"},
 			expectedTenants: tenants,
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: false})
+			},
 		},
 		{
 			name:            "MTDisabled",
@@ -244,6 +237,9 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         []string{"not enabled"},
 			expectedTenants: tenants,
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: false})
+			},
 		},
 		{
 			name:            "UnknownClass",
@@ -251,6 +247,9 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         []string{ErrNotFound.Error()},
 			expectedTenants: tenants,
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: false})
+			},
 		},
 		{
 			name:  "EmptyTenantValue",
@@ -260,6 +259,7 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"tenant"},
 			expectedTenants: tenants,
+			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "InvalidActivityStatus",
@@ -274,6 +274,7 @@ func TestUpdateTenants(t *testing.T) {
 				"DOES_NOT_EXIST_2",
 			},
 			expectedTenants: tenants,
+			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "UnsupportedActivityStatus",
@@ -288,6 +289,7 @@ func TestUpdateTenants(t *testing.T) {
 				models.TenantActivityStatusFROZEN,
 			},
 			expectedTenants: tenants,
+			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "EmptyActivityStatus",
@@ -298,6 +300,7 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"invalid activity status"},
 			expectedTenants: tenants,
+			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:  "Success",
@@ -311,13 +314,20 @@ func TestUpdateTenants(t *testing.T) {
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 			},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: true})
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
+			// Isolate schema for each tests
+			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+			test.mockCalls(fakeMetaHandler)
 
+			err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
 			if len(test.errMsgs) == 0 {
 				require.NoError(t, err)
 			} else {
@@ -326,16 +336,7 @@ func TestUpdateTenants(t *testing.T) {
 				}
 			}
 
-			existingTenants, err := handler.GetTenants(ctx, nil, mtEnabledClass.Class)
-			require.NoError(t, err)
-			existingTenantsMap := map[string]*models.Tenant{}
-			for i := range existingTenants {
-				existingTenantsMap[existingTenants[i].Name] = existingTenants[i]
-			}
-
-			for _, tenant := range test.expectedTenants {
-				assert.Equal(t, tenant, existingTenantsMap[tenant.Name])
-			}
+			fakeMetaHandler.AssertExpectations(t)
 		})
 	}
 }
@@ -358,11 +359,6 @@ func TestDeleteTenants(t *testing.T) {
 		repConfig = &models.ReplicationConfig{Factor: 1}
 	)
 
-	handler, shutdown := newTestHandler(t, &fakeDB{})
-	defer func() {
-		shutdown()
-	}()
-
 	mtNilClass := &models.Class{
 		Class:              "MTnil",
 		MultiTenancyConfig: nil,
@@ -370,8 +366,6 @@ func TestDeleteTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtNilClass))
-
 	mtDisabledClass := &models.Class{
 		Class:              "MTdisabled",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
@@ -379,8 +373,6 @@ func TestDeleteTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtDisabledClass))
-
 	mtEnabledClass := &models.Class{
 		Class:              "MTenabled",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -388,8 +380,6 @@ func TestDeleteTenants(t *testing.T) {
 		ReplicationConfig:  repConfig,
 		Vectorizer:         "none",
 	}
-	require.NoError(t, handler.AddClass(ctx, nil, mtEnabledClass))
-	require.NoError(t, handler.AddTenants(ctx, nil, mtEnabledClass.Class, tenants))
 
 	type test struct {
 		name            string
@@ -397,6 +387,7 @@ func TestDeleteTenants(t *testing.T) {
 		tenants         []*models.Tenant
 		errMsgs         []string
 		expectedTenants []*models.Tenant
+		mockCalls       func(fakeMetaHandler *fakeMetaHandler)
 	}
 
 	tests := []test{
@@ -406,6 +397,9 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         []string{"not enabled"},
 			expectedTenants: tenants,
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: false})
+			},
 		},
 		{
 			name:            "MTDisabled",
@@ -413,6 +407,9 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         []string{"not enabled"},
 			expectedTenants: tenants,
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: false})
+			},
 		},
 		{
 			name:            "UnknownClass",
@@ -420,6 +417,9 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         []string{ErrNotFound.Error()},
 			expectedTenants: tenants,
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: false, MultiTenancy: false})
+			},
 		},
 		{
 			name:  "EmptyTenantValue",
@@ -431,6 +431,7 @@ func TestDeleteTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"empty tenant name at index 1"},
 			expectedTenants: tenants,
+			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
 			name:            "Success",
@@ -438,11 +439,19 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants[:2],
 			errMsgs:         []string{},
 			expectedTenants: tenants[2:],
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: true, MultiTenancy: true})
+				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// Isolate schema for each tests
+			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+			test.mockCalls(fakeMetaHandler)
+
 			tenantNames := make([]string, len(test.tenants))
 			for i := range test.tenants {
 				tenantNames[i] = test.tenants[i].Name
@@ -455,17 +464,6 @@ func TestDeleteTenants(t *testing.T) {
 				for i := range test.errMsgs {
 					assert.ErrorContains(t, err, test.errMsgs[i])
 				}
-			}
-
-			existingTenants, err := handler.GetTenants(ctx, nil, mtEnabledClass.Class)
-			require.NoError(t, err)
-			existingTenantsMap := map[string]struct{}{}
-			for i := range existingTenants {
-				existingTenantsMap[existingTenants[i].Name] = struct{}{}
-			}
-
-			for i := range test.expectedTenants {
-				assert.Contains(t, existingTenantsMap, test.expectedTenants[i].Name)
 			}
 		})
 	}
