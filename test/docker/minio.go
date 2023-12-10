@@ -24,6 +24,7 @@ import (
 const MinIO = "test-minio"
 
 func startMinIO(ctx context.Context, networkName string) (*DockerContainer, error) {
+	port := nat.Port("9000/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "minio/minio",
@@ -41,8 +42,8 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 			},
 			Cmd: []string{"server", "/data"},
 			WaitingFor: wait.ForAll(
-				wait.ForListeningPort(nat.Port("9000/tcp")),
-				wait.ForHTTP("/minio/health/ready").WithPort(nat.Port("9000/tcp")),
+				wait.ForListeningPort(port),
+				wait.ForHTTP("/minio/health/ready").WithPort(port),
 			).WithDeadline(60 * time.Second),
 		},
 		Started: true,
@@ -50,16 +51,16 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.PortEndpoint(ctx, nat.Port("9000/tcp"), "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, "9000")
+	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, port.Port())
 	envSettings["BACKUP_S3_USE_SSL"] = "false"
 	envSettings["AWS_ACCESS_KEY_ID"] = "aws_access_key"
 	envSettings["AWS_SECRET_KEY"] = "aws_secret_key"
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"9000/tcp", uri}
+	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{MinIO, endpoints, container, envSettings}, nil
 }
