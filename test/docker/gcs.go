@@ -25,11 +25,11 @@ import (
 const GCS = "gcp-storage-emulator"
 
 func startGCS(ctx context.Context, networkName string) (*DockerContainer, error) {
-	port, _ := nat.NewPort("tcp", "9090")
+	port := nat.Port("9090/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "oittaa/gcp-storage-emulator",
-			ExposedPorts: []string{port.Port()},
+			ExposedPorts: []string{"9090/tcp"},
 			Name:         GCS,
 			Hostname:     GCS,
 			AutoRemove:   true,

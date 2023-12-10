@@ -24,11 +24,11 @@ import (
 const Azurite = "azurite"
 
 func startAzurite(ctx context.Context, networkName string) (*DockerContainer, error) {
-	blobPort, _ := nat.NewPort("tcp", "10000")
+	blobPort := nat.Port("10000/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "mcr.microsoft.com/azure-storage/azurite",
-			ExposedPorts: []string{blobPort.Port(), "10001/tcp", "10002/tcp"},
+			ExposedPorts: []string{"10000/tcp", "10001/tcp", "10002/tcp"},
 			Hostname:     Azurite,
 			AutoRemove:   true,
 			Networks:     []string{networkName},

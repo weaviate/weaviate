@@ -89,15 +89,15 @@ func startWeaviate(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
-	httpPort, _ := nat.NewPort("tcp", "8080")
-	exposedPorts := []string{httpPort.Port()}
+	httpPort := nat.Port("8080/tcp")
+	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
 		wait.ForListeningPort(httpPort),
 		wait.ForHTTP("/v1/.well-known/ready").WithPort(httpPort),
 	}
-	grpcPort, _ := nat.NewPort("tcp", "50051")
+	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
-		exposedPorts = append(exposedPorts, grpcPort.Port())
+		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
 	req := testcontainers.ContainerRequest{
