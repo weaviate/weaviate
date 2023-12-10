@@ -41,7 +41,7 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 			},
 			ExposedPorts: []string{"9999/tcp"},
 			AutoRemove:   true,
-			WaitingFor:   wait.ForListeningPort("9999"),
+			WaitingFor:   wait.ForListeningPort("9999/tcp"),
 		},
 		Started: true,
 	})
