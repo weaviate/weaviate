@@ -116,7 +116,7 @@ func (i *Index) ShouldCompress() (bool, int) {
 	return false, 0
 }
 
-func (i *Index) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+func (i *Index) ShouldCompressFromConfig(config schemaConfig.VectorIndexConfig) (bool, int) {
 	return false, 0
 }
 
