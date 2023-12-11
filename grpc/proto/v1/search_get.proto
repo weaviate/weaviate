@@ -121,7 +121,6 @@ message Filters {
   };
 }
 
-
 message MetadataRequest {
   bool uuid = 1;
   bool vector = 2;
