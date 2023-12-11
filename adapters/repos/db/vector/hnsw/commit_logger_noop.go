@@ -14,7 +14,7 @@ package hnsw
 import (
 	"context"
 
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not
@@ -25,7 +25,7 @@ func (n *NoopCommitLogger) ID() string {
 	return ""
 }
 
-func (n *NoopCommitLogger) AddPQ(data ssdhelpers.PQData) error {
+func (n *NoopCommitLogger) AddPQ(data compressionhelpers.PQData) error {
 	return nil
 }
 

@@ -27,8 +27,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -153,7 +153,7 @@ type hnsw struct {
 	compressed   atomic.Bool
 	doNotRescore bool
 
-	compressor ssdhelpers.VectorCompressor
+	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
 
 	compressActionLock *sync.RWMutex
@@ -181,7 +181,7 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQ(ssdhelpers.PQData) error
+	AddPQ(compressionhelpers.PQData) error
 }
 
 type BufferedLinksLogger interface {
@@ -269,7 +269,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = ssdhelpers.NewBQCompressor(index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store)
+		index.compressor, err = compressionhelpers.NewBQCompressor(index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store)
 		if err != nil {
 			return nil, err
 		}
@@ -393,7 +393,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 // }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID uint64, nodeVec []float32, distancer ssdhelpers.CompressorDistancer,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer,
 ) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate

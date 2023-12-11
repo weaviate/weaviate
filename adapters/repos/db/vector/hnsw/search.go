@@ -20,9 +20,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -160,7 +160,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
 	allowList helpers.AllowList) (*priorityqueue.Queue, error,
 ) {
-	var compressorDistancer ssdhelpers.CompressorDistancer
+	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		compressorDistancer = h.compressor.NewDistancer(queryVector)
 		defer h.compressor.ReturnDistancer(compressorDistancer)
@@ -170,7 +170,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList, compressorDistancer ssdhelpers.CompressorDistancer) (*priorityqueue.Queue, error,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue, error,
 ) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
@@ -388,7 +388,7 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
 }
 
 func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
-	distancer ssdhelpers.CompressorDistancer,
+	distancer compressionhelpers.CompressorDistancer,
 ) (float32, error) {
 	if results.Len() > 0 {
 		item := results.Top()
@@ -415,7 +415,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer ssdhelpers.CompressorDistancer, nodeID uint64) (float32, bool, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, bool, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
 	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice)
@@ -499,7 +499,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
-	var compressorDistancer ssdhelpers.CompressorDistancer
+	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		compressorDistancer = h.compressor.NewDistancer(searchVec)
 		defer h.compressor.ReturnDistancer(compressorDistancer)

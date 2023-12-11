@@ -18,11 +18,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
-	entryPointID uint64, nodeVec []float32, distancer ssdhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
@@ -37,7 +37,7 @@ type neighborFinderConnector struct {
 	entryPointID    uint64
 	entryPointDist  float32
 	nodeVec         []float32
-	distancer       ssdhelpers.CompressorDistancer
+	distancer       compressionhelpers.CompressorDistancer
 	targetLevel     int
 	currentMaxLevel int
 	denyList        helpers.AllowList
@@ -45,7 +45,7 @@ type neighborFinderConnector struct {
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
-	nodeVec []float32, distancer ssdhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{

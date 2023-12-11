@@ -16,7 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 type Logger struct {
@@ -74,7 +74,7 @@ func (l *Logger) AddNode(id uint64, level int) error {
 	return err
 }
 
-func (l *Logger) AddPQ(data ssdhelpers.PQData) error {
+func (l *Logger) AddPQ(data compressionhelpers.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)

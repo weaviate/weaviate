@@ -20,7 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -235,7 +235,7 @@ func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	return ec.ToError()
 }
 
-func (c *MemoryCondensor) AddPQ(data ssdhelpers.PQData) error {
+func (c *MemoryCondensor) AddPQ(data compressionhelpers.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)

@@ -27,8 +27,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -164,7 +164,7 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
 		dist := distance(query, vectors[i])
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
@@ -202,7 +202,7 @@ func BuildTruths(queriesSize int, vectorsSize int, queries [][]float32, vectors 
 		return loadTruths(fileName, queriesSize, k)
 	}
 
-	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 		truths[i], _ = BruteForce(vectors, queries[i], k, distance)
 	})
 
