@@ -21,7 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -326,7 +326,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 
 	var neighborVec []float32
-	var compressorDistancer ssdhelpers.CompressorDistancer
+	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
 		defer h.compressor.ReturnDistancer(compressorDistancer)

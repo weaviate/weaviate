@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ssdhelpers_test
+package compressionhelpers_test
 
 import (
 	"fmt"
@@ -19,8 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
@@ -28,20 +28,20 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	k := 10
 	distanceProvider := distancer.NewCosineDistanceProvider()
 	vectors, queryVecs := testinghelpers.RandomVecs(10_000, 100, 1536)
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
 		vectors[i] = distancer.Normalize(vectors[i])
 	})
-	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		queryVecs[i] = distancer.Normalize(queryVecs[i])
 	})
-	bq := ssdhelpers.NewBinaryQuantizer(nil)
+	bq := compressionhelpers.NewBinaryQuantizer(nil)
 
 	codes := make([][]uint64, len(vectors))
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
 		codes[i] = bq.Encode(vectors[i])
 	})
 	neighbors := make([][]uint64, len(queryVecs))
-	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		neighbors[i], _ = testinghelpers.BruteForce(vectors, queryVecs[i], k, func(f1, f2 []float32) float32 {
 			d, _, _ := distanceProvider.SingleDist(f1, f2)
 			return d
@@ -51,7 +51,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	hits := uint64(0)
 	mutex := sync.Mutex{}
 	duration := time.Duration(0)
-	ssdhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		before := time.Now()
 		query := bq.Encode(queryVecs[i])
 		heap := priorityqueue.NewMax(correctedK)
@@ -80,7 +80,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 }
 
 func TestBinaryQuantizerChecksSize(t *testing.T) {
-	bq := ssdhelpers.NewBinaryQuantizer(nil)
+	bq := compressionhelpers.NewBinaryQuantizer(nil)
 	_, err := bq.DistanceBetweenCompressedVectors(make([]uint64, 3), make([]uint64, 4))
 	assert.NotNil(t, err)
 }
