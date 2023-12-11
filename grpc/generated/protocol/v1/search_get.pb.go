@@ -157,7 +157,7 @@ func (x Hybrid_FusionType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Hybrid_FusionType.Descriptor instead.
 func (Hybrid_FusionType) EnumDescriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{12, 0}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{13, 0}
 }
 
 type SearchRequest struct {
@@ -778,6 +778,7 @@ type Filters struct {
 	//	*Filters_ValueIntArray
 	//	*Filters_ValueBooleanArray
 	//	*Filters_ValueNumberArray
+	//	*Filters_ValueGeo
 	TestValue isFilters_TestValue `protobuf_oneof:"test_value"`
 }
 
@@ -897,6 +898,13 @@ func (x *Filters) GetValueNumberArray() *NumberArray {
 	return nil
 }
 
+func (x *Filters) GetValueGeo() *GeoCoordinatesFilter {
+	if x, ok := x.GetTestValue().(*Filters_ValueGeo); ok {
+		return x.ValueGeo
+	}
+	return nil
+}
+
 type isFilters_TestValue interface {
 	isFilters_TestValue()
 }
@@ -933,6 +941,10 @@ type Filters_ValueNumberArray struct {
 	ValueNumberArray *NumberArray `protobuf:"bytes,12,opt,name=value_number_array,json=valueNumberArray,proto3,oneof"`
 }
 
+type Filters_ValueGeo struct {
+	ValueGeo *GeoCoordinatesFilter `protobuf:"bytes,13,opt,name=value_geo,json=valueGeo,proto3,oneof"`
+}
+
 func (*Filters_ValueText) isFilters_TestValue() {}
 
 func (*Filters_ValueInt) isFilters_TestValue() {}
@@ -948,6 +960,71 @@ func (*Filters_ValueIntArray) isFilters_TestValue() {}
 func (*Filters_ValueBooleanArray) isFilters_TestValue() {}
 
 func (*Filters_ValueNumberArray) isFilters_TestValue() {}
+
+func (*Filters_ValueGeo) isFilters_TestValue() {}
+
+type GeoCoordinatesFilter struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Latitude  float32 `protobuf:"fixed32,1,opt,name=latitude,proto3" json:"latitude,omitempty"`
+	Longitude float32 `protobuf:"fixed32,2,opt,name=longitude,proto3" json:"longitude,omitempty"`
+	Distance  float32 `protobuf:"fixed32,3,opt,name=distance,proto3" json:"distance,omitempty"`
+}
+
+func (x *GeoCoordinatesFilter) Reset() {
+	*x = GeoCoordinatesFilter{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_v1_search_get_proto_msgTypes[9]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *GeoCoordinatesFilter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GeoCoordinatesFilter) ProtoMessage() {}
+
+func (x *GeoCoordinatesFilter) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_search_get_proto_msgTypes[9]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GeoCoordinatesFilter.ProtoReflect.Descriptor instead.
+func (*GeoCoordinatesFilter) Descriptor() ([]byte, []int) {
+	return file_v1_search_get_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GeoCoordinatesFilter) GetLatitude() float32 {
+	if x != nil {
+		return x.Latitude
+	}
+	return 0
+}
+
+func (x *GeoCoordinatesFilter) GetLongitude() float32 {
+	if x != nil {
+		return x.Longitude
+	}
+	return 0
+}
+
+func (x *GeoCoordinatesFilter) GetDistance() float32 {
+	if x != nil {
+		return x.Distance
+	}
+	return 0
+}
 
 type MetadataRequest struct {
 	state         protoimpl.MessageState
@@ -968,7 +1045,7 @@ type MetadataRequest struct {
 func (x *MetadataRequest) Reset() {
 	*x = MetadataRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[9]
+		mi := &file_v1_search_get_proto_msgTypes[10]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -981,7 +1058,7 @@ func (x *MetadataRequest) String() string {
 func (*MetadataRequest) ProtoMessage() {}
 
 func (x *MetadataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[9]
+	mi := &file_v1_search_get_proto_msgTypes[10]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -994,7 +1071,7 @@ func (x *MetadataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataRequest.ProtoReflect.Descriptor instead.
 func (*MetadataRequest) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{9}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MetadataRequest) GetUuid() bool {
@@ -1073,7 +1150,7 @@ type PropertiesRequest struct {
 func (x *PropertiesRequest) Reset() {
 	*x = PropertiesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[10]
+		mi := &file_v1_search_get_proto_msgTypes[11]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1086,7 +1163,7 @@ func (x *PropertiesRequest) String() string {
 func (*PropertiesRequest) ProtoMessage() {}
 
 func (x *PropertiesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[10]
+	mi := &file_v1_search_get_proto_msgTypes[11]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1176,7 @@ func (x *PropertiesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertiesRequest.ProtoReflect.Descriptor instead.
 func (*PropertiesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{10}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *PropertiesRequest) GetNonRefProperties() []string {
@@ -1136,7 +1213,7 @@ type ObjectPropertiesRequest struct {
 func (x *ObjectPropertiesRequest) Reset() {
 	*x = ObjectPropertiesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[11]
+		mi := &file_v1_search_get_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1149,7 +1226,7 @@ func (x *ObjectPropertiesRequest) String() string {
 func (*ObjectPropertiesRequest) ProtoMessage() {}
 
 func (x *ObjectPropertiesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[11]
+	mi := &file_v1_search_get_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1162,7 +1239,7 @@ func (x *ObjectPropertiesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ObjectPropertiesRequest.ProtoReflect.Descriptor instead.
 func (*ObjectPropertiesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{11}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ObjectPropertiesRequest) GetPropName() string {
@@ -1205,7 +1282,7 @@ type Hybrid struct {
 func (x *Hybrid) Reset() {
 	*x = Hybrid{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[12]
+		mi := &file_v1_search_get_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1218,7 +1295,7 @@ func (x *Hybrid) String() string {
 func (*Hybrid) ProtoMessage() {}
 
 func (x *Hybrid) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[12]
+	mi := &file_v1_search_get_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1231,7 +1308,7 @@ func (x *Hybrid) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hybrid.ProtoReflect.Descriptor instead.
 func (*Hybrid) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{12}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Hybrid) GetQuery() string {
@@ -1293,7 +1370,7 @@ type NearTextSearch struct {
 func (x *NearTextSearch) Reset() {
 	*x = NearTextSearch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[13]
+		mi := &file_v1_search_get_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1306,7 +1383,7 @@ func (x *NearTextSearch) String() string {
 func (*NearTextSearch) ProtoMessage() {}
 
 func (x *NearTextSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[13]
+	mi := &file_v1_search_get_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1319,7 +1396,7 @@ func (x *NearTextSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearTextSearch.ProtoReflect.Descriptor instead.
 func (*NearTextSearch) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{13}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *NearTextSearch) GetQuery() []string {
@@ -1370,7 +1447,7 @@ type NearImageSearch struct {
 func (x *NearImageSearch) Reset() {
 	*x = NearImageSearch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[14]
+		mi := &file_v1_search_get_proto_msgTypes[15]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1383,7 +1460,7 @@ func (x *NearImageSearch) String() string {
 func (*NearImageSearch) ProtoMessage() {}
 
 func (x *NearImageSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[14]
+	mi := &file_v1_search_get_proto_msgTypes[15]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1396,7 +1473,7 @@ func (x *NearImageSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearImageSearch.ProtoReflect.Descriptor instead.
 func (*NearImageSearch) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{14}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *NearImageSearch) GetImage() string {
@@ -1433,7 +1510,7 @@ type NearAudioSearch struct {
 func (x *NearAudioSearch) Reset() {
 	*x = NearAudioSearch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[15]
+		mi := &file_v1_search_get_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1446,7 +1523,7 @@ func (x *NearAudioSearch) String() string {
 func (*NearAudioSearch) ProtoMessage() {}
 
 func (x *NearAudioSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[15]
+	mi := &file_v1_search_get_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1459,7 +1536,7 @@ func (x *NearAudioSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearAudioSearch.ProtoReflect.Descriptor instead.
 func (*NearAudioSearch) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{15}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *NearAudioSearch) GetAudio() string {
@@ -1496,7 +1573,7 @@ type NearVideoSearch struct {
 func (x *NearVideoSearch) Reset() {
 	*x = NearVideoSearch{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[16]
+		mi := &file_v1_search_get_proto_msgTypes[17]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1509,7 +1586,7 @@ func (x *NearVideoSearch) String() string {
 func (*NearVideoSearch) ProtoMessage() {}
 
 func (x *NearVideoSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[16]
+	mi := &file_v1_search_get_proto_msgTypes[17]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1599,7 @@ func (x *NearVideoSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearVideoSearch.ProtoReflect.Descriptor instead.
 func (*NearVideoSearch) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{16}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *NearVideoSearch) GetVideo() string {
@@ -1558,7 +1635,7 @@ type BM25 struct {
 func (x *BM25) Reset() {
 	*x = BM25{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[17]
+		mi := &file_v1_search_get_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1571,7 +1648,7 @@ func (x *BM25) String() string {
 func (*BM25) ProtoMessage() {}
 
 func (x *BM25) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[17]
+	mi := &file_v1_search_get_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1584,7 +1661,7 @@ func (x *BM25) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BM25.ProtoReflect.Descriptor instead.
 func (*BM25) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BM25) GetQuery() string {
@@ -1615,7 +1692,7 @@ type RefPropertiesRequest struct {
 func (x *RefPropertiesRequest) Reset() {
 	*x = RefPropertiesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[18]
+		mi := &file_v1_search_get_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1628,7 +1705,7 @@ func (x *RefPropertiesRequest) String() string {
 func (*RefPropertiesRequest) ProtoMessage() {}
 
 func (x *RefPropertiesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[18]
+	mi := &file_v1_search_get_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1641,7 +1718,7 @@ func (x *RefPropertiesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefPropertiesRequest.ProtoReflect.Descriptor instead.
 func (*RefPropertiesRequest) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{18}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RefPropertiesRequest) GetReferenceProperty() string {
@@ -1689,7 +1766,7 @@ type NearVector struct {
 func (x *NearVector) Reset() {
 	*x = NearVector{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[19]
+		mi := &file_v1_search_get_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1702,7 +1779,7 @@ func (x *NearVector) String() string {
 func (*NearVector) ProtoMessage() {}
 
 func (x *NearVector) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[19]
+	mi := &file_v1_search_get_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1715,7 +1792,7 @@ func (x *NearVector) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearVector.ProtoReflect.Descriptor instead.
 func (*NearVector) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{19}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{20}
 }
 
 // Deprecated: Marked as deprecated in v1/search_get.proto.
@@ -1760,7 +1837,7 @@ type NearObject struct {
 func (x *NearObject) Reset() {
 	*x = NearObject{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[20]
+		mi := &file_v1_search_get_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1773,7 +1850,7 @@ func (x *NearObject) String() string {
 func (*NearObject) ProtoMessage() {}
 
 func (x *NearObject) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[20]
+	mi := &file_v1_search_get_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1786,7 +1863,7 @@ func (x *NearObject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearObject.ProtoReflect.Descriptor instead.
 func (*NearObject) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{20}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *NearObject) GetId() string {
@@ -1824,7 +1901,7 @@ type SearchReply struct {
 func (x *SearchReply) Reset() {
 	*x = SearchReply{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[21]
+		mi := &file_v1_search_get_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1837,7 +1914,7 @@ func (x *SearchReply) String() string {
 func (*SearchReply) ProtoMessage() {}
 
 func (x *SearchReply) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[21]
+	mi := &file_v1_search_get_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1850,7 +1927,7 @@ func (x *SearchReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchReply.ProtoReflect.Descriptor instead.
 func (*SearchReply) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{21}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *SearchReply) GetTook() float32 {
@@ -1896,7 +1973,7 @@ type GroupByResult struct {
 func (x *GroupByResult) Reset() {
 	*x = GroupByResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[22]
+		mi := &file_v1_search_get_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1909,7 +1986,7 @@ func (x *GroupByResult) String() string {
 func (*GroupByResult) ProtoMessage() {}
 
 func (x *GroupByResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[22]
+	mi := &file_v1_search_get_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1922,7 +1999,7 @@ func (x *GroupByResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupByResult.ProtoReflect.Descriptor instead.
 func (*GroupByResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{22}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GroupByResult) GetName() string {
@@ -1972,7 +2049,7 @@ type SearchResult struct {
 func (x *SearchResult) Reset() {
 	*x = SearchResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[23]
+		mi := &file_v1_search_get_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1985,7 +2062,7 @@ func (x *SearchResult) String() string {
 func (*SearchResult) ProtoMessage() {}
 
 func (x *SearchResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[23]
+	mi := &file_v1_search_get_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1998,7 +2075,7 @@ func (x *SearchResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchResult.ProtoReflect.Descriptor instead.
 func (*SearchResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{23}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SearchResult) GetProperties() *PropertiesResult {
@@ -2047,7 +2124,7 @@ type MetadataResult struct {
 func (x *MetadataResult) Reset() {
 	*x = MetadataResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[24]
+		mi := &file_v1_search_get_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2060,7 +2137,7 @@ func (x *MetadataResult) String() string {
 func (*MetadataResult) ProtoMessage() {}
 
 func (x *MetadataResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[24]
+	mi := &file_v1_search_get_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2073,7 +2150,7 @@ func (x *MetadataResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetadataResult.ProtoReflect.Descriptor instead.
 func (*MetadataResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{24}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *MetadataResult) GetId() string {
@@ -2238,7 +2315,7 @@ type PropertiesResult struct {
 func (x *PropertiesResult) Reset() {
 	*x = PropertiesResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[25]
+		mi := &file_v1_search_get_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2251,7 +2328,7 @@ func (x *PropertiesResult) String() string {
 func (*PropertiesResult) ProtoMessage() {}
 
 func (x *PropertiesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[25]
+	mi := &file_v1_search_get_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2264,7 +2341,7 @@ func (x *PropertiesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertiesResult.ProtoReflect.Descriptor instead.
 func (*PropertiesResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{25}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{26}
 }
 
 // Deprecated: Marked as deprecated in v1/search_get.proto.
@@ -2363,7 +2440,7 @@ type RefPropertiesResult struct {
 func (x *RefPropertiesResult) Reset() {
 	*x = RefPropertiesResult{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[26]
+		mi := &file_v1_search_get_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2376,7 +2453,7 @@ func (x *RefPropertiesResult) String() string {
 func (*RefPropertiesResult) ProtoMessage() {}
 
 func (x *RefPropertiesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[26]
+	mi := &file_v1_search_get_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2389,7 +2466,7 @@ func (x *RefPropertiesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefPropertiesResult.ProtoReflect.Descriptor instead.
 func (*RefPropertiesResult) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{26}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RefPropertiesResult) GetProperties() []*PropertiesResult {
@@ -2419,7 +2496,7 @@ type NearTextSearch_Move struct {
 func (x *NearTextSearch_Move) Reset() {
 	*x = NearTextSearch_Move{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_v1_search_get_proto_msgTypes[27]
+		mi := &file_v1_search_get_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2432,7 +2509,7 @@ func (x *NearTextSearch_Move) String() string {
 func (*NearTextSearch_Move) ProtoMessage() {}
 
 func (x *NearTextSearch_Move) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_search_get_proto_msgTypes[27]
+	mi := &file_v1_search_get_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2445,7 +2522,7 @@ func (x *NearTextSearch_Move) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NearTextSearch_Move.ProtoReflect.Descriptor instead.
 func (*NearTextSearch_Move) Descriptor() ([]byte, []int) {
-	return file_v1_search_get_proto_rawDescGZIP(), []int{13, 0}
+	return file_v1_search_get_proto_rawDescGZIP(), []int{14, 0}
 }
 
 func (x *NearTextSearch_Move) GetForce() float32 {
@@ -2596,7 +2673,7 @@ var file_v1_search_get_proto_rawDesc = []byte{
 	0x03, 0x28, 0x01, 0x52, 0x06, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x73, 0x22, 0x26, 0x0a, 0x0c, 0x42,
 	0x6f, 0x6f, 0x6c, 0x65, 0x61, 0x6e, 0x41, 0x72, 0x72, 0x61, 0x79, 0x12, 0x16, 0x0a, 0x06, 0x76,
 	0x61, 0x6c, 0x75, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x08, 0x52, 0x06, 0x76, 0x61, 0x6c,
-	0x75, 0x65, 0x73, 0x22, 0xa0, 0x07, 0x0a, 0x07, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x73, 0x12,
+	0x75, 0x65, 0x73, 0x22, 0xe2, 0x07, 0x0a, 0x07, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x73, 0x12,
 	0x39, 0x0a, 0x08, 0x6f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x0e, 0x32, 0x1d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e,
 	0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x73, 0x2e, 0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72,
@@ -2631,30 +2708,41 @@ var file_v1_search_get_proto_rawDesc = []byte{
 	0x20, 0x01, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
 	0x76, 0x31, 0x2e, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x41, 0x72, 0x72, 0x61, 0x79, 0x48, 0x00,
 	0x52, 0x10, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x4e, 0x75, 0x6d, 0x62, 0x65, 0x72, 0x41, 0x72, 0x72,
-	0x61, 0x79, 0x22, 0xe3, 0x02, 0x0a, 0x08, 0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x12,
-	0x18, 0x0a, 0x14, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x55, 0x4e, 0x53, 0x50,
-	0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x12, 0x0a, 0x0e, 0x4f, 0x50, 0x45,
-	0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x45, 0x51, 0x55, 0x41, 0x4c, 0x10, 0x01, 0x12, 0x16, 0x0a,
-	0x12, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4e, 0x4f, 0x54, 0x5f, 0x45, 0x51,
-	0x55, 0x41, 0x4c, 0x10, 0x02, 0x12, 0x19, 0x0a, 0x15, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f,
-	0x52, 0x5f, 0x47, 0x52, 0x45, 0x41, 0x54, 0x45, 0x52, 0x5f, 0x54, 0x48, 0x41, 0x4e, 0x10, 0x03,
-	0x12, 0x1f, 0x0a, 0x1b, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x47, 0x52, 0x45,
-	0x41, 0x54, 0x45, 0x52, 0x5f, 0x54, 0x48, 0x41, 0x4e, 0x5f, 0x45, 0x51, 0x55, 0x41, 0x4c, 0x10,
-	0x04, 0x12, 0x16, 0x0a, 0x12, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4c, 0x45,
-	0x53, 0x53, 0x5f, 0x54, 0x48, 0x41, 0x4e, 0x10, 0x05, 0x12, 0x1c, 0x0a, 0x18, 0x4f, 0x50, 0x45,
-	0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4c, 0x45, 0x53, 0x53, 0x5f, 0x54, 0x48, 0x41, 0x4e, 0x5f,
-	0x45, 0x51, 0x55, 0x41, 0x4c, 0x10, 0x06, 0x12, 0x10, 0x0a, 0x0c, 0x4f, 0x50, 0x45, 0x52, 0x41,
-	0x54, 0x4f, 0x52, 0x5f, 0x41, 0x4e, 0x44, 0x10, 0x07, 0x12, 0x0f, 0x0a, 0x0b, 0x4f, 0x50, 0x45,
-	0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4f, 0x52, 0x10, 0x08, 0x12, 0x1d, 0x0a, 0x19, 0x4f, 0x50,
-	0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x57, 0x49, 0x54, 0x48, 0x49, 0x4e, 0x5f, 0x47, 0x45,
-	0x4f, 0x5f, 0x52, 0x41, 0x4e, 0x47, 0x45, 0x10, 0x09, 0x12, 0x11, 0x0a, 0x0d, 0x4f, 0x50, 0x45,
-	0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4c, 0x49, 0x4b, 0x45, 0x10, 0x0a, 0x12, 0x14, 0x0a, 0x10,
-	0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x49, 0x53, 0x5f, 0x4e, 0x55, 0x4c, 0x4c,
-	0x10, 0x0b, 0x12, 0x19, 0x0a, 0x15, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x43,
-	0x4f, 0x4e, 0x54, 0x41, 0x49, 0x4e, 0x53, 0x5f, 0x41, 0x4e, 0x59, 0x10, 0x0c, 0x12, 0x19, 0x0a,
-	0x15, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x43, 0x4f, 0x4e, 0x54, 0x41, 0x49,
-	0x4e, 0x53, 0x5f, 0x41, 0x4c, 0x4c, 0x10, 0x0d, 0x42, 0x0c, 0x0a, 0x0a, 0x74, 0x65, 0x73, 0x74,
-	0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x22, 0xb8, 0x02, 0x0a, 0x0f, 0x4d, 0x65, 0x74, 0x61, 0x64,
+	0x61, 0x79, 0x12, 0x40, 0x0a, 0x09, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x5f, 0x67, 0x65, 0x6f, 0x18,
+	0x0d, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x21, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
+	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x6f, 0x43, 0x6f, 0x6f, 0x72, 0x64, 0x69, 0x6e, 0x61, 0x74,
+	0x65, 0x73, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x48, 0x00, 0x52, 0x08, 0x76, 0x61, 0x6c, 0x75,
+	0x65, 0x47, 0x65, 0x6f, 0x22, 0xe3, 0x02, 0x0a, 0x08, 0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f,
+	0x72, 0x12, 0x18, 0x0a, 0x14, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x55, 0x4e,
+	0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x12, 0x0a, 0x0e, 0x4f,
+	0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x45, 0x51, 0x55, 0x41, 0x4c, 0x10, 0x01, 0x12,
+	0x16, 0x0a, 0x12, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4e, 0x4f, 0x54, 0x5f,
+	0x45, 0x51, 0x55, 0x41, 0x4c, 0x10, 0x02, 0x12, 0x19, 0x0a, 0x15, 0x4f, 0x50, 0x45, 0x52, 0x41,
+	0x54, 0x4f, 0x52, 0x5f, 0x47, 0x52, 0x45, 0x41, 0x54, 0x45, 0x52, 0x5f, 0x54, 0x48, 0x41, 0x4e,
+	0x10, 0x03, 0x12, 0x1f, 0x0a, 0x1b, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x47,
+	0x52, 0x45, 0x41, 0x54, 0x45, 0x52, 0x5f, 0x54, 0x48, 0x41, 0x4e, 0x5f, 0x45, 0x51, 0x55, 0x41,
+	0x4c, 0x10, 0x04, 0x12, 0x16, 0x0a, 0x12, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f,
+	0x4c, 0x45, 0x53, 0x53, 0x5f, 0x54, 0x48, 0x41, 0x4e, 0x10, 0x05, 0x12, 0x1c, 0x0a, 0x18, 0x4f,
+	0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4c, 0x45, 0x53, 0x53, 0x5f, 0x54, 0x48, 0x41,
+	0x4e, 0x5f, 0x45, 0x51, 0x55, 0x41, 0x4c, 0x10, 0x06, 0x12, 0x10, 0x0a, 0x0c, 0x4f, 0x50, 0x45,
+	0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x41, 0x4e, 0x44, 0x10, 0x07, 0x12, 0x0f, 0x0a, 0x0b, 0x4f,
+	0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4f, 0x52, 0x10, 0x08, 0x12, 0x1d, 0x0a, 0x19,
+	0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x57, 0x49, 0x54, 0x48, 0x49, 0x4e, 0x5f,
+	0x47, 0x45, 0x4f, 0x5f, 0x52, 0x41, 0x4e, 0x47, 0x45, 0x10, 0x09, 0x12, 0x11, 0x0a, 0x0d, 0x4f,
+	0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x4c, 0x49, 0x4b, 0x45, 0x10, 0x0a, 0x12, 0x14,
+	0x0a, 0x10, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x49, 0x53, 0x5f, 0x4e, 0x55,
+	0x4c, 0x4c, 0x10, 0x0b, 0x12, 0x19, 0x0a, 0x15, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52,
+	0x5f, 0x43, 0x4f, 0x4e, 0x54, 0x41, 0x49, 0x4e, 0x53, 0x5f, 0x41, 0x4e, 0x59, 0x10, 0x0c, 0x12,
+	0x19, 0x0a, 0x15, 0x4f, 0x50, 0x45, 0x52, 0x41, 0x54, 0x4f, 0x52, 0x5f, 0x43, 0x4f, 0x4e, 0x54,
+	0x41, 0x49, 0x4e, 0x53, 0x5f, 0x41, 0x4c, 0x4c, 0x10, 0x0d, 0x42, 0x0c, 0x0a, 0x0a, 0x74, 0x65,
+	0x73, 0x74, 0x5f, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x22, 0x6c, 0x0a, 0x14, 0x47, 0x65, 0x6f, 0x43,
+	0x6f, 0x6f, 0x72, 0x64, 0x69, 0x6e, 0x61, 0x74, 0x65, 0x73, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72,
+	0x12, 0x1a, 0x0a, 0x08, 0x6c, 0x61, 0x74, 0x69, 0x74, 0x75, 0x64, 0x65, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x02, 0x52, 0x08, 0x6c, 0x61, 0x74, 0x69, 0x74, 0x75, 0x64, 0x65, 0x12, 0x1c, 0x0a, 0x09,
+	0x6c, 0x6f, 0x6e, 0x67, 0x69, 0x74, 0x75, 0x64, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x02, 0x52,
+	0x09, 0x6c, 0x6f, 0x6e, 0x67, 0x69, 0x74, 0x75, 0x64, 0x65, 0x12, 0x1a, 0x0a, 0x08, 0x64, 0x69,
+	0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x02, 0x52, 0x08, 0x64, 0x69,
+	0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x22, 0xb8, 0x02, 0x0a, 0x0f, 0x4d, 0x65, 0x74, 0x61, 0x64,
 	0x61, 0x74, 0x61, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x75, 0x75,
 	0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x04, 0x75, 0x75, 0x69, 0x64, 0x12, 0x16,
 	0x0a, 0x06, 0x76, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x06,
@@ -2978,67 +3066,65 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var (
-	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 28)
-	file_v1_search_get_proto_goTypes   = []interface{}{
-		(Filters_Operator)(0),           // 0: weaviate.v1.Filters.Operator
-		(Hybrid_FusionType)(0),          // 1: weaviate.v1.Hybrid.FusionType
-		(*SearchRequest)(nil),           // 2: weaviate.v1.SearchRequest
-		(*GroupBy)(nil),                 // 3: weaviate.v1.GroupBy
-		(*SortBy)(nil),                  // 4: weaviate.v1.SortBy
-		(*GenerativeSearch)(nil),        // 5: weaviate.v1.GenerativeSearch
-		(*TextArray)(nil),               // 6: weaviate.v1.TextArray
-		(*IntArray)(nil),                // 7: weaviate.v1.IntArray
-		(*NumberArray)(nil),             // 8: weaviate.v1.NumberArray
-		(*BooleanArray)(nil),            // 9: weaviate.v1.BooleanArray
-		(*Filters)(nil),                 // 10: weaviate.v1.Filters
-		(*MetadataRequest)(nil),         // 11: weaviate.v1.MetadataRequest
-		(*PropertiesRequest)(nil),       // 12: weaviate.v1.PropertiesRequest
-		(*ObjectPropertiesRequest)(nil), // 13: weaviate.v1.ObjectPropertiesRequest
-		(*Hybrid)(nil),                  // 14: weaviate.v1.Hybrid
-		(*NearTextSearch)(nil),          // 15: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),         // 16: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),         // 17: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),         // 18: weaviate.v1.NearVideoSearch
-		(*BM25)(nil),                    // 19: weaviate.v1.BM25
-		(*RefPropertiesRequest)(nil),    // 20: weaviate.v1.RefPropertiesRequest
-		(*NearVector)(nil),              // 21: weaviate.v1.NearVector
-		(*NearObject)(nil),              // 22: weaviate.v1.NearObject
-		(*SearchReply)(nil),             // 23: weaviate.v1.SearchReply
-		(*GroupByResult)(nil),           // 24: weaviate.v1.GroupByResult
-		(*SearchResult)(nil),            // 25: weaviate.v1.SearchResult
-		(*MetadataResult)(nil),          // 26: weaviate.v1.MetadataResult
-		(*PropertiesResult)(nil),        // 27: weaviate.v1.PropertiesResult
-		(*RefPropertiesResult)(nil),     // 28: weaviate.v1.RefPropertiesResult
-		(*NearTextSearch_Move)(nil),     // 29: weaviate.v1.NearTextSearch.Move
-		(ConsistencyLevel)(0),           // 30: weaviate.v1.ConsistencyLevel
-		(*structpb.Struct)(nil),         // 31: google.protobuf.Struct
-		(*NumberArrayProperties)(nil),   // 32: weaviate.v1.NumberArrayProperties
-		(*IntArrayProperties)(nil),      // 33: weaviate.v1.IntArrayProperties
-		(*TextArrayProperties)(nil),     // 34: weaviate.v1.TextArrayProperties
-		(*BooleanArrayProperties)(nil),  // 35: weaviate.v1.BooleanArrayProperties
-		(*ObjectProperties)(nil),        // 36: weaviate.v1.ObjectProperties
-		(*ObjectArrayProperties)(nil),   // 37: weaviate.v1.ObjectArrayProperties
-		(*Properties)(nil),              // 38: weaviate.v1.Properties
-	}
-)
-
+var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_v1_search_get_proto_goTypes = []interface{}{
+	(Filters_Operator)(0),           // 0: weaviate.v1.Filters.Operator
+	(Hybrid_FusionType)(0),          // 1: weaviate.v1.Hybrid.FusionType
+	(*SearchRequest)(nil),           // 2: weaviate.v1.SearchRequest
+	(*GroupBy)(nil),                 // 3: weaviate.v1.GroupBy
+	(*SortBy)(nil),                  // 4: weaviate.v1.SortBy
+	(*GenerativeSearch)(nil),        // 5: weaviate.v1.GenerativeSearch
+	(*TextArray)(nil),               // 6: weaviate.v1.TextArray
+	(*IntArray)(nil),                // 7: weaviate.v1.IntArray
+	(*NumberArray)(nil),             // 8: weaviate.v1.NumberArray
+	(*BooleanArray)(nil),            // 9: weaviate.v1.BooleanArray
+	(*Filters)(nil),                 // 10: weaviate.v1.Filters
+	(*GeoCoordinatesFilter)(nil),    // 11: weaviate.v1.GeoCoordinatesFilter
+	(*MetadataRequest)(nil),         // 12: weaviate.v1.MetadataRequest
+	(*PropertiesRequest)(nil),       // 13: weaviate.v1.PropertiesRequest
+	(*ObjectPropertiesRequest)(nil), // 14: weaviate.v1.ObjectPropertiesRequest
+	(*Hybrid)(nil),                  // 15: weaviate.v1.Hybrid
+	(*NearTextSearch)(nil),          // 16: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),         // 17: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),         // 18: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),         // 19: weaviate.v1.NearVideoSearch
+	(*BM25)(nil),                    // 20: weaviate.v1.BM25
+	(*RefPropertiesRequest)(nil),    // 21: weaviate.v1.RefPropertiesRequest
+	(*NearVector)(nil),              // 22: weaviate.v1.NearVector
+	(*NearObject)(nil),              // 23: weaviate.v1.NearObject
+	(*SearchReply)(nil),             // 24: weaviate.v1.SearchReply
+	(*GroupByResult)(nil),           // 25: weaviate.v1.GroupByResult
+	(*SearchResult)(nil),            // 26: weaviate.v1.SearchResult
+	(*MetadataResult)(nil),          // 27: weaviate.v1.MetadataResult
+	(*PropertiesResult)(nil),        // 28: weaviate.v1.PropertiesResult
+	(*RefPropertiesResult)(nil),     // 29: weaviate.v1.RefPropertiesResult
+	(*NearTextSearch_Move)(nil),     // 30: weaviate.v1.NearTextSearch.Move
+	(ConsistencyLevel)(0),           // 31: weaviate.v1.ConsistencyLevel
+	(*structpb.Struct)(nil),         // 32: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),   // 33: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),      // 34: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),     // 35: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),  // 36: weaviate.v1.BooleanArrayProperties
+	(*ObjectProperties)(nil),        // 37: weaviate.v1.ObjectProperties
+	(*ObjectArrayProperties)(nil),   // 38: weaviate.v1.ObjectArrayProperties
+	(*Properties)(nil),              // 39: weaviate.v1.Properties
+}
 var file_v1_search_get_proto_depIdxs = []int32{
-	30, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
-	12, // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
-	11, // 2: weaviate.v1.SearchRequest.metadata:type_name -> weaviate.v1.MetadataRequest
+	31, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
+	13, // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
+	12, // 2: weaviate.v1.SearchRequest.metadata:type_name -> weaviate.v1.MetadataRequest
 	3,  // 3: weaviate.v1.SearchRequest.group_by:type_name -> weaviate.v1.GroupBy
 	4,  // 4: weaviate.v1.SearchRequest.sort_by:type_name -> weaviate.v1.SortBy
 	10, // 5: weaviate.v1.SearchRequest.filters:type_name -> weaviate.v1.Filters
-	14, // 6: weaviate.v1.SearchRequest.hybrid_search:type_name -> weaviate.v1.Hybrid
-	19, // 7: weaviate.v1.SearchRequest.bm25_search:type_name -> weaviate.v1.BM25
-	21, // 8: weaviate.v1.SearchRequest.near_vector:type_name -> weaviate.v1.NearVector
-	22, // 9: weaviate.v1.SearchRequest.near_object:type_name -> weaviate.v1.NearObject
-	15, // 10: weaviate.v1.SearchRequest.near_text:type_name -> weaviate.v1.NearTextSearch
-	16, // 11: weaviate.v1.SearchRequest.near_image:type_name -> weaviate.v1.NearImageSearch
-	17, // 12: weaviate.v1.SearchRequest.near_audio:type_name -> weaviate.v1.NearAudioSearch
-	18, // 13: weaviate.v1.SearchRequest.near_video:type_name -> weaviate.v1.NearVideoSearch
+	15, // 6: weaviate.v1.SearchRequest.hybrid_search:type_name -> weaviate.v1.Hybrid
+	20, // 7: weaviate.v1.SearchRequest.bm25_search:type_name -> weaviate.v1.BM25
+	22, // 8: weaviate.v1.SearchRequest.near_vector:type_name -> weaviate.v1.NearVector
+	23, // 9: weaviate.v1.SearchRequest.near_object:type_name -> weaviate.v1.NearObject
+	16, // 10: weaviate.v1.SearchRequest.near_text:type_name -> weaviate.v1.NearTextSearch
+	17, // 11: weaviate.v1.SearchRequest.near_image:type_name -> weaviate.v1.NearImageSearch
+	18, // 12: weaviate.v1.SearchRequest.near_audio:type_name -> weaviate.v1.NearAudioSearch
+	19, // 13: weaviate.v1.SearchRequest.near_video:type_name -> weaviate.v1.NearVideoSearch
 	5,  // 14: weaviate.v1.SearchRequest.generative:type_name -> weaviate.v1.GenerativeSearch
 	0,  // 15: weaviate.v1.Filters.operator:type_name -> weaviate.v1.Filters.Operator
 	10, // 16: weaviate.v1.Filters.filters:type_name -> weaviate.v1.Filters
@@ -3046,35 +3132,36 @@ var file_v1_search_get_proto_depIdxs = []int32{
 	7,  // 18: weaviate.v1.Filters.value_int_array:type_name -> weaviate.v1.IntArray
 	9,  // 19: weaviate.v1.Filters.value_boolean_array:type_name -> weaviate.v1.BooleanArray
 	8,  // 20: weaviate.v1.Filters.value_number_array:type_name -> weaviate.v1.NumberArray
-	20, // 21: weaviate.v1.PropertiesRequest.ref_properties:type_name -> weaviate.v1.RefPropertiesRequest
-	13, // 22: weaviate.v1.PropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
-	13, // 23: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
-	1,  // 24: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
-	29, // 25: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
-	29, // 26: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
-	12, // 27: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
-	11, // 28: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
-	25, // 29: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
-	24, // 30: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
-	25, // 31: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
-	27, // 32: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
-	26, // 33: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
-	31, // 34: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
-	28, // 35: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
-	26, // 36: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
-	32, // 37: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
-	33, // 38: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
-	34, // 39: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
-	35, // 40: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
-	36, // 41: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
-	37, // 42: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
-	38, // 43: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
-	27, // 44: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
-	45, // [45:45] is the sub-list for method output_type
-	45, // [45:45] is the sub-list for method input_type
-	45, // [45:45] is the sub-list for extension type_name
-	45, // [45:45] is the sub-list for extension extendee
-	0,  // [0:45] is the sub-list for field type_name
+	11, // 21: weaviate.v1.Filters.value_geo:type_name -> weaviate.v1.GeoCoordinatesFilter
+	21, // 22: weaviate.v1.PropertiesRequest.ref_properties:type_name -> weaviate.v1.RefPropertiesRequest
+	14, // 23: weaviate.v1.PropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
+	14, // 24: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
+	1,  // 25: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
+	30, // 26: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
+	30, // 27: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
+	13, // 28: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
+	12, // 29: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
+	26, // 30: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
+	25, // 31: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
+	26, // 32: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
+	28, // 33: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
+	27, // 34: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
+	32, // 35: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
+	29, // 36: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
+	27, // 37: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
+	33, // 38: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
+	34, // 39: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
+	35, // 40: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
+	36, // 41: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
+	37, // 42: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
+	38, // 43: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
+	39, // 44: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
+	28, // 45: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
+	46, // [46:46] is the sub-list for method output_type
+	46, // [46:46] is the sub-list for method input_type
+	46, // [46:46] is the sub-list for extension type_name
+	46, // [46:46] is the sub-list for extension extendee
+	0,  // [0:46] is the sub-list for field type_name
 }
 
 func init() { file_v1_search_get_proto_init() }
@@ -3194,7 +3281,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MetadataRequest); i {
+			switch v := v.(*GeoCoordinatesFilter); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3206,7 +3293,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PropertiesRequest); i {
+			switch v := v.(*MetadataRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3218,7 +3305,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ObjectPropertiesRequest); i {
+			switch v := v.(*PropertiesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3230,7 +3317,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Hybrid); i {
+			switch v := v.(*ObjectPropertiesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3242,7 +3329,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NearTextSearch); i {
+			switch v := v.(*Hybrid); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3254,7 +3341,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NearImageSearch); i {
+			switch v := v.(*NearTextSearch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3266,7 +3353,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NearAudioSearch); i {
+			switch v := v.(*NearImageSearch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3278,7 +3365,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NearVideoSearch); i {
+			switch v := v.(*NearAudioSearch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3290,7 +3377,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BM25); i {
+			switch v := v.(*NearVideoSearch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3302,7 +3389,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RefPropertiesRequest); i {
+			switch v := v.(*BM25); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3314,7 +3401,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NearVector); i {
+			switch v := v.(*RefPropertiesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3326,7 +3413,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NearObject); i {
+			switch v := v.(*NearVector); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3338,7 +3425,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SearchReply); i {
+			switch v := v.(*NearObject); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3350,7 +3437,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GroupByResult); i {
+			switch v := v.(*SearchReply); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3362,7 +3449,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SearchResult); i {
+			switch v := v.(*GroupByResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3374,7 +3461,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MetadataResult); i {
+			switch v := v.(*SearchResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3386,7 +3473,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PropertiesResult); i {
+			switch v := v.(*MetadataResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3398,7 +3485,7 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RefPropertiesResult); i {
+			switch v := v.(*PropertiesResult); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3410,6 +3497,18 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 		file_v1_search_get_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*RefPropertiesResult); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_v1_search_get_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NearTextSearch_Move); i {
 			case 0:
 				return &v.state
@@ -3432,22 +3531,23 @@ func file_v1_search_get_proto_init() {
 		(*Filters_ValueIntArray)(nil),
 		(*Filters_ValueBooleanArray)(nil),
 		(*Filters_ValueNumberArray)(nil),
+		(*Filters_ValueGeo)(nil),
 	}
-	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []interface{}{}
 	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []interface{}{}
 	file_v1_search_get_proto_msgTypes[15].OneofWrappers = []interface{}{}
 	file_v1_search_get_proto_msgTypes[16].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[19].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[17].OneofWrappers = []interface{}{}
 	file_v1_search_get_proto_msgTypes[20].OneofWrappers = []interface{}{}
 	file_v1_search_get_proto_msgTypes[21].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[24].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[22].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_v1_search_get_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   28,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
