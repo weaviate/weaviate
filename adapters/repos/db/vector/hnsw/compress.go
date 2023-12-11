@@ -24,11 +24,11 @@ import (
 )
 
 func (h *hnsw) initCompressedBucket() error {
-	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsHNSWPQBucketLSM)
+	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM)
 	if err != nil {
 		return fmt.Errorf("create or load bucket (compressed vectors store): %w", err)
 	}
-	h.compressedBucket = h.store.Bucket(helpers.VectorsHNSWPQBucketLSM)
+	h.compressedBucket = h.store.Bucket(helpers.VectorsCompressedBucketLSM)
 	return nil
 }
 
