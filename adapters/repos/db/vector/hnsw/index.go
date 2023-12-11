@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -689,7 +689,7 @@ func (h *hnsw) ShouldCompress() (bool, int) {
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
-func (h *hnsw) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, int) {
 	hnswConfig := config.(ent.UserConfig)
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }
