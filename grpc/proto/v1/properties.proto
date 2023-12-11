@@ -20,9 +20,15 @@ message Value {
     string date_value = 6;
     string uuid_value = 7;
     int64 int_value = 8;
+    GeoCoordinate geo_value = 9;
   }
 }
 
 message ListValue {
   repeated Value values = 1;
+}
+
+message GeoCoordinate {
+  float longitude = 1;
+  float latitude = 2;
 }

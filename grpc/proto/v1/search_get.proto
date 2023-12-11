@@ -118,7 +118,14 @@ message Filters {
     IntArray value_int_array = 10;
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
+    GeoCoordinatesFilter value_geo = 13;
   };
+}
+
+message GeoCoordinatesFilter {
+  float latitude = 1;
+  float longitude = 2;
+  float distance = 3;
 }
 
 message MetadataRequest {

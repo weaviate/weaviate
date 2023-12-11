@@ -393,7 +393,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			returnFilter.Operator = filters.ContainsAny
 		case pb.Filters_OPERATOR_CONTAINS_ALL:
 			returnFilter.Operator = filters.ContainsAll
-
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
@@ -432,7 +431,15 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
 			val = filterIn.GetValueBooleanArray().Values
-
+		case *pb.Filters_ValueGeo:
+			valueFilter := filterIn.GetValueGeo()
+			val = filters.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{
+					Latitude:  &valueFilter.Latitude,
+					Longitude: &valueFilter.Longitude,
+				},
+				Distance: valueFilter.Distance,
+			}
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
