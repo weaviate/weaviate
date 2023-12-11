@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -26,6 +27,7 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 	if len(contextionaryImage) > 0 {
 		image = contextionaryImage
 	}
+	port := nat.Port("9999/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -41,20 +43,20 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 			},
 			ExposedPorts: []string{"9999/tcp"},
 			AutoRemove:   true,
-			WaitingFor:   wait.ForListeningPort("9999"),
+			WaitingFor:   wait.ForListeningPort(port),
 		},
 		Started: true,
 	})
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["CONTEXTIONARY_URL"] = fmt.Sprintf("%s:%s", Text2VecContextionary, "9999")
+	envSettings["CONTEXTIONARY_URL"] = fmt.Sprintf("%s:%s", Text2VecContextionary, port.Port())
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"9999/tcp", uri}
+	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{Text2VecContextionary, endpoints, container, envSettings}, nil
 }

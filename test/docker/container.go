@@ -12,6 +12,7 @@
 package docker
 
 import (
+	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -23,7 +24,8 @@ var (
 )
 
 type endpoint struct {
-	port, uri string
+	port nat.Port
+	uri  string
 }
 
 type DockerContainer struct {

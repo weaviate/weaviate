@@ -79,8 +79,12 @@ jobs:
           name: coverage-report-integration
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
-    name: modules-acceptance-tests  
-    runs-on: ubuntu-latest-8-cores
+    name: modules-acceptance-tests
+    runs-on: ubuntu-latest-4-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--modules-backup-only", "--modules-except-backup"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -89,11 +93,12 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests (modules)
-        run: ./test/run.sh --acceptance-module-tests-only
+        run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests  
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         async_indexing: ["true", "false"]
     steps:
@@ -132,7 +137,7 @@ jobs:
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest-4-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
