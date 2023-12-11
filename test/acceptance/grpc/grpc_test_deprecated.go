@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func TestGRPC(t *testing.T) {
+func TestGRPCDeprecated(t *testing.T) {
 	conn, err := helper.CreateGrpcConnectionClient(":50051")
 	require.NoError(t, err)
 	require.NotNil(t, conn)
@@ -82,7 +82,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesPropertiesMessage: true,
+				UsesPropertiesMessage: false,
 			},
 		},
 		{
@@ -92,7 +92,7 @@ func TestGRPC(t *testing.T) {
 				Metadata: &pb.MetadataRequest{
 					Uuid: true,
 				},
-				UsesPropertiesMessage: true,
+				UsesPropertiesMessage: false,
 			},
 		},
 	}
@@ -109,51 +109,26 @@ func TestGRPC(t *testing.T) {
 				id := res.Metadata.Id
 
 				assert.True(t, id == books.Dune.String() || id == books.ProjectHailMary.String() || id == books.TheLordOfTheIceGarden.String())
-				titleRaw := res.Properties.NonRefProps.Fields["title"]
-				require.NotNil(t, titleRaw)
-				title := titleRaw.GetStringValue()
-				require.NotNil(t, title)
+				title, ok := res.Properties.NonRefProperties.AsMap()["title"]
+				require.True(t, ok)
 
-				metaRaw := res.Properties.NonRefProps.Fields["meta"]
-				require.NotNil(t, metaRaw)
-				meta := metaRaw.GetObjectValue()
-				require.NotNil(t, meta)
-				isbnRaw := meta.GetFields()["isbn"]
-				require.NotNil(t, isbnRaw)
-				isbn := isbnRaw.GetStringValue()
-				require.NotNil(t, isbn)
+				objProps := res.Properties.ObjectProperties
+				require.Len(t, objProps, 1)
+				isbn, ok := objProps[0].Value.NonRefProperties.AsMap()["isbn"]
+				require.True(t, ok)
 
-				objRaw := meta.GetFields()["obj"]
-				require.NotNil(t, objRaw)
-				obj := objRaw.GetObjectValue()
-				require.NotNil(t, obj)
+				nestedObjProps := objProps[0].Value.ObjectProperties
+				require.Len(t, nestedObjProps, 1)
+				nestedObj := nestedObjProps[0].Value.NonRefProperties.AsMap()
 
-				objsRaw := meta.GetFields()["objs"]
-				require.NotNil(t, objsRaw)
-				objs := objsRaw.GetListValue()
-				require.NotNil(t, objs)
+				nestedObjArrayProps := objProps[0].Value.ObjectArrayProperties
+				require.Len(t, nestedObjArrayProps, 1)
+				nestedObjEntry := nestedObjArrayProps[0].Values[0].NonRefProperties.AsMap()
 
-				objEntryRaw := objs.Values[0]
-				require.NotNil(t, objEntryRaw)
-				objEntry := objEntryRaw.GetObjectValue()
-				require.NotNil(t, objEntry)
-
-				reviewsRaw := res.Properties.NonRefProps.Fields["reviews"]
-				require.NotNil(t, reviewsRaw)
-				reviews := reviewsRaw.GetListValue()
-				require.NotNil(t, reviews)
-				require.Len(t, reviews.Values, 1)
-
-				review := reviews.Values[0].GetObjectValue()
-				require.NotNil(t, review)
-
-				tags := review.Fields["tags"].GetListValue()
-				require.NotNil(t, tags)
-
-				strTags := make([]string, len(tags.Values))
-				for i, tag := range tags.Values {
-					strTags[i] = tag.GetStringValue()
-				}
+				objArrayProps := res.Properties.ObjectArrayProperties
+				require.Len(t, objArrayProps, 1)
+				tags := objArrayProps[0].Values[0].TextArrayProperties[0].Values
+				require.True(t, ok)
 
 				expectedTitle := ""
 				expectedIsbn := ""
@@ -175,15 +150,9 @@ func TestGRPC(t *testing.T) {
 				}
 				assert.Equal(t, expectedTitle, title)
 				assert.Equal(t, expectedIsbn, isbn)
-				assert.Equal(t, expectedTags, strTags)
-
-				expectedObj := &pb.Properties{
-					Fields: map[string]*pb.Value{
-						"text": {Kind: &pb.Value_StringValue{StringValue: "some text"}},
-					},
-				}
-				assert.Equal(t, expectedObj, obj)
-				assert.Equal(t, expectedObj, objEntry)
+				assert.Equal(t, expectedTags, tags)
+				assert.Equal(t, map[string]interface{}{"text": "some text"}, nestedObj)
+				assert.Equal(t, map[string]interface{}{"text": "some text"}, nestedObjEntry)
 			}
 		})
 	}
