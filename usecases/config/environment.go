@@ -29,7 +29,6 @@ const (
 )
 
 const (
-	DefaultHostname                           = "weaviate-0"
 	DefaultPersistenceFlushIdleMemtablesAfter = 60
 	DefaultPersistenceMemtablesMaxSize        = 200
 	DefaultPersistenceMemtablesMinDuration    = 15
@@ -392,7 +391,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
@@ -564,8 +563,6 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	if v := os.Getenv("CLUSTER_HOSTNAME"); v != "" {
 		cfg.Hostname = v
-	} else {
-		cfg.Hostname = DefaultHostname
 	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
