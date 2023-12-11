@@ -28,6 +28,7 @@ func startT2VTransformers(ctx context.Context, networkName, transformersImage st
 	if len(transformersImage) > 0 {
 		image = transformersImage
 	}
+	port := nat.Port("8080/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -40,7 +41,7 @@ func startT2VTransformers(ctx context.Context, networkName, transformersImage st
 			AutoRemove:   true,
 			WaitingFor: wait.
 				ForHTTP("/.well-known/ready").
-				WithPort(nat.Port("8080")).
+				WithPort(port).
 				WithStatusCodeMatcher(func(status int) bool {
 					return status == 204
 				}).
@@ -51,13 +52,13 @@ func startT2VTransformers(ctx context.Context, networkName, transformersImage st
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["TRANSFORMERS_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Text2VecTransformers, "8080")
+	envSettings["TRANSFORMERS_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Text2VecTransformers, port.Port())
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{Text2VecTransformers, endpoints, container, envSettings}, nil
 }

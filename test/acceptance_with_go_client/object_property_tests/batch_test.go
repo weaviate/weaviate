@@ -35,11 +35,11 @@ func TestObjectProperty_Batch(t *testing.T) {
 		config wvt.Config
 	}{
 		{
-			name:   "rest api",
+			name:   "single node - rest api",
 			config: wvt.Config{Scheme: "http", Host: "localhost:8080"},
 		},
 		{
-			name:   "grpc api",
+			name:   "single node - grpc api",
 			config: wvt.Config{Scheme: "http", Host: "localhost:8080", GrpcConfig: &grpc.Config{Host: "localhost:50051"}},
 		},
 	}
