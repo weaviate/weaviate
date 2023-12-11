@@ -485,7 +485,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		envSettings["RAFT_INTERNAL_PORT"] = "8305"
 		envSettings["RAFT_JOIN"] = "node1:8300"
 		container, err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname)
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
