@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -161,7 +161,7 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 }
 
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, cfg schema.VectorIndexConfig,
+	className, shardName string, cfg schemaConfig.VectorIndexConfig,
 ) {
 	category, _ := getDimensionCategory(cfg)
 	if category == DimensionCategoryPQ || category == DimensionCategoryBQ {
