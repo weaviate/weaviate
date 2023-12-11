@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -101,7 +101,7 @@ func (s *Shard) initDimensionTracking() {
 	}
 }
 
-func getPQSegments(cfg schema.VectorIndexConfig) (bool, int) {
+func getPQSegments(cfg schemaConfig.VectorIndexConfig) (bool, int) {
 	// Detect if vector index is HNSW
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok && hnswUserConfig.PQ.Enabled {
 		return true, hnswUserConfig.PQ.Segments
@@ -142,7 +142,7 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 }
 
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
-	className, shardName string, cfg schema.VectorIndexConfig,
+	className, shardName string, cfg schemaConfig.VectorIndexConfig,
 ) {
 	if pqEnabled, _ := getPQSegments(cfg); pqEnabled {
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
