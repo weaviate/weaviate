@@ -29,7 +29,6 @@ const (
 )
 
 const (
-	DefaultHostname                           = "weaviate-0"
 	DefaultPersistenceFlushIdleMemtablesAfter = 60
 	DefaultPersistenceMemtablesMaxSize        = 200
 	DefaultPersistenceMemtablesMinDuration    = 15
@@ -563,8 +562,6 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	if v := os.Getenv("CLUSTER_HOSTNAME"); v != "" {
 		cfg.Hostname = v
-	} else {
-		cfg.Hostname = DefaultHostname
 	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
