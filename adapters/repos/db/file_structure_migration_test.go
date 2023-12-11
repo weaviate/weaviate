@@ -194,8 +194,8 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 	}
 	expected.assert(t)
 
-	// Check if pq store was migrated to main store as "vectors_hnsw_pq" subdir
-	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsHNSWPQBucketLSM)
+	// Check if pq store was migrated to main store as "vectors_compressed" subdir
+	pqDir := path.Join(root, idx.Name(), shard.Name(), "lsm", helpers.VectorsCompressedBucketLSM)
 	info, err := os.Stat(pqDir)
 	require.NoError(t, err)
 	assert.True(t, info.IsDir())

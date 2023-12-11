@@ -15,7 +15,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -30,16 +30,13 @@ func TestWhereFilter_Cluster(t *testing.T) {
 		WithWeaviateCluster().
 		WithText2VecContextionary().
 		Start(ctx)
-	if err != nil {
-		panic(errors.Wrapf(err, "cannot start"))
-	}
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
 
 	endpoint := compose.GetWeaviate().URI()
 
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, endpoint))
 	t.Run("Contains Text", testContainsText(t, endpoint))
-
-	if err := compose.Terminate(ctx); err != nil {
-		panic(errors.Wrapf(err, "cannot terminate"))
-	}
 }

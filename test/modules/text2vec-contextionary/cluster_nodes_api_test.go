@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
@@ -48,7 +49,9 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 		for _, endpoint := range []string{weaviateNode1Endpoint, weaviateNode2Endpoint} {
 			t.Run(endpoint, func(t *testing.T) {
 				helper.SetupClient(os.Getenv(endpoint))
-				resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+				verbose := verbosity.OutputVerbose
+				params := nodes.NewNodesGetParams().WithOutput(&verbose)
+				resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
 				require.Nil(t, err)
 
 				nodeStatusResp := resp.GetPayload()

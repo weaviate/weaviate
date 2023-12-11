@@ -491,7 +491,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string, className string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
