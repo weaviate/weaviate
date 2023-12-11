@@ -79,6 +79,7 @@ func startRaftCluster(t *testing.T, db store.DB) cloud.Service {
 		BootstrapExpect:      1,
 		Logger:               logger,
 		LogLevel:             "info",
+		Voter:                true,
 	}
 	srv := cloud.New(cfg)
 
