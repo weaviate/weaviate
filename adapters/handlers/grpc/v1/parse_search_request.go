@@ -445,7 +445,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
 			val = int(number)
 			if float64(int(number)) != number {
-				return filters.Clause{}, fmt.Errorf("Filtering for integer, but recieved a floating point number %v", number)
+				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
 			}
 		}
 
@@ -467,7 +467,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 				valInt := make([]int, len(valSlice))
 				for i := 0; i < len(valSlice); i++ {
 					if float64(int(valSlice[i])) != valSlice[i] {
-						return filters.Clause{}, fmt.Errorf("Filtering for integer, but recieved a floating point number %v", valSlice[i])
+						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", valSlice[i])
 					}
 					valInt[i] = int(valSlice[i])
 				}
