@@ -452,7 +452,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 		vector = distancer.Normalize(vector)
 	}
 
-	var results *priorityqueue.Queue
+	var results *priorityqueue.Queue[any]
 	var seen map[uint64]struct{}
 
 	err = q.queue.Iterate(allowList, func(objects []vectorDescriptor) error {
@@ -526,7 +526,10 @@ func (q *IndexQueue) resumeIndexing() {
 	q.Logger.Debug("indexing resumed")
 }
 
-func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
+func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
+	results *priorityqueue.Queue[any], allowList helpers.AllowList,
+	maxDistance float32, seen map[uint64]struct{},
+) error {
 	for i := range snapshot {
 		// skip indexed data
 		if _, ok := seen[snapshot[i].id]; ok {
@@ -575,14 +578,14 @@ func newPqMaxPool(defaultCap int) *pqMaxPool {
 	return &pqMaxPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return priorityqueue.NewMax(defaultCap)
+				return priorityqueue.NewMax[any](defaultCap)
 			},
 		},
 	}
 }
 
-func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
-	pq := pqh.pool.Get().(*priorityqueue.Queue)
+func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue[any] {
+	pq := pqh.pool.Get().(*priorityqueue.Queue[any])
 	if pq.Cap() < capacity {
 		pq.ResetCap(capacity)
 	} else {
@@ -592,7 +595,7 @@ func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
 	return pq
 }
 
-func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
+func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue[any]) {
 	pqh.pool.Put(pq)
 }
 
