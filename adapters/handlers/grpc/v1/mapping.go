@@ -121,7 +121,7 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 		case schema.DataTypeGeoCoordinates:
 			val, ok := v.(*models.GeoCoordinates)
 			if !ok {
-				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing geocoordinate property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected *models.GeoCoordinates when serializing geocoordinate property", v)
 			}
 			return NewGeoValue(val), nil
 		default:
