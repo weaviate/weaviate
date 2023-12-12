@@ -61,7 +61,7 @@ func Test_NodeMappingBackupJourney(t *testing.T) {
 		t.Run("restore-s3", func(t *testing.T) {
 			journey.NodeMappingBackupJourneyTests_SingleNode_Restore(t, compose.GetSecondWeaviate().URI(),
 				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil, map[string]string{
-					docker.Weaviate: docker.SecondWeaviate,
+					docker.Weaviate1: docker.SecondWeaviate,
 				})
 		})
 	})
