@@ -63,7 +63,7 @@ func Test_NodeMappingBackupJourney(t *testing.T) {
 		t.Run("restore-gcs", func(t *testing.T) {
 			journey.NodeMappingBackupJourneyTests_SingleNode_Restore(t, compose.GetSecondWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode, nil, map[string]string{
-					docker.Weaviate: docker.SecondWeaviate,
+					docker.Weaviate1: docker.SecondWeaviate,
 				})
 		})
 	})
