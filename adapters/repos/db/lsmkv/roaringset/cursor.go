@@ -145,13 +145,11 @@ func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([
 		if state.key == nil {
 			continue
 		}
-		if lowestKey == nil {
+
+		if lowestKey == nil || bytes.Compare(lowestKey, state.key) > 0 {
 			lowestKey = state.key
 			ids = []int{id}
-		} else if cmp := bytes.Compare(lowestKey, state.key); cmp > 0 {
-			lowestKey = state.key
-			ids = []int{id}
-		} else if cmp == 0 {
+		} else if bytes.Equal(lowestKey, state.key) {
 			ids = append(ids, id)
 		}
 	}

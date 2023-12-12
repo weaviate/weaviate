@@ -32,33 +32,25 @@ func TestMemtableConcurrentMergeLoad(t *testing.T) {
 	correctOrder, err := createSimpleBucket(operations, t)
 	require.Nil(t, err)
 
-	t.Run("baseline", func(t *testing.T) {
-		RunMergeExperiment(t, numClients, numWorkers, "baseline", operations, correctOrder)
+	t.Run(MEMTABLE_THREADED_BASELINE, func(t *testing.T) {
+		RunMergeExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_BASELINE, operations, correctOrder)
 	})
 
-	t.Run("single-channel", func(t *testing.T) {
-		RunMergeExperiment(t, numClients, numWorkers, "single-channel", operations, correctOrder)
+	t.Run(MEMTABLE_THREADED_SINGLE_CHANNEL, func(t *testing.T) {
+		RunMergeExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_SINGLE_CHANNEL, operations, correctOrder)
 	})
 
-	t.Run("random", func(t *testing.T) {
-		RunMergeExperiment(t, numClients, numWorkers, "random", operations, correctOrder)
+	t.Run(MEMTABLE_THREADED_RANDOM, func(t *testing.T) {
+		RunMergeExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_RANDOM, operations, correctOrder)
 	})
 
-	//t.Run("round-robin", func(t *testing.T) {
-	//	RunMergeExperiment(t, numClients, numWorkers, "round-robin", operations, correctOrder)
-	//})
-
-	t.Run("hash", func(t *testing.T) {
-		RunMergeExperiment(t, numClients, numWorkers, "hash", operations, correctOrder)
+	t.Run(MEMTABLE_THREADED_HASH, func(t *testing.T) {
+		RunMergeExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_HASH, operations, correctOrder)
 	})
 }
 
 func RunMergeExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request, correctOrder []*roaringset.BinarySearchNode) []*roaringset.BinarySearchNode {
 	nodes, times := RunExperiment(t, numClients, numWorkers, workerAssignment, operations)
-
-	// TODO: merge the buckets and compare to the non-concurrent version
-
-	// dirName := "multi_thread/segment"
 
 	fmt.Println()
 	fmt.Println("Concurrent buckets:")
@@ -80,7 +72,6 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 	times := Times{}
 	startTime := time.Now()
 
-	// dirName := "single_thread"
 	dirName := t.TempDir()
 	m, _ := newMemtable(dirName, StrategyRoaringSet, 0, nil)
 

@@ -41,23 +41,19 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 
 	operations := generateOperations(numKeys, operationsPerClient, numClients)
 
-	t.Run("baseline", func(t *testing.T) {
-		RunExperiment(t, numClients, numWorkers, "baseline", operations)
+	t.Run(MEMTABLE_THREADED_BASELINE, func(t *testing.T) {
+		RunExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_BASELINE, operations)
 	})
-	t.Run("single-channel", func(t *testing.T) {
-		RunExperiment(t, numClients, numWorkers, "single-channel", operations)
-	})
-
-	t.Run("random", func(t *testing.T) {
-		RunExperiment(t, numClients, numWorkers, "random", operations)
+	t.Run(MEMTABLE_THREADED_SINGLE_CHANNEL, func(t *testing.T) {
+		RunExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_SINGLE_CHANNEL, operations)
 	})
 
-	//t.Run("round-robin", func(t *testing.T) {
-	//	RunExperiment(t, numClients, numWorkers, "round-robin", operations)
-	//})
+	t.Run(MEMTABLE_THREADED_RANDOM, func(t *testing.T) {
+		RunExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_RANDOM, operations)
+	})
 
-	t.Run("hash", func(t *testing.T) {
-		RunExperiment(t, numClients, numWorkers, "hash", operations)
+	t.Run(MEMTABLE_THREADED_HASH, func(t *testing.T) {
+		RunExperiment(t, numClients, numWorkers, MEMTABLE_THREADED_HASH, operations)
 	})
 }
 
@@ -68,11 +64,11 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 		StrategyRoaringSet: true,
 	}
 
-	if workerAssignment == "single-channel" {
+	if workerAssignment == MEMTABLE_THREADED_SINGLE_CHANNEL {
 		numChannels = 1
 	}
 
-	if workerAssignment == "baseline" {
+	if workerAssignment == MEMTABLE_THREADED_BASELINE {
 		numChannels = 1
 		numWorkers = 1
 		useThreadedFor = map[string]bool{}

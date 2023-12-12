@@ -27,6 +27,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
+var (
+	MEMTABLE_THREADED_SINGLE_CHANNEL = "single-channel"
+	MEMTABLE_THREADED_BASELINE       = "baseline"
+	MEMTABLE_THREADED_RANDOM         = "random"
+	MEMTABLE_THREADED_HASH           = "hash"
+)
+
 type MemtableThreaded struct {
 	baseline         *Memtable
 	wgWorkers        *sync.WaitGroup
@@ -235,7 +242,7 @@ func newMemtableThreaded(path string, strategy string,
 ) (*MemtableThreaded, error) {
 	workerAssignment := os.Getenv("MEMTABLE_THREADED_WORKER_ASSIGNMENT")
 	if len(workerAssignment) == 0 {
-		workerAssignment = "hash"
+		workerAssignment = MEMTABLE_THREADED_HASH
 	}
 	enableForSet := map[string]bool{}
 	// enableForSet := map[string]bool{StrategyMapCollection: true, StrategyRoaringSet: true, StrategyReplace: true, StrategySetCollection: true}
@@ -442,11 +449,11 @@ func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needO
 func singleMemtableRequest(data ThreadedMemtableRequest, m *MemtableThreaded, needOutput bool) ThreadedMemtableResponse {
 	key := data.key
 	workerID := 0
-	if m.workerAssignment == "single-channel" {
+	if m.workerAssignment == MEMTABLE_THREADED_SINGLE_CHANNEL {
 		workerID = 0
-	} else if m.workerAssignment == "random" {
+	} else if m.workerAssignment == MEMTABLE_THREADED_RANDOM {
 		workerID = rand.Intn(m.numWorkers)
-	} else if m.workerAssignment == "hash" {
+	} else if m.workerAssignment == MEMTABLE_THREADED_HASH {
 		workerID = threadHashKey(key, m.numWorkers)
 	} else {
 		panic("invalid worker assignment")
