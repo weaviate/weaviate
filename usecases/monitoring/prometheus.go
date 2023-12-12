@@ -64,6 +64,7 @@ type PrometheusMetrics struct {
 	ShardsLoaded   *prometheus.GaugeVec
 	ShardsUnLoaded *prometheus.GaugeVec
 	ShardsLoading  *prometheus.GaugeVec
+	ShardsUnLoading *prometheus.GaugeVec
 
 	Group bool
 }
@@ -341,6 +342,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		ShardsLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "shards_loading",
 			Help: "Number of shards in process of loading",
+		}, []string{"class_name"}),
+		ShardsUnLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_unloading",
+			Help: "Number of shards in process of unloading",
 		}, []string{"class_name"}),
 	}
 }
