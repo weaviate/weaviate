@@ -16,7 +16,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	compressionhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 type Logger struct {
