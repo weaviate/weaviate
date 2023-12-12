@@ -25,10 +25,9 @@ import (
 )
 
 const (
-	Weaviate      = "weaviate"
-	WeaviateNode2 = "weaviate2"
-	WeaviateNode3 = "weaviate3"
-
+	Weaviate1      = "weaviate"
+	Weaviate2      = "weaviate2"
+	Weaviate3      = "weaviate3"
 	SecondWeaviate = "second-weaviate"
 )
 
@@ -70,7 +69,7 @@ func startWeaviate(ctx context.Context,
 			KeepImage:     false,
 		}
 	}
-	containerName := Weaviate
+	containerName := Weaviate1
 	if hostname != "" {
 		containerName = hostname
 	}
