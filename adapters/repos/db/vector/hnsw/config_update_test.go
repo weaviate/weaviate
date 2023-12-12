@@ -99,7 +99,7 @@ func TestUserConfigUpdates(t *testing.T) {
 				name: "setting bq compression on",
 				initial: ent.UserConfig{
 					BQ: ent.BQConfig{
-						Enabled: true,
+						Enabled: false,
 					},
 				},
 				update: ent.UserConfig{
