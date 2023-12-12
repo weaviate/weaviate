@@ -294,6 +294,8 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("reinit vector: %w", err)
 	}
 
+	s.initCycleCallbacks()
+
 	return nil
 }
 
