@@ -28,8 +28,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -50,7 +50,7 @@ type flat struct {
 	distancerProvider   distancer.Provider
 	trackDimensionsOnce sync.Once
 	rescore             int64
-	bq                  ssdhelpers.BinaryQuantizer
+	bq                  compressionhelpers.BinaryQuantizer
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -220,7 +220,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
 
 		if index.isBQ() {
-			index.bq = ssdhelpers.NewBinaryQuantizer(nil)
+			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
 	if len(vector) != int(index.dims) {
