@@ -19,7 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -167,7 +167,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	var err error
-	var distancer ssdhelpers.CompressorDistancer
+	var distancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
 		distancer = h.compressor.NewDistancer(vector)
 	}

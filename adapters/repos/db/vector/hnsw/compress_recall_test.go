@@ -23,9 +23,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -63,7 +63,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 
 	for _, distancer := range distancers {
 		truths := make([][]uint64, queries_size)
-		ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+		compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 			truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
 		})
 		fmt.Printf("generating data took %s\n", time.Since(before))
@@ -91,7 +91,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		init := time.Now()
-		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+		compressionhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
 			index.Add(id, vectors[id])
 		})
 		before = time.Now()
@@ -113,7 +113,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			var retrieved int
 
 			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+			compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 				before = time.Now()
 				results, _, _ := index.SearchByVector(queries[i], k, nil)
 				querying += time.Since(before)

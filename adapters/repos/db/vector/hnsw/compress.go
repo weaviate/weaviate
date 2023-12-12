@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -48,14 +48,14 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		}
 		cleanData = append(cleanData, point)
 	}
-	h.compressor, err = ssdhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+	h.compressor, err = compressionhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
 	if err != nil {
 		return errors.Wrap(err, "Compressing vectors.")
 	}
 
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
-	ssdhelpers.Concurrently(uint64(len(data)),
+	compressionhelpers.Concurrently(uint64(len(data)),
 		func(index uint64) {
 			if data[index] == nil {
 				return

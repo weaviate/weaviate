@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -133,7 +133,7 @@ func (h *hnsw) restoreFromDisk() error {
 		h.cache.Drop()
 
 		if len(state.PQData.Encoders) > 0 {
-			h.compressor, err = ssdhelpers.RestorePQCompressor(
+			h.compressor, err = compressionhelpers.RestorePQCompressor(
 				h.pqConfig,
 				h.distancerProvider,
 				int(state.PQData.Dimensions),
