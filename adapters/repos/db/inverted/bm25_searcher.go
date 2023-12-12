@@ -255,7 +255,9 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int, additionalExplanations bool) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
+	results terms, indices []map[uint64]int, additionalExplanations bool,
+) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, nil, errors.Errorf("objects bucket not found")
@@ -303,8 +305,9 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
-	topKHeap := priorityqueue.NewMin(limit)
+func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64,
+) *priorityqueue.Queue[any] {
+	topKHeap := priorityqueue.NewMin[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	for {
