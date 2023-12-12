@@ -43,7 +43,7 @@ func TestBm25MultiNode(t *testing.T) {
 
 func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -55,6 +55,7 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.CreateClass(t, paragraphClass)
+
 	for _, par := range paragraphs {
 		obj := articles.NewParagraph().
 			WithContents(par).
