@@ -14,6 +14,8 @@ package v1
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -48,6 +50,8 @@ func makeTestList(succeedingInnerTests map[schema.DataType]*pb.Value) []innerTes
 }
 
 func TestNewPrimitiveValue(t *testing.T) {
+	float_val := float32(1.1)
+
 	tests := []struct {
 		name  string
 		in    any
@@ -137,6 +141,13 @@ func TestNewPrimitiveValue(t *testing.T) {
 			tests: makeTestList(map[schema.DataType]*pb.Value{
 				schema.DataTypeNumber: {Kind: &pb.Value_NumberValue{NumberValue: 1.1}},
 				schema.DataTypeInt:    {Kind: &pb.Value_IntValue{IntValue: 1}},
+			}),
+		},
+		{
+			name: "geo",
+			in:   &models.GeoCoordinates{Longitude: &float_val, Latitude: &float_val},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypeGeoCoordinates: {Kind: &pb.Value_GeoValue{GeoValue: &pb.GeoCoordinate{Latitude: float_val, Longitude: float_val}}},
 			}),
 		},
 	}

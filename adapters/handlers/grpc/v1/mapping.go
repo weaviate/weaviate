@@ -13,6 +13,7 @@ package v1
 
 import (
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -43,6 +44,7 @@ func parseArray[T float64 | bool | string](v interface{}, innerDt schema.DataTyp
 //	║ int, int32, int64      │ stored as NumberValue                      ║
 //	║ uint, uint32, uint64   │ stored as NumberValue                      ║
 //	║ float32, float64       │ stored as NumberValue                      ║
+//	║ geo coordinate         │ stored as GeoCoordinate                    ║
 //	║ string                 │ stored as StringValue; must be valid UTF-8 ║
 //	║ []byte                 │ stored as StringValue; base64-encoded      ║
 //	║ map[string]interface{} │ stored as StructValue                      ║
@@ -116,6 +118,12 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing uuid property", v)
 			}
 			return NewUuidValue(val), nil
+		case schema.DataTypeGeoCoordinates:
+			val, ok := v.(*models.GeoCoordinates)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected *models.GeoCoordinates when serializing geocoordinate property", v)
+			}
+			return NewGeoValue(val), nil
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
@@ -244,6 +252,11 @@ func NewDateValue(v string) *pb.Value {
 // NewUuidValue constructs a new string Value.
 func NewUuidValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_UuidValue{UuidValue: v}}
+}
+
+// NewGeoValue constructs a new geo Value.
+func NewGeoValue(v *models.GeoCoordinates) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_GeoValue{GeoValue: &pb.GeoCoordinate{Latitude: *v.Latitude, Longitude: *v.Longitude}}}
 }
 
 // NewObjectValue constructs a new struct Value.
