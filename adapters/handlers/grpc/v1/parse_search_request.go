@@ -437,12 +437,19 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
 
-		// correct the type of value when filtering on a float property but sending an int. This is easy to get wrong
+		// correct the type of value when filtering on a float/int property but sending an int/float. This is easy to
+		// get wrong
 		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
 			val = float64(number)
 		}
+		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
+			val = int(number)
+			if float64(int(number)) != number {
+				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
+			}
+		}
 
-		// correct type for containsXXX in case users send int for a float array
+		// correct type for containsXXX in case users send int/float for a float/int array
 		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
 			valSlice, ok := val.([]int)
 			if ok {
@@ -451,6 +458,20 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 					val64[i] = float64(valSlice[i])
 				}
 				val = val64
+			}
+		}
+
+		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeInt {
+			valSlice, ok := val.([]float64)
+			if ok {
+				valInt := make([]int, len(valSlice))
+				for i := 0; i < len(valSlice); i++ {
+					if float64(int(valSlice[i])) != valSlice[i] {
+						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", valSlice[i])
+					}
+					valInt[i] = int(valSlice[i])
+				}
+				val = valInt
 			}
 		}
 
