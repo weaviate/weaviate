@@ -14,6 +14,7 @@ package helper
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -37,9 +38,11 @@ func SetupClient(uri string) {
 }
 
 func CreateClass(t *testing.T, class *models.Class) {
+	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	time.Sleep(time.Second) // give some time for update to propagate because request are not retried
 }
 
 func GetClass(t *testing.T, class string) *models.Class {
