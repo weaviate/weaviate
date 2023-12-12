@@ -113,7 +113,7 @@ message Filters {
     string value_text = 4;
     int64 value_int = 5;
     bool value_boolean = 6;
-    float value_number = 7;
+    double value_number = 7;
     TextArray value_text_array = 9;
     IntArray value_int_array = 10;
     BooleanArray value_boolean_array = 11;
