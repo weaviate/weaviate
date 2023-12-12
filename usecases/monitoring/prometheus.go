@@ -61,9 +61,9 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	ShardsLoaded *prometheus.GaugeVec
+	ShardsLoaded   *prometheus.GaugeVec
 	ShardsUnLoaded *prometheus.GaugeVec
-	ShardsLoading *prometheus.GaugeVec
+	ShardsLoading  *prometheus.GaugeVec
 
 	Group bool
 }
@@ -342,9 +342,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_loading",
 			Help: "Number of shards in process of loading",
 		}, []string{"class_name"}),
-
-
-
 	}
 }
 
