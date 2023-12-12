@@ -32,6 +32,7 @@ func (m *Manager) deleteClass(ctx context.Context, className string) error {
 	m.Lock()
 	defer m.Unlock()
 
+
 	tx, err := m.cluster.BeginTransaction(ctx, DeleteClass,
 		DeleteClassPayload{className}, DefaultTxTTL)
 	if err != nil {
