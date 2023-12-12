@@ -40,7 +40,7 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 			Env: map[string]string{
 				"OCCURRENCE_WEIGHT_LINEAR_FACTOR": "0.75",
 				"EXTENSIONS_STORAGE_MODE":         "weaviate",
-				"EXTENSIONS_STORAGE_ORIGIN":       fmt.Sprintf("http://%s:8080", Weaviate),
+				"EXTENSIONS_STORAGE_ORIGIN":       fmt.Sprintf("http://%s:8080", Weaviate1),
 			},
 			ExposedPorts: []string{"9999/tcp"},
 			AutoRemove:   true,
