@@ -56,7 +56,7 @@ func Test_NodeMappingBackupJourney(t *testing.T) {
 		t.Run("restore-azure", func(t *testing.T) {
 			journey.NodeMappingBackupJourneyTests_SingleNode_Restore(t, compose.GetSecondWeaviate().URI(),
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil, map[string]string{
-					docker.Weaviate: docker.SecondWeaviate,
+					docker.Weaviate1: docker.SecondWeaviate,
 				})
 		})
 

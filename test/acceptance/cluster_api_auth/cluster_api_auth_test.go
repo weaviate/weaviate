@@ -26,11 +26,12 @@ import (
 )
 
 func TestClusterAPIAuth(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateClusterWithBasicAuth("user", "pass").
+	compose, err := docker.New().With3NodeCluster().
+		WithBasicAuth("user", "pass").
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
