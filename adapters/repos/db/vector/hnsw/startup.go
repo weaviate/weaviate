@@ -127,8 +127,6 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
-	h.logger.Error("************************")
-	h.logger.Error(state.Compressed)
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.dims = int32(state.PQData.Dimensions)

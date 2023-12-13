@@ -15,14 +15,26 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+func newDummyStore(t *testing.T) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	storeDir := t.TempDir()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
+}
 
 func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	efConstruction := 64
@@ -69,7 +81,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 			}, uc,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
 		defer index.Shutdown(context.Background())
-		ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
+		compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 			index.Add(uint64(id), vectors[id])
 		})
 		cfg := ent.PQConfig{
@@ -82,7 +94,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 			Centroids: 256,
 		}
 		index.Compress(cfg)
-		assert.Equal(t, expectedSegments, int(index.pq.ExposeFields().M))
+		assert.Equal(t, expectedSegments, int(index.compressor.ExposeFields().M))
 		assert.Equal(t, expectedSegments, index.pqConfig.Segments)
 	}
 }
