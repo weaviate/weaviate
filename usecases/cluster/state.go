@@ -37,6 +37,8 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
+	Localhost bool `json:"localhost" yaml:"localhost"`
 }
 
 type AuthConfig struct {

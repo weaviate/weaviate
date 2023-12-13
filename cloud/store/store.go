@@ -61,8 +61,10 @@ type Config struct {
 	RPCPort         int
 	BootstrapExpect int
 
-	RaftHeartbeatTimeout time.Duration
-	RaftElectionTimeout  time.Duration
+	HeartbeatTimeout  time.Duration
+	ElectionTimeout   time.Duration
+	SnapshotInterval  time.Duration
+	SnapshotThreshold uint64
 
 	DB          DB
 	Parser      Parser
@@ -75,13 +77,15 @@ type Config struct {
 type Store struct {
 	raft *raft.Raft
 
-	open                 atomic.Bool
-	raftDir              string
-	raftPort             int
-	bootstrapExpect      int
-	raftHeartbeatTimeout time.Duration
-	raftElectionTimeout  time.Duration
-	raftApplyTimeout     time.Duration
+	open              atomic.Bool
+	raftDir           string
+	raftPort          int
+	bootstrapExpect   int
+	heartbeatTimeout  time.Duration
+	electionTimeout   time.Duration
+	snapshotInterval  time.Duration
+	applyTimeout      time.Duration
+	snapshotThreshold uint64
 
 	nodeID   string
 	host     string
@@ -107,20 +111,22 @@ type Store struct {
 
 func New(cfg Config) Store {
 	return Store{
-		raftDir:              cfg.WorkDir,
-		raftPort:             cfg.RaftPort,
-		bootstrapExpect:      cfg.BootstrapExpect,
-		candidates:           make(map[string]string, cfg.BootstrapExpect),
-		raftHeartbeatTimeout: cfg.RaftHeartbeatTimeout,
-		raftElectionTimeout:  cfg.RaftElectionTimeout,
-		raftApplyTimeout:     time.Second * 20,
-		nodeID:               cfg.NodeID,
-		host:                 cfg.Host,
-		schema:               NewSchema(cfg.NodeID, cfg.DB),
-		db:                   cfg.DB,
-		parser:               cfg.Parser,
-		log:                  cfg.Logger,
-		logLevel:             cfg.LogLevel,
+		raftDir:           cfg.WorkDir,
+		raftPort:          cfg.RaftPort,
+		bootstrapExpect:   cfg.BootstrapExpect,
+		candidates:        make(map[string]string, cfg.BootstrapExpect),
+		heartbeatTimeout:  cfg.HeartbeatTimeout,
+		electionTimeout:   cfg.ElectionTimeout,
+		snapshotInterval:  cfg.SnapshotInterval,
+		snapshotThreshold: cfg.SnapshotThreshold,
+		applyTimeout:      time.Second * 20,
+		nodeID:            cfg.NodeID,
+		host:              cfg.Host,
+		schema:            NewSchema(cfg.NodeID, cfg.DB),
+		db:                cfg.DB,
+		parser:            cfg.Parser,
+		log:               cfg.Logger,
+		logLevel:          cfg.LogLevel,
 	}
 }
 
@@ -166,7 +172,7 @@ func (st *Store) Execute(req *cmd.ApplyRequest) error {
 		return fmt.Errorf("marshal command: %w", err)
 	}
 
-	fut := st.raft.Apply(cmdBytes, st.raftApplyTimeout)
+	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
 	if err := fut.Error(); err != nil {
 		if errors.Is(err, raft.ErrNotLeader) {
 			return ErrNotLeader
