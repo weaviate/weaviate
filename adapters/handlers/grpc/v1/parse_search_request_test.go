@@ -152,7 +152,7 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Empty return properties given deprecated",
+			name: "Empty return properties given",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
@@ -162,7 +162,7 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Empty return properties given",
+			name: "Empty return properties given with new default logic",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
@@ -207,7 +207,36 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Properties return all nonref values with ref and specific props",
+			name: "Metadata ID only query using new default logic",
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true}, Metadata: &pb.MetadataRequest{Uuid: true}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: search.SelectProperties{},
+				AdditionalProperties: additional.Properties{
+					ID:      true,
+					NoProps: true,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return all nonref values",
+			req:  &pb.SearchRequest{Collection: classname},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: defaultTestClassProps,
+			},
+			error: false,
+		},
+		{
+			name: "Properties return all nonref values with new default logic",
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true, UsesNewDefaultLogic: true}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: defaultTestClassProps,
+			},
+			error: false,
+		},
+		{
+			name: "Properties return all nonref values with ref and specific props using new default logic",
 			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
 				UsesNewDefaultLogic:       true,
@@ -234,7 +263,7 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Properties return all nonref values with ref and all nonref props",
+			name: "Properties return all nonref values with ref and all nonref props using new default logic",
 			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
 				UsesNewDefaultLogic:       true,
@@ -280,8 +309,33 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "Properties return values only ref using new default logic",
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
+				UsesNewDefaultLogic: true,
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "ref",
+					TargetCollection:  refClass1,
+					Metadata:          &pb.MetadataRequest{Vector: true, Certainty: false},
+					Properties:        &pb.PropertiesRequest{UsesNewDefaultLogic: true, NonRefProperties: []string{"something"}}},
+				}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
+					Vector: true,
+				}}}}},
+			},
+			error: false,
+		},
+		{
 			name: "Properties return values non-ref",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return values non-ref with new default logic",
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true, NonRefProperties: []string{"name", "CapitalizedName"}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
 			},
@@ -927,8 +981,36 @@ func TestGRPCRequest(t *testing.T) {
 			},
 		},
 		{
-			name: "No return values given nested",
+			name: "Empty return values given nested",
 			req:  &pb.SearchRequest{Collection: objClass},
+			out: dto.GetParams{
+				ClassName: objClass, Pagination: defaultPagination,
+				Properties: search.SelectProperties{
+					{
+						Name: "something", IsPrimitive: false, IsObject: true,
+						Props: search.SelectProperties{
+							{Name: "name", IsPrimitive: true},
+							{
+								Name: "else", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+							{
+								Name: "elses", IsPrimitive: false, IsObject: true,
+								Props: search.SelectProperties{{
+									Name: "name", IsPrimitive: true,
+								}},
+							},
+						},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "No return values given nested with new default logic",
+			req:  &pb.SearchRequest{Collection: objClass, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true, UsesNewDefaultLogic: true}},
 			out: dto.GetParams{
 				ClassName: objClass, Pagination: defaultPagination,
 				Properties: search.SelectProperties{
