@@ -52,13 +52,13 @@ func (h *hnsw) Compress(cfg ent.UserConfig) error {
 			cleanData = append(cleanData, point)
 		}
 
-		h.compressor, err = compressionhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+		h.compressor, err = compressionhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
 		if err != nil {
 			return errors.Wrap(err, "Compressing vectors.")
 		}
 	} else {
 		var err error
-		h.compressor, err = ssdhelpers.NewBQCompressor(h.distancerProvider, 1e12, h.logger, h.store)
+		h.compressor, err = compressionhelpers.NewBQCompressor(h.distancerProvider, 1e12, h.logger, h.store)
 		if err != nil {
 			return err
 		}
