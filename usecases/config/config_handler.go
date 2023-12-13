@@ -68,11 +68,15 @@ const (
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 
-	RaftPort             int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
-	RaftInternalRPCPort  int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
-	RaftJoin             []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
-	RaftBootstrapTimeout int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
-	RaftBootstrapExpect  int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
+	RaftPort              int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
+	RaftInternalRPCPort   int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
+	RaftJoin              []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
+	RaftBootstrapTimeout  int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
+	RaftBootstrapExpect   int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
+	RaftHeartbeatTimeout  int      `long:"raft-heartbeat-timeout" description:"raft heartbeat timeout"`
+	RaftElectionTimeout   int      `long:"raft-election-timeout" description:"raft election timeout"`
+	RaftSnapshotThreshold int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
+	RaftSnapshotInterval  int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 }
 
 // Config outline of the config file
@@ -283,9 +287,14 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port             int
-	InternalRPCPort  int
-	Join             []string
+	Port              int
+	InternalRPCPort   int
+	Join              []string
+	SnapshotThreshold uint64
+	HeartbeatTimeout  time.Duration
+	ElectionTimeout   time.Duration
+	SnapshotInterval  time.Duration
+
 	BootstrapTimeout time.Duration
 	BootstrapExpect  int
 }
@@ -470,6 +479,12 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	}
 	if flags.RaftBootstrapExpect > 0 {
 		f.Config.Raft.BootstrapExpect = flags.RaftBootstrapExpect
+	}
+	if flags.RaftSnapshotInterval > 0 {
+		f.Config.Raft.SnapshotInterval = time.Second * time.Duration(flags.RaftSnapshotInterval)
+	}
+	if flags.RaftSnapshotThreshold > 0 {
+		f.Config.Raft.SnapshotThreshold = uint64(flags.RaftSnapshotThreshold)
 	}
 }
 
