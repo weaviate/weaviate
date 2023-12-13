@@ -2022,7 +2022,7 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	return i.initAndStoreShard(ctx, shardName, class, nil)
+	return i.initAndStoreShard(ctx, shardName, class, i.metrics.baseMetrics)
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {

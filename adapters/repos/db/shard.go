@@ -447,6 +447,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 // method to keep drop behaviour consistent.
 func (s *Shard) drop() error {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
+	s.metrics.baseMetrics.StartUnloadingShard(s.index.Config.ClassName.String())
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -517,6 +518,8 @@ func (s *Shard) drop() error {
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
+
+	s.metrics.baseMetrics.FinishUnloadingShard(s.index.Config.ClassName.String())
 
 	return nil
 }
