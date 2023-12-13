@@ -52,7 +52,11 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) *LazyLoadShard {
-	promMetrics.NewUnLoadedshard(class.Class)
+	if class == nil {
+		promMetrics.NewUnLoadedshard("unknown class")
+	} else {
+		promMetrics.NewUnLoadedshard(class.Class)
+	}
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics: promMetrics,
