@@ -157,8 +157,9 @@ func (h *hnsw) shouldRescore() bool {
 }
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
-	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList) (*priorityqueue.Queue, error,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
+	allowList helpers.AllowList,
+) (*priorityqueue.Queue[any], error,
 ) {
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
@@ -169,8 +170,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
-	entrypoints *priorityqueue.Queue, ef int, level int,
-	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue, error,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
 ) {
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()
@@ -331,7 +332,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
-	entrypoints, candidates, results *priorityqueue.Queue, level int,
+	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
@@ -356,7 +357,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	}
 }
 
-func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
+func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[any],
 	distancer distancer.Distancer,
 ) (float32, error) {
 	if results.Len() > 0 {
@@ -387,7 +388,7 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue,
 	}
 }
 
-func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue,
+func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any],
 	distancer compressionhelpers.CompressorDistancer,
 ) (float32, error) {
 	if results.Len() > 0 {
@@ -506,7 +507,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin(10)
+		eps := priorityqueue.NewMin[any](10)
 		eps.Insert(entryPointID, entryPointDistance)
 
 		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, compressorDistancer)
@@ -550,7 +551,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		h.pools.pqResults.Put(res)
 	}
 
-	eps := priorityqueue.NewMin(10)
+	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
 	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, compressorDistancer)
 	if err != nil {

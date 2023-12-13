@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -58,7 +59,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"enabled":        false,
 						"encoder": map[string]interface{}{
 							"distribution": "log-normal",
-							"type":         "kmeans",
+							"type":         hnsw.PQEncoderTypeKMeans,
 						},
 						"segments":      float64(0),
 						"trainingLimit": float64(100000),

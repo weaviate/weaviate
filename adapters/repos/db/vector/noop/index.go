@@ -28,7 +28,7 @@ func NewIndex() *Index {
 	return &Index{}
 }
 
-func (i *Index) AddBatch(id []uint64, vector [][]float32) error {
+func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) error {
 	// silently ignore
 	return nil
 }
@@ -109,5 +109,25 @@ func (i *Index) ContainsNode(id uint64) bool {
 }
 
 func (i *Index) DistancerProvider() distancer.Provider {
+	return nil
+}
+
+func (i *Index) ShouldCompress() (bool, int) {
+	return false, 0
+}
+
+func (i *Index) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+	return false, 0
+}
+
+func (i *Index) Compressed() bool {
+	return false
+}
+
+func (i *Index) AlreadyIndexed() uint64 {
+	return 0
+}
+
+func (i *Index) TurnOnCompression(callback func()) error {
 	return nil
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -157,7 +158,8 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 	})
 
 	t.Run("set shard to readonly", func(t *testing.T) {
-		nodesResp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		verbose := verbosity.OutputVerbose
+		nodesResp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, nodesResp.Payload)
 		require.Len(t, nodesResp.Payload.Nodes, 1)

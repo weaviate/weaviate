@@ -393,7 +393,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			returnFilter.Operator = filters.ContainsAny
 		case pb.Filters_OPERATOR_CONTAINS_ALL:
 			returnFilter.Operator = filters.ContainsAll
-
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
@@ -432,17 +431,32 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
 			val = filterIn.GetValueBooleanArray().Values
-
+		case *pb.Filters_ValueGeo:
+			valueFilter := filterIn.GetValueGeo()
+			val = filters.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{
+					Latitude:  &valueFilter.Latitude,
+					Longitude: &valueFilter.Longitude,
+				},
+				Distance: valueFilter.Distance,
+			}
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
 
-		// correct the type of value when filtering on a float property but sending an int. This is easy to get wrong
+		// correct the type of value when filtering on a float/int property but sending an int/float. This is easy to
+		// get wrong
 		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
 			val = float64(number)
 		}
+		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
+			val = int(number)
+			if float64(int(number)) != number {
+				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
+			}
+		}
 
-		// correct type for containsXXX in case users send int for a float array
+		// correct type for containsXXX in case users send int/float for a float/int array
 		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
 			valSlice, ok := val.([]int)
 			if ok {
@@ -454,6 +468,20 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			}
 		}
 
+		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeInt {
+			valSlice, ok := val.([]float64)
+			if ok {
+				valInt := make([]int, len(valSlice))
+				for i := 0; i < len(valSlice); i++ {
+					if float64(int(valSlice[i])) != valSlice[i] {
+						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", valSlice[i])
+					}
+					valInt[i] = int(valSlice[i])
+				}
+				val = valInt
+			}
+		}
+
 		value := filters.Value{Value: val, Type: dataType}
 		returnFilter.Value = &value
 
@@ -462,7 +490,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 	return returnFilter, nil
 }
 
-func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+func extractDataTypeProperty(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
 	var dataType schema.DataType
 	if operator == filters.OperatorIsNull {
 		dataType = schema.DataTypeBoolean
@@ -499,6 +527,17 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		}
 	}
 	return dataType, nil
+}
+
+func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+	propToFilterOn := on[len(on)-1]
+	if propToFilterOn == filters.InternalPropID {
+		return schema.DataTypeText, nil
+	} else if propToFilterOn == filters.InternalPropCreationTimeUnix || propToFilterOn == filters.InternalPropLastUpdateTimeUnix {
+		return schema.DataTypeDate, nil
+	} else {
+		return extractDataTypeProperty(scheme, operator, classname, on)
+	}
 }
 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
