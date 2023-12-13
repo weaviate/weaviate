@@ -351,47 +351,10 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
-	if err := parsePositiveInt(
-		"RAFT_PORT",
-		func(val int) { config.Raft.Port = val },
-		DefaultRaftPort,
-	); err != nil {
-		return err
+
+	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
+		return fmt.Errorf("parse raft config: %w", err)
 	}
-
-	if err := parsePositiveInt(
-		"RAFT_INTERNAL_RPC_PORT",
-		func(val int) { config.Raft.InternalRPCPort = val },
-		DefaultRaftInternalPort,
-	); err != nil {
-		return err
-	}
-
-	parseStringList(
-		"RAFT_JOIN",
-		func(val []string) { config.Raft.Join = val },
-		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
-		// able to bootstrap itself if the user doesn't pass any raft parameter.
-		[]string{fmt.Sprintf("%s:%d", config.Cluster.Hostname, config.Raft.InternalRPCPort)},
-	)
-
-	if err := parsePositiveInt(
-		"RAFT_BOOTSTRAP_TIMEOUT",
-		func(val int) { config.Raft.BootstrapTimeout = time.Second * time.Duration(val) },
-		DefaultRaftBootstrapTimeout,
-	); err != nil {
-		return err
-	}
-
-	if err := parsePositiveInt(
-		"RAFT_BOOTSTRAP_EXPECT",
-		func(val int) { config.Raft.BootstrapExpect = val },
-		DefaultRaftBootstrapExpect,
-	); err != nil {
-		return err
-	}
-
-	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
@@ -402,6 +365,82 @@ func FromEnv(config *Config) error {
 	}
 
 	return nil
+}
+
+func parseRAFTConfig(hostname string) (Raft, error) {
+	// flag.IntVar()
+	cfg := Raft{}
+	if err := parsePositiveInt(
+		"RAFT_PORT",
+		func(val int) { cfg.Port = val },
+		DefaultRaftPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_INTERNAL_RPC_PORT",
+		func(val int) { cfg.InternalRPCPort = val },
+		DefaultRaftInternalPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	parseStringList(
+		"RAFT_JOIN",
+		func(val []string) { cfg.Join = val },
+		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
+		// able to bootstrap itself if the user doesn't pass any raft parameter.
+		[]string{fmt.Sprintf("%s:%d", hostname, cfg.InternalRPCPort)},
+	)
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_TIMEOUT",
+		func(val int) { cfg.BootstrapTimeout = time.Second * time.Duration(val) },
+		DefaultRaftBootstrapTimeout,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_EXPECT",
+		func(val int) { cfg.BootstrapExpect = val },
+		DefaultRaftBootstrapExpect,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_HEARTBEAT_TIMEOUT",
+		func(val int) { cfg.HeartbeatTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+	if err := parsePositiveInt(
+		"RAFT_ELECTION_TIMEOUT",
+		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_INTERVAL",
+		func(val int) { cfg.SnapshotInterval = time.Second * time.Duration(val) },
+		120, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_THRESHOLD",
+		func(val int) { cfg.SnapshotThreshold = uint64(val) },
+		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
 }
 
 func (c *Config) parseCORSConfig() error {
@@ -565,7 +604,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.Hostname = v
 	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
-
+	cfg.Localhost = Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 
