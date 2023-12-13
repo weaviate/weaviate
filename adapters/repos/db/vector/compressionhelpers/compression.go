@@ -64,7 +64,7 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
 	compressor.cache.Drop()
 
-	if err := compressor.compressedStore.ShutdownBucket(context.Background(), helpers.VectorsHNSWPQBucketLSM); err != nil {
+	if err := compressor.compressedStore.ShutdownBucket(context.Background(), helpers.VectorsCompressedBucketLSM); err != nil {
 		return errors.Wrap(err, "compressed store shutdown")
 	}
 	return nil
@@ -102,14 +102,14 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.VectorsHNSWPQBucketLSM).Delete(idBytes)
+	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
 	compressed := compressor.quantizer.Encode(vector)
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.VectorsHNSWPQBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressed))
+	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressed))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressed)
 }
@@ -165,7 +165,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUnc
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
-	vec, err := compressor.compressedStore.Bucket(helpers.VectorsHNSWPQBucketLSM).Get(idBytes)
+	vec, err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Get(idBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
 	}
@@ -200,7 +200,7 @@ func (compressor *quantizedVectorsCompressor[T]) ReturnDistancer(distancer Compr
 }
 
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
-	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.VectorsHNSWPQBucketLSM)
+	err := compressor.compressedStore.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM)
 	if err != nil {
 		return errors.Wrapf(err, "Create or load bucket (compressed vectors store)")
 	}
@@ -208,7 +208,7 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 }
 
 func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
-	cursor := compressor.compressedStore.Bucket(helpers.VectorsHNSWPQBucketLSM).Cursor()
+	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		id := binary.BigEndian.Uint64(k)
 		compressor.cache.Grow(id)

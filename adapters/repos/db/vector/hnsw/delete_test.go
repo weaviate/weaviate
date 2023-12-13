@@ -573,10 +573,11 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
-			Segments:       0,
+			Segments:       3,
 			Centroids:      256,
 		}
-		index.Compress(cfg)
+		userConfig.PQ = cfg
+		index.Compress(userConfig.PQ)
 	})
 
 	var control []uint64
@@ -709,10 +710,11 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
 			BitCompression: false,
-			Segments:       0,
+			Segments:       3,
 			Centroids:      256,
 		}
-		index.Compress(cfg)
+		userConfig.PQ = cfg
+		index.Compress(userConfig.PQ)
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)
