@@ -54,7 +54,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	compressionhelpers.Concurrently(uint64(len(queryVecs)), func(i uint64) {
 		before := time.Now()
 		query := bq.Encode(queryVecs[i])
-		heap := priorityqueue.NewMax(correctedK)
+		heap := priorityqueue.NewMax[any](correctedK)
 		for j := range codes {
 			d, _ := bq.DistanceBetweenCompressedVectors(codes[j], query)
 			if heap.Len() < correctedK || heap.Top().Dist > d {

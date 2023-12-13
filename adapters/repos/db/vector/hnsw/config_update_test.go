@@ -95,6 +95,20 @@ func TestUserConfigUpdates(t *testing.T) {
 				},
 				expectedError: nil,
 			},
+			{
+				name: "setting bq compression on",
+				initial: ent.UserConfig{
+					BQ: ent.BQConfig{
+						Enabled: false,
+					},
+				},
+				update: ent.UserConfig{
+					BQ: ent.BQConfig{
+						Enabled: true,
+					},
+				},
+				expectedError: nil,
+			},
 		}
 
 		for _, test := range tests {

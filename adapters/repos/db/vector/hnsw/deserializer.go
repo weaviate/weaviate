@@ -521,6 +521,7 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult
 }
 
 func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
+	d.logger.Error("************************ ----------")
 	dims, err := d.readUint16(r)
 	if err != nil {
 		return err

@@ -25,6 +25,7 @@ import (
 const GCS = "gcp-storage-emulator"
 
 func startGCS(ctx context.Context, networkName string) (*DockerContainer, error) {
+	port := nat.Port("9090/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "oittaa/gcp-storage-emulator",
@@ -37,28 +38,28 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 				networkName: {GCS},
 			},
 			Env: map[string]string{
-				"PORT": "9090",
+				"PORT": port.Port(),
 			},
-			WaitingFor: wait.
-				ForHTTP("/").
-				WithPort(nat.Port("9090")).
-				WithStartupTimeout(60 * time.Second),
+			WaitingFor: wait.ForAll(
+				wait.ForListeningPort(port),
+				wait.ForHTTP("/").WithPort(port),
+			).WithStartupTimeoutDefault(60 * time.Second),
 		},
 		Started: true,
 	})
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.PortEndpoint(ctx, nat.Port("9090/tcp"), "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
-	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, "9090")
+	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, port.Port())
 	envSettings["BACKUP_GCS_USE_AUTH"] = "false"
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"9090/tcp", uri}
+	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{GCS, endpoints, container, envSettings}, nil
 }

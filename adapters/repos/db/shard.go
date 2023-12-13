@@ -232,9 +232,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	err = s.queue.PreloadShard(ctx, s)
-	if err != nil {
-		return nil, err
+	if asyncEnabled() {
+		go func() {
+			// preload unindexed objects in the background
+			err = s.queue.PreloadShard(s)
+			if err != nil {
+				s.queue.Logger.WithError(err).Error("preload shard")
+			}
+		}()
 	}
 	s.NotifyReady()
 

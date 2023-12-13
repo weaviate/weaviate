@@ -12,49 +12,60 @@
 package hnsw
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+func (h *hnsw) calculateOptimalSegments(dims int) int {
+	if dims >= 2048 && dims%8 == 0 {
+		return dims / 8
+	} else if dims >= 768 && dims%6 == 0 {
+		return dims / 6
+	} else if dims >= 256 && dims%4 == 0 {
+		return dims / 4
+	} else if dims%2 == 0 {
+		return dims / 2
+	}
+	return dims
+}
+
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
-	h.shardedNodeLocks.RLock(0)
-	node := h.nodes[0]
-	h.shardedNodeLocks.RUnlock(0)
-
-	if node == nil {
-		return errors.New("data must be inserted before compress command can be executed")
-	}
-
-	vec, err := h.vectorForID(context.Background(), node.id)
-	if err != nil {
-		return fmt.Errorf("infer vector dimensions: %w", err)
-	}
-	dims := len(vec)
-
-	// segments == 0 (default value) means use as many segments as dimensions
-	if cfg.Segments <= 0 {
-		cfg.Segments = dims
-	}
-
-	data := h.cache.All()
-	cleanData := make([][]float32, 0, len(data))
-	for _, point := range data {
-		if point == nil {
-			continue
-		}
-		cleanData = append(cleanData, point)
-	}
-	h.compressor, err = compressionhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
-	if err != nil {
-		return errors.Wrap(err, "Compressing vectors.")
-	}
-
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
+	data := h.cache.All()
+	if cfg.Enabled {
+		if h.isEmpty() {
+			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+		}
+		dims := int(h.dims)
+
+		if cfg.Segments <= 0 {
+			cfg.Segments = h.calculateOptimalSegments(dims)
+			h.pqConfig.Segments = cfg.Segments
+		}
+
+		cleanData := make([][]float32, 0, len(data))
+		for _, point := range data {
+			if point == nil {
+				continue
+			}
+			cleanData = append(cleanData, point)
+		}
+
+		var err error
+		h.compressor, err = compressionhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+		if err != nil {
+			return errors.Wrap(err, "Compressing vectors.")
+		}
+		h.commitLog.AddPQ(h.compressor.ExposeFields())
+	} else {
+		var err error
+		h.compressor, err = compressionhelpers.NewBQCompressor(h.distancerProvider, 1e12, h.logger, h.store)
+		if err != nil {
+			return err
+		}
+	}
 	compressionhelpers.Concurrently(uint64(len(data)),
 		func(index uint64) {
 			if data[index] == nil {
@@ -62,9 +73,6 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			}
 			h.compressor.Preload(index, data[index])
 		})
-	if err := h.commitLog.AddPQ(h.compressor.ExposeFields()); err != nil {
-		return errors.Wrap(err, "Adding PQ to the commit logger")
-	}
 
 	h.compressed.Store(true)
 	h.cache.Drop()
