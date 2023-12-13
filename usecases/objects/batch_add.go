@@ -50,14 +50,19 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
-	if err := b.validateObjectForm(classes); err != nil {
+	if err := b.validateObjectForm(objects); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl)
+	batchObjects := b.validateObjectsConcurrently(ctx, principal, objects, fields, repl)
+
+	if err := b.autoSchemaManager.autoTenants(ctx, principal, objects); err != nil {
+		return nil, fmt.Errorf("auto create tenants: %w", err)
+	}
+
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
