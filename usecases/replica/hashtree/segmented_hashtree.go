@@ -11,6 +11,8 @@
 
 package hashtree
 
+import "math"
+
 type SegmentedHashTree struct {
 	segments    []uint64
 	segmentSize uint64
@@ -31,6 +33,10 @@ func NewSegmentedHashTree(segments []uint64, segmentSize uint64, maxHeight int) 
 
 	for _, segmentStart := range segments {
 		if segmentStart < prevSegmentEnd {
+			panic("illegal segments")
+		}
+
+		if math.MaxUint64-segmentSize < segmentStart {
 			panic("illegal segments")
 		}
 
