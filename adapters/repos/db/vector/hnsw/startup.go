@@ -133,6 +133,10 @@ func (h *hnsw) restoreFromDisk() error {
 		h.cache.Drop()
 
 		if len(state.PQData.Encoders) > 0 {
+			// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
+			if h.pqConfig.Segments == 0 {
+				h.pqConfig.Segments = int(state.PQData.Dimensions)
+			}
 			h.compressor, err = compressionhelpers.RestorePQCompressor(
 				h.pqConfig,
 				h.distancerProvider,
@@ -143,11 +147,10 @@ func (h *hnsw) restoreFromDisk() error {
 				state.PQData.Encoders,
 				h.store,
 			)
+			if err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
 		}
-		if err != nil {
-			return errors.Wrap(err, "Restoring compressed data.")
-		}
-
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 	} else if !h.compressed.Load() {
