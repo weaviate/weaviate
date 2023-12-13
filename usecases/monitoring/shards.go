@@ -25,7 +25,7 @@ func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	labels := prometheus.Labels{
 		"class_name": className,
 	}
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
 }
 
 // Move the shard from loaded to in progress
-func (pm *PrometheusMetrics) StartUnLoadingShard(className string) error {
+func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
 	if pm == nil {
 		return nil
 	}
@@ -84,7 +84,7 @@ func (pm *PrometheusMetrics) StartUnLoadingShard(className string) error {
 
 	sldd.Dec()
 
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (pm *PrometheusMetrics) StartUnLoadingShard(className string) error {
 }
 
 // Move the shard from in progress to unloaded
-func (pm *PrometheusMetrics) FinishUnLoadingShard(className string) error {
+func (pm *PrometheusMetrics) FinishUnloadingShard(className string) error {
 	if pm == nil {
 		return nil
 	}
@@ -103,26 +103,25 @@ func (pm *PrometheusMetrics) FinishUnLoadingShard(className string) error {
 		"class_name": className,
 	}
 
-	sulding, err := pm.ShardsUnLoading.GetMetricWith(labels)
+	sulding, err := pm.ShardsUnloading.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
 
 	sulding.Dec()
 
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
 
 	suld.Inc()
 
-
 	return nil
 }
 
 // Register a new, unloaded shard
-func (pm *PrometheusMetrics) NewUnLoadedshard(className string) error {
+func (pm *PrometheusMetrics) NewUnloadedshard(className string) error {
 	if pm == nil {
 		return nil
 	}
@@ -131,7 +130,7 @@ func (pm *PrometheusMetrics) NewUnLoadedshard(className string) error {
 		"class_name": className,
 	}
 
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
