@@ -84,7 +84,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 		Centroids: 256,
 	}
 	uc.PQ = cfg
-	index.Compress(uc)
+	index.Compress(uc.PQ)
 	for _, v := range queries {
 		_, _, err := index.SearchByVector(v, k, nil)
 		assert.Nil(t, err)
