@@ -21,10 +21,11 @@ import (
 )
 
 func TestCompactHashTree(t *testing.T) {
+	capacity := 1
 	maxHeight := 2
 	expectedHeight := 1
 
-	ht := NewCompactHashTree(1, maxHeight)
+	ht := NewCompactHashTree(capacity, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
@@ -47,27 +48,27 @@ func TestCompactHashTree(t *testing.T) {
 }
 
 func TestCompactedHashTree(t *testing.T) {
-	maxNumberOfElements := 1024
+	capacity := 1024
 	maxHeight := 6
 	expectedHeight := 6
 
-	ht := NewCompactHashTree(maxNumberOfElements, maxHeight)
+	ht := NewCompactHashTree(capacity, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
 	valuePrefix := "somevalue"
 
-	for i := 0; i < maxNumberOfElements; i++ {
+	for i := 0; i < capacity; i++ {
 		ht.AggregateLeafWith(i, []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
 	}
 }
 
 func TestCompactBigHashTree(t *testing.T) {
-	maxNumberOfElements := math.MaxUint64 / 128
+	capacity := math.MaxUint64 / 128
 	maxHeight := 16
 	expectedHeight := 16
 
-	ht := NewCompactHashTree(maxNumberOfElements, maxHeight)
+	ht := NewCompactHashTree(capacity, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
@@ -87,11 +88,11 @@ func TestCompactBigHashTree(t *testing.T) {
 }
 
 func TestCompactHashTreeComparisonHeight1(t *testing.T) {
-	maxNumberOfElements := math.MaxUint64 / 128
+	capacity := math.MaxUint64 / 128
 	maxHeight := 16
 
-	ht1 := NewCompactHashTree(maxNumberOfElements, maxHeight)
-	ht2 := NewCompactHashTree(maxNumberOfElements, maxHeight)
+	ht1 := NewCompactHashTree(capacity, maxHeight)
+	ht2 := NewCompactHashTree(capacity, maxHeight)
 
 	diff, err := CompactHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
 	require.NoError(t, err)
