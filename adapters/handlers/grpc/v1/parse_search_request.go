@@ -521,10 +521,9 @@ func extractDataTypeProperty(scheme schema.Schema, operator filters.Operator, cl
 		dataType = schema.DataType(prop.DataType[0])
 	}
 
-	if operator == filters.ContainsAll || operator == filters.ContainsAny {
-		if baseType, isArray := schema.IsArrayType(dataType); isArray {
-			return baseType, nil
-		}
+	// searches on array datatypes always need the base-type as value-type
+	if baseType, isArray := schema.IsArrayType(dataType); isArray {
+		return baseType, nil
 	}
 	return dataType, nil
 }
