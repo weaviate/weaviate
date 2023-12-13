@@ -15,14 +15,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Delete Shard deletes existing label combinations that match both
-// the shard and class name. If a metric is not collected at the shard
-// level it is unaffected. This is to make sure that deleting a single
-// shard (e.g. multi-tenancy) does not affect metrics for existing
-// shards.
-//
-// In addition, there are some metrics that we explicitly keep, such
-// as vector_dimensions_sum as they can be used in billing decisions.
+
+// Move the shard from unloaded to in progress
 func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -46,6 +40,8 @@ func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	return nil
 }
 
+
+// Move the shard from in progress to loaded
 func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -71,6 +67,7 @@ func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
 	return nil
 }
 
+// Move the shard from loaded to in progress
 func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -96,6 +93,7 @@ func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
 	return nil
 }
 
+// Move the shard from in progress to unloaded
 func (pm *PrometheusMetrics) FinishUnloadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -122,6 +120,7 @@ func (pm *PrometheusMetrics) FinishUnloadingShard(className string) error {
 	return nil
 }
 
+// Register a new, unloaded shard
 func (pm *PrometheusMetrics) NewUnloadedshard(className string) error {
 	if pm == nil {
 		return nil
