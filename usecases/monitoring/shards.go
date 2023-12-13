@@ -15,7 +15,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-
 // Move the shard from unloaded to in progress
 func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	if pm == nil {
@@ -39,7 +38,6 @@ func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	slding.Inc()
 	return nil
 }
-
 
 // Move the shard from in progress to loaded
 func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
