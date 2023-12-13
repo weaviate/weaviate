@@ -51,7 +51,6 @@ type VectorCompressor interface {
 	NewDistancer(vector []float32) CompressorDistancer
 	NewDistancerFromID(id uint64) CompressorDistancer
 	ReturnDistancer(distancer CompressorDistancer)
-	NewBag() CompressionDistanceBag
 
 	ExposeFields() PQData
 }
@@ -198,13 +197,6 @@ func (compressor *quantizedVectorsCompressor[T]) ReturnDistancer(distancer Compr
 		return
 	}
 	compressor.quantizer.ReturnQuantizerDistancer(dst)
-}
-
-func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag {
-	return &quantizedDistanceBag[T]{
-		compressor: compressor,
-		elements:   make(map[uint64][]T),
-	}
 }
 
 func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
