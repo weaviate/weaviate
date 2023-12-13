@@ -96,7 +96,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	if l.loaded {
 		return nil
 	}
-	l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
+	if l.shardOpts.class == nil {
+		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
+	} else {
+		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
+	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
 	if err != nil {
@@ -106,7 +110,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 	l.shard = shard
 	l.loaded = true
-	l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
+	if l.shardOpts.class == nil {
+		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
+	} else {
+		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
+	}
 	return nil
 }
 
