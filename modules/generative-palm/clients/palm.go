@@ -35,11 +35,12 @@ var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 	if useGenerativeAI {
-		// Generative AI supports only 1 chat model: chat-bison-001. So for now
-		// in order to keep it simple we generate one variation of PaLM API url.
-		// For more context check out this link:
+		// Generative AI endpoints, for more context check out this link:
 		// https://developers.generativeai.google/models/language#model_variations
 		// https://developers.generativeai.google/api/rest/generativelanguage/models/generateMessage
+		if strings.HasPrefix(modelID, "gemini") {
+			return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", modelID)
+		}
 		return "https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generateMessage"
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
@@ -126,12 +127,15 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 	}
 
 	if useGenerativeAIEndpoint {
-		return v.parseGenerativeAIApiResponse(res.StatusCode, bodyBytes)
+		if strings.HasPrefix(modelID, "gemini") {
+			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
+		}
+		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes)
 	}
 	return v.parseResponse(res.StatusCode, bodyBytes)
 }
 
-func (v *palm) parseGenerativeAIApiResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
 	var resBody generateMessageResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -143,6 +147,25 @@ func (v *palm) parseGenerativeAIApiResponse(statusCode int, bodyBytes []byte) (*
 
 	if len(resBody.Candidates) > 0 {
 		return v.getGenerateResponse(resBody.Candidates[0].Content)
+	}
+
+	return &generativemodels.GenerateResponse{
+		Result: nil,
+	}, nil
+}
+
+func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+	var resBody generateContentResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
+	}
+
+	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
+		return nil, err
+	}
+
+	if len(resBody.Candidates) > 0 && len(resBody.Candidates[0].Content.Parts) > 0 {
+		return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
 	}
 
 	return &generativemodels.GenerateResponse{
@@ -199,6 +222,21 @@ func (v *palm) useGenerativeAIEndpoint(apiEndpoint string) bool {
 
 func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
 	if useGenerativeAI {
+		if strings.HasPrefix(settings.ModelID(), "gemini") {
+			input := generateContentRequest{
+				Model: settings.ModelID(),
+				Contents: []content{
+					{
+						Parts: []part{
+							{
+								Text: prompt,
+							},
+						},
+					},
+				},
+			}
+			return input
+		}
 		input := generateMessageRequest{
 			Prompt: &generateMessagePrompt{
 				Messages: []generateMessage{
@@ -382,4 +420,45 @@ type generateMessageResponse struct {
 type contentFilter struct {
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
+}
+
+type generateContentRequest struct {
+	Model    string    `json:"model,omitempty"`
+	Contents []content `json:"contents,omitempty"`
+}
+
+type content struct {
+	Parts []part `json:"parts,omitempty"`
+}
+
+type part struct {
+	Text       string `json:"text,omitempty"`
+	InlineData string `json:"inline_data,omitempty"`
+}
+
+type generateContentResponse struct {
+	Candidates     []generateContentCandidate `json:"candidates,omitempty"`
+	PromptFeedback *promptFeedback            `json:"promptFeedback,omitempty"`
+	Error          *palmApiError              `json:"error,omitempty"`
+}
+
+type generateContentCandidate struct {
+	Content       contentResponse `json:"content,omitempty"`
+	FinishReason  string          `json:"finishReason,omitempty"`
+	Index         int             `json:"index,omitempty"`
+	SafetyRatings []safetyRating  `json:"safetyRatings,omitempty"`
+}
+
+type contentResponse struct {
+	Parts []part `json:"parts,omitempty"`
+	Role  string `json:"role,omitempty"`
+}
+
+type promptFeedback struct {
+	SafetyRatings []safetyRating `json:"safetyRatings,omitempty"`
+}
+
+type safetyRating struct {
+	Category    string `json:"category,omitempty"`
+	Probability string `json:"probability,omitempty"`
 }
