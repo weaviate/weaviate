@@ -376,6 +376,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 
 	return &search.Result{
 		ID:        ko.ID(),
+		DocID:     &ko.DocID,
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,

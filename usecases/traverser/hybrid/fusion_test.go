@@ -43,11 +43,12 @@ func TestFusionRelativeScore(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("hybrid fusion", func(t *testing.T) {
-			var results [][]*Result
+			var results [][]*search.Result
 			for i := range tt.inputScores {
-				var result []*Result
+				var result []*search.Result
 				for j, score := range tt.inputScores[i] {
-					result = append(result, &Result{uint64(j), &search.Result{SecondarySortValue: score, ID: strfmt.UUID(fmt.Sprint(j))}})
+					docId := uint64(j)
+					result = append(result,  &search.Result{SecondarySortValue: score, DocID: &docId, ID: strfmt.UUID(fmt.Sprint(j))})
 				}
 				results = append(results, result)
 			}
@@ -57,7 +58,7 @@ func TestFusionRelativeScore(t *testing.T) {
 
 			for _, score := range fused {
 				fusedScores = append(fusedScores, score.Score)
-				fusedOrder = append(fusedOrder, score.DocID)
+				fusedOrder = append(fusedOrder, *score.DocID)
 			}
 
 			assert.InDeltaSlice(t, tt.expectedScores, fusedScores, 0.0001)
@@ -67,15 +68,19 @@ func TestFusionRelativeScore(t *testing.T) {
 }
 
 func TestFusionRelativeScoreExplain(t *testing.T) {
-	result1 := []*Result{
-		{uint64(1), &search.Result{SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1))}},
-		{uint64(1), &search.Result{SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))}},
+	docId1 := uint64(1)
+	docId2 := uint64(2)
+	result1 := []*search.Result{
+
+		&search.Result{DocID: &docId1, SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
+		 &search.Result{DocID: &docId2,SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))},
 	}
-	result2 := []*Result{
-		{uint64(1), &search.Result{SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))}},
-		{uint64(1), &search.Result{SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2))}},
+
+	result2 := []*search.Result{
+		&search.Result{DocID:&docId1,SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))},
+		 &search.Result{DocID: &docId2, SecondarySortValue:1, ID: strfmt.UUID(fmt.Sprint(2))},
 	}
-	results := [][]*Result{result1, result2}
+	results := [][]*search.Result{result1, result2}
 	fused := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})
 	require.Contains(t, fused[0].ExplainScore, "(Result Set keyword) Document 1: original score 0.5, normalized score: 0.5")
 	require.Contains(t, fused[0].ExplainScore, "(Result Set vector) Document 1: original score 2, normalized score: 0.5")

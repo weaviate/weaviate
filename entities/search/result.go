@@ -21,6 +21,7 @@ import (
 // connector storage
 type Result struct {
 	ID                   strfmt.UUID
+	DocID				*uint64
 	ClassName            string
 	Score                float32
 	SecondarySortValue   float32

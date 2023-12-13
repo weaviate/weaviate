@@ -146,7 +146,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {
-		ids[i] = r.DocID
+		ids[i] = *r.DocID
 	}
 
 	return ids, nil

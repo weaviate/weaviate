@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -264,46 +263,50 @@ func TestRFJourney(t *testing.T) {
 	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
+	docId1 := uint64(1)
+	docId2 := uint64(2)
+	docId3 := uint64(3)
 
-	doc1 := &hybrid.Result{
-		Result: &search.Result{
+	doc1 := &search.Result{
+
 			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
+			DocID: &docId1,
 			Schema: map[string]interface{}{
 				"title": "peanuts",
 			},
 			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 			Score:  0.1,
-		},
+
 	}
 
-	doc2 := &hybrid.Result{
-		Result: &search.Result{
+	doc2 := &search.Result{
 			ID: strfmt.UUID("2b7a8bc9-29d9-4cc8-b145-a0baf5fc231d"),
+			DocID: &docId2,
 			Schema: map[string]interface{}{
 				"title": "journey",
 			},
 			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
 			Score:  0.2,
-		},
+
 	}
 
-	doc3 := &hybrid.Result{
-		Result: &search.Result{
+	doc3 := &search.Result{
 			ID: strfmt.UUID("dddddddd-29d9-4cc8-b145-a0baf5fc231d"),
+			DocID: &docId3,
 			Schema: map[string]interface{}{
 				"title": "alalala",
 			},
 			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
 			Score:  0.2,
-		},
+
 	}
 
-	resultSet1 := []*hybrid.Result{doc1, doc2, doc3}
-	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
+	resultSet1 := []*search.Result{doc1, doc2, doc3}
+	resultSet2 := []*search.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.4, 0.6},
-			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -319,7 +322,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.8, 0.2},
-			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -335,7 +338,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Vector Only", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.0, 1.0},
-			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -351,7 +354,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("BM25 only", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{1.0, 0.0},
-			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})
@@ -387,35 +390,21 @@ func TestRFJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// convert search.Result to hybrid.Result
-	var results_set_1_hybrid []*hybrid.Result
+	var results_set_1_hybrid []*search.Result
 	for _, r := range results_set_1 {
 		// parse the last 12 digits of the id to get the uint64
-		id, err := strconv.Atoi(string(r.ID)[len(r.ID)-12:])
-		if err != nil {
-			fmt.Println(err)
-		}
 
-		results_set_1_hybrid = append(results_set_1_hybrid, &hybrid.Result{
-			DocID:  uint64(id),
-			Result: &r,
-		})
+
+		results_set_1_hybrid = append(results_set_1_hybrid, &r)
 	}
 
-	var results_set_2_hybrid []*hybrid.Result
+	var results_set_2_hybrid []*search.Result
 	for _, r := range results_set_2 {
-		// parse the last 12 digits of the id to get the uint64
-		id, err := strconv.Atoi(string(r.ID)[len(r.ID)-12:])
-		if err != nil {
-			fmt.Println(err)
-		}
 
-		results_set_2_hybrid = append(results_set_2_hybrid, &hybrid.Result{
-			DocID:  uint64(id),
-			Result: &r,
-		})
+		results_set_2_hybrid = append(results_set_2_hybrid,  &r)
 	}
 
-	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*hybrid.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
+	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*search.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
 	fmt.Println("--- Start results for Fusion Reciprocal (", len(res), ")---")
 	for _, r := range res {
 
@@ -514,7 +503,7 @@ func TestRFJourney(t *testing.T) {
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
-		fmt.Println("--- Start results for hybrid with offset ---")
+		fmt.Println("--- Start results for hybrid with offset 2 ---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
@@ -549,7 +538,7 @@ func TestRFJourney(t *testing.T) {
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
-		fmt.Println("--- Start results for hybrid with offset ---")
+		fmt.Println("--- Start results for hybrid with offset 4 ---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
@@ -695,7 +684,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
 
-		fmt.Println("--- Start results for hybrid ---")
+		fmt.Println("--- Start results for hybrid vector ---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
@@ -730,7 +719,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
 
-		fmt.Println("--- Start results for hybrid ---")
+		fmt.Println("--- Start results for hybrid with filter---")
 		for _, r := range hybridResults {
 			schema := r.Schema.(map[string]interface{})
 			title := schema["title"].(string)
@@ -764,45 +753,49 @@ func TestStability(t *testing.T) {
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
 
-	doc1 := &hybrid.Result{
-		Result: &search.Result{
+	docId1 := uint64(1)
+	docId2 := uint64(2)
+	docId3 := uint64(3)
+
+	doc1 := &search.Result{
 			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
+			DocID: &docId1,
 			Schema: map[string]interface{}{
 				"title": "peanuts",
 			},
 			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 			Score:  0.1,
-		},
+
 	}
 
-	doc2 := &hybrid.Result{
-		Result: &search.Result{
+	doc2 := &search.Result{
 			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfb"),
+			DocID: &docId2,
 			Schema: map[string]interface{}{
 				"title": "peanuts",
 			},
 			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 			Score:  0.1,
-		},
+
 	}
 
-	doc3 := &hybrid.Result{
-		Result: &search.Result{
+	doc3 := &search.Result{
 			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfc"),
+			DocID: &docId3,
 			Schema: map[string]interface{}{
 				"title": "peanuts",
 			},
 			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 			Score:  0.1,
-		},
+
 	}
 
-	resultSet1 := []*hybrid.Result{doc1, doc2, doc3}
-	resultSet2 := []*hybrid.Result{doc2, doc1, doc3}
+	resultSet1 := []*search.Result{doc1, doc2, doc3}
+	resultSet2 := []*search.Result{doc2, doc1, doc3}
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.4, 0.6},
-			[][]*hybrid.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal ---")
 		for _, result := range results {
 			schema := result.Schema.(map[string]interface{})

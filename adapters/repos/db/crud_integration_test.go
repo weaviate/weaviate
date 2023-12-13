@@ -1227,6 +1227,7 @@ func TestCRUD(t *testing.T) {
 
 		t.Run("insert test obj", func(t *testing.T) {
 			vec := []float32{0.1, 0.2, 0.3, 0.4}
+
 			obj := &models.Object{
 				ID:     id,
 				Class:  "TheBestActionClass",
@@ -1267,6 +1268,11 @@ func TestCRUD(t *testing.T) {
 					AdditionalProperties: models.AdditionalProperties{},
 					Dims:                 4,
 				},
+			}
+
+			//Sigh
+			for i := range expected {
+				expected[i].DocID = res[i].DocID
 			}
 
 			assert.Equal(t, expected, res)

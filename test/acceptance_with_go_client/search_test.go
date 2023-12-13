@@ -328,6 +328,10 @@ func TestHybridExplainScore(t *testing.T) {
 		require.Nil(t, err)
 		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 		require.Len(t, result, 5)
+		for _, r := range result {
+			score := r.(map[string]interface{})["_additional"].(map[string]interface{})["score"]
+			require.NotNil(t, score)
+		}
 		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
 		require.Contains(t, explainScore, "contributed 0.008064516129032258 to the score")
 		require.Contains(t, explainScore, "contributed 0.00819672131147541 to the score")
@@ -337,6 +341,10 @@ func TestHybridExplainScore(t *testing.T) {
 		require.Nil(t, err)
 		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 		require.Len(t, result, 5)
+		for _, r := range result {
+			score := r.(map[string]interface{})["_additional"].(map[string]interface{})["score"]
+			require.NotNil(t, score)
+		}
 		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
 		require.Contains(t, explainScore, "contributed 0.004098360655737705 to the score")
 		require.Contains(t, explainScore, "contributed 0.012295081967213115 to the score")
@@ -346,6 +354,10 @@ func TestHybridExplainScore(t *testing.T) {
 		require.Nil(t, err)
 		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 		require.Len(t, result, 5)
+		for _, r := range result {
+			score := r.(map[string]interface{})["_additional"].(map[string]interface{})["score"]
+			require.NotNil(t, score)
+		}
 		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
 		require.Contains(t, explainScore, "normalized score: 0.75")
 		require.Contains(t, explainScore, "normalized score: 0.25")

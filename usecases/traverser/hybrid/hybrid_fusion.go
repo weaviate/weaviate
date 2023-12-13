@@ -16,12 +16,16 @@ import (
 	"sort"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
-func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) []*Result {
-	combinedResults := map[strfmt.UUID]*Result{}
+func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []string) []*search.Result {
+	combinedResults := map[strfmt.UUID]*search.Result{}
 	for resultSetIndex, resultSet := range resultSets {
 		for i, res := range resultSet {
+			if res.DocID == nil {
+				panic("doc id is nil")
+			}
 			tempResult := res
 			docId := tempResult.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
@@ -52,7 +56,7 @@ func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) 
 
 	// Sort the results
 	var (
-		concat = make([]*Result, len(combinedResults))
+		concat = make([]*search.Result, len(combinedResults))
 		i      = 0
 	)
 	for _, res := range combinedResults {
@@ -80,9 +84,9 @@ func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) 
 //	Input score = [1, 8, 6, 11] => [0, 0.7, 0.5, 1]
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
-func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []string) []*Result {
+func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names []string) []*search.Result {
 	if len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
-		return []*Result{}
+		return []*search.Result{}
 	}
 
 	var maximum []float32
@@ -114,7 +118,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 	if len(resultSets) > 1 && len(resultSets[1]) > numResults {
 		numResults = len(resultSets[1])
 	}
-	mapResults := make(map[strfmt.UUID]*Result, numResults)
+	mapResults := make(map[strfmt.UUID]*search.Result, numResults)
 	for i := range resultSets {
 		weight := float32(weights[i])
 		for _, res := range resultSets[i] {
@@ -137,7 +141,7 @@ func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []stri
 		}
 	}
 
-	concat := make([]*Result, 0, len(mapResults))
+	concat := make([]*search.Result, 0, len(mapResults))
 	for _, res := range mapResults {
 		concat = append(concat, res)
 	}

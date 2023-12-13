@@ -331,15 +331,20 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return res, dists, nil
 	}
 
-	postProcess := func(results hybrid.Results) ([]search.Result, error) {
-		res1 := results.SearchResults()
+	postProcess := func(results []*search.Result) ([]search.Result, error) {
+
 		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(res1) > totalLimit {
-			res1 = res1[:totalLimit]
+		if len(results) > totalLimit {
+			results = results[:totalLimit]
+		}
+
+		var res1 []search.Result
+		for _, res := range results {
+			res1 = append(res1, *res)
 		}
 
 		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, params.Tenant)
@@ -359,7 +364,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	var out hybrid.Results
+	var poiinterResultList hybrid.Results
 
 	if params.Pagination.Limit <= 0 {
 		params.Pagination.Limit = hybrid.DefaultLimit
@@ -370,16 +375,21 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
-		out = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
+		poiinterResultList = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
 	}
 	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
-		out = res[params.Pagination.Offset:]
+		poiinterResultList = res[params.Pagination.Offset:]
 	}
 	if len(res) <= params.Pagination.Offset {
-		out = hybrid.Results{}
+		poiinterResultList = hybrid.Results{}
 	}
 
-	return out.SearchResults(), nil
+	out := make([]search.Result, len(poiinterResultList))
+	for i:= range poiinterResultList {
+		out[i] = *poiinterResultList[i]
+	}
+
+	return  out, nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
