@@ -28,6 +28,7 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 	if len(img2vecImage) > 0 {
 		image = img2vecImage
 	}
+	port := nat.Port("8080/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -40,7 +41,7 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 			AutoRemove:   true,
 			WaitingFor: wait.
 				ForHTTP("/.well-known/ready").
-				WithPort(nat.Port("8080")).
+				WithPort(port).
 				WithStatusCodeMatcher(func(status int) bool {
 					return status == 204
 				}).
@@ -51,13 +52,13 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.PortEndpoint(ctx, nat.Port("8080/tcp"), "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["IMAGE_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Img2VecNeural, "8080")
+	envSettings["IMAGE_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Img2VecNeural, port.Port())
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{Img2VecNeural, endpoints, container, envSettings}, nil
 }

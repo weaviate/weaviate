@@ -19,13 +19,14 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
-func (db *DB) GetNodeStatus(ctx context.Context, className string) ([]*models.NodeStatus, error) {
+func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
 	for i, nodeName := range db.schemaGetter.Nodes() {
-		status, err := db.getNodeStatus(ctx, nodeName, className)
+		status, err := db.getNodeStatus(ctx, nodeName, className, verbosity)
 		if err != nil {
 			return nil, fmt.Errorf("node: %v: %w", nodeName, err)
 		}
@@ -42,11 +43,11 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string) ([]*models.No
 	return nodeStatuses, nil
 }
 
-func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className string) (*models.NodeStatus, error) {
+func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
-		return db.localNodeStatus(className), nil
+		return db.localNodeStatus(className, output), nil
 	}
-	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className)
+	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, output)
 	if err != nil {
 		switch err.(type) {
 		case enterrors.ErrOpenHttpRequest, enterrors.ErrSendHttpRequest:
@@ -60,13 +61,14 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className stri
 }
 
 // IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
-func (db *DB) IncomingGetNodeStatus(ctx context.Context, className string) (*models.NodeStatus, error) {
-	return db.localNodeStatus(className), nil
+func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, verbosity string) (*models.NodeStatus, error) {
+	return db.localNodeStatus(className, verbosity), nil
 }
 
-func (db *DB) localNodeStatus(className string) *models.NodeStatus {
+func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 	var (
 		objectCount int64
+		shardCount  int64
 		shards      []*models.NodeShardStatus
 	)
 
@@ -76,9 +78,9 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 	}
 
 	if className == "" {
-		objectCount = db.localNodeStatusAll(&shards)
+		objectCount, shardCount = db.localNodeStatusAll(&shards, output)
 	} else {
-		objectCount = db.localNodeStatusForClass(&shards, className)
+		objectCount, shardCount = db.localNodeStatusForClass(&shards, className, output)
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
@@ -96,7 +98,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 		Status:  &clusterHealthStatus,
 		Shards:  shards,
 		Stats: &models.NodeStats{
-			ShardCount:  int64(len(shards)),
+			ShardCount:  shardCount,
 			ObjectCount: objectCount,
 		},
 		BatchStats: &models.BatchStats{
@@ -112,7 +114,7 @@ func (db *DB) localNodeStatus(className string) *models.NodeStatus {
 	return &status
 }
 
-func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount int64) {
+func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus, output string) (totalCount, shardCount int64) {
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
 	for name, idx := range db.indices {
@@ -121,35 +123,39 @@ func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus) (totalCount 
 				Warningf("no resource found for index %q", name)
 			continue
 		}
-		totalCount += idx.getShardsNodeStatus(status)
+		total, shard := idx.getShardsNodeStatus(status, output)
+		totalCount, shardCount = totalCount+total, shardCount+shard
 	}
 	return
 }
 
 func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
-	className string,
-) (totalCount int64) {
+	className, output string,
+) (totalCount, shardCount int64) {
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
-		return 0
+		return 0, 0
 	}
-	return idx.getShardsNodeStatus(status)
+	return idx.getShardsNodeStatus(status, output)
 }
 
-func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus) (totalCount int64) {
+func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus, output string) (totalCount, shardCount int64) {
 	i.ForEachShard(func(name string, shard ShardLike) error {
 		objectCount := int64(shard.ObjectCount())
-		shardStatus := &models.NodeShardStatus{
-			Name:                 name,
-			Class:                shard.Index().Config.ClassName.String(),
-			ObjectCount:          objectCount,
-			VectorIndexingStatus: shard.GetStatus().String(),
-			VectorQueueLength:    shard.Queue().Size(),
-		}
 		totalCount += objectCount
-		*status = append(*status, shardStatus)
+		if output == verbosity.OutputVerbose {
+			shardStatus := &models.NodeShardStatus{
+				Name:                 name,
+				Class:                shard.Index().Config.ClassName.String(),
+				ObjectCount:          objectCount,
+				VectorIndexingStatus: shard.GetStatus().String(),
+				VectorQueueLength:    shard.Queue().Size(),
+			}
+			*status = append(*status, shardStatus)
+		}
+		shardCount++
 		return nil
 	})
 	return

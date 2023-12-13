@@ -1,6 +1,5 @@
 .git
 Dockerfile.*
-Dockerfile
 docker-compose.yml
 data*
 logs/
