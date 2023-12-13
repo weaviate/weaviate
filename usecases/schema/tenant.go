@@ -100,8 +100,13 @@ func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err 
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
 		if !regexTenantName.MatchString(requested.Name) {
-			msg := "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), " +
-				"underscore (_), and hyphen (-), with a length between 1 and 64 characters"
+			var msg string
+			if requested.Name == "" {
+				msg = "empty tenant name"
+			} else {
+				msg = "tenant name should only contain alphanumeric characters (a-z, A-Z, 0-9), " +
+					"underscore (_), and hyphen (-), with a length between 1 and 64 characters"
+			}
 			err = uco.NewErrInvalidUserInput("tenant name at index %d: %s", i, msg)
 			return
 		}

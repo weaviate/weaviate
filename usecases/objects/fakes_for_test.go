@@ -45,6 +45,7 @@ type fakeSchemaManager struct {
 	}
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
+	tenantsEnabled    bool
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -98,6 +99,13 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
+	return nil
+}
+
+func (f *fakeSchemaManager) AddTenants(ctx context.Context,
+	principal *models.Principal, class string, tenants []*models.Tenant,
+) error {
+	f.tenantsEnabled = true
 	return nil
 }
 
