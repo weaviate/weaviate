@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -161,7 +161,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 			calcCountNetAdditions: b.calcCountNetAdditions,
 		})
 	if err != nil {
-		return nil, errors.Wrap(err, "init disk segments")
+		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
 	// Actual strategy is stored in segment files. In case it is SetCollection,
@@ -261,7 +261,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
 		if err := f(obj); err != nil {
-			return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID(), err)
 		}
 
 		i++
@@ -277,7 +277,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
 		for _, v := range vList {
 			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
-				return errors.Wrapf(err, "callback on object '%v' failed", v)
+				return fmt.Errorf("callback on object '%v' failed: %w", v, err)
 			}
 		}
 	}
@@ -307,7 +307,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		// is replace
 		return v, nil
 	}
-	if err == lsmkv.Deleted {
+	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
@@ -324,7 +324,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 			// is replace
 			return v, nil
 		}
-		if err == lsmkv.Deleted {
+		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, nil
@@ -386,7 +386,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		// is replace
 		return v, buffer, nil
 	}
-	if err == lsmkv.Deleted {
+	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, buffer, nil
@@ -403,7 +403,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 			// is replace
 			return v, buffer, nil
 		}
-		if err == lsmkv.Deleted {
+		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, buffer, nil
@@ -837,7 +837,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running flush in progress")
+		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
 	b.flushLock.Lock()
@@ -940,15 +940,15 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("path", b.dir).
 		Trace("start flush and switch")
 	if err := b.atomicallySwitchMemtable(); err != nil {
-		return errors.Wrap(err, "switch active memtable")
+		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
 	if err := b.flushing.flush(); err != nil {
-		return errors.Wrap(err, "flush")
+		return fmt.Errorf("flush: %w", err)
 	}
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(); err != nil {
-		return errors.Wrap(err, "add segment and remove flushing")
+		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
 	took := time.Since(before)
