@@ -152,8 +152,18 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Empty return properties given",
+			name: "Empty return properties given deprecated",
 			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
+					NoProps: true,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Empty return properties given",
+			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
 					NoProps: true,
@@ -197,8 +207,71 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "Properties return values ref",
-			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{RefProperties: []*pb.RefPropertiesRequest{{ReferenceProperty: "ref", TargetCollection: refClass1, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false}, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"something"}}}}}},
+			name: "Properties return all nonref values with ref and specific props",
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
+				ReturnAllNonrefProperties: true,
+				UsesNewDefaultLogic:       true,
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "ref",
+					TargetCollection:  refClass1,
+					Metadata:          &pb.MetadataRequest{Vector: true, Certainty: false},
+					Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"something"}},
+				}},
+			}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
+					{Name: "name", IsPrimitive: true},
+					{Name: "number", IsPrimitive: true},
+					{Name: "floats", IsPrimitive: true},
+					{Name: "uuid", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{
+						ClassName:            refClass1,
+						RefProperties:        search.SelectProperties{{Name: "something", IsPrimitive: true}},
+						AdditionalProperties: additional.Properties{Vector: true}},
+					}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return all nonref values with ref and all nonref props",
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
+				ReturnAllNonrefProperties: true,
+				UsesNewDefaultLogic:       true,
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "ref",
+					TargetCollection:  refClass1,
+					Metadata:          &pb.MetadataRequest{Vector: true, Certainty: false},
+					Properties:        &pb.PropertiesRequest{ReturnAllNonrefProperties: true, UsesNewDefaultLogic: true},
+				}},
+			}},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{
+					{Name: "name", IsPrimitive: true},
+					{Name: "number", IsPrimitive: true},
+					{Name: "floats", IsPrimitive: true},
+					{Name: "uuid", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{
+						ClassName: refClass1,
+						RefProperties: search.SelectProperties{
+							{Name: "something", IsPrimitive: true},
+							{Name: "somethings", IsPrimitive: true},
+						},
+						AdditionalProperties: additional.Properties{Vector: true}},
+					}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Properties return values only ref",
+			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "ref",
+					TargetCollection:  refClass1,
+					Metadata:          &pb.MetadataRequest{Vector: true, Certainty: false},
+					Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"something"}}},
+				}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{{ClassName: refClass1, RefProperties: search.SelectProperties{{Name: "something", IsPrimitive: true}}, AdditionalProperties: additional.Properties{
 					Vector: true,
@@ -891,7 +964,6 @@ func TestGRPCRequest(t *testing.T) {
 			} else {
 				require.Nil(t, err)
 				require.Equal(t, tt.out, out)
-
 			}
 		})
 	}
