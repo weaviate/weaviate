@@ -29,6 +29,7 @@ import (
 )
 
 const (
+
 	// tcpMaxPool controls how many connections we will pool
 	tcpMaxPool = 3
 
@@ -36,12 +37,13 @@ const (
 	// the timeout by (SnapshotSize / TimeoutScale).
 	tcpTimeout = 10 * time.Second
 
-	raftDBName         = "raft.db"
-	logCacheCapacity   = 512 // TODO set higher
+	raftDBName = "raft.db"
+	// logCacheCapacity is the maximum number of logs to cache in-memory.
+	// This is used to reduce disk I/O for the recently committed entries.
+	logCacheCapacity = 512
+
 	nRetainedSnapShots = 1
 )
-
-/// TODO: make loadDB an interface
 
 // Open opens this store and marked as such.
 func (st *Store) Open(ctx context.Context) (err error) {
@@ -108,7 +110,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	go func() {
 		lastLeader := "Unknown"
-		t := time.NewTicker(time.Second * 5)
+		t := time.NewTicker(time.Second * 30)
 		defer t.Stop()
 		for range t.C {
 			leader := st.Leader()
@@ -378,16 +380,20 @@ func (st *Store) raftConfig() (raft.Configuration, error) {
 }
 
 func (st *Store) configureRaft() *raft.Config {
-	// TODO-RAFT extend configuration
 	cfg := raft.DefaultConfig()
-	if st.raftHeartbeatTimeout != 0 {
-		cfg.HeartbeatTimeout = st.raftHeartbeatTimeout
+	if st.heartbeatTimeout > 0 {
+		cfg.HeartbeatTimeout = st.heartbeatTimeout
 	}
-	if st.raftElectionTimeout != 0 {
-		cfg.ElectionTimeout = st.raftElectionTimeout
+	if st.electionTimeout > 0 {
+		cfg.ElectionTimeout = st.electionTimeout
+	}
+	if st.snapshotInterval > 0 {
+		cfg.SnapshotInterval = st.snapshotInterval
+	}
+	if st.snapshotThreshold > 0 {
+		cfg.SnapshotThreshold = st.snapshotThreshold
 	}
 	cfg.LocalID = raft.ServerID(st.nodeID)
-	cfg.SnapshotThreshold = 1024
 	cfg.LogLevel = st.logLevel
 	return cfg
 }
