@@ -119,7 +119,6 @@ func (pm *PrometheusMetrics) FinishUnLoadingShard(className string) error {
 
 	suld.Inc()
 
-
 	return nil
 }
 
