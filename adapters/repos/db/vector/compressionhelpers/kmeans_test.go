@@ -11,15 +11,15 @@
 
 //go:build !race
 
-package ssdhelpers_test
+package compressionhelpers_test
 
 import (
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
@@ -33,7 +33,7 @@ func Test_NoRaceKMeansNNearest(t *testing.T) {
 		{5.1, 2},
 		{5.0, 2.1},
 	}
-	kmeans := ssdhelpers.NewKMeans(
+	kmeans := compressionhelpers.NewKMeans(
 		3,
 		2,
 		0,
@@ -56,7 +56,7 @@ func Test_NoRaceRandomData(t *testing.T) {
 	vectorsSize := 10000
 	vectors, _ := testinghelpers.RandomVecs(vectorsSize, 0, 128)
 	before := time.Now()
-	kmeans := ssdhelpers.NewKMeans(
+	kmeans := compressionhelpers.NewKMeans(
 		256,
 		1,
 		10,
