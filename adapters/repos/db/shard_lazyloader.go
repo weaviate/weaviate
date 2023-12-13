@@ -107,7 +107,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.shard = shard
 	l.loaded = true
 	if l.shardOpts.class == nil {
-		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
+		l.shardOpts.promMetrics.FinishLoadingShard("unknown class")
 	} else {
 		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
 	}
