@@ -127,7 +127,7 @@ func getCores() (int, error) {
 	return len(cores), nil
 }
 
-func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, isLocalhost bool) *state.State {
+func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config)
 
@@ -247,17 +247,22 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup, is
 	addrs := strings.Split(nodeAddr, ":")
 
 	rConfig := schemav2.Config{
-		WorkDir:         filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
-		NodeID:          nodeName,
-		Host:            addrs[0],
-		RaftPort:        appState.ServerConfig.Config.Raft.Port,
-		RPCPort:         appState.ServerConfig.Config.Raft.InternalRPCPort,
-		BootstrapExpect: appState.ServerConfig.Config.Raft.BootstrapExpect,
-		DB:              nil,
-		Parser:          schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig),
-		Logger:          sLogger(),
-		LogLevel:        logLevel(),
-		IsLocalHost:     isLocalhost,
+		WorkDir:           filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
+		NodeID:            nodeName,
+		Host:              addrs[0],
+		RaftPort:          appState.ServerConfig.Config.Raft.Port,
+		RPCPort:           appState.ServerConfig.Config.Raft.InternalRPCPort,
+		BootstrapExpect:   appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:  appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:   appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:  appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold: appState.ServerConfig.Config.Raft.SnapshotThreshold,
+
+		DB:          nil,
+		Parser:      schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig),
+		Logger:      sLogger(),
+		LogLevel:    logLevel(),
+		IsLocalHost: appState.ServerConfig.Config.Cluster.Localhost,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -436,13 +441,13 @@ func resolveRaftAddresses(appState *state.State) []string {
 	return candidates
 }
 
-func configureAPI(api *operations.WeaviateAPI, isLocalhost bool) http.Handler {
+func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
 	config.ServerVersion = parseVersionFromSwaggerSpec()
-	appState := MakeAppState(ctx, connectorOptionGroup, isLocalhost)
+	appState := MakeAppState(ctx, connectorOptionGroup)
 
 	api.ServeError = openapierrors.ServeError
 
