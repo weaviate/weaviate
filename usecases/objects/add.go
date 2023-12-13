@@ -28,6 +28,8 @@ type schemaManager interface {
 	GetSchema(principal *models.Principal) (schema.Schema, error)
 	AddClass(ctx context.Context, principal *models.Principal,
 		class *models.Class) error
+	AddTenants(ctx context.Context, principal *models.Principal,
+		class string, tenants []*models.Tenant) (err error)
 	GetClass(ctx context.Context, principal *models.Principal,
 		name string,
 	) (*models.Class, error)
