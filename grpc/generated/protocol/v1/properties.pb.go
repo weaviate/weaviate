@@ -426,16 +426,14 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
-var (
-	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-	file_v1_properties_proto_goTypes  = []interface{}{
-		(*Properties)(nil),    // 0: weaviate.v1.Properties
-		(*Value)(nil),         // 1: weaviate.v1.Value
-		(*ListValue)(nil),     // 2: weaviate.v1.ListValue
-		(*GeoCoordinate)(nil), // 3: weaviate.v1.GeoCoordinate
-		nil,                   // 4: weaviate.v1.Properties.FieldsEntry
-	}
-)
+var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_v1_properties_proto_goTypes = []interface{}{
+	(*Properties)(nil),    // 0: weaviate.v1.Properties
+	(*Value)(nil),         // 1: weaviate.v1.Value
+	(*ListValue)(nil),     // 2: weaviate.v1.ListValue
+	(*GeoCoordinate)(nil), // 3: weaviate.v1.GeoCoordinate
+	nil,                   // 4: weaviate.v1.Properties.FieldsEntry
+}
 var file_v1_properties_proto_depIdxs = []int32{
 	4, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0, // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties

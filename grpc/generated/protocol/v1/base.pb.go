@@ -628,21 +628,19 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
-var (
-	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 7)
-	file_v1_base_proto_goTypes   = []interface{}{
-		(ConsistencyLevel)(0),          // 0: weaviate.v1.ConsistencyLevel
-		(*NumberArrayProperties)(nil),  // 1: weaviate.v1.NumberArrayProperties
-		(*IntArrayProperties)(nil),     // 2: weaviate.v1.IntArrayProperties
-		(*TextArrayProperties)(nil),    // 3: weaviate.v1.TextArrayProperties
-		(*BooleanArrayProperties)(nil), // 4: weaviate.v1.BooleanArrayProperties
-		(*ObjectPropertiesValue)(nil),  // 5: weaviate.v1.ObjectPropertiesValue
-		(*ObjectArrayProperties)(nil),  // 6: weaviate.v1.ObjectArrayProperties
-		(*ObjectProperties)(nil),       // 7: weaviate.v1.ObjectProperties
-		(*structpb.Struct)(nil),        // 8: google.protobuf.Struct
-	}
-)
+var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_v1_base_proto_goTypes = []interface{}{
+	(ConsistencyLevel)(0),          // 0: weaviate.v1.ConsistencyLevel
+	(*NumberArrayProperties)(nil),  // 1: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),     // 2: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),    // 3: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil), // 4: weaviate.v1.BooleanArrayProperties
+	(*ObjectPropertiesValue)(nil),  // 5: weaviate.v1.ObjectPropertiesValue
+	(*ObjectArrayProperties)(nil),  // 6: weaviate.v1.ObjectArrayProperties
+	(*ObjectProperties)(nil),       // 7: weaviate.v1.ObjectProperties
+	(*structpb.Struct)(nil),        // 8: google.protobuf.Struct
+}
 var file_v1_base_proto_depIdxs = []int32{
 	8, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	1, // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties

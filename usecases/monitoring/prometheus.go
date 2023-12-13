@@ -61,9 +61,9 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
-	ShardsLoaded    *prometheus.GaugeVec
-	ShardsUnLoaded  *prometheus.GaugeVec
-	ShardsLoading   *prometheus.GaugeVec
+	ShardsLoaded   *prometheus.GaugeVec
+	ShardsUnLoaded *prometheus.GaugeVec
+	ShardsLoading  *prometheus.GaugeVec
 	ShardsUnLoading *prometheus.GaugeVec
 
 	Group bool

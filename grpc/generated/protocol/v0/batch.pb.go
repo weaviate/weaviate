@@ -134,13 +134,11 @@ func file_v0_batch_proto_rawDescGZIP() []byte {
 	return file_v0_batch_proto_rawDescData
 }
 
-var (
-	file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-	file_v0_batch_proto_goTypes  = []interface{}{
-		(*BatchObjectsRequest)(nil), // 0: weaviategrpc.BatchObjectsRequest
-		(*BatchObjectsReply)(nil),   // 1: weaviategrpc.BatchObjectsReply
-	}
-)
+var file_v0_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_v0_batch_proto_goTypes = []interface{}{
+	(*BatchObjectsRequest)(nil), // 0: weaviategrpc.BatchObjectsRequest
+	(*BatchObjectsReply)(nil),   // 1: weaviategrpc.BatchObjectsReply
+}
 var file_v0_batch_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type

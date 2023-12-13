@@ -61,7 +61,6 @@ var file_v0_weaviate_proto_goTypes = []interface{}{
 	(*SearchReply)(nil),         // 2: weaviategrpc.SearchReply
 	(*BatchObjectsReply)(nil),   // 3: weaviategrpc.BatchObjectsReply
 }
-
 var file_v0_weaviate_proto_depIdxs = []int32{
 	0, // 0: weaviategrpc.Weaviate.Search:input_type -> weaviategrpc.SearchRequest
 	1, // 1: weaviategrpc.Weaviate.BatchObjects:input_type -> weaviategrpc.BatchObjectsRequest
