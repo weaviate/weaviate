@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.22.6"
+    "version": "1.23.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -882,6 +882,11 @@ func init() {
           "nodes"
         ],
         "operationId": "nodes.get",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -935,6 +940,9 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
         "responses": {
@@ -4865,6 +4873,13 @@ func init() {
       "name": "order",
       "in": "query"
     },
+    "CommonOutputVerbosityParameterQuery": {
+      "type": "string",
+      "default": "minimal",
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "name": "output",
+      "in": "query"
+    },
     "CommonSortParameterQuery": {
       "type": "string",
       "description": "Sort parameter to pass an information about the names of the sort fields",
@@ -4942,7 +4957,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.22.6"
+    "version": "1.23.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -5788,6 +5803,15 @@ func init() {
           "nodes"
         ],
         "operationId": "nodes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "default": "minimal",
+            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "name": "output",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -5841,6 +5865,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "default": "minimal",
+            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "name": "output",
+            "in": "query"
           }
         ],
         "responses": {
@@ -10057,6 +10088,13 @@ func init() {
       "type": "string",
       "description": "Order parameter to tell how to order (asc or desc) data within given field",
       "name": "order",
+      "in": "query"
+    },
+    "CommonOutputVerbosityParameterQuery": {
+      "type": "string",
+      "default": "minimal",
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "name": "output",
       "in": "query"
     },
     "CommonSortParameterQuery": {

@@ -4,6 +4,7 @@ package weaviate.v1;
 
 import "google/protobuf/struct.proto";
 import "v1/base.proto";
+import "v1/properties.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
@@ -42,6 +43,8 @@ message SearchRequest {
   optional NearVideoSearch near_video = 48;
 
   optional GenerativeSearch generative = 60;
+
+  bool uses_properties_message = 100 [deprecated = true];
 }
 
 message GroupBy {
@@ -110,14 +113,20 @@ message Filters {
     string value_text = 4;
     int64 value_int = 5;
     bool value_boolean = 6;
-    float value_number = 7;
+    double value_number = 7;
     TextArray value_text_array = 9;
     IntArray value_int_array = 10;
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
+    GeoCoordinatesFilter value_geo = 13;
   };
 }
 
+message GeoCoordinatesFilter {
+  float latitude = 1;
+  float longitude = 2;
+  float distance = 3;
+}
 
 message MetadataRequest {
   bool uuid = 1;
@@ -147,7 +156,7 @@ message Hybrid {
   string query = 1;
   repeated string properties = 2;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 3;  // will be removed in the future, use vector_bytes
+  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vector_bytes
   float alpha = 4;
   enum FusionType {
     FUSION_TYPE_UNSPECIFIED = 0;
@@ -205,7 +214,7 @@ message RefPropertiesRequest {
 
 message NearVector {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 1;  // will be removed in the future, use vector_bytes
+  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
   optional double certainty = 2;
   optional double distance = 3;
   bytes vector_bytes = 4;
@@ -240,7 +249,7 @@ message SearchResult {
 message MetadataResult {
   string id = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated float vector = 2;
+  repeated float vector = 2 [deprecated = true];
   int64 creation_time_unix = 3;
   bool creation_time_unix_present = 4;
   int64 last_update_time_unix = 5;
@@ -261,16 +270,17 @@ message MetadataResult {
 }
 
 message PropertiesResult {
-  google.protobuf.Struct non_ref_properties = 1;
+  google.protobuf.Struct non_ref_properties = 1 [deprecated = true];
   repeated RefPropertiesResult ref_props = 2;
   string target_collection = 3;
   MetadataResult metadata = 4;
-  repeated NumberArrayProperties number_array_properties = 5;
-  repeated IntArrayProperties int_array_properties = 6;
-  repeated TextArrayProperties text_array_properties = 7;
-  repeated BooleanArrayProperties boolean_array_properties = 8;
-  repeated ObjectProperties object_properties = 9;
-  repeated ObjectArrayProperties object_array_properties = 10;
+  repeated NumberArrayProperties number_array_properties = 5 [deprecated = true];
+  repeated IntArrayProperties int_array_properties = 6 [deprecated = true];
+  repeated TextArrayProperties text_array_properties = 7 [deprecated = true];
+  repeated BooleanArrayProperties boolean_array_properties = 8 [deprecated = true];
+  repeated ObjectProperties object_properties = 9 [deprecated = true];
+  repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
+  Properties non_ref_props = 11;
 }
 
 message RefPropertiesResult {

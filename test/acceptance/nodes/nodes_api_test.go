@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
@@ -35,26 +36,19 @@ func Test_NodesAPI(t *testing.T) {
 		require.Nil(t, err)
 		assert.NotNil(t, meta.GetPayload())
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		require.Nil(t, err)
+		assertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			require.NotNil(t, nodeStatus)
+			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
+			assert.True(t, len(nodeStatus.Name) > 0)
+			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
+			assert.Equal(t, meta.Payload.Version, nodeStatus.Version)
+			assert.Empty(t, nodeStatus.Shards)
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(0), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(0), nodeStatus.Stats.ShardCount)
+		}
 
-		nodeStatusResp := resp.GetPayload()
-		require.NotNil(t, nodeStatusResp)
-
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 1)
-
-		nodeStatus := nodes[0]
-		require.NotNil(t, nodeStatus)
-		assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
-		assert.True(t, len(nodeStatus.Name) > 0)
-		assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-		assert.Equal(t, meta.Payload.Version, nodeStatus.Version)
-		assert.Empty(t, nodeStatus.Shards)
-		require.NotNil(t, nodeStatus.Stats)
-		assert.Equal(t, int64(0), nodeStatus.Stats.ObjectCount)
-		assert.Equal(t, int64(0), nodeStatus.Stats.ShardCount)
+		testStatusResponse(t, assertions, nil, "")
 	})
 
 	t.Run("DB with Books (1 class ,1 shard configuration, 1 node)", func(t *testing.T) {
@@ -67,30 +61,25 @@ func Test_NodesAPI(t *testing.T) {
 			helper.AssertGetObjectEventually(t, book.Class, book.ID)
 		}
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		require.Nil(t, err)
+		minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			require.NotNil(t, nodeStatus)
+			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
+			assert.True(t, len(nodeStatus.Name) > 0)
+			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+		}
 
-		nodeStatusResp := resp.GetPayload()
-		require.NotNil(t, nodeStatusResp)
+		verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			require.Len(t, nodeStatus.Shards, 1)
+			shard := nodeStatus.Shards[0]
+			assert.True(t, len(shard.Name) > 0)
+			assert.Equal(t, booksClass.Class, shard.Class)
+			assert.Equal(t, int64(3), shard.ObjectCount)
+		}
 
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 1)
-
-		nodeStatus := nodes[0]
-		require.NotNil(t, nodeStatus)
-		assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
-		assert.True(t, len(nodeStatus.Name) > 0)
-		assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-		assert.Len(t, nodeStatus.Shards, 1)
-		shard := nodeStatus.Shards[0]
-		assert.True(t, len(shard.Name) > 0)
-		assert.Equal(t, booksClass.Class, shard.Class)
-		assert.Equal(t, int64(3), shard.ObjectCount)
-
-		require.NotNil(t, nodeStatus.Stats)
-		assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
-		assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+		testStatusResponse(t, minimalAssertions, verboseAssertions, "")
 	})
 
 	t.Run("DB with MultiShard (1 class, 2 shards configuration, 1 node)", func(t *testing.T) {
@@ -103,30 +92,26 @@ func Test_NodesAPI(t *testing.T) {
 			helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
 		}
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		require.Nil(t, err)
-
-		nodeStatusResp := resp.GetPayload()
-		require.NotNil(t, nodeStatusResp)
-
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 1)
-
-		nodeStatus := nodes[0]
-		require.NotNil(t, nodeStatus)
-		assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
-		assert.True(t, len(nodeStatus.Name) > 0)
-		assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-		assert.Len(t, nodeStatus.Shards, 2)
-		for _, shard := range nodeStatus.Shards {
-			assert.True(t, len(shard.Name) > 0)
-			assert.Equal(t, multiShardClass.Class, shard.Class)
-			assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
+		minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			require.NotNil(t, nodeStatus)
+			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
+			assert.True(t, len(nodeStatus.Name) > 0)
+			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
 		}
-		require.NotNil(t, nodeStatus.Stats)
-		assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
-		assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
+
+		verboseAsssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			assert.Len(t, nodeStatus.Shards, 2)
+			for _, shard := range nodeStatus.Shards {
+				assert.True(t, len(shard.Name) > 0)
+				assert.Equal(t, multiShardClass.Class, shard.Class)
+				assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
+			}
+		}
+
+		testStatusResponse(t, minimalAssertions, verboseAsssertions, "")
 	})
 
 	t.Run("with class name: DB with Books and Documents, 1 shard, 1 node", func(t *testing.T) {
@@ -140,21 +125,13 @@ func Test_NodesAPI(t *testing.T) {
 				helper.AssertGetObjectEventually(t, book.Class, book.ID)
 			}
 
-			resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-			require.Nil(t, err)
+			assertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+				require.NotNil(t, nodeStatus.Stats)
+				assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+			}
 
-			nodeStatusResp := resp.GetPayload()
-			require.NotNil(t, nodeStatusResp)
-
-			respNodes := nodeStatusResp.Nodes
-			require.NotNil(t, respNodes)
-			require.Len(t, respNodes, 1)
-
-			nodeStatus := respNodes[0]
-
-			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
-			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+			testStatusResponse(t, assertions, nil, "")
 		})
 
 		t.Run("insert and check documents", func(t *testing.T) {
@@ -170,31 +147,25 @@ func Test_NodesAPI(t *testing.T) {
 			}
 
 			docsClass := docsClasses[0]
-			params := nodes.NewNodesGetClassParams().WithClassName(docsClass.Class)
-			classResp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
-			require.Nil(t, err)
 
-			nodeStatusResp := classResp.GetPayload()
-			require.NotNil(t, nodeStatusResp)
+			minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+				assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
+				assert.True(t, len(nodeStatus.Name) > 0)
+				assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
+				require.NotNil(t, nodeStatus.Stats)
+				assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
+				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+			}
 
-			respNodes := nodeStatusResp.Nodes
-			require.NotNil(t, respNodes)
-			require.Len(t, respNodes, 1)
+			verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+				assert.Len(t, nodeStatus.Shards, 1)
+				shard := nodeStatus.Shards[0]
+				assert.True(t, len(shard.Name) > 0)
+				assert.Equal(t, docsClass.Class, shard.Class)
+				assert.Equal(t, int64(2), shard.ObjectCount)
+			}
 
-			nodeStatus := respNodes[0]
-			require.NotNil(t, nodeStatus)
-			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
-			assert.True(t, len(nodeStatus.Name) > 0)
-			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-			assert.Len(t, nodeStatus.Shards, 1)
-			shard := nodeStatus.Shards[0]
-			assert.True(t, len(shard.Name) > 0)
-			assert.Equal(t, docsClass.Class, shard.Class)
-			assert.Equal(t, int64(2), shard.ObjectCount)
-
-			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
-			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
+			testStatusResponse(t, minimalAssertions, verboseAssertions, docsClass.Class)
 		})
 	})
 
@@ -236,25 +207,12 @@ func Test_NodesAPI(t *testing.T) {
 			}), nil)
 		require.Nil(t, err)
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
-		require.Nil(t, err)
+		assertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
+		}
 
-		nodeStatusResp := resp.GetPayload()
-		require.NotNil(t, nodeStatusResp)
-
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 1)
-
-		nodeStatus := nodes[0]
-		require.NotNil(t, nodeStatus)
-
-		require.NotNil(t, nodeStatus.Shards)
-		require.Positive(t, len(nodeStatus.Shards))
-		require.False(t, nodeStatus.Shards[0].Compressed)
-
-		require.NotNil(t, nodeStatus.Stats)
-		assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
+		testStatusResponse(t, assertions, nil, "")
 	})
 
 	t.Run("validate compression status", func(t *testing.T) {
@@ -270,7 +228,9 @@ func Test_NodesAPI(t *testing.T) {
 		defer helper.DeleteClass(t, booksClass.Class)
 
 		t.Run("check compressed initially false", func(t *testing.T) {
-			resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+			verbose := "verbose"
+			params := nodes.NewNodesGetParams().WithOutput(&verbose)
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
 			require.Nil(t, err)
 
 			nodeStatusResp := resp.GetPayload()
@@ -308,7 +268,9 @@ func Test_NodesAPI(t *testing.T) {
 		t.Run("check eventually compressed if async enabled", func(t *testing.T) {
 			if os.Getenv("ASYNC_INDEXING") == "true" {
 				checkThunk := func() interface{} {
-					resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+					verbose := "verbose"
+					params := nodes.NewNodesGetParams().WithOutput(&verbose)
+					resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
 					require.Nil(t, err)
 
 					nodeStatusResp := resp.GetPayload()
@@ -327,4 +289,47 @@ func Test_NodesAPI(t *testing.T) {
 			}
 		})
 	})
+}
+
+func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(*testing.T, *models.NodeStatus),
+	class string,
+) {
+	minimal, verbose := verbosity.OutputMinimal, verbosity.OutputVerbose
+
+	commonTests := func(resp *nodes.NodesGetOK) {
+		require.NotNil(t, resp.Payload)
+		nodes := resp.Payload.Nodes
+		require.NotNil(t, nodes)
+		require.Len(t, nodes, 1)
+		minimalAssertions(t, nodes[0])
+	}
+
+	t.Run("minimal", func(t *testing.T) {
+		payload, err := getNodesStatus(t, minimal, class)
+		require.Nil(t, err)
+		commonTests(&nodes.NodesGetOK{Payload: payload})
+	})
+
+	if verboseAssertions != nil {
+		t.Run("verbose", func(t *testing.T) {
+			payload, err := getNodesStatus(t, verbose, class)
+			require.Nil(t, err)
+			commonTests(&nodes.NodesGetOK{Payload: payload})
+			// If commonTests pass, resp.Nodes[0] != nil
+			verboseAssertions(t, payload.Nodes[0])
+		})
+	}
+}
+
+func getNodesStatus(t *testing.T, output, class string) (payload *models.NodesStatusResponse, err error) {
+	if class != "" {
+		params := nodes.NewNodesGetClassParams().WithOutput(&output).WithClassName(class)
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		payload, err = body.Payload, clientErr
+	} else {
+		params := nodes.NewNodesGetParams().WithOutput(&output)
+		body, clientErr := helper.Client(t).Nodes.NodesGet(params, nil)
+		payload, err = body.Payload, clientErr
+	}
+	return
 }

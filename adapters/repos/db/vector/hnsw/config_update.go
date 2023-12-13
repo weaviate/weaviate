@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
@@ -131,7 +132,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 }
 
 func asyncEnabled() bool {
-	return os.Getenv("ASYNC_INDEXING") == "true"
+	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) TurnOnCompression(callback func()) error {

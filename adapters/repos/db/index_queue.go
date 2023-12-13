@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -100,11 +99,13 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
-	ShouldCompress() (bool, int)
-	ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int)
+}
+
+type compressedIndexer interface {
 	Compressed() bool
 	AlreadyIndexed() uint64
 	TurnOnCompression(callback func()) error
+	ShouldCompress() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -451,7 +452,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 		vector = distancer.Normalize(vector)
 	}
 
-	var results *priorityqueue.Queue
+	var results *priorityqueue.Queue[any]
 	var seen map[uint64]struct{}
 
 	err = q.queue.Iterate(allowList, func(objects []vectorDescriptor) error {
@@ -491,14 +492,19 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 }
 
 func (q *IndexQueue) checkCompressionSettings() {
-	shouldCompress, shouldCompressAt := q.Index.ShouldCompress()
-	if !shouldCompress || q.Index.Compressed() {
+	ci, ok := q.Index.(compressedIndexer)
+	if !ok {
 		return
 	}
 
-	if q.Index.AlreadyIndexed() > uint64(shouldCompressAt) {
+	shouldCompress, shouldCompressAt := ci.ShouldCompress()
+	if !shouldCompress || ci.Compressed() {
+		return
+	}
+
+	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
 		q.pauseIndexing()
-		err := q.Index.TurnOnCompression(q.resumeIndexing)
+		err := ci.TurnOnCompression(q.resumeIndexing)
 		if err != nil {
 			q.Logger.WithError(err).Error("failed to turn on compression")
 		}
@@ -520,7 +526,10 @@ func (q *IndexQueue) resumeIndexing() {
 	q.Logger.Debug("indexing resumed")
 }
 
-func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int, results *priorityqueue.Queue, allowList helpers.AllowList, maxDistance float32, seen map[uint64]struct{}) error {
+func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
+	results *priorityqueue.Queue[any], allowList helpers.AllowList,
+	maxDistance float32, seen map[uint64]struct{},
+) error {
 	for i := range snapshot {
 		// skip indexed data
 		if _, ok := seen[snapshot[i].id]; ok {
@@ -569,14 +578,14 @@ func newPqMaxPool(defaultCap int) *pqMaxPool {
 	return &pqMaxPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return priorityqueue.NewMax(defaultCap)
+				return priorityqueue.NewMax[any](defaultCap)
 			},
 		},
 	}
 }
 
-func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
-	pq := pqh.pool.Get().(*priorityqueue.Queue)
+func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue[any] {
+	pq := pqh.pool.Get().(*priorityqueue.Queue[any])
 	if pq.Cap() < capacity {
 		pq.ResetCap(capacity)
 	} else {
@@ -586,7 +595,7 @@ func (pqh *pqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
 	return pq
 }
 
-func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue) {
+func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue[any]) {
 	pqh.pool.Put(pq)
 }
 

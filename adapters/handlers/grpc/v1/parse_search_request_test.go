@@ -553,6 +553,60 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "metadata filter id",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: UUID4},
+					On:        []string{filters.InternalPropID},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: filters.InternalPropID,
+						},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: UUID4, Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "metadata filter time",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "2022-03-18T20:26:34.586-05:00"},
+					On:        []string{filters.InternalPropCreationTimeUnix},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: filters.InternalPropCreationTimeUnix,
+						},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: "2022-03-18T20:26:34.586-05:00", Type: schema.DataTypeDate},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "near text search",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},

@@ -95,7 +95,7 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 	key := flat.pool.byteSlicePool.Get(8)
 	defer flat.pool.byteSlicePool.Put(key)
 	binary.BigEndian.PutUint64(key.slice, id)
-	bytes, err := flat.store.Bucket(helpers.VectorsFlatBQBucketLSM).Get(key.slice)
+	bytes, err := flat.store.Bucket(helpers.VectorsCompressedBucketLSM).Get(key.slice)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +131,11 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 }
 
 func (index *flat) storeCompressedVector(id uint64, vector []byte) {
-	index.storeGenericVector(id, vector, helpers.VectorsFlatBQBucketLSM)
+	index.storeGenericVector(id, vector, helpers.VectorsCompressedBucketLSM)
 }
 
 func (index *flat) storeVector(id uint64, vector []byte) {
-	index.storeGenericVector(id, vector, helpers.VectorsFlatBucketLSM)
+	index.storeGenericVector(id, vector, helpers.VectorsBucketLSM)
 }
 
 func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
@@ -153,7 +153,7 @@ func (index *flat) isBQCached() bool {
 }
 
 func (index *flat) initBuckets(ctx context.Context) error {
-	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBucketLSM,
+	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsBucketLSM,
 		lsmkv.WithForceCompation(true),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
@@ -161,7 +161,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
 	if index.isBQ() {
-		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
+		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsCompressedBucketLSM,
 			lsmkv.WithForceCompation(true),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
@@ -258,12 +258,12 @@ func (index *flat) Delete(ids ...uint64) error {
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
-		if err := index.store.Bucket(helpers.VectorsFlatBucketLSM).Delete(idBytes); err != nil {
+		if err := index.store.Bucket(helpers.VectorsBucketLSM).Delete(idBytes); err != nil {
 			return err
 		}
 
 		if index.isBQ() {
-			if err := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(idBytes); err != nil {
+			if err := index.store.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes); err != nil {
 				return err
 			}
 		}
@@ -300,7 +300,7 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 	vector = index.normalized(vector)
 
 	if err := index.findTopVectors(heap, allow, k,
-		index.store.Bucket(helpers.VectorsFlatBucketLSM).Cursor,
+		index.store.Bucket(helpers.VectorsBucketLSM).Cursor,
 		index.createDistanceCalc(vector),
 	); err != nil {
 		return nil, nil, err
@@ -338,7 +338,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 		}
 	} else {
 		if err := index.findTopVectors(heap, allow, rescore,
-			index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
+			index.store.Bucket(helpers.VectorsCompressedBucketLSM).Cursor,
 			index.createDistanceCalcBQ(vectorBQ),
 		); err != nil {
 			return nil, nil, err
@@ -383,13 +383,14 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
-	return index.store.Bucket(helpers.VectorsFlatBucketLSM).Get(idSlice.slice)
+	return index.store.Bucket(helpers.VectorsBucketLSM).Get(idSlice.slice)
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
-func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
-	cursorFn func() *lsmkv.CursorReplace, distanceCalc distanceCalc,
+func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
+	allow helpers.AllowList, limit int, cursorFn func() *lsmkv.CursorReplace,
+	distanceCalc distanceCalc,
 ) error {
 	var key []byte
 	var v []byte
@@ -432,8 +433,8 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.Allow
 
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
-func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
-	vectorBQ []uint64,
+func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
+	allow helpers.AllowList, limit int, vectorBQ []uint64,
 ) error {
 	var id uint64
 	allowMax := uint64(0)
@@ -473,7 +474,9 @@ func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue, allow helpers
 	return nil
 }
 
-func (index *flat) insertToHeap(heap *priorityqueue.Queue, limit int, id uint64, distance float32) {
+func (index *flat) insertToHeap(heap *priorityqueue.Queue[any],
+	limit int, id uint64, distance float32,
+) {
 	if heap.Len() < limit {
 		heap.Insert(id, distance)
 	} else if heap.Top().Dist > distance {
@@ -482,7 +485,8 @@ func (index *flat) insertToHeap(heap *priorityqueue.Queue, limit int, id uint64,
 	}
 }
 
-func (index *flat) extractHeap(heap *priorityqueue.Queue) ([]uint64, []float32) {
+func (index *flat) extractHeap(heap *priorityqueue.Queue[any],
+) ([]uint64, []float32) {
 	len := heap.Len()
 
 	ids := make([]uint64, len)
@@ -617,7 +621,7 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
-	cursor := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor()
+	cursor := index.store.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
 	defer cursor.Close()
 
 	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
@@ -712,25 +716,5 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			return err
 		}
 	}
-	return nil
-}
-
-func (h *flat) ShouldCompress() (bool, int) {
-	return false, 0
-}
-
-func (h *flat) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
-	return false, 0
-}
-
-func (h *flat) Compressed() bool {
-	return false
-}
-
-func (h *flat) AlreadyIndexed() uint64 {
-	return 0
-}
-
-func (h *flat) TurnOnCompression(callback func()) error {
 	return nil
 }

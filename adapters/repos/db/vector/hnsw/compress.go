@@ -24,12 +24,25 @@ import (
 )
 
 func (h *hnsw) initCompressedBucket() error {
-	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsHNSWPQBucketLSM)
+	err := h.store.CreateOrLoadBucket(context.Background(), helpers.VectorsCompressedBucketLSM)
 	if err != nil {
 		return fmt.Errorf("create or load bucket (compressed vectors store): %w", err)
 	}
-	h.compressedBucket = h.store.Bucket(helpers.VectorsHNSWPQBucketLSM)
+	h.compressedBucket = h.store.Bucket(helpers.VectorsCompressedBucketLSM)
 	return nil
+}
+
+func (h *hnsw) calculateOptimalSegments(dims int) int {
+	if dims >= 2048 && dims%8 == 0 {
+		return dims / 8
+	} else if dims >= 768 && dims%6 == 0 {
+		return dims / 6
+	} else if dims >= 256 && dims%4 == 0 {
+		return dims / 4
+	} else if dims%2 == 0 {
+		return dims / 2
+	}
+	return dims
 }
 
 func (h *hnsw) Compress(cfg ent.PQConfig) error {
@@ -43,9 +56,9 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 
 	dims := int(h.dims)
 
-	// segments == 0 (default value) means use as many segments as dimensions
 	if cfg.Segments <= 0 {
-		cfg.Segments = dims
+		cfg.Segments = h.calculateOptimalSegments(dims)
+		h.pqConfig.Segments = cfg.Segments
 	}
 
 	h.pq, err = ssdhelpers.NewProductQuantizer(cfg, h.distancerProvider, dims)

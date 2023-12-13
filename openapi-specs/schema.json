@@ -1876,7 +1876,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.22.6"
+    "version": "1.23.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -1951,6 +1951,14 @@
       "name": "class",
       "required": false,
       "type": "string"
+    },
+    "CommonOutputVerbosityParameterQuery": {
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "in": "query",
+      "name": "output",
+      "required": false,
+      "type": "string",
+      "default": "minimal"
     }
   },
   "paths": {
@@ -4662,6 +4670,11 @@
         "tags": [
           "nodes"
         ],
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -4715,6 +4728,9 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
         "responses": {

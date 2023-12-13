@@ -242,10 +242,10 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	return localShard.filePutter(ctx, filePath)
 }
 
-func (i *Index) IncomingCreateShard(ctx context.Context,
-	shardName string,
-) error {
-	if err := i.addNewShard(ctx, nil, shardName); err != nil {
+func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
+	sch := i.getSchema.GetSchemaSkipAuth()
+	class := sch.GetClass(schema.ClassName(className))
+	if err := i.addNewShard(ctx, class, shardName); err != nil {
 		return fmt.Errorf("incoming create shard: %w", err)
 	}
 	return nil
@@ -293,6 +293,8 @@ func (s *Shard) reinit(ctx context.Context) error {
 	if err := s.initVector(ctx); err != nil {
 		return fmt.Errorf("reinit vector: %w", err)
 	}
+
+	s.initCycleCallbacks()
 
 	return nil
 }

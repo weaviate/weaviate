@@ -699,6 +699,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
+	if i.replicationEnabled() && replProps == nil {
+		replProps = defaultConsistency()
+	}
 
 	byShard := map[string]objsAndPos{}
 	for pos, obj := range objects {
@@ -716,13 +719,6 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		group.objects = append(group.objects, obj)
 		group.pos = append(group.pos, pos)
 		byShard[shardName] = group
-	}
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency()
-		}
-	} else {
-		replProps = nil
 	}
 
 	wg := &sync.WaitGroup{}
@@ -812,6 +808,9 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		refs objects.BatchReferences
 		pos  []int
 	}
+	if i.replicationEnabled() && replProps == nil {
+		replProps = defaultConsistency()
+	}
 
 	byShard := map[string]refsAndPos{}
 	out := make([]error, len(refs))
@@ -836,9 +835,6 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			if replProps == nil {
-				replProps = defaultConsistency()
-			}
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
 				replica.ConsistencyLevel(replProps.ConsistencyLevel))
 		} else if i.localShard(shardName) == nil {
@@ -1939,6 +1935,10 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 		objs objects.BatchSimpleObjects
 	}
 
+	if i.replicationEnabled() && replProps == nil {
+		replProps = defaultConsistency()
+	}
+
 	wg := &sync.WaitGroup{}
 	ch := make(chan result, len(shardDocIDs))
 	for shardName, docIDs := range shardDocIDs {
@@ -1948,9 +1948,6 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				if replProps == nil {
-					replProps = defaultConsistency()
-				}
 				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if i.localShard(shardName) == nil {
@@ -2025,7 +2022,7 @@ func (i *Index) addNewShard(ctx context.Context,
 	}
 
 	// TODO: metrics
-	return i.initAndStoreShard(ctx, shardName, class, nil)
+	return i.initAndStoreShard(ctx, shardName, class, i.metrics.baseMetrics)
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {
