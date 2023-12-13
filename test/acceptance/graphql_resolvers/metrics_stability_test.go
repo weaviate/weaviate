@@ -185,7 +185,7 @@ func countMetricsLines(t *testing.T) int {
 		}
 		require.NotContains(
 			t,
-			strings.ToLower(scanner.Text()),
+			strings.ToLower(line),
 			strings.ToLower(metricClassPrefix),
 		)
 		lineCount++
