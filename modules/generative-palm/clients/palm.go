@@ -378,22 +378,28 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
+	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
+		return apiKeyValue, nil
+	}
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
-	}
-	key := "X-Palm-Api-Key"
-	apiKey := ctx.Value(key)
-	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
-	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Palm-Api-Key " +
 		"nor in environment variable under PALM_APIKEY")
+}
+
+func (v *palm) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+	return ""
 }
 
 type generateInput struct {
