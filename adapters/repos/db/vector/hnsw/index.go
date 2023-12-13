@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -398,7 +399,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
-		eps := priorityqueue.NewMin(1)
+		eps := priorityqueue.NewMin[any](1)
 		var dist float32
 		var ok bool
 		var err error
@@ -674,6 +675,23 @@ func (h *hnsw) ContainsNode(id uint64) bool {
 
 func (h *hnsw) DistancerProvider() distancer.Provider {
 	return h.distancerProvider
+}
+
+func (h *hnsw) ShouldCompress() (bool, int) {
+	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
+}
+
+func (h *hnsw) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+	hnswConfig := config.(ent.UserConfig)
+	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
+}
+
+func (h *hnsw) Compressed() bool {
+	return h.compressed.Load()
+}
+
+func (h *hnsw) AlreadyIndexed() uint64 {
+	return uint64(h.cache.CountVectors())
 }
 
 func (h *hnsw) normalizeVec(vec []float32) []float32 {
