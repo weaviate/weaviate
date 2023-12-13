@@ -22,9 +22,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -69,7 +69,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
 	})
 	index.Delete(delete_indices...)
@@ -137,7 +137,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 	require.NoError(t, err)
 
-	ssdhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
 		if vectors[id] == nil {
 			return
 		}
@@ -165,7 +165,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 	<-ch
 	start := uint64(len(vectors) / 2)
-	ssdhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
 		if vectors[id+start] == nil {
 			return
 		}

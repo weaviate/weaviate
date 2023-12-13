@@ -27,9 +27,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -80,7 +80,7 @@ func TestRecall(t *testing.T) {
 		},
 	}, uc, testinghelpers.NewDummyStore(t))
 	init := time.Now()
-	ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
+	compressionhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 		index.Add(uint64(id), vectors[id])
 		if id%1000 == 0 {
 			fmt.Println(id, time.Since(before))
@@ -91,7 +91,7 @@ func TestRecall(t *testing.T) {
 	index.UpdateUserConfig(uc, func() {}) /*should have configuration.pr.enabled = true*/
 	fmt.Printf("Time to compress: %s", time.Since(before))
 	fmt.Println()
-	ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
+	compressionhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
 		idx := switch_at + int(id)
 		index.Add(uint64(idx), vectors[idx])
 		if id%1000 == 0 {
@@ -191,7 +191,7 @@ func TestHnswPqGist(t *testing.T) {
 			}, uc, testinghelpers.NewDummyStore(t))
 			init := time.Now()
 			total := 200000
-			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				total++
 				if total%100000 == 0 {
 					fmt.Println(total)
@@ -203,7 +203,7 @@ func TestHnswPqGist(t *testing.T) {
 			index.UpdateUserConfig(uc, func() {})
 			fmt.Printf("Time to compress: %s", time.Since(before))
 			fmt.Println()
-			ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
 				idx := switch_at + int(id)
 				index.Add(uint64(idx), vectors[idx])
 			})
@@ -212,7 +212,7 @@ func TestHnswPqGist(t *testing.T) {
 			var retrieved int
 
 			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
 				before = time.Now()
 				results, _, _ := index.SearchByVector(queries[i], k, nil)
 				querying += time.Since(before)
@@ -357,7 +357,7 @@ func TestHnswPqSift(t *testing.T) {
 			},
 		}, uc, testinghelpers.NewDummyStore(t))
 		init := time.Now()
-		ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
+		compressionhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 			index.Add(uint64(id), vectors[id])
 		})
 		before = time.Now()
@@ -377,7 +377,7 @@ func TestHnswPqSift(t *testing.T) {
 		index.Compress(cfg) /*should have configuration.compressed = true*/
 		fmt.Printf("Time to compress: %s", time.Since(before))
 		fmt.Println()
-		ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
+		compressionhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
 			idx := switch_at + int(id)
 
 			index.Add(uint64(idx), vectors[idx])
@@ -388,7 +388,7 @@ func TestHnswPqSift(t *testing.T) {
 		var retrieved int
 
 		var querying time.Duration = 0
-		ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
+		compressionhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
 			before = time.Now()
 			results, _, _ := index.SearchByVector(queries[i], k, nil)
 			querying += time.Since(before)
@@ -457,7 +457,7 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 				},
 			}, uc, testinghelpers.NewDummyStore(t))
 			init := time.Now()
-			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				index.Add(uint64(id), vectors[id])
 			})
 			before = time.Now()
@@ -465,7 +465,7 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 			index.UpdateUserConfig(uc, func() {}) /*should have configuration.compressed = true*/
 			fmt.Printf("Time to compress: %s", time.Since(before))
 			fmt.Println()
-			ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
 				idx := switch_at + int(id)
 				index.Add(uint64(idx), vectors[idx])
 			})
@@ -474,7 +474,7 @@ func TestHnswPqSiftDeletes(t *testing.T) {
 			var retrieved int
 
 			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
 				before = time.Now()
 				results, _, _ := index.SearchByVector(queries[i], k, nil)
 				querying += time.Since(before)
@@ -550,7 +550,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 				},
 			}, uc, testinghelpers.NewDummyStore(t))
 			init := time.Now()
-			ssdhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(switch_at), func(_, id uint64, _ *sync.Mutex) {
 				index.Add(uint64(id), vectors[id])
 			})
 			before = time.Now()
@@ -558,7 +558,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 			index.UpdateUserConfig(uc, func() {})
 			fmt.Printf("Time to compress: %s", time.Since(before))
 			fmt.Println()
-			ssdhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(vectors_size-switch_at), func(_, id uint64, _ *sync.Mutex) {
 				idx := switch_at + int(id)
 				index.Add(uint64(idx), vectors[idx])
 			})
@@ -567,7 +567,7 @@ func TestHnswPqDeepImage(t *testing.T) {
 			var retrieved int
 
 			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
+			compressionhelpers.Concurrently(uint64(len(queries)), func(_, i uint64, _ *sync.Mutex) {
 				before = time.Now()
 				results, _, _ := index.SearchByVector(queries[i], k, nil)
 				querying += time.Since(before)

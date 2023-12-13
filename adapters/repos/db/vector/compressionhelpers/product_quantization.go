@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ssdhelpers
+package compressionhelpers
 
 import (
 	"errors"
@@ -327,7 +327,7 @@ func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
 	}
 }
 
-func (pq *ProductQuantizer) NewCompressedQuantizerDistancer(a []byte) QuantizerDistancer[byte] {
+func (pq *ProductQuantizer) NewCompressedQuantizerDistancer(a []byte) quantizerDistancer[byte] {
 	return &PQDistancer{
 		x:          nil,
 		pq:         pq,
