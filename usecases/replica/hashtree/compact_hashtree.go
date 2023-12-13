@@ -12,19 +12,19 @@
 package hashtree
 
 type CompactHashTree struct {
-	capacity int
+	capacity uint64
 	hashtree *HashTree
 
 	// derived values from capacity and hashtree height
 	// kept here just to avoid recalculation
 	leavesCount              int
-	normalGroupSize          int
-	largeGroupSize           int
+	normalGroupSize          uint64
+	largeGroupSize           uint64
 	largeGroupsCount         int
-	leavesCountInLargeGroups int
+	leavesCountInLargeGroups uint64
 }
 
-func NewCompactHashTree(capacity int, maxHeight int) *CompactHashTree {
+func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
 	if capacity < 1 {
 		panic("illegal capacity")
 	}
@@ -40,10 +40,10 @@ func NewCompactHashTree(capacity int, maxHeight int) *CompactHashTree {
 	}
 
 	leavesCount := LeavesCount(height)
-	normalGroupSize := capacity / leavesCount
+	normalGroupSize := capacity / uint64(leavesCount)
 	largeGroupSize := normalGroupSize + 1
-	largeGroupsCount := capacity % leavesCount
-	leavesCountInLargeGroups := largeGroupsCount * largeGroupSize
+	largeGroupsCount := int(capacity % uint64(leavesCount))
+	leavesCountInLargeGroups := uint64(largeGroupsCount) * largeGroupSize
 
 	return &CompactHashTree{
 		capacity: capacity,
@@ -63,7 +63,7 @@ func (ht *CompactHashTree) Height() int {
 
 // AggregateLeafWith aggregates a new value into a shared leaf
 // Each compacted leaf is shared by a number of consecutive leaves
-func (ht *CompactHashTree) AggregateLeafWith(i int, val []byte) *CompactHashTree {
+func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) *CompactHashTree {
 	if i >= ht.capacity {
 		panic("out of capacity")
 	}
@@ -71,9 +71,9 @@ func (ht *CompactHashTree) AggregateLeafWith(i int, val []byte) *CompactHashTree
 	var mappedLeaf int
 
 	if i < ht.leavesCountInLargeGroups {
-		mappedLeaf = i / ht.largeGroupSize
+		mappedLeaf = int(i / ht.largeGroupSize)
 	} else {
-		mappedLeaf = (i - ht.largeGroupsCount) / ht.normalGroupSize
+		mappedLeaf = int((i - uint64(ht.largeGroupsCount)) / ht.normalGroupSize)
 	}
 
 	ht.hashtree.AggregateLeafWith(mappedLeaf, val)
@@ -90,7 +90,7 @@ func (ht *CompactHashTree) Reset() *CompactHashTree {
 	return ht
 }
 
-func requiredHeight(n int) int {
+func requiredHeight(n uint64) int {
 	h := 0
 
 	for ; n > 0; h++ {
