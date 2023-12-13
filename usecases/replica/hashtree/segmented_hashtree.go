@@ -62,19 +62,20 @@ func (ht *SegmentedHashTree) Height() int {
 
 func (ht *SegmentedHashTree) AggregateLeafWith(i uint64, val []byte) *SegmentedHashTree {
 	// validate leaf belong to one of the segments
-	var segmentFound bool
+	segmentFound := -1
 
-	for _, segmentStart := range ht.segments {
-		if i >= segmentStart && i < segmentStart+uint64(ht.segmentSize) {
-			segmentFound = true
+	for segment, segmentStart := range ht.segments {
+		if i >= segmentStart && i < segmentStart+ht.segmentSize {
+			segmentFound = segment
+			break
 		}
 	}
 
-	if !segmentFound {
+	if segmentFound < 0 {
 		panic("out of segment")
 	}
 
-	ht.hashtree.AggregateLeafWith(i, val)
+	ht.hashtree.AggregateLeafWith(uint64(segmentFound)*ht.segmentSize+i%ht.segmentSize, val)
 
 	return ht
 }
