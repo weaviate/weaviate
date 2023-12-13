@@ -12,28 +12,48 @@
 package hashtree
 
 type CompactHashTree struct {
-	hashtree    *HashTree
-	leavesCount int
+	capacity int
+	hashtree *HashTree
+
+	// derived values from capacity and hashtree height
+	// kept here just to avoid recalculation
+	leavesCount              int
+	normalGroupSize          int
+	largeGroupSize           int
+	largeGroupsCount         int
+	leavesCountInLargeGroups int
 }
 
-func NewCompactHashTree(maxNumberOfElements int, maxHeight int) *CompactHashTree {
-	if maxNumberOfElements < 1 {
-		panic("illegal max number of elements")
+func NewCompactHashTree(capacity int, maxHeight int) *CompactHashTree {
+	if capacity < 1 {
+		panic("illegal capacity")
 	}
 
 	if maxHeight < 1 {
 		panic("illegal max height")
 	}
 
-	height := requiredHeight(maxNumberOfElements)
+	height := requiredHeight(capacity)
 
 	if height > maxHeight {
 		height = maxHeight
 	}
 
+	leavesCount := LeavesCount(height)
+	normalGroupSize := capacity / leavesCount
+	largeGroupSize := normalGroupSize + 1
+	largeGroupsCount := capacity % leavesCount
+	leavesCountInLargeGroups := largeGroupsCount * largeGroupSize
+
 	return &CompactHashTree{
-		hashtree:    NewHashTree(height),
-		leavesCount: LeavesCount(height),
+		capacity: capacity,
+		hashtree: NewHashTree(height),
+
+		leavesCount:              leavesCount,
+		normalGroupSize:          normalGroupSize,
+		largeGroupSize:           largeGroupSize,
+		largeGroupsCount:         largeGroupsCount,
+		leavesCountInLargeGroups: leavesCountInLargeGroups,
 	}
 }
 
@@ -41,8 +61,23 @@ func (ht *CompactHashTree) Height() int {
 	return ht.hashtree.Height()
 }
 
+// AggregateLeafWith aggregates a new value into a shared leaf
+// Each compacted leaf is shared by a number of consecutive leaves
 func (ht *CompactHashTree) AggregateLeafWith(i int, val []byte) *CompactHashTree {
-	ht.hashtree.AggregateLeafWith(i%ht.leavesCount, val)
+	if i >= ht.capacity {
+		panic("out of capacity")
+	}
+
+	var mappedLeaf int
+
+	if i < ht.leavesCountInLargeGroups {
+		mappedLeaf = i / ht.largeGroupSize
+	} else {
+		mappedLeaf = (i - ht.largeGroupsCount) / ht.normalGroupSize
+	}
+
+	ht.hashtree.AggregateLeafWith(mappedLeaf, val)
+
 	return ht
 }
 
