@@ -31,7 +31,7 @@ func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	labels := prometheus.Labels{
 		"class_name": className,
 	}
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (pm *PrometheusMetrics) StartUnLoadingShard(className string) error {
 
 	sldd.Dec()
 
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
@@ -112,18 +112,17 @@ func (pm *PrometheusMetrics) FinishUnLoadingShard(className string) error {
 
 	sulding.Dec()
 
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
 
 	suld.Inc()
 
-
 	return nil
 }
 
-func (pm *PrometheusMetrics) NewUnLoadedshard(className string) error {
+func (pm *PrometheusMetrics) NewUnloadedshard(className string) error {
 	if pm == nil {
 		return nil
 	}
@@ -132,7 +131,7 @@ func (pm *PrometheusMetrics) NewUnLoadedshard(className string) error {
 		"class_name": className,
 	}
 
-	suld, err := pm.ShardsUnLoaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
