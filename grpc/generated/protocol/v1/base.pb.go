@@ -86,7 +86,7 @@ type NumberArrayProperties struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Marked as deprecated in v1/base.proto.
+	// Deprecated: Do not use.
 	Values      []float64 `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"` // will be removed in the future, use vector_bytes
 	PropName    string    `protobuf:"bytes,2,opt,name=prop_name,json=propName,proto3" json:"prop_name,omitempty"`
 	ValuesBytes []byte    `protobuf:"bytes,3,opt,name=values_bytes,json=valuesBytes,proto3" json:"values_bytes,omitempty"`
@@ -124,7 +124,7 @@ func (*NumberArrayProperties) Descriptor() ([]byte, []int) {
 	return file_v1_base_proto_rawDescGZIP(), []int{0}
 }
 
-// Deprecated: Marked as deprecated in v1/base.proto.
+// Deprecated: Do not use.
 func (x *NumberArrayProperties) GetValues() []float64 {
 	if x != nil {
 		return x.Values
