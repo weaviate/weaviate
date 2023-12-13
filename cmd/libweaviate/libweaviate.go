@@ -67,7 +67,7 @@ func dumpBucket(storeDir, propName string) {
 //export startWeaviate
 func startWeaviate() {
 	config := config.GetConfigOptionGroup()
-	rest.MakeAppState(context.Background(), config, false)
+	rest.MakeAppState(context.Background(), config)
 	if len(os.Args) != 3 {
 		fmt.Printf("Usage: %s <storeDir> <propName>\n", os.Args[0])
 		os.Exit(1)

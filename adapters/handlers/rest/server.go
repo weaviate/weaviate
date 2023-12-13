@@ -63,9 +63,9 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 }
 
 // ConfigureAPI configures the API and handlers.
-func (s *Server) ConfigureAPI(isLocalhost bool) {
+func (s *Server) ConfigureAPI() {
 	if s.api != nil {
-		s.handler = configureAPI(s.api, isLocalhost)
+		s.handler = configureAPI(s.api)
 	}
 }
 
@@ -143,12 +143,7 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 	}
 
 	s.api = api
-	/// TODO-RAFT START
-	// Quick workaround for node port assignment in a local test cluster.
-	// Since this file is auto-generated, communication of this flag needs to be moved outside this file.
-	//
-	s.handler = configureAPI(api, s.Host == "127.0.0.1"|| s.Host == "localhost" )
-	/// TODO-RAFT END
+	s.handler = configureAPI(api)
 }
 
 func (s *Server) hasScheme(scheme string) bool {
