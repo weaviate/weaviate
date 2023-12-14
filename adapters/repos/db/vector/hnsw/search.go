@@ -163,8 +163,9 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 ) {
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancer(queryVector)
-		defer h.compressor.ReturnDistancer(compressorDistancer)
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
+		defer returnFn()
 	}
 	return h.searchLayerByVectorWithDistancer(queryVector, entrypoints, ef, level, allowList, compressorDistancer)
 }
@@ -182,8 +183,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	var floatDistancer distancer.Distancer
 	if h.compressed.Load() {
 		if compressorDistancer == nil {
-			compressorDistancer = h.compressor.NewDistancer(queryVector)
-			defer h.compressor.ReturnDistancer(compressorDistancer)
+			var returnFn compressionhelpers.ReturnDistancerFn
+			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
+			defer returnFn()
 		}
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
@@ -502,8 +504,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancer(searchVec)
-		defer h.compressor.ReturnDistancer(compressorDistancer)
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+		defer returnFn()
 	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {

@@ -176,13 +176,14 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 
 	var err error
 	var distancer compressionhelpers.CompressorDistancer
+	var returnFn compressionhelpers.ReturnDistancerFn
 	if h.compressed.Load() {
-		distancer = h.compressor.NewDistancer(vector)
+		distancer, returnFn = h.compressor.NewDistancer(vector)
 	}
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, vector, distancer)
 	if h.compressed.Load() {
-		h.compressor.ReturnDistancer(distancer)
+		returnFn()
 	}
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")

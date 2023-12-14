@@ -66,8 +66,8 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
 		compressor.Preload(3, []float32{0.5, 0.5})
-		distancer := compressor.NewDistancer([]float32{0.1, -0.2})
-		defer compressor.ReturnDistancer(distancer)
+		distancer, returnFn := compressor.NewDistancer([]float32{0.1, -0.2})
+		defer returnFn()
 
 		d, _, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
@@ -92,8 +92,8 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
 		compressor.Preload(3, []float32{0.5, 0.5})
-		distancer := compressor.NewDistancerFromID(1)
-		defer compressor.ReturnDistancer(distancer)
+		distancer, returnFn := compressor.NewDistancerFromID(1)
+		defer returnFn()
 
 		d, _, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
