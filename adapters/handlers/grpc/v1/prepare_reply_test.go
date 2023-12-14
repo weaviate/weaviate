@@ -15,6 +15,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"math"
+	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,11 @@ func byteVector(vec []float32) []byte {
 	}
 
 	return vector
+}
+
+func idByte(id string) []byte {
+	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
+	return hexInteger.Bytes()
 }
 
 func TestGRPCReply(t *testing.T) {
@@ -231,6 +238,7 @@ func TestGRPCReply(t *testing.T) {
 						IsConsistent:              &truePointer,
 						IsConsistentPresent:       true,
 						VectorBytes:               byteVector([]float32{1}),
+						IdBytes:                   idByte(string(UUID1)),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -253,6 +261,7 @@ func TestGRPCReply(t *testing.T) {
 						IsConsistent:              &truePointer,
 						IsConsistentPresent:       true,
 						VectorBytes:               byteVector([]float32{2}),
+						IdBytes:                   idByte(string(UUID2)),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
