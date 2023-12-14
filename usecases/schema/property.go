@@ -141,13 +141,13 @@ func (m *Handler) validatePropModuleConfig(class *models.Class, prop *models.Pro
 func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property,
 ) error {
+	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	if err != nil {
+		return err
+	}
+
 	// TODO-RAFT
 	return nil
-	// 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
-	// 	if err != nil {
-	// 		return err
-	// 	}
-
 	// return h.mergeClassObjectProperty(ctx, class, property)
 }
 

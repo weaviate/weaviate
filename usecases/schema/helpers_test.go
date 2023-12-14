@@ -51,6 +51,23 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, *fakeMetaHandler) {
 	return &handler, metaHandler
 }
 
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.DB, authorizer authorizer) (*Handler, *fakeMetaHandler) {
+	cfg := config.Config{}
+	metaHandler := &fakeMetaHandler{}
+	logger, _ := test.NewNullLogger()
+	vectorizerValidator := &fakeVectorizerValidator{
+		valid: []string{
+			"model1", "model2",
+		},
+	}
+	handler, err := NewHandler(
+		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
+		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
+	require.Nil(t, err)
+	return &handler, metaHandler
+}
+
 type randomHostURL struct {
 	address string
 	host    string
