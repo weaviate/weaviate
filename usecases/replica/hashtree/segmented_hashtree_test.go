@@ -100,20 +100,25 @@ func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
 	ht1 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 	ht2 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
-	diff, err := SegmentedHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
+	diffReader, err := SegmentedHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
 	require.NoError(t, err)
-	require.Zero(t, diff.SetCount())
+	require.NotNil(t, diffReader)
+
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
 	ht1.AggregateLeafWith(1_010, []byte("val1"))
 
-	diff, err = SegmentedHashTreeDiff(ht1, ht2)
+	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
-	require.True(t, diff.IsSet(0)) // root should differ
-	require.Equal(t, ht1.Height(), diff.SetCount())
+
+	diff0, diff1, err := diffReader.Next()
+	require.NoError(t, err)
+	require.Equal(t, 1_000, diff0)
+	require.Equal(t, 1_000, diff1)
 
 	ht2.AggregateLeafWith(1_010, []byte("val1"))
 
-	diff, err = SegmentedHashTreeDiff(ht1, ht2)
-	require.NoError(t, err)
-	require.Zero(t, diff.SetCount())
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences)
 }
