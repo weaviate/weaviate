@@ -21,13 +21,13 @@ import (
 )
 
 func TestSegmentedHashTree(t *testing.T) {
-	segments := []uint64{0}
 	segmentSize := uint64(1_000)
+	segments := []uint64{0}
 	maxHeight := 1
 
 	expectedHeight := 1
 
-	ht := NewSegmentedHashTree(segments, segmentSize, maxHeight)
+	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
@@ -50,11 +50,11 @@ func TestSegmentedHashTree(t *testing.T) {
 }
 
 func TestSegmentHashTree(t *testing.T) {
-	segments := []uint64{100, 300, 900}
 	segmentSize := uint64(100)
+	segments := []uint64{100, 300, 900}
 	maxHeight := 4
 
-	ht := NewSegmentedHashTree(segments, segmentSize, maxHeight)
+	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
 	valuePrefix := "somevalue"
 
@@ -71,7 +71,7 @@ func TestSegmentBigHashTree(t *testing.T) {
 	maxHeight := 16
 	expectedHeight := 16
 
-	ht := NewSegmentedHashTree(segments, segmentSize, maxHeight)
+	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
@@ -93,26 +93,27 @@ func TestSegmentBigHashTree(t *testing.T) {
 }
 
 func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
-	capacity := uint64(math.MaxUint64 / 128)
+	segmentSize := uint64(math.MaxUint64 / 128)
+	segments := []uint64{1_000, segmentSize + 3_000, 2*segmentSize + 9_000}
 	maxHeight := 16
 
-	ht1 := NewCompactHashTree(capacity, maxHeight)
-	ht2 := NewCompactHashTree(capacity, maxHeight)
+	ht1 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht2 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
-	diff, err := CompactHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
+	diff, err := SegmentedHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
 	require.NoError(t, err)
 	require.Zero(t, diff.SetCount())
 
-	ht1.AggregateLeafWith(0, []byte("val1"))
+	ht1.AggregateLeafWith(1_010, []byte("val1"))
 
-	diff, err = CompactHashTreeDiff(ht1, ht2)
+	diff, err = SegmentedHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 	require.True(t, diff.IsSet(0)) // root should differ
 	require.Equal(t, ht1.Height(), diff.SetCount())
 
-	ht2.AggregateLeafWith(0, []byte("val1"))
+	ht2.AggregateLeafWith(1_010, []byte("val1"))
 
-	diff, err = CompactHashTreeDiff(ht1, ht2)
+	diff, err = SegmentedHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 	require.Zero(t, diff.SetCount())
 }

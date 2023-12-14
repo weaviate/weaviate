@@ -14,12 +14,12 @@ package hashtree
 import "math"
 
 type SegmentedHashTree struct {
-	segments    []uint64
 	segmentSize uint64
+	segments    []uint64
 	hashtree    *CompactHashTree
 }
 
-func NewSegmentedHashTree(segments []uint64, segmentSize uint64, maxHeight int) *SegmentedHashTree {
+func NewSegmentedHashTree(segmentSize uint64, segments []uint64, maxHeight int) *SegmentedHashTree {
 	if len(segments) == 0 {
 		panic("illegal segments")
 	}
@@ -50,8 +50,8 @@ func NewSegmentedHashTree(segments []uint64, segmentSize uint64, maxHeight int) 
 	capacity := uint64(len(segments)) * segmentSize
 
 	return &SegmentedHashTree{
-		segments:    ownSegments,
 		segmentSize: segmentSize,
+		segments:    ownSegments,
 		hashtree:    NewCompactHashTree(capacity, maxHeight),
 	}
 }

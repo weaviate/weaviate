@@ -118,3 +118,19 @@ func CompactHashTreeDiffWith(ht1, ht2 *CompactHashTree, diff *Bitset, digests1, 
 
 	return HashTreeDiffWith(ht1.hashtree, ht2.hashtree, diff, digests1, digests2)
 }
+
+func SegmentedHashTreeDiff(ht1, ht2 *SegmentedHashTree) (diff *Bitset, err error) {
+	if ht1 == nil || ht2 == nil {
+		return nil, ErrIllegalArguments
+	}
+
+	return CompactHashTreeDiff(ht1.hashtree, ht2.hashtree)
+}
+
+func SegmentedHashTreeDiffWith(ht1, ht2 *SegmentedHashTree, diff *Bitset, digests1, digests2 []Digest) error {
+	if ht1 == nil || ht2 == nil {
+		return ErrIllegalArguments
+	}
+
+	return CompactHashTreeDiffWith(ht1.hashtree, ht2.hashtree, diff, digests1, digests2)
+}
