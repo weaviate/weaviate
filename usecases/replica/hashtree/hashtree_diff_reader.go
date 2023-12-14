@@ -35,15 +35,18 @@ func (ht *HashTree) NewDiffReader(diff *Bitset) *HashTreeDiffReader {
 	}
 }
 
-func (r *HashTreeDiffReader) Next() (int, error) {
+func (r *HashTreeDiffReader) Next() (int, int, error) {
 	for ; r.pos < r.diff.Size() && !r.diff.IsSet(r.pos); r.pos++ {
 	}
 
 	if r.pos == r.diff.Size() {
-		return 0, ErrNoMoreDifferences
+		return 0, 0, ErrNoMoreDifferences
 	}
 
-	r.pos++
+	pos0 := r.pos
 
-	return r.pos - 1 - r.firstLeafPos, nil
+	for ; r.pos < r.diff.Size() && r.diff.IsSet(r.pos); r.pos++ {
+	}
+
+	return pos0 - r.firstLeafPos, r.pos - 1 - r.firstLeafPos, nil
 }

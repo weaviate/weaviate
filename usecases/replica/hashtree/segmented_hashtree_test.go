@@ -117,6 +117,9 @@ func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
 	require.Equal(t, 1_000, diff0)
 	require.Equal(t, 1_000, diff1)
 
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences)
+
 	ht2.AggregateLeafWith(1_010, []byte("val1"))
 
 	_, _, err = diffReader.Next()
