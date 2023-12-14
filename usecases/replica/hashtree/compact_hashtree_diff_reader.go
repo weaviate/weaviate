@@ -26,11 +26,11 @@ func (ht *CompactHashTree) NewDiffReader(diffReader *HashTreeDiffReader) *Compac
 }
 
 func (r *CompactHashTreeDiffReader) Next() (uint64, uint64, error) {
-	leaf, err := r.diffReader.Next()
+	leaf0, leaf1, err := r.diffReader.Next()
 	if err != nil {
 		return 0, 0, err
 	}
 
 	// TODO(jeroiraz): map to a range
-	return uint64(leaf), uint64(leaf), nil
+	return uint64(leaf0), uint64(leaf1), nil
 }
