@@ -36,6 +36,7 @@ type VectorIndex interface {
 	SwitchCommitLogs(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup()
+	Compressed() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
