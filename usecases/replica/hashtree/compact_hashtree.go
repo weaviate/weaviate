@@ -17,11 +17,11 @@ type CompactHashTree struct {
 
 	// derived values from capacity and hashtree height
 	// kept here just to avoid recalculation
-	leavesCount              int
-	normalGroupSize          uint64
-	largeGroupSize           uint64
-	largeGroupsCount         int
-	leavesCountInLargeGroups uint64
+	leavesCount                 int
+	groupSize                   uint64
+	extendedGroupSize           uint64
+	extendedGroupsCount         int
+	leavesCountInExtendedGroups uint64
 }
 
 func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
@@ -40,20 +40,20 @@ func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
 	}
 
 	leavesCount := LeavesCount(height)
-	normalGroupSize := capacity / uint64(leavesCount)
-	largeGroupSize := normalGroupSize + 1
-	largeGroupsCount := int(capacity % uint64(leavesCount))
-	leavesCountInLargeGroups := uint64(largeGroupsCount) * largeGroupSize
+	groupSize := capacity / uint64(leavesCount)
+	extendedGroupSize := groupSize + 1
+	extendedGroupsCount := int(capacity % uint64(leavesCount))
+	leavesCountInExtendedGroups := uint64(extendedGroupsCount) * extendedGroupSize
 
 	return &CompactHashTree{
 		capacity: capacity,
 		hashtree: NewHashTree(height),
 
-		leavesCount:              leavesCount,
-		normalGroupSize:          normalGroupSize,
-		largeGroupSize:           largeGroupSize,
-		largeGroupsCount:         largeGroupsCount,
-		leavesCountInLargeGroups: leavesCountInLargeGroups,
+		leavesCount:                 leavesCount,
+		groupSize:                   groupSize,
+		extendedGroupSize:           extendedGroupSize,
+		extendedGroupsCount:         extendedGroupsCount,
+		leavesCountInExtendedGroups: leavesCountInExtendedGroups,
 	}
 }
 
@@ -68,17 +68,25 @@ func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) *CompactHashT
 		panic("out of capacity")
 	}
 
-	var mappedLeaf int
-
-	if i < ht.leavesCountInLargeGroups {
-		mappedLeaf = int(i / ht.largeGroupSize)
-	} else {
-		mappedLeaf = int((i - uint64(ht.largeGroupsCount)) / ht.normalGroupSize)
-	}
-
-	ht.hashtree.AggregateLeafWith(mappedLeaf, val)
+	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 
 	return ht
+}
+
+func (ht *CompactHashTree) mapLeaf(i uint64) int {
+	if i < ht.leavesCountInExtendedGroups {
+		return int(i / ht.extendedGroupSize)
+	} else {
+		return int((i - uint64(ht.extendedGroupsCount)) / ht.groupSize)
+	}
+}
+
+func (ht *CompactHashTree) unmapLeaf(mappedLeaf int) uint64 {
+	if mappedLeaf < ht.extendedGroupsCount {
+		return uint64(mappedLeaf) * ht.extendedGroupSize
+	}
+
+	return uint64(mappedLeaf)*ht.groupSize + uint64(ht.extendedGroupsCount)
 }
 
 func (ht *CompactHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
