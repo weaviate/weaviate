@@ -269,6 +269,7 @@ message MetadataResult {
   bool generative_present = 17;
   bool is_consistent_present = 18;
   bytes vector_bytes = 19;
+  bytes id_bytes = 20;
 }
 
 message PropertiesResult {
