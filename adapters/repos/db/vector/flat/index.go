@@ -152,6 +152,10 @@ func (index *flat) isBQCached() bool {
 	return index.bqCache != nil
 }
 
+func (index *flat) Compressed() bool {
+	return index.compression != compressionNone
+}
+
 func (index *flat) initBuckets(ctx context.Context) error {
 	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsBucketLSM,
 		lsmkv.WithForceCompation(true),

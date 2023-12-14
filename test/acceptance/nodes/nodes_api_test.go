@@ -215,7 +215,38 @@ func Test_NodesAPI(t *testing.T) {
 		testStatusResponse(t, assertions, nil, "")
 	})
 
-	t.Run("validate compression status", func(t *testing.T) {
+	t.Run("validate flat compression status", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		booksClass.VectorIndexType = "flat"
+		booksClass.VectorIndexConfig = map[string]interface{}{
+			"bq": map[string]interface{}{
+				"enabled": true,
+			},
+		}
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		t.Run("check compressed true", func(t *testing.T) {
+			verbose := "verbose"
+			params := nodes.NewNodesGetParams().WithOutput(&verbose)
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := resp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			nodes := nodeStatusResp.Nodes
+			require.NotNil(t, nodes)
+			require.Len(t, nodes, 1)
+
+			nodeStatus := nodes[0]
+			require.NotNil(t, nodeStatus)
+
+			require.True(t, nodeStatus.Shards[0].Compressed)
+		})
+	})
+
+	t.Run("validate hnsw pq async compression", func(t *testing.T) {
 		booksClass := books.ClassContextionaryVectorizer()
 		booksClass.VectorIndexConfig = map[string]interface{}{
 			"pq": map[string]interface{}{
