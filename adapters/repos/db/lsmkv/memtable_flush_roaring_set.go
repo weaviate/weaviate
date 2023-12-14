@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (m *Memtable) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) {
+func (m *MemtableSingle) flushDataRoaringSet(f io.Writer) ([]segmentindex.Key, error) {
 	flat := m.roaringSet.FlattenInOrder()
 
 	totalDataLength := totalPayloadSizeRoaringSet(flat)

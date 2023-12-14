@@ -22,52 +22,52 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func ThreadedRoaringSetRemoveOne(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetRemoveOne(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetRemoveOne(request.key, request.value)}
 }
 
-func ThreadedRoaringSetAddOne(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetAddOne(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetAddOne(request.key, request.value)}
 }
 
-func ThreadedRoaringSetAddList(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetAddList(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetAddList(request.key, request.values)}
 }
 
-func ThreadedRoaringSetRemoveList(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetRemoveList(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetRemoveList(request.key, request.values)}
 }
 
-func ThreadedRoaringSetAddBitmap(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetAddBitmap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetAddBitmap(request.key, request.bm)}
 }
 
-func ThreadedRoaringSetRemoveBitmap(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetRemoveBitmap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetRemoveBitmap(request.key, request.bm)}
 }
 
-func ThreadedRoaringSetGet(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetGet(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	bitmap, err := m.roaringSetGet(request.key)
 	return ThreadedMemtableResponse{error: err, bitmap: bitmap}
 }
 
-func ThreadedRoaringSetAddRemoveBitmaps(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedRoaringSetAddRemoveBitmaps(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.roaringSetAddRemoveBitmaps(request.key, request.additions, request.deletions)}
 }
 
-func ThreadedFlattenInOrderRoaringSet(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedFlattenInOrderRoaringSet(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{nodesRoaring: m.RoaringSet().FlattenInOrder()}
 }
 
-func ThreadedFlattenInOrderKey(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedFlattenInOrderKey(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{nodesKey: m.key.flattenInOrder()}
 }
 
-func ThreadedFlattenInOrderKeyMulti(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedFlattenInOrderKeyMulti(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{nodesMulti: m.keyMulti.flattenInOrder()}
 }
 
-func ThreadedFlattenInOrderKeyMap(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedFlattenInOrderKeyMap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{nodesMap: m.keyMap.flattenInOrder()}
 }
 

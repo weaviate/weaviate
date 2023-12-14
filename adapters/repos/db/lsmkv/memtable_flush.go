@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (m *Memtable) flush() error {
+func (m *MemtableSingle) flush() error {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -99,7 +99,7 @@ func (m *Memtable) flush() error {
 	return m.commitlog.delete()
 }
 
-func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
+func (m *MemtableSingle) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	flat := m.key.flattenInOrder()
 
 	totalDataLength := totalKeyAndValueSize(flat)
@@ -143,12 +143,12 @@ func (m *Memtable) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
 	return keys, nil
 }
 
-func (m *Memtable) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
+func (m *MemtableSingle) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
 	flat := m.keyMulti.flattenInOrder()
 	return m.flushDataCollection(f, flat)
 }
 
-func (m *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
+func (m *MemtableSingle) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
 	m.RLock()
 	flat := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -178,7 +178,7 @@ func (m *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
 	return m.flushDataCollection(f, asMulti)
 }
 
-func (m *Memtable) flushDataCollection(f io.Writer,
+func (m *MemtableSingle) flushDataCollection(f io.Writer,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)

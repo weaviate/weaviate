@@ -24,13 +24,13 @@ import (
 type commitloggerParser struct {
 	path         string
 	strategy     string
-	memtable     *MemtableThreaded
+	memtable     Memtable
 	reader       io.Reader
 	metrics      *Metrics
 	replaceCache map[string]segmentReplaceNode
 }
 
-func newCommitLoggerParser(path string, activeMemtable *MemtableThreaded,
+func newCommitLoggerParser(path string, activeMemtable Memtable,
 	strategy string, metrics *Metrics,
 ) *commitloggerParser {
 	return &commitloggerParser{

@@ -35,7 +35,7 @@ var (
 )
 
 type MemtableThreaded struct {
-	baseline         *Memtable
+	baseline         *MemtableSingle
 	wgWorkers        *sync.WaitGroup
 	path             string
 	numWorkers       int
@@ -48,7 +48,7 @@ type MemtableThreaded struct {
 	metrics          *memtableMetrics
 }
 
-type ThreadedMemtableFunc func(*Memtable, ThreadedMemtableRequest) ThreadedMemtableResponse
+type ThreadedMemtableFunc func(*MemtableSingle, ThreadedMemtableRequest) ThreadedMemtableResponse
 
 type ThreadedMemtableRequest struct {
 	operation    ThreadedMemtableFunc
@@ -91,87 +91,87 @@ type ThreadedMemtableResponse struct {
 	countStats            *countStats
 }
 
-func ThreadedGet(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedGet(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.get(request.key)
 	return ThreadedMemtableResponse{error: err, result: v}
 }
 
-func ThreadedGetBySecondary(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedGetBySecondary(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.getBySecondary(request.pos, request.key)
 	return ThreadedMemtableResponse{error: err, result: v}
 }
 
-func ThreadedPut(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedPut(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.put(request.key, request.valueBytes, request.opts...)
 	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedSetTombstone(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedSetTombstone(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.setTombstone(request.key, request.opts...)
 	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedGetCollection(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedGetCollection(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.getCollection(request.key)
 	return ThreadedMemtableResponse{error: err, values: v}
 }
 
-func ThreadedGetMap(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedGetMap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	v, err := m.getMap(request.key)
 	return ThreadedMemtableResponse{error: err, mapNodes: v}
 }
 
-func ThreadedAppend(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedAppend(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.append(request.key, request.valuesValue)
 	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedAppendMapSorted(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedAppendMapSorted(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.appendMapSorted(request.key, request.pair)
 	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedNewCollectionCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedNewCollectionCursor(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{innerCursorCollection: m.newCollectionCursor()}
 }
 
-func ThreadedNewMapCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedNewMapCursor(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{innerCursorMap: m.newMapCursor()}
 }
 
-func ThreadedNewCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedNewCursor(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{innerCursorReplace: m.newCursor()}
 }
 
-func ThreadedNewRoaringSetCursor(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedNewRoaringSetCursor(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{innerCursorRoaringSet: m.newRoaringSetCursor()}
 }
 
-func ThreadedWriteWAL(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedWriteWAL(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.writeWAL()}
 }
 
-func ThreadedSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedSize(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{size: m.size}
 }
 
-func ThreadedActiveDuration(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedActiveDuration(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{duration: m.ActiveDuration()}
 }
 
-func ThreadedIdleDuration(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedIdleDuration(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{duration: m.IdleDuration()}
 }
 
-func ThreadeCountStats(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadeCountStats(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{countStats: m.countStats()}
 }
 
-func ThreadedCommitlogSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogSize(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{size: uint64(m.Commitlog().Size())}
 }
 
-func ThreadedCommitlogUpdatePath(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogUpdatePath(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	updatePath := func(src string) string {
 		return strings.Replace(src, request.bucketDir, request.newBucketDir, 1)
 	}
@@ -180,30 +180,30 @@ func ThreadedCommitlogUpdatePath(m *Memtable, request ThreadedMemtableRequest) T
 	return ThreadedMemtableResponse{}
 }
 
-func ThreadedCommitlogDelete(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogDelete(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.Commitlog().delete()}
 }
 
-func ThreadedCommitlogClose(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogClose(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	return ThreadedMemtableResponse{error: m.Commitlog().close()}
 }
 
-func ThreadedFlush(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedFlush(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	err := m.flush()
 	return ThreadedMemtableResponse{error: err}
 }
 
-func ThreadedCommitlogPause(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogPause(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	m.Commitlog().pause()
 	return ThreadedMemtableResponse{}
 }
 
-func ThreadedCommitlogUnpause(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogUnpause(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	m.Commitlog().unpause()
 	return ThreadedMemtableResponse{}
 }
 
-func ThreadedCommitlogFileSize(m *Memtable, request ThreadedMemtableRequest) ThreadedMemtableResponse {
+func ThreadedCommitlogFileSize(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
 	stat, err := m.Commitlog().file.Stat()
 	if err != nil {
 		return ThreadedMemtableResponse{error: err}

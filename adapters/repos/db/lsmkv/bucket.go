@@ -34,8 +34,8 @@ import (
 type Bucket struct {
 	dir      string
 	rootDir  string
-	active   *MemtableThreaded
-	flushing *MemtableThreaded
+	active   Memtable
+	flushing Memtable
 	disk     *SegmentGroup
 	logger   logrus.FieldLogger
 
