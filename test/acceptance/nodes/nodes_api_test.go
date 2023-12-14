@@ -12,7 +12,9 @@
 package test
 
 import (
+	"os"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -211,6 +213,112 @@ func Test_NodesAPI(t *testing.T) {
 		}
 
 		testStatusResponse(t, assertions, nil, "")
+	})
+
+	t.Run("validate flat compression status", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		booksClass.VectorIndexType = "flat"
+		booksClass.VectorIndexConfig = map[string]interface{}{
+			"bq": map[string]interface{}{
+				"enabled": true,
+			},
+		}
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		t.Run("check compressed true", func(t *testing.T) {
+			verbose := "verbose"
+			params := nodes.NewNodesGetParams().WithOutput(&verbose)
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := resp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			nodes := nodeStatusResp.Nodes
+			require.NotNil(t, nodes)
+			require.Len(t, nodes, 1)
+
+			nodeStatus := nodes[0]
+			require.NotNil(t, nodeStatus)
+
+			require.True(t, nodeStatus.Shards[0].Compressed)
+		})
+	})
+
+	t.Run("validate hnsw pq async compression", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		booksClass.VectorIndexConfig = map[string]interface{}{
+			"pq": map[string]interface{}{
+				"trainingLimit": 256,
+				"enabled":       true,
+				"segments":      1,
+			},
+		}
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		t.Run("check compressed initially false", func(t *testing.T) {
+			verbose := "verbose"
+			params := nodes.NewNodesGetParams().WithOutput(&verbose)
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := resp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			nodes := nodeStatusResp.Nodes
+			require.NotNil(t, nodes)
+			require.Len(t, nodes, 1)
+
+			nodeStatus := nodes[0]
+			require.NotNil(t, nodeStatus)
+
+			require.False(t, nodeStatus.Shards[0].Compressed)
+		})
+
+		t.Run("load data for pq", func(t *testing.T) {
+			num := 1024
+			objects := make([]*models.Object, num)
+
+			for i := 0; i < num; i++ {
+				objects[i] = &models.Object{
+					Class:  booksClass.Class,
+					Vector: []float32{float32(i % 32), float32(i), 3.0, 4.0},
+				}
+			}
+
+			_, err := helper.BatchClient(t).BatchObjectsCreate(
+				batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+					Objects: objects,
+				},
+				), nil)
+			require.Nil(t, err)
+		})
+
+		t.Run("check eventually compressed if async enabled", func(t *testing.T) {
+			if os.Getenv("ASYNC_INDEXING") == "true" {
+				checkThunk := func() interface{} {
+					verbose := "verbose"
+					params := nodes.NewNodesGetParams().WithOutput(&verbose)
+					resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+					require.Nil(t, err)
+
+					nodeStatusResp := resp.GetPayload()
+					require.NotNil(t, nodeStatusResp)
+
+					nodes := nodeStatusResp.Nodes
+					require.NotNil(t, nodes)
+					require.Len(t, nodes, 1)
+
+					nodeStatus := nodes[0]
+					require.NotNil(t, nodeStatus)
+					return nodeStatus.Shards[0].Compressed
+				}
+
+				helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+			}
+		})
 	})
 }
 
