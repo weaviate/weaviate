@@ -12,6 +12,7 @@
 package hashtree
 
 type CompactHashTreeDiffReader struct {
+	ht         *CompactHashTree
 	diffReader *HashTreeDiffReader
 }
 
@@ -21,16 +22,24 @@ func (ht *CompactHashTree) NewDiffReader(diffReader *HashTreeDiffReader) *Compac
 	}
 
 	return &CompactHashTreeDiffReader{
+		ht:         ht,
 		diffReader: diffReader,
 	}
 }
 
 func (r *CompactHashTreeDiffReader) Next() (uint64, uint64, error) {
-	leaf0, leaf1, err := r.diffReader.Next()
+	mappedLeaf0, mappedLeaf1, err := r.diffReader.Next()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	// TODO(jeroiraz): map to a range
-	return uint64(leaf0), uint64(leaf1), nil
+	var groupSize uint64
+
+	if mappedLeaf1 < r.ht.extendedGroupsCount {
+		groupSize = r.ht.extendedGroupSize
+	} else {
+		groupSize = r.ht.groupSize
+	}
+
+	return r.ht.unmapLeaf(mappedLeaf0), r.ht.unmapLeaf(mappedLeaf1) + groupSize - 1, nil
 }

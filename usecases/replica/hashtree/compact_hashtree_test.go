@@ -94,22 +94,22 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	ht1 := NewCompactHashTree(capacity, maxHeight)
 	ht2 := NewCompactHashTree(capacity, maxHeight)
 
-	diffReader, err := CompactHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
+	diffReader, err := CompactHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 	require.NotNil(t, diffReader)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht1.AggregateLeafWith(0, []byte("val1"))
+	ht1.AggregateLeafWith(16, []byte("val1"))
 
 	diffReader, err = CompactHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 
 	diff1, diff2, err := diffReader.Next()
 	require.NoError(t, err)
-	require.Equal(t, 0, diff1)
-	require.Equal(t, 0, diff2)
+	require.EqualValues(t, 0, diff1)
+	require.EqualValues(t, capacity/uint64(LeavesCount(ht1.Height())), diff2)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)

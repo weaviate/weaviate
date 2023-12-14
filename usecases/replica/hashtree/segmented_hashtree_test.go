@@ -100,7 +100,7 @@ func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
 	ht1 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 	ht2 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
-	diffReader, err := SegmentedHashTreeDiff(ht1, ht2) // diff is set to one for all differing paths
+	diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 	require.NotNil(t, diffReader)
 
