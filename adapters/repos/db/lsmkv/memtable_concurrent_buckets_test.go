@@ -22,6 +22,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
+type Times struct {
+	Setup    int
+	Insert   int
+	Copy     int
+	Flatten  int
+	Merge    int
+	Shutdown int
+}
+
 type Request struct {
 	key        []byte
 	value      uint64
@@ -77,7 +86,7 @@ func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignmen
 	path := t.TempDir()
 	strategy := StrategyRoaringSet
 
-	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment, useThreadedFor, numWorkers)
+	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment, useThreadedFor, numWorkers, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

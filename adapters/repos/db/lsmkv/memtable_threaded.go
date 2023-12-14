@@ -264,11 +264,21 @@ func newMemtableThreaded(path string, strategy string,
 		numThreadsInt = numThreadsIntParsed
 	}
 
-	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment, enableForSet, numThreadsInt)
+	bufferSizeInt := 10
+	bufferSize := os.Getenv("MEMTABLE_THREADED_BUFFER_SIZE")
+	if len(bufferSize) > 0 {
+		bufferSizeIntParsed, err := strconv.Atoi(bufferSize)
+		if err != nil {
+			return nil, err
+		}
+		bufferSizeInt = bufferSizeIntParsed
+	}
+
+	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment, enableForSet, numThreadsInt, bufferSizeInt)
 }
 
 func newMemtableThreadedDebug(path string, strategy string,
-	secondaryIndices uint16, metrics *Metrics, workerAssignment string, enableFor map[string]bool, numThreads int,
+	secondaryIndices uint16, metrics *Metrics, workerAssignment string, enableFor map[string]bool, numThreads int, bufferSize int,
 ) (*MemtableThreaded, error) {
 	if !enableFor[strategy] {
 		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
@@ -288,7 +298,7 @@ func newMemtableThreadedDebug(path string, strategy string,
 		requestsChannels := make([]chan ThreadedMemtableRequest, numChannels)
 
 		for i := 0; i < numChannels; i++ {
-			requestsChannels[i] = make(chan ThreadedMemtableRequest)
+			requestsChannels[i] = make(chan ThreadedMemtableRequest, bufferSize)
 		}
 
 		// Start worker goroutines
