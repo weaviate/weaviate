@@ -45,7 +45,7 @@ func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
 	}
 }
 
-func HashTreeDiff(ht1, ht2 *HashTree) (diff *Bitset, err error) {
+func HashTreeDiff(ht1, ht2 *HashTree) (*HashTreeDiffReader, error) {
 	if ht1 == nil || ht2 == nil {
 		return nil, ErrIllegalArguments
 	}
@@ -55,28 +55,26 @@ func HashTreeDiff(ht1, ht2 *HashTree) (diff *Bitset, err error) {
 	}
 
 	// init for comparison
-	diff = NewBitset(NodesCount(ht1.Height()))
+	diff := NewBitset(NodesCount(ht1.Height()))
 
 	leavesCount := LeavesCount(ht1.Height())
 	digests1 := make([]Digest, leavesCount)
 	digests2 := make([]Digest, leavesCount)
 
-	err = HashTreeDiffWith(ht1, ht2, diff, digests1, digests2)
-
-	return diff, err
+	return HashTreeDiffWith(ht1, ht2, diff, digests1, digests2)
 }
 
-func HashTreeDiffWith(ht1, ht2 *HashTree, diff *Bitset, digests1, digests2 []Digest) error {
+func HashTreeDiffWith(ht1, ht2 *HashTree, diff *Bitset, digests1, digests2 []Digest) (*HashTreeDiffReader, error) {
 	if ht1 == nil || ht2 == nil || diff == nil {
-		return ErrIllegalArguments
+		return nil, ErrIllegalArguments
 	}
 
 	if ht1.Height() != ht2.Height() {
-		return fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
+		return nil, fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
 	}
 
 	if diff.Size() != NodesCount(ht1.Height()) {
-		return fmt.Errorf("%w: diff bitset size should mismatch", ErrIllegalArguments)
+		return nil, fmt.Errorf("%w: diff bitset size should mismatch", ErrIllegalArguments)
 	}
 
 	diff.Reset().Set(0) // init comparison at root level
@@ -84,12 +82,12 @@ func HashTreeDiffWith(ht1, ht2 *HashTree, diff *Bitset, digests1, digests2 []Dig
 	for l := 0; l < ht1.Height(); l++ {
 		_, err := ht1.Level(l, diff, digests1)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		_, err = ht2.Level(l, diff, digests2)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		LevelDiff(l, diff, digests1, digests2)
@@ -100,37 +98,5 @@ func HashTreeDiffWith(ht1, ht2 *HashTree, diff *Bitset, digests1, digests2 []Dig
 		}
 	}
 
-	return nil
-}
-
-func CompactHashTreeDiff(ht1, ht2 *CompactHashTree) (diff *Bitset, err error) {
-	if ht1 == nil || ht2 == nil {
-		return nil, ErrIllegalArguments
-	}
-
-	return HashTreeDiff(ht1.hashtree, ht2.hashtree)
-}
-
-func CompactHashTreeDiffWith(ht1, ht2 *CompactHashTree, diff *Bitset, digests1, digests2 []Digest) error {
-	if ht1 == nil || ht2 == nil {
-		return ErrIllegalArguments
-	}
-
-	return HashTreeDiffWith(ht1.hashtree, ht2.hashtree, diff, digests1, digests2)
-}
-
-func SegmentedHashTreeDiff(ht1, ht2 *SegmentedHashTree) (diff *Bitset, err error) {
-	if ht1 == nil || ht2 == nil {
-		return nil, ErrIllegalArguments
-	}
-
-	return CompactHashTreeDiff(ht1.hashtree, ht2.hashtree)
-}
-
-func SegmentedHashTreeDiffWith(ht1, ht2 *SegmentedHashTree, diff *Bitset, digests1, digests2 []Digest) error {
-	if ht1 == nil || ht2 == nil {
-		return ErrIllegalArguments
-	}
-
-	return CompactHashTreeDiffWith(ht1.hashtree, ht2.hashtree, diff, digests1, digests2)
+	return ht1.NewDiffReader(diff), nil
 }
