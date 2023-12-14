@@ -328,8 +328,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
-		defer h.compressor.ReturnDistancer(compressorDistancer)
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancerFromID(neighbor)
+		defer returnFn()
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
