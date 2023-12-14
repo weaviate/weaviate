@@ -1060,6 +1060,11 @@
           "format": "string",
           "x-omitempty": false
         },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
+          "x-omitempty": false
+        },
         "vectorQueueLength": {
           "description": "The length of the vector indexing queue.",
           "format": "int64",

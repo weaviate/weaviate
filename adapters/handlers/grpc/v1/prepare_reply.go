@@ -13,6 +13,8 @@ package v1
 
 import (
 	"fmt"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -100,7 +102,7 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
 	_, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 
-	additionalProps := &pb.MetadataResult{}
+	metadata := &pb.MetadataResult{}
 	if additionalPropsParams.ID && !generativeSearchEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
@@ -111,11 +113,16 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if !ok {
 			return nil, "", errors.New("could not extract format id in additional prop")
 		}
-		additionalProps.Id = idStrfmt.String()
+		metadata.Id = idStrfmt.String()
+		hexInteger, success := new(big.Int).SetString(strings.Replace(metadata.Id, "-", "", -1), 16)
+		if !success {
+			return nil, "", fmt.Errorf("failed to parse hex string to integer")
+		}
+		metadata.IdBytes = hexInteger.Bytes()
 	}
 	_, ok := asMap["_additional"]
 	if !ok {
-		return additionalProps, "", nil
+		return metadata, "", nil
 	}
 
 	var additionalPropertiesMap map[string]interface{}
@@ -140,7 +147,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if !ok {
 			return nil, "", errors.New("could not format id generative in additional prop")
 		}
-		additionalProps.Id = idStrfmt.String()
+		metadata.Id = idStrfmt.String()
 	}
 
 	if generativeSearchEnabled {
@@ -159,8 +166,8 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			}
 
 			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
-				additionalProps.Generative = *generateFmt.SingleResult
-				additionalProps.GenerativePresent = true
+				metadata.Generative = *generateFmt.SingleResult
+				metadata.GenerativePresent = true
 			}
 
 			// grouped results are only added to the first object for GQL reasons
@@ -176,80 +183,80 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if ok {
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
-				additionalProps.Vector = vectorfmt // deprecated, remove in a bit
-				additionalProps.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
+				metadata.Vector = vectorfmt // deprecated, remove in a bit
+				metadata.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
 			}
 		}
 	}
 
 	if additionalPropsParams.Certainty {
-		additionalProps.CertaintyPresent = false
+		metadata.CertaintyPresent = false
 		certainty, ok := additionalPropertiesMap["certainty"]
 		if ok {
 			certaintyfmt, ok2 := certainty.(float64)
 			if ok2 {
-				additionalProps.Certainty = float32(certaintyfmt)
-				additionalProps.CertaintyPresent = true
+				metadata.Certainty = float32(certaintyfmt)
+				metadata.CertaintyPresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.Distance {
-		additionalProps.DistancePresent = false
+		metadata.DistancePresent = false
 		distance, ok := additionalPropertiesMap["distance"]
 		if ok {
 			distancefmt, ok2 := distance.(float32)
 			if ok2 {
-				additionalProps.Distance = distancefmt
-				additionalProps.DistancePresent = true
+				metadata.Distance = distancefmt
+				metadata.DistancePresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.CreationTimeUnix {
-		additionalProps.CreationTimeUnixPresent = false
+		metadata.CreationTimeUnixPresent = false
 		creationtime, ok := additionalPropertiesMap["creationTimeUnix"]
 		if ok {
 			creationtimefmt, ok2 := creationtime.(int64)
 			if ok2 {
-				additionalProps.CreationTimeUnix = creationtimefmt
-				additionalProps.CreationTimeUnixPresent = true
+				metadata.CreationTimeUnix = creationtimefmt
+				metadata.CreationTimeUnixPresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.LastUpdateTimeUnix {
-		additionalProps.LastUpdateTimeUnixPresent = false
+		metadata.LastUpdateTimeUnixPresent = false
 		lastUpdateTime, ok := additionalPropertiesMap["lastUpdateTimeUnix"]
 		if ok {
 			lastUpdateTimefmt, ok2 := lastUpdateTime.(int64)
 			if ok2 {
-				additionalProps.LastUpdateTimeUnix = lastUpdateTimefmt
-				additionalProps.LastUpdateTimeUnixPresent = true
+				metadata.LastUpdateTimeUnix = lastUpdateTimefmt
+				metadata.LastUpdateTimeUnixPresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.ExplainScore {
-		additionalProps.ExplainScorePresent = false
+		metadata.ExplainScorePresent = false
 		explainScore, ok := additionalPropertiesMap["explainScore"]
 		if ok {
 			explainScorefmt, ok2 := explainScore.(string)
 			if ok2 {
-				additionalProps.ExplainScore = explainScorefmt
-				additionalProps.ExplainScorePresent = true
+				metadata.ExplainScore = explainScorefmt
+				metadata.ExplainScorePresent = true
 			}
 		}
 	}
 
 	if additionalPropsParams.Score {
-		additionalProps.ScorePresent = false
+		metadata.ScorePresent = false
 		score, ok := additionalPropertiesMap["score"]
 		if ok {
 			scorefmt, ok2 := score.(float32)
 			if ok2 {
-				additionalProps.Score = scorefmt
-				additionalProps.ScorePresent = true
+				metadata.Score = scorefmt
+				metadata.ScorePresent = true
 			}
 		}
 	}
@@ -259,13 +266,13 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if ok {
 			isConsistentfmt, ok2 := isConsistent.(bool)
 			if ok2 {
-				additionalProps.IsConsistent = &isConsistentfmt
-				additionalProps.IsConsistentPresent = true
+				metadata.IsConsistent = &isConsistentfmt
+				metadata.IsConsistentPresent = true
 			}
 		}
 	}
 
-	return additionalProps, generativeGroupResults, nil
+	return metadata, generativeGroupResults, nil
 }
 
 func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.GroupByResult, string, error) {
