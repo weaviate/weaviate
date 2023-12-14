@@ -642,3 +642,39 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 
 	require.Nil(t, tracker.Close())
 }
+
+//Test that object racking works
+func Test_PropertyLengthTracker_ObjectTracking(t *testing.T) {
+
+		dirName := t.TempDir()
+	
+		path := path.Join(dirName, "my_test_shard")
+	
+		var tracker *JsonPropertyLengthTracker
+
+		l := logrus.New()
+	
+		t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
+			tr, err := NewJsonPropertyLengthTracker(path,l)
+			require.Nil(t, err)
+			tracker = tr
+		})
+
+		t.Run("test object tracking", func(t *testing.T) {
+			start := tracker.ObjectTally()
+			require.Equal(t, start, 0)
+
+			tracker.TrackObjects(1)
+			require.Equal(t, tracker.ObjectTally(), 1)
+
+			tracker.TrackObjects(1)
+			require.Equal(t, tracker.ObjectTally(), 2)
+
+			tracker.TrackObjects(-1)
+			require.Equal(t, tracker.ObjectTally(), 1)
+
+			tracker.TrackObjects(-1)
+			require.Equal(t, tracker.ObjectTally(), 0)
+		})
+
+	}

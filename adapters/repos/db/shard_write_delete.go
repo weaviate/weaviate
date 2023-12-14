@@ -74,6 +74,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
+	if err = s.ChangeObjectCountBy(-1); err != nil {
+		return fmt.Errorf("subtract prop lengths: %w", err)
+	}
+
 	return nil
 }
 

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -43,6 +44,7 @@ import (
 
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
+	propLenTracker *inverted.JsonPropertyLengthTracker
 	shard     *Shard
 	loaded    bool
 	mutex     sync.Mutex
@@ -88,6 +90,8 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
+
+	l.propLenTracker = nil
 
 	if l.loaded {
 		return nil
@@ -155,13 +159,24 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 }
 
 func (l *LazyLoadShard) ObjectCount() int {
-	l.mustLoad()
-	return l.shard.ObjectCount()
+	return l.GetPropertyLengthTracker().ObjectTally()
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-	l.mustLoad()
-	return l.shard.GetPropertyLengthTracker()
+	var tracker *inverted.JsonPropertyLengthTracker
+	if l.shard.GetPropertyLengthTracker() != nil {
+		return l.shard.GetPropertyLengthTracker()
+	}
+
+	//FIXME add method for tracker path
+	plPath := path.Join(l.shardOpts.index.path(), "proplengths")
+	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, l.shardOpts.index.logger)
+	l.propLenTracker = tracker
+	if err != nil {
+		panic(fmt.Sprintf("could not create property length tracker at %v: %v",plPath, err))
+	}
+
+	return l.propLenTracker
 }
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {

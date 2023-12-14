@@ -27,11 +27,12 @@ type PropLenData struct {
 	BucketedData map[string]map[int]int
 	SumData      map[string]int
 	CountData    map[string]int
+	ObjectCount  int
 }
 
 type JsonPropertyLengthTracker struct {
 	path string
-	data *PropLenData
+	data *PropLenData  //Only this is saved in the file
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
@@ -68,7 +69,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 		if r := recover(); r != nil {
 			t.logger.Printf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
 			t = &JsonPropertyLengthTracker{
-				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
+				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0},
 				path:             path,
 				UnlimitedBuckets: false,
 			}
@@ -77,7 +78,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	}()
 
 	t = &JsonPropertyLengthTracker{
-		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
+		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0},
 		path:             path,
 		UnlimitedBuckets: false,
 		logger:           logger,
@@ -106,7 +107,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 		}
 
 		propertyNames := plt.PropertyNames()
-		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0}
 		// Loop over every page and bucket in the old tracker and add it to the new tracker
 		for _, name := range propertyNames {
 			data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
@@ -152,12 +153,20 @@ func (t *JsonPropertyLengthTracker) Clear() {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+	t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 }
 
 // Path to the file on disk
 func (t *JsonPropertyLengthTracker) FileName() string {
 	return t.path
+}
+
+func (t *JsonPropertyLengthTracker) TrackObjects(delta int)	error {
+	t.Lock()
+	defer t.Unlock()
+
+	t.data.ObjectCount = t.data.ObjectCount + delta
+	return nil
 }
 
 // Adds a new value to the tracker
@@ -168,7 +177,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] + int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] + 1
@@ -193,7 +202,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
@@ -254,6 +263,14 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
 	}
 	return sum, count, float64(sum) / float64(count), nil
+}
+
+//Returns the number of documents stored in the shard
+func (t *JsonPropertyLengthTracker) ObjectTally() int {
+	t.Lock()
+	defer t.Unlock()
+
+	return t.data.ObjectCount
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file

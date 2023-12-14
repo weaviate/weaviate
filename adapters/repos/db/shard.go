@@ -780,12 +780,7 @@ func (s *Shard) NotifyReady() {
 }
 
 func (s *Shard) ObjectCount() int {
-	b := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return 0
-	}
-
-	return b.Count()
+	return s.GetPropertyLengthTracker().ObjectTally()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

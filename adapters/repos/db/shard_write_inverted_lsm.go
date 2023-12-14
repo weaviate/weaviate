@@ -223,6 +223,14 @@ func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 	return nil
 }
 
+func (s *Shard) ChangeObjectCountBy(count int) error {
+	if err := s.GetPropertyLengthTracker().TrackObjects(count); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
 		if !prop.HasSearchableIndex {
