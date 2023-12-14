@@ -64,7 +64,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
+	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection, req.Uses_123Api)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -543,7 +543,7 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -556,7 +556,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 		return nonRefProps, nil
 	}
 
-	if !reqProps.UsesNewDefaultLogic {
+	if !usesNewDefaultLogic {
 		// Old stubs being used, use deprecated method
 		return extractPropertiesRequestDeprecated(reqProps, scheme, className)
 	}
@@ -607,7 +607,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
+				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName, usesNewDefaultLogic)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -691,7 +691,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme s
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, scheme, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}

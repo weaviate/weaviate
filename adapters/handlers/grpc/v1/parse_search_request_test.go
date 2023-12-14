@@ -163,7 +163,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Empty return properties given with new default logic",
-			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true}},
+			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{
 					NoProps: true,
@@ -208,7 +208,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Metadata ID only query using new default logic",
-			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true}, Metadata: &pb.MetadataRequest{Uuid: true}},
+			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{}, Metadata: &pb.MetadataRequest{Uuid: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
 				Properties: search.SelectProperties{},
@@ -229,7 +229,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return all nonref values with new default logic",
-			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true, UsesNewDefaultLogic: true}},
+			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: defaultTestClassProps,
 			},
@@ -237,9 +237,8 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return all nonref values with ref and specific props using new default logic",
-			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
+			req: &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
-				UsesNewDefaultLogic:       true,
 				RefProperties: []*pb.RefPropertiesRequest{{
 					ReferenceProperty: "ref",
 					TargetCollection:  refClass1,
@@ -266,14 +265,13 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return all nonref values with ref and all nonref props using new default logic",
-			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
+			req: &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{
 				ReturnAllNonrefProperties: true,
-				UsesNewDefaultLogic:       true,
 				RefProperties: []*pb.RefPropertiesRequest{{
 					ReferenceProperty: "ref",
 					TargetCollection:  refClass1,
 					Metadata:          &pb.MetadataRequest{Vector: true, Certainty: false},
-					Properties:        &pb.PropertiesRequest{ReturnAllNonrefProperties: true, UsesNewDefaultLogic: true},
+					Properties:        &pb.PropertiesRequest{ReturnAllNonrefProperties: true},
 				}},
 			}},
 			out: dto.GetParams{
@@ -317,14 +315,13 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return values only ref using new default logic",
-			req: &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{
-				UsesNewDefaultLogic: true,
+			req: &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{
 				RefProperties: []*pb.RefPropertiesRequest{
 					{
 						ReferenceProperty: "ref",
 						TargetCollection:  refClass1,
 						Metadata:          &pb.MetadataRequest{Vector: true, Certainty: false},
-						Properties:        &pb.PropertiesRequest{UsesNewDefaultLogic: true, NonRefProperties: []string{"something"}},
+						Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"something"}},
 					},
 				},
 			}},
@@ -345,7 +342,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Properties return values non-ref with new default logic",
-			req:  &pb.SearchRequest{Collection: classname, Properties: &pb.PropertiesRequest{UsesNewDefaultLogic: true, NonRefProperties: []string{"name", "CapitalizedName"}}},
+			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{NonRefProperties: []string{"name", "CapitalizedName"}}},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "capitalizedName", IsPrimitive: true}},
 			},
@@ -1020,7 +1017,7 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "No return values given nested with new default logic",
-			req:  &pb.SearchRequest{Collection: objClass, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true, UsesNewDefaultLogic: true}},
+			req:  &pb.SearchRequest{Uses_123Api: true, Collection: objClass, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
 			out: dto.GetParams{
 				ClassName: objClass, Pagination: defaultPagination,
 				Properties: search.SelectProperties{
