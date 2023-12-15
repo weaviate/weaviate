@@ -44,7 +44,7 @@ message SearchRequest {
 
   optional GenerativeSearch generative = 60;
 
-  bool uses_properties_message = 100 [deprecated = true];
+  bool uses_123_api = 100 [deprecated = true];
 }
 
 message GroupBy {
@@ -144,6 +144,7 @@ message PropertiesRequest {
   repeated string non_ref_properties = 1;
   repeated RefPropertiesRequest ref_properties = 2;
   repeated ObjectPropertiesRequest object_properties = 3;
+  bool return_all_nonref_properties = 11;
 }
 
 message ObjectPropertiesRequest {
