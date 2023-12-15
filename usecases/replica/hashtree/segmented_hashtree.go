@@ -81,13 +81,13 @@ func (ht *SegmentedHashTree) mapLeaf(i uint64) uint64 {
 		panic("out of segment")
 	}
 
-	return uint64(segmentFound)*ht.segmentSize + (i-ht.segments[segmentFound])%ht.segmentSize
+	return uint64(segmentFound)*ht.segmentSize + (i - ht.segments[segmentFound])
 }
 
 func (ht *SegmentedHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 	segment := mappedLeaf / ht.segmentSize
 
-	return ht.segments[segment] + mappedLeaf - segment*ht.segmentSize
+	return ht.segments[segment] + (mappedLeaf - segment*ht.segmentSize)
 }
 
 func (ht *SegmentedHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
