@@ -163,6 +163,9 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+	if l.loaded {
+		return l.shard.GetPropertyLengthTracker()
+	}
 	var tracker *inverted.JsonPropertyLengthTracker
 	if l.shard.GetPropertyLengthTracker() != nil {
 		return l.shard.GetPropertyLengthTracker()

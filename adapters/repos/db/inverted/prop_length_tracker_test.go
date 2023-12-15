@@ -675,6 +675,19 @@ func Test_PropertyLengthTracker_ObjectTracking(t *testing.T) {
 
 			tracker.TrackObjects(-1)
 			require.Equal(t, tracker.ObjectTally(), 0)
+
+			tracker.TrackObjects(2)
+			require.Equal(t, tracker.ObjectTally(), 2)
+
+			err := tracker.Close()
+			require.Nil(t, err)
+
+			tr, err := NewJsonPropertyLengthTracker(path,l)
+			require.Nil(t, err)
+			tracker = tr
+
+			require.Equal(t, tracker.ObjectTally(), 2)
+
 		})
 
 	}
