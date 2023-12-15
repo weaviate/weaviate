@@ -69,24 +69,23 @@ func TestMemtableConcurrentInsert(t *testing.T) {
 func RunExperiment(t *testing.T, numClients int, numWorkers int, workerAssignment string, operations [][]*Request) ([]*roaringset.BinarySearchNode, Times) {
 	numChannels := numWorkers
 
-	useThreadedFor := map[string]bool{
-		StrategyRoaringSet: true,
-	}
-
 	if workerAssignment == MEMTABLE_THREADED_SINGLE_CHANNEL {
 		numChannels = 1
 	}
-
-	if workerAssignment == MEMTABLE_THREADED_BASELINE {
-		numChannels = 1
-		numWorkers = 1
-		useThreadedFor = map[string]bool{}
-	}
+	var m Memtable
+	var err error
 
 	path := t.TempDir()
 	strategy := StrategyRoaringSet
+	if workerAssignment == MEMTABLE_THREADED_BASELINE {
+		numChannels = 1
+		numWorkers = 1
+		m, err = newMemtable(path, strategy, 0, nil)
 
-	m, err := newMemtableThreadedDebug(path, strategy, 0, nil, workerAssignment, useThreadedFor, numWorkers, 10)
+	} else {
+		m, err = newMemtableThreaded(path, strategy, 0, nil, workerAssignment, numWorkers, 10)
+	}
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +157,7 @@ func generateOperations(numKeys int, operationsPerClient int, numClients int) []
 	return operations
 }
 
-func client(i int, numWorkers int, threadOperations []*Request, m *MemtableThreaded, wg *sync.WaitGroup, workerAssignment string) {
+func client(i int, numWorkers int, threadOperations []*Request, m Memtable, wg *sync.WaitGroup, workerAssignment string) {
 	defer wg.Done()
 
 	for j := 0; j < len(threadOperations); j++ {

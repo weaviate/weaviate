@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,7 +40,7 @@ type MemtableSingle struct {
 	metrics            *memtableMetrics
 }
 
-func newMemtable(path string, strategy string,
+func newMemtableSingle(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics,
 ) (*MemtableSingle, error) {
 	cl, err := newCommitLogger(path)
@@ -354,6 +355,46 @@ func (m *MemtableSingle) Commitlog() *commitLogger {
 	return m.commitlog
 }
 
+func (m *MemtableSingle) CommitlogClose() error {
+	return m.commitlog.close()
+}
+
+func (m *MemtableSingle) CommitlogDelete() error {
+	return m.commitlog.delete()
+}
+
+func (m *MemtableSingle) CommitlogPath() string {
+	return m.commitlog.path
+}
+
+func (m *MemtableSingle) CommitlogFileSize() (int64, error) {
+	stat, err := m.Commitlog().file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return stat.Size(), nil
+}
+
+func (m *MemtableSingle) CommitlogPause() {
+	m.commitlog.pause()
+}
+
+func (m *MemtableSingle) CommitlogUnpause() {
+	m.commitlog.unpause()
+}
+
+func (m *MemtableSingle) CommitlogUpdatePath(bucketDir, newBucketDir string) {
+	updatePath := func(src string) string {
+		return strings.Replace(src, bucketDir, newBucketDir, 1)
+	}
+	m.SetPath(updatePath(m.Path()))
+	m.Commitlog().path = updatePath(m.Commitlog().path)
+}
+
+func (m *MemtableSingle) CommitlogSize() int64 {
+	return m.commitlog.Size()
+}
+
 func (m *MemtableSingle) RoaringSet() *roaringset.BinarySearchTree {
 	m.RLock()
 	defer m.RUnlock()
@@ -372,4 +413,33 @@ func (m *MemtableSingle) SetPath(path string) {
 	m.Lock()
 	defer m.Unlock()
 	m.path = path
+}
+
+func (m *MemtableSingle) UpdatePath(bucketDir, newBucketDir string) {
+	updatePath := func(src string) string {
+		return strings.Replace(src, bucketDir, newBucketDir, 1)
+	}
+	m.SetPath(updatePath(m.Path()))
+}
+
+func (m *MemtableSingle) closeRequestChannels() {
+	// This function is intentionally left empty.
+}
+
+func (m *MemtableSingle) flattenInOrderKey() []*binarySearchNode {
+	m.RLock()
+	defer m.RUnlock()
+	return m.key.flattenInOrder()
+}
+
+func (m *MemtableSingle) flattenInOrderKeyMulti() []*binarySearchNodeMulti {
+	m.RLock()
+	defer m.RUnlock()
+	return m.keyMulti.flattenInOrder()
+}
+
+func (m *MemtableSingle) flattenInOrderKeyMap() []*binarySearchNodeMap {
+	m.RLock()
+	defer m.RUnlock()
+	return m.keyMap.flattenInOrder()
 }

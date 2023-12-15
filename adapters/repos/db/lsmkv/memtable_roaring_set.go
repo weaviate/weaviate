@@ -148,3 +148,7 @@ func (m *MemtableSingle) roaringSetAddCommitLog(key []byte, additions *sroar.Bit
 	}
 	return nil
 }
+
+func (m *MemtableSingle) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
+	return m.roaringSet.FlattenInOrder()
+}

@@ -21,50 +21,44 @@ import (
 )
 
 func (m *MemtableThreaded) closeRequestChannels() {
-	if m.baseline == nil {
-		for _, channel := range m.requestsChannels {
-			close(channel)
-		}
-		m.wgWorkers.Wait()
+	for _, channel := range m.requestsChannels {
+		close(channel)
 	}
+	m.wgWorkers.Wait()
 }
 
 func (m *MemtableThreaded) flush() error {
-	if m.baseline != nil {
-		return m.baseline.flush()
-	} else {
-		var err error
+	var err error
 
-		if err := m.CommitlogClose(); err != nil {
-			return errors.Wrap(err, "close commit log file")
-		}
+	if err := m.CommitlogClose(); err != nil {
+		return errors.Wrap(err, "close commit log file")
+	}
 
-		if m.Size() == 0 {
-			// this is an empty memtable, nothing to do
-			// however, we still have to cleanup the commit log, otherwise we will
-			// attempt to recover from it on the next cycle
-			if err := m.CommitlogDelete(); err != nil {
-				return errors.Wrap(err, "delete commit log file")
-			}
-			return nil
-		}
-
-		if m.strategy == StrategyRoaringSet {
-			err = m.flushRoaringSet()
-		} else if m.strategy == StrategyReplace {
-			err = m.flushKey()
-		} else if m.strategy == StrategyMapCollection {
-			err = m.flushKeyMap()
-		} else if m.strategy == StrategySetCollection {
-			err = m.flushKeyMulti()
-		} else {
-			return errors.Errorf("unknown strategy %s on flush", m.strategy)
-		}
-		if err != nil {
-			return err
+	if m.Size() == 0 {
+		// this is an empty memtable, nothing to do
+		// however, we still have to cleanup the commit log, otherwise we will
+		// attempt to recover from it on the next cycle
+		if err := m.CommitlogDelete(); err != nil {
+			return errors.Wrap(err, "delete commit log file")
 		}
 		return nil
 	}
+
+	if m.strategy == StrategyRoaringSet {
+		err = m.flushRoaringSet()
+	} else if m.strategy == StrategyReplace {
+		err = m.flushKey()
+	} else if m.strategy == StrategyMapCollection {
+		err = m.flushKeyMap()
+	} else if m.strategy == StrategySetCollection {
+		err = m.flushKeyMulti()
+	} else {
+		return errors.Errorf("unknown strategy %s on flush", m.strategy)
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *MemtableThreaded) flushKey() error {
@@ -122,36 +116,24 @@ func (m *MemtableThreaded) flushKeyMulti() error {
 }
 
 func (m *MemtableThreaded) flattenInOrderKey() []*binarySearchNode {
-	if m.baseline != nil {
-		return m.baseline.key.flattenInOrder()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedFlattenInOrderKey,
-		}, true, "FlattenInOrderKey")
-		return output.nodesKey
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedFlattenInOrderKey,
+	}, true, "FlattenInOrderKey")
+	return output.nodesKey
 }
 
 func (m *MemtableThreaded) flattenInOrderKeyMap() []*binarySearchNodeMap {
-	if m.baseline != nil {
-		return m.baseline.keyMap.flattenInOrder()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedFlattenInOrderKeyMap,
-		}, true, "FlattenInOrderKeyMap")
-		return output.nodesMap
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedFlattenInOrderKeyMap,
+	}, true, "FlattenInOrderKeyMap")
+	return output.nodesMap
 }
 
 func (m *MemtableThreaded) flattenInOrderKeyMulti() []*binarySearchNodeMulti {
-	if m.baseline != nil {
-		return m.baseline.keyMulti.flattenInOrder()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedFlattenInOrderKeyMulti,
-		}, true, "FlattenInOrderKeyMulti")
-		return output.nodesMulti
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedFlattenInOrderKeyMulti,
+	}, true, "FlattenInOrderKeyMulti")
+	return output.nodesMulti
 }
 
 // TODO: this code is mostly duplicate for all node types, and it should be refactored with generics

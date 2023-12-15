@@ -89,45 +89,29 @@ func (c *CursorReplace) next() ([]byte, []byte, error) {
 }
 
 func (m *MemtableThreaded) newCollectionCursor() innerCursorCollection {
-	if m.baseline != nil {
-		return m.baseline.newCollectionCursor()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedNewCollectionCursor,
-		}, true, "NewCollectionCursor")
-		return output.cursorSet
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedNewCollectionCursor,
+	}, true, "NewCollectionCursor")
+	return output.cursorSet
 }
 
 func (m *MemtableThreaded) newRoaringSetCursor() roaringset.InnerCursor {
-	if m.baseline != nil {
-		return m.baseline.newRoaringSetCursor()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedNewRoaringSetCursor,
-		}, true, "NewRoaringSetCursor")
-		return output.cursorRoaringSet
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedNewRoaringSetCursor,
+	}, true, "NewRoaringSetCursor")
+	return output.cursorRoaringSet
 }
 
 func (m *MemtableThreaded) newMapCursor() innerCursorMap {
-	if m.baseline != nil {
-		return m.baseline.newMapCursor()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedNewMapCursor,
-		}, true, "NewMapCursor")
-		return output.cursorMap
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedNewMapCursor,
+	}, true, "NewMapCursor")
+	return output.cursorMap
 }
 
 func (m *MemtableThreaded) newCursor() innerCursorReplace {
-	if m.baseline != nil {
-		return m.baseline.newCursor()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedNewCursor,
-		}, true, "NewCursor")
-		return output.cursorReplace
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedNewCursor,
+	}, true, "NewCursor")
+	return output.cursorReplace
 }

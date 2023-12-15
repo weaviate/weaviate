@@ -35,7 +35,6 @@ var (
 )
 
 type MemtableThreaded struct {
-	baseline         *MemtableSingle
 	wgWorkers        *sync.WaitGroup
 	path             string
 	numWorkers       int
@@ -152,7 +151,7 @@ func ThreadedWriteWAL(m *MemtableSingle, request ThreadedMemtableRequest) Thread
 }
 
 func ThreadedSize(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{size: m.size}
+	return ThreadedMemtableResponse{size: m.Size()}
 }
 
 func ThreadedActiveDuration(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
@@ -168,24 +167,20 @@ func ThreadeCountStats(m *MemtableSingle, request ThreadedMemtableRequest) Threa
 }
 
 func ThreadedCommitlogSize(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{size: uint64(m.Commitlog().Size())}
+	return ThreadedMemtableResponse{size: uint64(m.CommitlogSize())}
 }
 
 func ThreadedCommitlogUpdatePath(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	updatePath := func(src string) string {
-		return strings.Replace(src, request.bucketDir, request.newBucketDir, 1)
-	}
-	m.SetPath(updatePath(m.Path()))
-	m.Commitlog().path = updatePath(m.Commitlog().path)
+	m.CommitlogUpdatePath(request.bucketDir, request.newBucketDir)
 	return ThreadedMemtableResponse{}
 }
 
 func ThreadedCommitlogDelete(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.Commitlog().delete()}
+	return ThreadedMemtableResponse{error: m.CommitlogDelete()}
 }
 
 func ThreadedCommitlogClose(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.Commitlog().close()}
+	return ThreadedMemtableResponse{error: m.CommitlogClose()}
 }
 
 func ThreadedFlush(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
@@ -194,27 +189,24 @@ func ThreadedFlush(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedM
 }
 
 func ThreadedCommitlogPause(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	m.Commitlog().pause()
+	m.CommitlogPause()
 	return ThreadedMemtableResponse{}
 }
 
 func ThreadedCommitlogUnpause(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	m.Commitlog().unpause()
+	m.CommitlogUnpause()
 	return ThreadedMemtableResponse{}
 }
 
 func ThreadedCommitlogFileSize(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	stat, err := m.Commitlog().file.Stat()
-	if err != nil {
-		return ThreadedMemtableResponse{error: err}
-	}
-	return ThreadedMemtableResponse{size: uint64(stat.Size())}
+	size, err := m.CommitlogFileSize()
+	return ThreadedMemtableResponse{size: uint64(size), error: err}
 }
 
 func threadWorker(id int, dirName string, secondaryIndices uint16, metrics *Metrics, requests <-chan ThreadedMemtableRequest, wg *sync.WaitGroup, strategy string) {
 	defer wg.Done()
 	// One bucket per worker, initialization is done in the worker thread
-	m, err := newMemtable(dirName, strategy, secondaryIndices, metrics)
+	m, err := newMemtableSingle(dirName, strategy, secondaryIndices, metrics)
 	if err != nil {
 		fmt.Println("Error creating memtable", err)
 		return
@@ -237,9 +229,9 @@ func threadHashKey(key []byte, numWorkers int) int {
 	return int(hasher.Sum32()) % numWorkers
 }
 
-func newMemtableThreaded(path string, strategy string,
+func newMemtable(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics,
-) (*MemtableThreaded, error) {
+) (Memtable, error) {
 	workerAssignment := os.Getenv("MEMTABLE_THREADED_WORKER_ASSIGNMENT")
 	if len(workerAssignment) == 0 {
 		workerAssignment = MEMTABLE_THREADED_HASH
@@ -274,58 +266,47 @@ func newMemtableThreaded(path string, strategy string,
 		bufferSizeInt = bufferSizeIntParsed
 	}
 
-	return newMemtableThreadedDebug(path, strategy, secondaryIndices, metrics, workerAssignment, enableForSet, numThreadsInt, bufferSizeInt)
+	if enableForSet[strategy] {
+		return newMemtableThreaded(path, strategy, secondaryIndices, metrics, workerAssignment, numThreadsInt, bufferSizeInt)
+	} else {
+		return newMemtableSingle(path, strategy, secondaryIndices, metrics)
+	}
 }
 
-func newMemtableThreadedDebug(path string, strategy string,
-	secondaryIndices uint16, metrics *Metrics, workerAssignment string, enableFor map[string]bool, numThreads int, bufferSize int,
+func newMemtableThreaded(path string, strategy string,
+	secondaryIndices uint16, metrics *Metrics, workerAssignment string, numThreads int, bufferSize int,
 ) (*MemtableThreaded, error) {
-	if !enableFor[strategy] {
-		m_alt, err := newMemtable(path, strategy, secondaryIndices, metrics)
-		if err != nil {
-			return nil, err
-		}
+	var wgWorkers *sync.WaitGroup
+	numWorkers := numThreads
+	numChannels := numWorkers
+	requestsChannels := make([]chan ThreadedMemtableRequest, numChannels)
 
-		m := &MemtableThreaded{
-			baseline: m_alt,
-		}
-		return m, nil
-	} else {
-
-		var wgWorkers *sync.WaitGroup
-		numWorkers := numThreads
-		numChannels := numWorkers
-		requestsChannels := make([]chan ThreadedMemtableRequest, numChannels)
-
-		for i := 0; i < numChannels; i++ {
-			requestsChannels[i] = make(chan ThreadedMemtableRequest, bufferSize)
-		}
-
-		// Start worker goroutines
-		wgWorkers = &sync.WaitGroup{}
-		wgWorkers.Add(numWorkers)
-		for i := 0; i < numWorkers; i++ {
-			dirName := path + fmt.Sprintf("_%d", i)
-			go threadWorker(i, dirName, secondaryIndices, metrics, requestsChannels[i%numChannels], wgWorkers, strategy)
-		}
-
-		m := &MemtableThreaded{
-			wgWorkers:        wgWorkers,
-			path:             path,
-			numWorkers:       numWorkers,
-			strategy:         strategy,
-			requestsChannels: requestsChannels,
-			secondaryIndices: secondaryIndices,
-			lastWrite:        time.Now(),
-			createdAt:        time.Now(),
-			metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
-			baseline:         nil,
-			workerAssignment: workerAssignment,
-		}
-
-		return m, nil
-
+	for i := 0; i < numChannels; i++ {
+		requestsChannels[i] = make(chan ThreadedMemtableRequest, bufferSize)
 	}
+
+	// Start worker goroutines
+	wgWorkers = &sync.WaitGroup{}
+	wgWorkers.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		dirName := path + fmt.Sprintf("_%d", i)
+		go threadWorker(i, dirName, secondaryIndices, metrics, requestsChannels[i%numChannels], wgWorkers, strategy)
+	}
+
+	m := &MemtableThreaded{
+		wgWorkers:        wgWorkers,
+		path:             path,
+		numWorkers:       numWorkers,
+		strategy:         strategy,
+		requestsChannels: requestsChannels,
+		secondaryIndices: secondaryIndices,
+		lastWrite:        time.Now(),
+		createdAt:        time.Now(),
+		metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
+		workerAssignment: workerAssignment,
+	}
+
+	return m, nil
 }
 
 func (m *MemtableThreaded) threadedOperation(data ThreadedMemtableRequest, needOutput bool, operationName string) ThreadedMemtableResponse {
@@ -505,150 +486,102 @@ func multiMemtableRequest(m *MemtableThreaded, data ThreadedMemtableRequest, get
 }
 
 func (m *MemtableThreaded) get(key []byte) ([]byte, error) {
-	if m.baseline != nil {
-		return m.baseline.get(key)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedGet,
-			key:       key,
-		}, true, "Get")
-		return output.result, output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedGet,
+		key:       key,
+	}, true, "Get")
+	return output.result, output.error
 }
 
 func (m *MemtableThreaded) getBySecondary(pos int, key []byte) ([]byte, error) {
-	if m.baseline != nil {
-		return m.baseline.getBySecondary(pos, key)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedGetBySecondary,
-			key:       key,
-			pos:       pos,
-		}, true, "GetBySecondary")
-		return output.result, output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedGetBySecondary,
+		key:       key,
+		pos:       pos,
+	}, true, "GetBySecondary")
+	return output.result, output.error
 }
 
 func (m *MemtableThreaded) put(key, value []byte, opts ...SecondaryKeyOption) error {
-	if m.baseline != nil {
-		return m.baseline.put(key, value, opts...)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation:  ThreadedPut,
-			key:        key,
-			valueBytes: value,
-			opts:       opts,
-		}, false, "Put")
-		return output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation:  ThreadedPut,
+		key:        key,
+		valueBytes: value,
+		opts:       opts,
+	}, false, "Put")
+	return output.error
 }
 
 func (m *MemtableThreaded) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
-	if m.baseline != nil {
-		return m.baseline.setTombstone(key, opts...)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedSetTombstone,
-			key:       key,
-			opts:      opts,
-		}, false, "SetTombstone")
-		return output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedSetTombstone,
+		key:       key,
+		opts:      opts,
+	}, false, "SetTombstone")
+	return output.error
 }
 
 func (m *MemtableThreaded) getCollection(key []byte) ([]value, error) {
-	if m.baseline != nil {
-		return m.baseline.getCollection(key)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedGetCollection,
-			key:       key,
-		}, true, "GetCollection")
-		return output.values, output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedGetCollection,
+		key:       key,
+	}, true, "GetCollection")
+	return output.values, output.error
 }
 
 func (m *MemtableThreaded) getMap(key []byte) ([]MapPair, error) {
-	if m.baseline != nil {
-		return m.baseline.getMap(key)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedGetMap,
-			key:       key,
-		}, true, "GetMap")
-		return output.mapNodes, output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedGetMap,
+		key:       key,
+	}, true, "GetMap")
+	return output.mapNodes, output.error
 }
 
 func (m *MemtableThreaded) append(key []byte, values []value) error {
-	if m.baseline != nil {
-		return m.baseline.append(key, values)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation:   ThreadedAppend,
-			key:         key,
-			valuesValue: values,
-		}, false, "Append")
-		return output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation:   ThreadedAppend,
+		key:         key,
+		valuesValue: values,
+	}, false, "Append")
+	return output.error
 }
 
 func (m *MemtableThreaded) appendMapSorted(key []byte, pair MapPair) error {
-	if m.baseline != nil {
-		return m.baseline.appendMapSorted(key, pair)
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedAppendMapSorted,
-			key:       key,
-			pair:      pair,
-		}, false, "AppendMapSorted")
-		return output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedAppendMapSorted,
+		key:       key,
+		pair:      pair,
+	}, false, "AppendMapSorted")
+	return output.error
 }
 
 // TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableThreaded) Size() uint64 {
-	if m.baseline != nil {
-		return m.baseline.Size()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedSize,
-		}, false, "Size")
-		return output.size
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedSize,
+	}, false, "Size")
+	return output.size
 }
 
 func (m *MemtableThreaded) ActiveDuration() time.Duration {
-	if m.baseline != nil {
-		return m.baseline.ActiveDuration()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedActiveDuration,
-		}, false, "ActiveDuration")
-		return output.duration
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedActiveDuration,
+	}, false, "ActiveDuration")
+	return output.duration
 }
 
 func (m *MemtableThreaded) IdleDuration() time.Duration {
-	if m.baseline != nil {
-		return m.baseline.IdleDuration()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedIdleDuration,
-		}, false, "IdleDuration")
-		return output.duration
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedIdleDuration,
+	}, false, "IdleDuration")
+	return output.duration
 }
 
 func (m *MemtableThreaded) countStats() *countStats {
-	if m.baseline != nil {
-		return m.baseline.countStats()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadeCountStats,
-		}, false, "countStats")
-		return output.countStats
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadeCountStats,
+	}, false, "countStats")
+	return output.countStats
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or
@@ -658,121 +591,71 @@ func (m *MemtableThreaded) countStats() *countStats {
 // that the WAL is written before a successful response is returned to the
 // user.
 func (m *MemtableThreaded) writeWAL() error {
-	if m.baseline != nil {
-		return m.baseline.writeWAL()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedWriteWAL,
-		}, false, "WriteWAL")
-		return output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedWriteWAL,
+	}, false, "WriteWAL")
+	return output.error
 }
 
 // TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableThreaded) CommitlogSize() int64 {
-	if m.baseline != nil {
-		return m.baseline.Commitlog().Size()
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedSize,
-		}, false, "CommitlogSize")
-		return int64(output.size)
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedSize,
+	}, false, "CommitlogSize")
+	return int64(output.size)
 }
 
 func (m *MemtableThreaded) CommitlogPath() string {
-	if m.baseline != nil {
-		return m.baseline.Commitlog().path
-	} else {
-		// this one should always exists
-		return m.path + fmt.Sprintf("_%d", 0)
-	}
+	// this one should always exists
+	return m.path + fmt.Sprintf("_%d", 0)
 }
 
 func (m *MemtableThreaded) Path() string {
-	if m.baseline != nil {
-		return m.baseline.Path()
-	}
 	return m.path
 }
 
 func (m *MemtableThreaded) SecondaryIndices() uint16 {
-	if m.baseline != nil {
-		return m.baseline.SecondaryIndices()
-	}
 	return m.secondaryIndices
 }
 
 func (m *MemtableThreaded) UpdatePath(bucketDir, newBucketDir string) {
-	updatePath := func(src string) string {
-		return strings.Replace(src, bucketDir, newBucketDir, 1)
-	}
-	if m.baseline != nil {
-		m.baseline.SetPath(updatePath(m.baseline.Path()))
-		m.baseline.Commitlog().path = updatePath(m.baseline.Commitlog().path)
-	} else {
-		m.threadedOperation(ThreadedMemtableRequest{
-			operation:    ThreadedCommitlogUpdatePath,
-			bucketDir:    bucketDir,
-			newBucketDir: newBucketDir,
-		}, false, "UpdatePath")
-	}
+	m.threadedOperation(ThreadedMemtableRequest{
+		operation:    ThreadedCommitlogUpdatePath,
+		bucketDir:    bucketDir,
+		newBucketDir: newBucketDir,
+	}, false, "UpdatePath")
 }
 
 func (m *MemtableThreaded) CommitlogPause() {
-	if m.baseline != nil {
-		m.baseline.Commitlog().pause()
-	} else {
-		m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedCommitlogPause,
-		}, false, "CommitlogPause")
-	}
+	m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedCommitlogPause,
+	}, false, "CommitlogPause")
 }
 
 func (m *MemtableThreaded) CommitlogUnpause() {
-	if m.baseline != nil {
-		m.baseline.Commitlog().unpause()
-	} else {
-		m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedCommitlogUnpause,
-		}, false, "CommitlogUnpause")
-	}
+	m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedCommitlogUnpause,
+	}, false, "CommitlogUnpause")
 }
 
 func (m *MemtableThreaded) CommitlogClose() error {
-	if m.baseline != nil {
-		return m.baseline.Commitlog().close()
-	} else {
-		result := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedCommitlogClose,
-		}, true, "CommitlogClose")
-		return result.error
-	}
+	result := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedCommitlogClose,
+	}, true, "CommitlogClose")
+	return result.error
 }
 
 func (m *MemtableThreaded) CommitlogDelete() error {
-	if m.baseline != nil {
-		return m.baseline.Commitlog().delete()
-	} else {
-		result := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedCommitlogDelete,
-		}, true, "CommitlogDelete")
-		return result.error
-	}
+	result := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedCommitlogDelete,
+	}, true, "CommitlogDelete")
+	return result.error
 }
 
 // TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableThreaded) CommitlogFileSize() (int64, error) {
-	if m.baseline != nil {
-		stat, err := m.baseline.Commitlog().file.Stat()
-		if err != nil {
-			return 0, err
-		}
-		return stat.Size(), nil
-	} else {
-		output := m.threadedOperation(ThreadedMemtableRequest{
-			operation: ThreadedCommitlogFileSize,
-		}, false, "CommitlogFileSize,")
-		return int64(output.size), output.error
-	}
+	output := m.threadedOperation(ThreadedMemtableRequest{
+		operation: ThreadedCommitlogFileSize,
+	}, false, "CommitlogFileSize,")
+	return int64(output.size), output.error
 }

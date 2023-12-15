@@ -73,7 +73,7 @@ func createSimpleBucket(operations [][]*Request, t *testing.T) ([]*roaringset.Bi
 	startTime := time.Now()
 
 	dirName := t.TempDir()
-	m, _ := newMemtable(dirName, StrategyRoaringSet, 0, nil)
+	m, _ := newMemtableSingle(dirName, StrategyRoaringSet, 0, nil)
 
 	times.Setup = int(time.Since(startTime).Milliseconds())
 	startTime = time.Now()

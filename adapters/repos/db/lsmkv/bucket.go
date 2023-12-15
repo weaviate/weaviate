@@ -750,7 +750,7 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 // meant to be called from situations where a lock is already held, does not
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
-	mt, err := newMemtableThreaded(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
+	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
 		time.Now().UnixNano())), b.strategy, b.secondaryIndices, b.metrics)
 	if err != nil {
 		return err

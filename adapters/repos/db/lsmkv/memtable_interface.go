@@ -54,15 +54,13 @@ type Memtable interface {
 
 	closeRequestChannels()
 	flush() error
-	flushKey() error
-	flushKeyMap() error
-	flushKeyMulti() error
-	flattenInOrderKey() []*binarySearchNode
-	flattenInOrderKeyMap() []*binarySearchNodeMap
-	flattenInOrderKeyMulti() []*binarySearchNodeMulti
 
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
 	newMapCursor() innerCursorMap
 	newCursor() innerCursorReplace
+	flattenNodesRoaringSet() []*roaringset.BinarySearchNode
+	flattenInOrderKey() []*binarySearchNode
+	flattenInOrderKeyMulti() []*binarySearchNodeMulti
+	flattenInOrderKeyMap() []*binarySearchNodeMap
 }

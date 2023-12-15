@@ -27,7 +27,7 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, nil)
 	require.Nil(t, err)
 	t.Cleanup(func() {
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("add initial value", func(t *testing.T) {
