@@ -53,6 +53,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
+
+
 )
 
 const IdLockPoolSize = 128
@@ -218,6 +220,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
+
+	plPath := path.Join(s.path(), "proplengths")
+	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	if err != nil {
+		return  nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+	}
+
+	s.propLenTracker = tracker
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())

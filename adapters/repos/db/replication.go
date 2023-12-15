@@ -26,6 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/pkg/errors"
 )
 
 type Replicator interface {

@@ -16,8 +16,8 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"time"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -145,12 +145,6 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 		return status, errors.Wrap(err, "check insert/update status")
 	}
 	s.metrics.PutObjectDetermineStatus(before)
-
-	if !status.docIDChanged {
-		if err = s.ChangeObjectCountBy(1); err != nil {
-			return status, fmt.Errorf("increment object count: %w", err)
-		}
-	}
 
 	object.SetDocID(status.docID)
 	data, err := object.MarshalBinary()
@@ -280,6 +274,12 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			}
 
 		}
+	} else {
+
+		if err = s.ChangeObjectCountBy(1); err != nil {
+			return fmt.Errorf("increment object count: %w", err)
+		}
+
 	}
 
 	// TODO: metrics
