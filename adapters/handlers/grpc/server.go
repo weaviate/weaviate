@@ -13,8 +13,12 @@ package grpc
 
 import (
 	"fmt"
+	"math"
 	"net"
+	"os"
+	"strconv"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -28,12 +32,13 @@ import (
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 )
 
-const maxRecMsgSize = 1024 * 1024 * 100 // 100mb, needs to be synchronized with clients
+const maxRecvMsgSize = 1024 * 1024 * 100 // 100mb, needs to be synchronized with clients
+const maxSendMsgSize = math.MaxInt32     // 2gb, needs to be synchronized with clients
 
 func CreateGRPCServer(state *state.State) *GRPCServer {
 	o := []grpc.ServerOption{
-		grpc.MaxRecvMsgSize(maxRecMsgSize),
-		// do not set MaxSendMsgSize so that the maximum of Math.MaxInt32 is used
+		grpc.MaxRecvMsgSize(parseFromEnv("GRPC_MAX_RECV_MSG_SIZE", maxRecvMsgSize, state.Logger)),
+		grpc.MaxSendMsgSize(parseFromEnv("GRPC_MAX_SEND_MSG_SIZE", maxSendMsgSize, state.Logger)),
 	}
 
 	// Add TLS creds for the GRPC connection, if defined.
@@ -78,6 +83,16 @@ func StartAndListen(s *GRPCServer, state *state.State) error {
 	}
 
 	return nil
+}
+
+func parseFromEnv(name string, defaultValue int, logger *logrus.Logger) int {
+	parsedValue, err := strconv.Atoi(os.Getenv(name))
+	if err != nil {
+		logger.WithField("action", "grpc_startup").
+			Warnf("could not parse env var: %v, with value: %v. Using default instead: %v", name, parsedValue, defaultValue)
+		return defaultValue
+	}
+	return parsedValue
 }
 
 type GRPCServer struct {
