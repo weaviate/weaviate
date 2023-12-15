@@ -260,6 +260,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
+	if err = s.ChangeObjectCountBy(1); err != nil {
+		return fmt.Errorf("increment object count: %w", err)
+	}
+
 	if status.docIDChanged {
 		oldObject, err := storobj.FromBinary(previous)
 		if err == nil {
@@ -274,12 +278,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			}
 
 		}
-	} else {
-
-		if err = s.ChangeObjectCountBy(1); err != nil {
-			return fmt.Errorf("increment object count: %w", err)
-		}
-
 	}
 
 	// TODO: metrics
@@ -350,6 +348,10 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	if !status.docIDChanged {
 		// nothing to do
 		return nil
+	}
+
+	if err := s.ChangeObjectCountBy(-1); err != nil {
+		return fmt.Errorf("increment object count: %w", err)
 	}
 
 	// The doc id changed, so we need to analyze the previous and delete all
