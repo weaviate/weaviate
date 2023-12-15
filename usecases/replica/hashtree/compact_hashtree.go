@@ -64,16 +64,16 @@ func (ht *CompactHashTree) Height() int {
 // AggregateLeafWith aggregates a new value into a shared leaf
 // Each compacted leaf is shared by a number of consecutive leaves
 func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) *CompactHashTree {
-	if i >= ht.capacity {
-		panic("out of capacity")
-	}
-
 	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 
 	return ht
 }
 
 func (ht *CompactHashTree) mapLeaf(i uint64) int {
+	if i >= ht.capacity {
+		panic("out of capacity")
+	}
+
 	if i < ht.leavesCountInExtendedGroups {
 		return int(i / ht.extendedGroupSize)
 	} else {
