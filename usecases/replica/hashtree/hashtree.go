@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/spaolacci/murmur3"
 )
@@ -31,6 +32,8 @@ type HashTree struct {
 	nodes           []Digest
 	syncState       *Bitset
 	hash            murmur3.Hash128
+
+	mux sync.Mutex
 }
 
 func NewHashTree(height int) *HashTree {
@@ -72,6 +75,9 @@ func (ht *HashTree) Height() int {
 }
 
 func (ht *HashTree) AggregateLeafWith(i int, val []byte) *HashTree {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
 	ht.hash.Reset()
 	ht.hash.Write(val)
 	valh1, valh2 := ht.hash.Sum128()
@@ -89,6 +95,9 @@ func (ht *HashTree) AggregateLeafWith(i int, val []byte) *HashTree {
 }
 
 func (ht *HashTree) Reset() *HashTree {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
 	for i := 0; i < len(ht.nodes); i++ {
 		ht.nodes[i][0] = 0
 		ht.nodes[i][1] = 0
@@ -157,6 +166,9 @@ func (ht *HashTree) sync() {
 }
 
 func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
 	if level < 0 {
 		return 0, fmt.Errorf("%w: invalid level(%d)", ErrIllegalArguments, level)
 	}
