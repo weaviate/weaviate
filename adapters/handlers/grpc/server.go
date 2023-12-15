@@ -32,8 +32,10 @@ import (
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
 )
 
-const maxRecvMsgSize = 1024 * 1024 * 100 // 100mb, needs to be synchronized with clients
-const maxSendMsgSize = math.MaxInt32     // 2gb, needs to be synchronized with clients
+const (
+	maxRecvMsgSize = 1024 * 1024 * 100 // 100mb, needs to be synchronized with clients
+	maxSendMsgSize = math.MaxInt32     // 2gb, needs to be synchronized with clients
+)
 
 func CreateGRPCServer(state *state.State) *GRPCServer {
 	o := []grpc.ServerOption{
