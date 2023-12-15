@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -162,7 +163,6 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-	panic("hi")
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()
 }
