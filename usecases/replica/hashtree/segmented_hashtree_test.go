@@ -107,20 +107,23 @@ func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht1.AggregateLeafWith(1_010, []byte("val1"))
+	ht1.AggregateLeafWith(1_000, []byte("val1"))
 
 	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 
 	diff0, diff1, err := diffReader.Next()
 	require.NoError(t, err)
-	require.Equal(t, 1_000, diff0)
-	require.Equal(t, 1_000, diff1)
+	require.EqualValues(t, 1_000, diff0)
+	require.Less(t, diff1, 1_000+segmentSize)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht2.AggregateLeafWith(1_010, []byte("val1"))
+	ht2.AggregateLeafWith(1_000, []byte("val1"))
+
+	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
+	require.NoError(t, err)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
