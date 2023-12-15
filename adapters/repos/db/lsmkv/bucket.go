@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -41,7 +42,8 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock sync.RWMutex
+	flushLock        sync.RWMutex
+	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
 	flushAfterIdle    time.Duration
@@ -136,6 +138,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		metrics:               metrics,
 		useBloomFilter:        true,
 		calcCountNetAdditions: true,
+		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
 	for _, opt := range opts {
@@ -881,18 +884,20 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	// bucket should refrain from flushing until its shard
 	// indicates otherwise
 	if shouldSwitch && b.isReadOnly() {
-		b.logger.WithField("action", "lsm_memtable_flush").
-			WithField("path", b.dir).
-			Warn("flush halted due to shard READONLY status")
+		if b.haltedFlushTimer.IntervalElapsed() {
+			b.logger.WithField("action", "lsm_memtable_flush").
+				WithField("path", b.dir).
+				Warn("flush halted due to shard READONLY status")
+			b.haltedFlushTimer.IncreaseInterval()
+		}
 
 		b.flushLock.RUnlock()
-		// TODO maybe will not be necessary with dynamic interval
-		time.Sleep(time.Second)
 		return false
 	}
 
 	b.flushLock.RUnlock()
 	if shouldSwitch {
+		b.haltedFlushTimer.Reset()
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
