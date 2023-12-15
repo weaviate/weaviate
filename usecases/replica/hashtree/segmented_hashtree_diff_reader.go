@@ -12,6 +12,7 @@
 package hashtree
 
 type SegmentedHashTreeDiffReader struct {
+	ht         *SegmentedHashTree
 	diffReader *CompactHashTreeDiffReader
 }
 
@@ -21,16 +22,16 @@ func (ht *SegmentedHashTree) NewDiffReader(diffReader *CompactHashTreeDiffReader
 	}
 
 	return &SegmentedHashTreeDiffReader{
+		ht:         ht,
 		diffReader: diffReader,
 	}
 }
 
 func (r *SegmentedHashTreeDiffReader) Next() (uint64, uint64, error) {
-	leaf0, leaf1, err := r.diffReader.Next()
+	mappedLeaf0, mappedLeaf1, err := r.diffReader.Next()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	// TODO(jeroiraz): map to a range
-	return leaf0, leaf1, nil
+	return r.ht.unmapLeaf(mappedLeaf0), r.ht.unmapLeaf(mappedLeaf1), nil
 }
