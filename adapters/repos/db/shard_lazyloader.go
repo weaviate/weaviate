@@ -163,13 +163,14 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+	l.mustLoad()
+	return l.shard.GetPropertyLengthTracker()
+}
+/*
 	if l.loaded {
 		return l.shard.GetPropertyLengthTracker()
 	}
 	var tracker *inverted.JsonPropertyLengthTracker
-	if l.shard.GetPropertyLengthTracker() != nil {
-		return l.shard.GetPropertyLengthTracker()
-	}
 
 	//FIXME add method for tracker path
 	plPath := path.Join(l.shardOpts.index.path(), "proplengths")
@@ -181,6 +182,7 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 
 	return l.propLenTracker
 }
+*/
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := l.Load(ctx); err != nil {
