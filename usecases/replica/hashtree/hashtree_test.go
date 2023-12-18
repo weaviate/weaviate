@@ -12,6 +12,7 @@
 package hashtree
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -156,6 +157,64 @@ func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
 
 		_, _, err = diffReader.Next()
 		require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+	}
+}
+
+func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
+	height := 11
+
+	ht1 := NewHashTree(height)
+	ht2 := NewHashTree(height)
+
+	diffReader, err := HashTreeDiff(ht1, ht2)
+	require.NoError(t, err)
+	require.NotNil(t, diffReader)
+
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+
+	leavesCount := LeavesCount(height)
+
+	for l := 0; l < leavesCount; l++ {
+		ht1.AggregateLeafWith(l, []byte("val1"))
+		ht2.AggregateLeafWith(l, []byte("val2"))
+	}
+
+	conciliated := make(map[int]struct{})
+	concilliationOrder := rand.Perm(leavesCount)
+
+	for _, l := range concilliationOrder {
+		_, ok := conciliated[l]
+		require.False(t, ok)
+
+		ht1.AggregateLeafWith(l, []byte("val2"))
+		ht2.AggregateLeafWith(l, []byte("val1"))
+
+		conciliated[l] = struct{}{}
+
+		diffReader, err = HashTreeDiff(ht1, ht2)
+		require.NoError(t, err)
+
+		diffCount := 0
+
+		for {
+			diff0, diff1, err := diffReader.Next()
+			if errors.Is(err, ErrNoMoreDifferences) {
+				break
+			}
+			require.NoError(t, err)
+			require.LessOrEqual(t, diff0, diff1)
+
+			for d := diff0; d <= diff1; d++ {
+				_, ok := conciliated[d]
+				require.False(t, ok)
+
+				diffCount++
+			}
+		}
+
+		// pending differences
+		require.Equal(t, leavesCount-len(conciliated), diffCount)
 	}
 }
 
