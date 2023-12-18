@@ -20,6 +20,8 @@ func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
 		offset = NodesCount(l)
 	}
 
+	n := 0
+
 	for j := 0; j < nodesAtLevel(l); j++ {
 		node := offset + j
 
@@ -27,10 +29,13 @@ func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
 			continue
 		}
 
-		if digests1[j] == digests2[j] {
+		if digests1[n] == digests2[n] {
+			n++
 			discriminant.Unset(node)
 			continue
 		}
+
+		n++
 
 		leftChild := 2*node + 1
 		rightChild := 2*node + 2
