@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"path"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -162,10 +163,11 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+/*
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()
-}
-/*
+*/
+
 	if l.loaded {
 		return l.shard.GetPropertyLengthTracker()
 	}
@@ -181,7 +183,7 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 
 	return l.propLenTracker
 }
-*/
+
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := l.Load(ctx); err != nil {
