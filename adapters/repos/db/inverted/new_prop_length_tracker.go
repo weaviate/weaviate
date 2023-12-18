@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"fmt"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -32,7 +33,7 @@ type PropLenData struct {
 
 type JsonPropertyLengthTracker struct {
 	path string
-	data *PropLenData  //Only this is saved in the file
+	data *PropLenData //Only this is saved in the file
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
@@ -69,7 +70,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 		if r := recover(); r != nil {
 			t.logger.Printf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
 			t = &JsonPropertyLengthTracker{
-				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0},
+				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 				path:             path,
 				UnlimitedBuckets: false,
 			}
@@ -78,7 +79,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	}()
 
 	t = &JsonPropertyLengthTracker{
-		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0},
+		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 		path:             path,
 		UnlimitedBuckets: false,
 		logger:           logger,
@@ -88,6 +89,8 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
+			logger.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
+			fmt.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
 			t.Flush(false)
 			return t, nil
 		}
@@ -107,7 +110,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 		}
 
 		propertyNames := plt.PropertyNames()
-		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0}
+		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 		// Loop over every page and bucket in the old tracker and add it to the new tracker
 		for _, name := range propertyNames {
 			data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
@@ -161,7 +164,7 @@ func (t *JsonPropertyLengthTracker) FileName() string {
 	return t.path
 }
 
-func (t *JsonPropertyLengthTracker) TrackObjects(delta int)	error {
+func (t *JsonPropertyLengthTracker) TrackObjects(delta int) error {
 	t.Lock()
 	defer t.Unlock()
 
@@ -202,7 +205,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int),0}
+		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
@@ -265,7 +268,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	return sum, count, float64(sum) / float64(count), nil
 }
 
-//Returns the number of documents stored in the shard
+// Returns the number of documents stored in the shard
 func (t *JsonPropertyLengthTracker) ObjectTally() int {
 	t.Lock()
 	defer t.Unlock()
