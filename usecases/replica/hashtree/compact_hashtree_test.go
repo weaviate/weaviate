@@ -35,7 +35,7 @@ func TestCompactHashTree(t *testing.T) {
 
 	var rootLevel [1]Digest
 
-	n, err := ht.Level(0, NewBitset(1).SetAll(), rootLevel[:])
+	n, err := ht.Level(0, NewBitset(ht.Height()).Set(0), rootLevel[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 
@@ -82,7 +82,7 @@ func TestCompactBigHashTree(t *testing.T) {
 
 	var rootLevel [1]Digest
 
-	n, err := ht.Level(0, NewBitset(1).SetAll(), rootLevel[:])
+	n, err := ht.Level(0, NewBitset(ht.Height()).Set(0), rootLevel[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 }
