@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -102,7 +101,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, l.propLenTracker)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)

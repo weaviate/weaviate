@@ -53,8 +53,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
-
-
 )
 
 const IdLockPoolSize = 128
@@ -190,7 +188,7 @@ type Shard struct {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonPropertyLengthTracker,
 ) (*Shard, error) {
 	before := time.Now()
 	var err error
@@ -221,13 +219,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
-	if err != nil {
-		return  nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
-	}
+	if propLengths != nil {
+		s.propLenTracker = propLengths
+	} else {
+		plPath := path.Join(s.path(), "proplengths")
+		tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+		}
 
-	s.propLenTracker = tracker
+		s.propLenTracker = tracker
+	}
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
