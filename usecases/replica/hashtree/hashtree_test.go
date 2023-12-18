@@ -13,11 +13,16 @@ package hashtree
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/spaolacci/murmur3"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIllegalHashTree(t *testing.T) {
+	require.Panics(t, func() { NewHashTree(-1) })
+}
 
 func TestSmallestHashTree(t *testing.T) {
 	height := 1
@@ -204,4 +209,50 @@ func TestHashTreeComparisonHeight2(t *testing.T) {
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+}
+
+func TestHashTreeRandomAggregationOrder(t *testing.T) {
+	maxHeight := 16
+
+	for h := 1; h < maxHeight; h++ {
+		var prevRoot Digest
+
+		leavesCount := LeavesCount(h)
+
+		insertionCount := 7 * leavesCount
+
+		insertionAtLeaves := make([]int, insertionCount)
+		for i := 0; i < len(insertionAtLeaves); i++ {
+			insertionAtLeaves[i] = rand.Int() % leavesCount
+		}
+
+		for it := 0; it < 3; it++ {
+			ht := NewHashTree(h)
+
+			valuePrefix := "somevalue"
+
+			leavesUpdates := make([]int, leavesCount)
+
+			for _, l := range rand.Perm(insertionCount) {
+				leaf := insertionAtLeaves[l]
+
+				ht.AggregateLeafWith(leaf, []byte(fmt.Sprintf("%s%d", valuePrefix, leavesUpdates[leaf])))
+
+				leavesUpdates[leaf]++
+			}
+
+			var rootDigests [1]Digest
+
+			n, err := ht.Level(0, NewBitset(1).SetAll(), rootDigests[:])
+			require.NoError(t, err)
+			require.Equal(t, 1, n)
+
+			if it == 0 {
+				prevRoot = rootDigests[0]
+			}
+
+			require.Equal(t, prevRoot, rootDigests[0])
+		}
+
+	}
 }
