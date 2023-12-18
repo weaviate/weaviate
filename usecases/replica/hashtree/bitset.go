@@ -51,7 +51,7 @@ func (bset *Bitset) Unset(i int) *Bitset {
 }
 
 func (bset *Bitset) IsSet(i int) bool {
-	if bset.size < i {
+	if bset.size <= i {
 		panic("index out of range")
 	}
 
