@@ -140,6 +140,7 @@ type ShardLike interface {
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	hasGeoIndex() bool
+	ChangeObjectCountBy(int) error
 
 	Metrics() *Metrics
 }

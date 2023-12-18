@@ -146,6 +146,10 @@ func (l *LazyLoadShard) UpdateStatus(status string) error {
 	return l.shard.UpdateStatus(status)
 }
 
+func (l *LazyLoadShard) ChangeObjectCountBy(delta int) error {
+	return l.propLenTracker.TrackObjects(delta)
+}
+
 func (l *LazyLoadShard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
 	if err := l.Load(ctx); err != nil {
 		return []uint64{}, err
