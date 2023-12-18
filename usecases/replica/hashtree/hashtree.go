@@ -138,8 +138,6 @@ func (ht *HashTree) sync() {
 	for l := ht.height - 2; l >= 0; l-- {
 		firstNode := NodesCount(l)
 
-		var parentSyncRequired bool
-
 		// iterate over the nodes at level l
 		for i := 0; i < nodesAtLevel(l); i++ {
 			node := firstNode + i
@@ -163,12 +161,6 @@ func (ht *HashTree) sync() {
 			ht.syncState.Set(rightChild)
 
 			ht.syncState.Unset(node)
-
-			parentSyncRequired = true
-		}
-
-		if !parentSyncRequired {
-			break
 		}
 	}
 
