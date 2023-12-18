@@ -26,12 +26,21 @@ var ErrIllegalState = errors.New("illegal state")
 
 type Digest [2]uint64
 
+// HashTree is a fixed-size hash tree with leaf aggregation and partial root recalculation.
 type HashTree struct {
-	height          int
+	height int
+
+	nodes []Digest
+
+	// syncState is a bit-tree of the same height as the associated hash tree
+	// a zeroed bit in the associated node means the current value has changed since
+	// previous root computation and thus, its parent node must be re-åcalculated
+	syncState *Bitset
+
+	hash murmur3.Hash128
+
+	// pre-calculated value
 	innerNodesCount int
-	nodes           []Digest
-	syncState       *Bitset
-	hash            murmur3.Hash128
 
 	mux sync.Mutex
 }
@@ -51,10 +60,10 @@ func NewHashTree(height int) *HashTree {
 
 	return &HashTree{
 		height:          height,
-		innerNodesCount: innerNodesCount,
 		nodes:           make([]Digest, nodesCount),
 		syncState:       NewBitset(nodesCount),
 		hash:            murmur3.New128(),
+		innerNodesCount: innerNodesCount,
 	}
 }
 
@@ -102,6 +111,7 @@ func (ht *HashTree) Reset() *HashTree {
 		ht.nodes[i][0] = 0
 		ht.nodes[i][1] = 0
 	}
+
 	ht.syncState.Reset()
 
 	return ht
