@@ -197,6 +197,8 @@ func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 		diffCount := 0
 
+		prevDiff := 0
+
 		for {
 			diff0, diff1, err := diffReader.Next()
 			if errors.Is(err, ErrNoMoreDifferences) {
@@ -204,6 +206,7 @@ func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.LessOrEqual(t, diff0, diff1)
+			require.LessOrEqual(t, prevDiff, diff1)
 
 			for d := diff0; d <= diff1; d++ {
 				_, ok := conciliated[d]
@@ -211,6 +214,8 @@ func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 				diffCount++
 			}
+
+			prevDiff = diff1
 		}
 
 		// pending differences
