@@ -14,6 +14,7 @@ package hashtree
 import (
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 
 	"github.com/spaolacci/murmur3"
@@ -254,5 +255,56 @@ func TestHashTreeRandomAggregationOrder(t *testing.T) {
 			require.Equal(t, prevRoot, rootDigests[0])
 		}
 
+	}
+}
+
+func TestHashTreeConcurrentInsertions(t *testing.T) {
+	height := 16
+
+	leavesCount := LeavesCount(height)
+
+	insertionAtLeaves := rand.Perm(leavesCount)
+	var prevRoot Digest
+
+	ht := NewHashTree(height)
+
+	for it := 0; it < 3; it++ {
+		valuePrefix := "somevalue"
+
+		insertionCh := make(chan int)
+
+		var workersDone sync.WaitGroup
+		workersCount := 10
+		workersDone.Add(workersCount)
+
+		for w := 0; w < workersCount; w++ {
+			go func() {
+				for leaf := range insertionCh {
+					ht.AggregateLeafWith(leaf, []byte(fmt.Sprintf("%s%d", valuePrefix, leaf)))
+				}
+				workersDone.Done()
+			}()
+		}
+
+		for _, l := range insertionAtLeaves {
+			insertionCh <- insertionAtLeaves[l]
+		}
+
+		close(insertionCh)
+		workersDone.Wait()
+
+		var rootDigests [1]Digest
+
+		n, err := ht.Level(0, NewBitset(1).SetAll(), rootDigests[:])
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+
+		if it == 0 {
+			prevRoot = rootDigests[0]
+		}
+
+		require.Equal(t, prevRoot, rootDigests[0])
+
+		ht.Reset()
 	}
 }
