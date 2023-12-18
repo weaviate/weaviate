@@ -142,11 +142,11 @@ func (l *LazyLoadShard) UpdateStatus(status string) error {
 	return l.shard.UpdateStatus(status)
 }
 
-func (l *LazyLoadShard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
+func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
-		return []uint64{}, err
+		return []strfmt.UUID{}, err
 	}
-	return l.shard.FindDocIDs(ctx, filters)
+	return l.shard.FindUUIDs(ctx, filters)
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {
@@ -220,7 +220,7 @@ func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.Bat
 	return l.shard.AddReferencesBatch(ctx, refs)
 }
 
-func (l *LazyLoadShard) DeleteObjectBatch(ctx context.Context, ids []uint64, dryRun bool) objects.BatchSimpleObjects {
+func (l *LazyLoadShard) DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
 	l.mustLoadCtx(ctx)
 	return l.shard.DeleteObjectBatch(ctx, ids, dryRun)
 }
@@ -426,7 +426,7 @@ func (l *LazyLoadShard) prepareDeleteObject(ctx context.Context, shardID string,
 	return l.shard.prepareDeleteObject(ctx, shardID, id)
 }
 
-func (l *LazyLoadShard) prepareDeleteObjects(ctx context.Context, shardID string, ids []uint64, dryRun bool) replica.SimpleResponse {
+func (l *LazyLoadShard) prepareDeleteObjects(ctx context.Context, shardID string, ids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
 	l.mustLoadCtx(ctx)
 	return l.shard.prepareDeleteObjects(ctx, shardID, ids, dryRun)
 }
