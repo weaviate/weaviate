@@ -168,9 +168,15 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 	return l.shard.GetPropertyLengthTracker()
 */
 
+
 	if l.loaded {
 		return l.shard.GetPropertyLengthTracker()
 	}
+
+	if l.propLenTracker != nil {
+		return l.propLenTracker
+	}
+
 	var tracker *inverted.JsonPropertyLengthTracker
 
 	//FIXME add method for tracker path
