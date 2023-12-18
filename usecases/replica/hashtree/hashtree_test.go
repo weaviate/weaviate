@@ -38,7 +38,7 @@ func TestSmallestHashTree(t *testing.T) {
 
 	var rootLevel [1]Digest
 
-	n, err := ht.Level(0, NewBitset(1).SetAll(), rootLevel[:])
+	n, err := ht.Level(0, NewBitset(NodesCount(height)).SetAll(), rootLevel[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 
@@ -68,7 +68,7 @@ func TestHashTree(t *testing.T) {
 		AggregateLeafWith(0, someValues[0]).
 		AggregateLeafWith(1, someValues[1])
 
-	discriminant := NewBitset(leavesCount).SetAll()
+	discriminant := NewBitset(NodesCount(height)).SetAll()
 
 	digests := make([]Digest, leavesCount)
 
@@ -115,13 +115,13 @@ func TestBigHashTree(t *testing.T) {
 
 	var rootDigests [1]Digest
 
-	n, err := ht.Level(0, NewBitset(1).SetAll(), rootDigests[:])
+	n, err := ht.Level(0, NewBitset(NodesCount(height)).SetAll(), rootDigests[:])
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 }
 
-func TestHashTreeComparisonHeight1(t *testing.T) {
-	height := 1
+func TestHashTreeComparisonOneLeafAtATime(t *testing.T) {
+	height := 13
 
 	ht1 := NewHashTree(height)
 	ht2 := NewHashTree(height)
@@ -133,28 +133,30 @@ func TestHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
 
-	ht1.AggregateLeafWith(0, []byte("val1"))
-	ht2.AggregateLeafWith(0, []byte("val2"))
+	for l := 0; l < LeavesCount(height); l++ {
+		ht1.AggregateLeafWith(l, []byte("val1"))
+		ht2.AggregateLeafWith(l, []byte("val2"))
 
-	diffReader, err = HashTreeDiff(ht1, ht2)
-	require.NoError(t, err)
+		diffReader, err = HashTreeDiff(ht1, ht2)
+		require.NoError(t, err)
 
-	diff0, diff1, err := diffReader.Next()
-	require.NoError(t, err)
-	require.Equal(t, 0, diff0) // leaf should differ
-	require.Equal(t, 0, diff1) // leaf should differ
+		diff0, diff1, err := diffReader.Next()
+		require.NoError(t, err)
+		require.Equal(t, l, diff0) // leaf should differ
+		require.Equal(t, l, diff1) // leaf should differ
 
-	_, _, err = diffReader.Next()
-	require.ErrorIs(t, err, ErrNoMoreDifferences) // no more differences should be found
+		_, _, err = diffReader.Next()
+		require.ErrorIs(t, err, ErrNoMoreDifferences) // no more differences should be found
 
-	ht1.AggregateLeafWith(0, []byte("val2"))
-	ht2.AggregateLeafWith(0, []byte("val1"))
+		ht1.AggregateLeafWith(l, []byte("val2"))
+		ht2.AggregateLeafWith(l, []byte("val1"))
 
-	diffReader, err = HashTreeDiff(ht1, ht2)
-	require.NoError(t, err)
+		diffReader, err = HashTreeDiff(ht1, ht2)
+		require.NoError(t, err)
 
-	_, _, err = diffReader.Next()
-	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+		_, _, err = diffReader.Next()
+		require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+	}
 }
 
 func TestHashTreeComparisonHeight2(t *testing.T) {
@@ -244,7 +246,7 @@ func TestHashTreeRandomAggregationOrder(t *testing.T) {
 
 			var rootDigests [1]Digest
 
-			n, err := ht.Level(0, NewBitset(1).SetAll(), rootDigests[:])
+			n, err := ht.Level(0, NewBitset(NodesCount(h)).SetAll(), rootDigests[:])
 			require.NoError(t, err)
 			require.Equal(t, 1, n)
 
@@ -295,7 +297,7 @@ func TestHashTreeConcurrentInsertions(t *testing.T) {
 
 		var rootDigests [1]Digest
 
-		n, err := ht.Level(0, NewBitset(1).SetAll(), rootDigests[:])
+		n, err := ht.Level(0, NewBitset(height).SetAll(), rootDigests[:])
 		require.NoError(t, err)
 		require.Equal(t, 1, n)
 
