@@ -13,9 +13,11 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -25,13 +27,13 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *Shard) DeleteObjectBatch(ctx context.Context, docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
+func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
 	if s.isReadOnly() {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
 		}
 	}
-	return newDeleteObjectsBatcher(s).Delete(ctx, docIDs, dryRun)
+	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
 }
 
 type deleteObjectsBatcher struct {
@@ -44,17 +46,17 @@ func newDeleteObjectsBatcher(shard ShardLike) *deleteObjectsBatcher {
 	return &deleteObjectsBatcher{shard: shard}
 }
 
-func (b *deleteObjectsBatcher) Delete(ctx context.Context, docIDs []uint64, dryRun bool) objects.BatchSimpleObjects {
-	b.delete(ctx, docIDs, dryRun)
+func (b *deleteObjectsBatcher) Delete(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+	b.delete(ctx, uuids, dryRun)
 	b.flushWALs(ctx)
 	return b.objects
 }
 
-func (b *deleteObjectsBatcher) delete(ctx context.Context, docIDs []uint64, dryRun bool) {
-	b.objects = b.deleteSingleBatchInLSM(ctx, docIDs, dryRun)
+func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, dryRun bool) {
+	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, dryRun)
 }
 
-func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch []uint64, dryRun bool) objects.BatchSimpleObjects {
+func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
@@ -72,10 +74,10 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 	wg := &sync.WaitGroup{}
 	for j, docID := range batch {
 		wg.Add(1)
-		go func(index int, docID uint64, dryRun bool) {
+		go func(index int, uuid strfmt.UUID, dryRun bool) {
 			defer wg.Done()
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
@@ -86,15 +88,9 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 	return result
 }
 
-func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context, docID uint64, dryRun bool) objects.BatchSimpleObject {
+func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context, uuid strfmt.UUID, dryRun bool) objects.BatchSimpleObject {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
-
-	uuid, err := b.shard.uuidFromDocID(docID)
-	if err != nil {
-		return objects.BatchSimpleObject{UUID: uuid, Err: err}
-	}
-
 	if !dryRun {
 		err := b.shard.batchDeleteObject(ctx, uuid)
 		return objects.BatchSimpleObject{UUID: uuid, Err: err}
@@ -141,4 +137,19 @@ func (s *Shard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([
 		return nil, err
 	}
 	return allowList.Slice(), nil
+}
+
+func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
+	docs, err := s.findDocIDs(ctx, filters)
+	if err != nil {
+		return nil, err
+	}
+	uuids := make([]strfmt.UUID, len(docs))
+	for i, doc := range docs {
+		uuids[i], err = s.uuidFromDocID(doc)
+		if err != nil {
+			return nil, fmt.Errorf("could not get uuid from doc_id=%v", doc)
+		}
+	}
+	return uuids, nil
 }

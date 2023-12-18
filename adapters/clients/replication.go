@@ -204,9 +204,9 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) (resp replica.SimpleResponse, err error) {
-	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(docIDs, dryRun)
+	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}

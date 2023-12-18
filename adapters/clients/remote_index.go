@@ -484,10 +484,10 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	return resp.Result, err
 }
 
-func (c *RemoteIndex) FindDocIDs(ctx context.Context, hostName, indexName,
+func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	shardName string, filters *filters.LocalFilter,
-) ([]uint64, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.FindDocIDsParams.Marshal(filters)
+) ([]strfmt.UUID, error) {
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request payload")
 	}
@@ -502,7 +502,7 @@ func (c *RemoteIndex) FindDocIDs(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "open http request")
 	}
 
-	clusterapi.IndicesPayloads.FindDocIDsParams.SetContentTypeHeaderReq(req)
+	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
 	res, err := c.client.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "send http request")
@@ -520,26 +520,26 @@ func (c *RemoteIndex) FindDocIDs(ctx context.Context, hostName, indexName,
 		return nil, errors.Wrap(err, "read body")
 	}
 
-	ct, ok := clusterapi.IndicesPayloads.FindDocIDsResults.CheckContentTypeHeader(res)
+	ct, ok := clusterapi.IndicesPayloads.FindUUIDsResults.CheckContentTypeHeader(res)
 	if !ok {
 		return nil, errors.Errorf("unexpected content type: %s", ct)
 	}
 
-	docIDs, err := clusterapi.IndicesPayloads.FindDocIDsResults.Unmarshal(resBytes)
+	uuids, err := clusterapi.IndicesPayloads.FindUUIDsResults.Unmarshal(resBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "unmarshal body")
 	}
-	return docIDs, nil
+	return uuids, nil
 }
 
 func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
 	url := url.URL{Scheme: "http", Host: hostName, Path: path}
 
-	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(docIDs, dryRun)
+	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
 	if err != nil {
 		err := errors.Wrap(err, "marshal payload")
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}

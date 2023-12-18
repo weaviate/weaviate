@@ -83,10 +83,10 @@ type RemoteIndexClient interface {
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
-	FindDocIDs(ctx context.Context, hostName, indexName, shardName string,
-		filters *filters.LocalFilter) ([]uint64, error)
+	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
+		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -289,9 +289,9 @@ func (ri *RemoteIndex) Aggregate(
 	return rr.(*aggregation.Result), err
 }
 
-func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
+func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
-) ([]uint64, error) {
+) ([]strfmt.UUID, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
@@ -302,11 +302,11 @@ func (ri *RemoteIndex) FindDocIDs(ctx context.Context, shardName string,
 		return nil, errors.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.FindDocIDs(ctx, host, ri.class, shardName, filters)
+	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters)
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) objects.BatchSimpleObjects {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -320,7 +320,7 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, docIDs, dryRun)
+	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, dryRun)
 }
 
 func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
