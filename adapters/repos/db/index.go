@@ -1784,9 +1784,9 @@ func (i *Index) notifyReady() {
 	})
 }
 
-func (i *Index) findDocIDs(ctx context.Context,
+func (i *Index) findUUIDs(ctx context.Context,
 	filters *filters.LocalFilter, tenant string,
-) (map[string][]uint64, error) {
+) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
@@ -1799,14 +1799,14 @@ func (i *Index) findDocIDs(ctx context.Context,
 		return nil, err
 	}
 
-	results := make(map[string][]uint64)
+	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range shardNames {
 		var err error
-		var res []uint64
+		var res []strfmt.UUID
 		if shard := i.localShard(shardName); shard != nil {
-			res, err = shard.findDocIDs(ctx, filters)
+			res, err = shard.FindUUIDs(ctx, filters)
 		} else {
-			res, err = i.remote.FindDocIDs(ctx, shardName, filters)
+			res, err = i.remote.FindUUIDs(ctx, shardName, filters)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
@@ -1818,18 +1818,18 @@ func (i *Index) findDocIDs(ctx context.Context,
 	return results, nil
 }
 
-func (i *Index) IncomingFindDocIDs(ctx context.Context, shardName string,
+func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter,
-) ([]uint64, error) {
+) ([]strfmt.UUID, error) {
 	shard := i.localShard(shardName)
 	if shard == nil {
 		return nil, errShardNotFound
 	}
 
-	return shard.findDocIDs(ctx, filters)
+	return shard.FindUUIDs(ctx, filters)
 }
 
-func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][]uint64,
+func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]strfmt.UUID,
 	dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
@@ -1839,26 +1839,28 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 		objs objects.BatchSimpleObjects
 	}
 
+	if i.replicationEnabled() && replProps == nil {
+		replProps = defaultConsistency()
+	}
+
 	wg := &sync.WaitGroup{}
-	ch := make(chan result, len(shardDocIDs))
-	for shardName, docIDs := range shardDocIDs {
+	ch := make(chan result, len(shardUUIDs))
+	for shardName, uuids := range shardUUIDs {
+		uuids := uuids
 		wg.Add(1)
-		go func(shardName string, docIDs []uint64) {
+		go func(shardName string, uuids []strfmt.UUID) {
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				if replProps == nil {
-					replProps = defaultConsistency()
-				}
-				objs = i.replicator.DeleteObjects(ctx, shardName, docIDs,
+				objs = i.replicator.DeleteObjects(ctx, shardName, uuids,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if i.localShard(shardName) == nil {
-				objs = i.remote.DeleteObjectBatch(ctx, shardName, docIDs, dryRun)
+				objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, dryRun)
 			} else {
 				i.backupMutex.RLockGuard(func() error {
 					if shard := i.localShard(shardName); shard != nil {
-						objs = shard.deleteObjectBatch(ctx, docIDs, dryRun)
+						objs = shard.DeleteObjectBatch(ctx, uuids, dryRun)
 					} else {
 						objs = objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: errShardNotFound}}
 					}
@@ -1866,7 +1868,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 				})
 			}
 			ch <- result{objs}
-		}(shardName, docIDs)
+		}(shardName, uuids)
 	}
 
 	wg.Wait()
@@ -1881,7 +1883,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardDocIDs map[string][
 }
 
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) objects.BatchSimpleObjects {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
@@ -1892,7 +1894,7 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		}
 	}
 
-	return shard.deleteObjectBatch(ctx, docIDs, dryRun)
+	return shard.DeleteObjectBatch(ctx, uuids, dryRun)
 }
 
 func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationProperties {
