@@ -20,14 +20,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (m *MemtableThreaded) closeRequestChannels() {
+func (m *MemtableMulti) closeRequestChannels() {
 	for _, channel := range m.requestsChannels {
 		close(channel)
 	}
 	m.wgWorkers.Wait()
 }
 
-func (m *MemtableThreaded) flush() error {
+func (m *MemtableMulti) flush() error {
 	var err error
 
 	if err := m.CommitlogClose(); err != nil {
@@ -61,7 +61,7 @@ func (m *MemtableThreaded) flush() error {
 	return nil
 }
 
-func (m *MemtableThreaded) flushKey() error {
+func (m *MemtableMulti) flushKey() error {
 	flat := m.flattenInOrderKey()
 	totalSize := len(flat)
 
@@ -79,7 +79,7 @@ func (m *MemtableThreaded) flushKey() error {
 	return m.writeIndex(keys, w, f)
 }
 
-func (m *MemtableThreaded) flushKeyMap() error {
+func (m *MemtableMulti) flushKeyMap() error {
 	flat := m.flattenInOrderKeyMap()
 	totalSize := len(flat)
 
@@ -97,7 +97,7 @@ func (m *MemtableThreaded) flushKeyMap() error {
 	return m.writeIndex(keys, w, f)
 }
 
-func (m *MemtableThreaded) flushKeyMulti() error {
+func (m *MemtableMulti) flushKeyMulti() error {
 	flat := m.flattenInOrderKeyMulti()
 	totalSize := len(flat)
 
@@ -115,25 +115,58 @@ func (m *MemtableThreaded) flushKeyMulti() error {
 	return m.writeIndex(keys, w, f)
 }
 
-func (m *MemtableThreaded) flattenInOrderKey() []*binarySearchNode {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedFlattenInOrderKey,
-	}, true, "FlattenInOrderKey")
-	return output.nodesKey
+func (m *MemtableMulti) flattenInOrderKey() []*binarySearchNode {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			nodesKey: m.flattenInOrderKey(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var nodes [][]*binarySearchNode
+	for _, response := range results {
+		nodes = append(nodes, response.nodesKey)
+	}
+	merged, err := mergeKeyNodes(nodes)
+	if err != nil {
+		panic(err)
+	}
+	return merged
 }
 
-func (m *MemtableThreaded) flattenInOrderKeyMap() []*binarySearchNodeMap {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedFlattenInOrderKeyMap,
-	}, true, "FlattenInOrderKeyMap")
-	return output.nodesMap
+func (m *MemtableMulti) flattenInOrderKeyMap() []*binarySearchNodeMap {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			nodesMap: m.flattenInOrderKeyMap(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var nodes [][]*binarySearchNodeMap
+	for _, response := range results {
+		nodes = append(nodes, response.nodesMap)
+	}
+	merged, err := mergeMapNodes(nodes)
+	if err != nil {
+		panic(err)
+	}
+	return merged
 }
 
-func (m *MemtableThreaded) flattenInOrderKeyMulti() []*binarySearchNodeMulti {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedFlattenInOrderKeyMulti,
-	}, true, "FlattenInOrderKeyMulti")
-	return output.nodesMulti
+func (m *MemtableMulti) flattenInOrderKeyMulti() []*binarySearchNodeMulti {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			nodesMulti: m.flattenInOrderKeyMulti(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var nodes [][]*binarySearchNodeMulti
+	for _, response := range results {
+		nodes = append(nodes, response.nodesMulti)
+	}
+	merged, err := mergeMultiNodes(nodes)
+	if err != nil {
+		panic(err)
+	}
+	return merged
 }
 
 // TODO: this code is mostly duplicate for all node types, and it should be refactored with generics
@@ -355,7 +388,7 @@ func writeKeyMulti(flat []*binarySearchNodeMulti, w *bufio.Writer, f *os.File, s
 }
 
 // TODO: this code is a duplicate of the Memtable flush code; I've separated it for tests, in the future, it should be refactored so it can be called for both Memtable and MemtableThreaded
-func (m *MemtableThreaded) writeIndex(keys []segmentindex.Key, w *bufio.Writer, f *os.File) error {
+func (m *MemtableMulti) writeIndex(keys []segmentindex.Key, w *bufio.Writer, f *os.File) error {
 	indices := &segmentindex.Indexes{
 		Keys:                keys,
 		SecondaryIndexCount: m.secondaryIndices,

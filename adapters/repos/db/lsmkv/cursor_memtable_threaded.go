@@ -88,30 +88,74 @@ func (c *CursorReplace) next() ([]byte, []byte, error) {
 	return k, v, nil
 }
 
-func (m *MemtableThreaded) newCollectionCursor() innerCursorCollection {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedNewCollectionCursor,
-	}, true, "NewCollectionCursor")
-	return output.cursorSet
+func (m *MemtableMulti) newCollectionCursor() innerCursorCollection {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			innerCursorCollection: m.newCollectionCursor(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var cursors []innerCursorCollection
+	for _, response := range results {
+		cursors = append(cursors, response.innerCursorCollection)
+	}
+	set := &CursorSet{
+		unlock: func() {
+		},
+		innerCursors: cursors,
+	}
+	return set
 }
 
-func (m *MemtableThreaded) newRoaringSetCursor() roaringset.InnerCursor {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedNewRoaringSetCursor,
-	}, true, "NewRoaringSetCursor")
-	return output.cursorRoaringSet
+func (m *MemtableMulti) newRoaringSetCursor() roaringset.InnerCursor {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			innerCursorRoaringSet: m.newRoaringSetCursor(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var cursors []roaringset.InnerCursor
+	for _, response := range results {
+		cursors = append(cursors, response.innerCursorRoaringSet)
+	}
+	set := roaringset.NewCombinedCursorLayer(cursors, false)
+	return set
 }
 
-func (m *MemtableThreaded) newMapCursor() innerCursorMap {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedNewMapCursor,
-	}, true, "NewMapCursor")
-	return output.cursorMap
+func (m *MemtableMulti) newMapCursor() innerCursorMap {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			innerCursorMap: m.newMapCursor(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var cursors []innerCursorMap
+	for _, response := range results {
+		cursors = append(cursors, response.innerCursorMap)
+	}
+	set := &CursorMap{
+		unlock: func() {
+		},
+		innerCursors: cursors,
+	}
+	return set
 }
 
-func (m *MemtableThreaded) newCursor() innerCursorReplace {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedNewCursor,
-	}, true, "NewCursor")
-	return output.cursorReplace
+func (m *MemtableMulti) newCursor() innerCursorReplace {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			innerCursorReplace: m.newCursor(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var cursors []innerCursorReplace
+	for _, response := range results {
+		cursors = append(cursors, response.innerCursorReplace)
+	}
+	set := &CursorReplace{
+		unlock: func() {
+		},
+		innerCursors: cursors,
+	}
+	return set
 }

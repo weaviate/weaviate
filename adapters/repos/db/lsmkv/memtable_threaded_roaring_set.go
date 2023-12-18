@@ -22,125 +22,69 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func ThreadedRoaringSetRemoveOne(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetRemoveOne(request.key, request.value)}
+func (m *MemtableMulti) roaringSetAddOne(key []byte, value uint64) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetAddOne(key, value)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetAddOne(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetAddOne(request.key, request.value)}
+func (m *MemtableMulti) roaringSetAddList(key []byte, values []uint64) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetAddList(key, values)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetAddList(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetAddList(request.key, request.values)}
+func (m *MemtableMulti) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetAddBitmap(key, bm)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetRemoveList(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetRemoveList(request.key, request.values)}
+func (m *MemtableMulti) roaringSetRemoveOne(key []byte, value uint64) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetRemoveOne(key, value)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetAddBitmap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetAddBitmap(request.key, request.bm)}
+func (m *MemtableMulti) roaringSetRemoveList(key []byte, values []uint64) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetRemoveList(key, values)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetRemoveBitmap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetRemoveBitmap(request.key, request.bm)}
+func (m *MemtableMulti) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetRemoveBitmap(key, bm)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetGet(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	bitmap, err := m.roaringSetGet(request.key)
-	return ThreadedMemtableResponse{error: err, bitmap: bitmap}
+func (m *MemtableMulti) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{error: m.roaringSetAddRemoveBitmaps(key, additions, deletions)}
+	}
+	result := m.callSingleWorker(memtableOperation, key, false)
+	return result.error
 }
 
-func ThreadedRoaringSetAddRemoveBitmaps(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{error: m.roaringSetAddRemoveBitmaps(request.key, request.additions, request.deletions)}
-}
-
-func ThreadedFlattenInOrderRoaringSet(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{nodesRoaring: m.RoaringSet().FlattenInOrder()}
-}
-
-func ThreadedFlattenInOrderKey(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{nodesKey: m.key.flattenInOrder()}
-}
-
-func ThreadedFlattenInOrderKeyMulti(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{nodesMulti: m.keyMulti.flattenInOrder()}
-}
-
-func ThreadedFlattenInOrderKeyMap(m *MemtableSingle, request ThreadedMemtableRequest) ThreadedMemtableResponse {
-	return ThreadedMemtableResponse{nodesMap: m.keyMap.flattenInOrder()}
-}
-
-func (m *MemtableThreaded) roaringSetAddOne(key []byte, value uint64) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetAddOne,
-		key:       key,
-		value:     value,
-	}, false, "RoaringSetAddOne")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetAddList(key []byte, values []uint64) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetAddList,
-		key:       key,
-		values:    values,
-	}, false, "RoaringSetAddList")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetAddBitmap,
-		key:       key,
-		bm:        bm,
-	}, false, "RoaringSetAddBitmap")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetRemoveOne(key []byte, value uint64) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetRemoveOne,
-		key:       key,
-		value:     value,
-	}, false, "RoaringSetRemoveOne")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetRemoveList(key []byte, values []uint64) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetRemoveList,
-		key:       key,
-		values:    values,
-	}, false, "RoaringSetRemoveList")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetRemoveBitmap,
-		key:       key,
-		bm:        bm,
-	}, false, "RoaringSetRemoveBitmap")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetAddRemoveBitmaps,
-		key:       key,
-		additions: additions,
-		deletions: deletions,
-	}, false, "RoaringSetAddRemoveBitmaps")
-	return output.error
-}
-
-func (m *MemtableThreaded) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedRoaringSetGet,
-		key:       key,
-	}, true, "RoaringSetGet")
-	return output.bitmap, output.error
+func (m *MemtableMulti) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		bitmap, err := m.roaringSetGet(key)
+		return ThreadedMemtableResponse{error: err, bitmap: bitmap}
+	}
+	result := m.callSingleWorker(memtableOperation, key, true)
+	return result.bitmap, result.error
 }
 
 func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset.BinarySearchNode, error) {
@@ -218,14 +162,25 @@ func writeRoaringSet(flat []*roaringset.BinarySearchNode, f *bufio.Writer) ([]se
 	return keys, nil
 }
 
-func (m *MemtableThreaded) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
-	output := m.threadedOperation(ThreadedMemtableRequest{
-		operation: ThreadedFlattenInOrderRoaringSet,
-	}, true, "FlattenInOrderRoaringSet")
-	return output.nodesRoaring
+func (m *MemtableMulti) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{
+			nodesRoaring: m.RoaringSet().FlattenInOrder(),
+		}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var nodes [][]*roaringset.BinarySearchNode
+	for _, response := range results {
+		nodes = append(nodes, response.nodesRoaring)
+	}
+	merged, err := mergeRoaringSets(nodes)
+	if err != nil {
+		panic(err)
+	}
+	return merged
 }
 
-func (m *MemtableThreaded) flushRoaringSet() error {
+func (m *MemtableMulti) flushRoaringSet() error {
 	flat := m.flattenNodesRoaringSet()
 	totalSize := len(flat)
 
