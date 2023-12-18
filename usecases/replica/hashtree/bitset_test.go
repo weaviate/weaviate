@@ -28,13 +28,28 @@ func TestBitSet(t *testing.T) {
 		require.False(t, bset.IsSet(i))
 	}
 
+	require.False(t, bset.AllSet())
+
 	for i := 0; i < bsetSize; i++ {
 		bset.Set(i)
 		require.True(t, bset.IsSet(i))
 	}
 
+	require.True(t, bset.AllSet())
 	require.Equal(t, bsetSize, bset.SetCount())
 
 	bset.Reset()
 	require.Zero(t, bset.SetCount())
+
+	require.Panics(t, func() {
+		bset.IsSet(bsetSize)
+	})
+
+	require.Panics(t, func() {
+		bset.Set(bsetSize)
+	})
+
+	require.Panics(t, func() {
+		bset.Unset(bsetSize)
+	})
 }
