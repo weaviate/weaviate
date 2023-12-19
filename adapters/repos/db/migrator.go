@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/replica"
 
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -370,16 +371,14 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
-	// hnsw is the only supported vector index type at the moment, so no need
-	// to check, we can always use that an hnsw-specific validation should be
-	// used for now.
 	switch old.IndexType() {
-	case "hnsw":
+	// hnsw and flat are the only supported vector indexes
+	case vIndex.VectorIndexTypeHNSW:
 		return hnsw.ValidateUserConfigUpdate(old, updated)
-	case "flat":
+	case vIndex.VectorIndexTypeFLAT:
 		return flat.ValidateUserConfigUpdate(old, updated)
 	}
-	return fmt.Errorf("Invalid index type: %s", old.IndexType())
+	return fmt.Errorf("invalid index type: %q", old.IndexType())
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
