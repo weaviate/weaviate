@@ -72,7 +72,6 @@ type validator interface {
 // from the Manager class, which combines many unrelated functions.
 // By delegating these clear responsibilities to the handler, it maintains
 // a clean separation from the manager, enhancing code modularity and maintainability.
-
 type Handler struct {
 	metaWriter metaWriter
 	metaReader metaReader
