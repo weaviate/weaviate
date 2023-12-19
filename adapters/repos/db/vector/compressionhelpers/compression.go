@@ -65,10 +65,6 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
 	compressor.cache.Drop()
-
-	if err := compressor.compressedStore.ShutdownBucket(context.Background(), helpers.VectorsCompressedBucketLSM); err != nil {
-		return errors.Wrap(err, "compressed store shutdown")
-	}
 	return nil
 }
 

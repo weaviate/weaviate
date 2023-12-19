@@ -136,16 +136,6 @@ func (s *Store) setBucket(name string, b *Bucket) {
 	s.bucketsByName[name] = b
 }
 
-func (s *Store) ShutdownBucket(ctx context.Context, name string) error {
-	s.bucketAccessLock.RLock()
-	defer s.bucketAccessLock.RUnlock()
-	bucket, found := s.bucketsByName[name]
-	if !found {
-		return fmt.Errorf("cannot shutdown bucket %q, it was not found in the store", name)
-	}
-	return bucket.Shutdown(ctx)
-}
-
 func (s *Store) Shutdown(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
