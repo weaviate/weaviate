@@ -493,6 +493,7 @@ case $CONFIG in
         BACKUP_GCS_ENDPOINT=localhost:9090 \
         BACKUP_GCS_BUCKET=weaviate-backups \
         ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+        CLUSTER_IN_LOCALHOST=true \
         CLUSTER_HOSTNAME="node2" \
         CLUSTER_GOSSIP_BIND_PORT="7102" \
         CLUSTER_DATA_BIND_PORT="7103" \
@@ -516,6 +517,7 @@ case $CONFIG in
         BACKUP_GCS_ENDPOINT=localhost:9090 \
         BACKUP_GCS_BUCKET=weaviate-backups \
         ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+        CLUSTER_IN_LOCALHOST=true \
         CLUSTER_HOSTNAME="node3" \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
