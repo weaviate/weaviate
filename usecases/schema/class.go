@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -230,9 +231,9 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 			class.Vectorizer = m.config.DefaultVectorizerModule
 		}
 
-		if class.VectorIndexType == "" {
-			class.VectorIndexType = "hnsw"
-		}
+	if class.VectorIndexType == "" {
+		class.VectorIndexType = vectorindex.DefaultVectorIndexType
+	}
 
 		if m.config.DefaultVectorDistanceMetric != "" {
 			if class.VectorIndexConfig == nil {

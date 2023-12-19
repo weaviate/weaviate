@@ -14,6 +14,7 @@ package schema
 import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/config"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -61,16 +62,19 @@ const (
 	// VectorIndexTypeUnknown is used when we parse an unexpected index type
 	VectorIndexTypeUnknown VectorIndexType = iota
 	VectorIndexTypeHNSW
+	VectorIndexTypeFlat
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
-		VectorIndexTypeHNSW:    "hnsw",
+		VectorIndexTypeHNSW:    vIndex.VectorIndexTypeHNSW,
+		VectorIndexTypeFlat:    vIndex.VectorIndexTypeFLAT,
 		VectorIndexTypeUnknown: "unknown",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
-		"hnsw":    VectorIndexTypeHNSW,
-		"unknown": VectorIndexTypeUnknown,
+		vIndex.VectorIndexTypeHNSW: VectorIndexTypeHNSW,
+		vIndex.VectorIndexTypeFLAT: VectorIndexTypeFlat,
+		"unknown":                  VectorIndexTypeUnknown,
 	}
 )
 
