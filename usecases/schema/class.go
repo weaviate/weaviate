@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -591,7 +592,7 @@ func (h *Handler) validateVectorizer(ctx context.Context, class *models.Class) e
 
 func (h *Handler) validateVectorIndex(ctx context.Context, class *models.Class) error {
 	switch class.VectorIndexType {
-	case "hnsw":
+	case vIndex.VectorIndexTypeHNSW, vIndex.VectorIndexTypeFLAT:
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

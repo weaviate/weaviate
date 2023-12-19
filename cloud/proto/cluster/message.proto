@@ -28,7 +28,8 @@ message JoinPeerResponse {
 
 }
 
-message NotifyPeerResponse {}
+message NotifyPeerResponse {
+}
 
 message ApplyResponse {
   string leader = 1;
