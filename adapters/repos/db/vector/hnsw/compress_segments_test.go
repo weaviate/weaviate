@@ -41,13 +41,12 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	ef := 32
 	maxNeighbors := 32
 
-	store := newDummyStore(t)
-
 	dimensionsSet := []int{768, 125, 64, 27, 2, 19}
 	expectedSegmentsSet := []int{128, 125, 32, 27, 1, 19}
 	vectors_size := 1000
 
 	for i, dimensions := range dimensionsSet {
+		store := newDummyStore(t)
 		expectedSegments := expectedSegmentsSet[i]
 		vectors, _ := testinghelpers.RandomVecs(vectors_size, 1, dimensions)
 		distancer := distancer.NewL2SquaredProvider()
@@ -80,7 +79,6 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 				},
 			}, uc,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
-		defer index.Shutdown(context.Background())
 		compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 			index.Add(uint64(id), vectors[id])
 		})
@@ -96,5 +94,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		index.Compress(cfg)
 		assert.Equal(t, expectedSegments, int(index.compressor.ExposeFields().M))
 		assert.Equal(t, expectedSegments, index.pqConfig.Segments)
+		index.Shutdown(context.Background())
+		store.Shutdown(context.Background())
 	}
 }
