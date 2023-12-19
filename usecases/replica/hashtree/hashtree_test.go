@@ -208,6 +208,15 @@ func TestHashTreeComparisonIncrementalConciliation(t *testing.T) {
 			require.LessOrEqual(t, diff0, diff1)
 			require.LessOrEqual(t, prevDiff, diff1)
 
+			if prevDiff > 0 {
+				require.Less(t, prevDiff, diff0)
+
+				for d := prevDiff + 1; d < diff0; d++ {
+					_, ok := conciliated[d]
+					require.True(t, ok)
+				}
+			}
+
 			for d := diff0; d <= diff1; d++ {
 				_, ok := conciliated[d]
 				require.False(t, ok)
