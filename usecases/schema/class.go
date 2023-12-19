@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -647,7 +648,7 @@ func (m *Handler) validateVectorizer(vectorizer string) error {
 	return nil
 }
 
-func (m *Handler) validateVectorIndexType(vectorIndexType string) error {
+func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
 	case "hnsw", "flat":
 		return nil
