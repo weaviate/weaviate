@@ -245,6 +245,9 @@ func (s *Shard) determineMutableInsertStatus(previous []byte,
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
+	if err := s.ChangeObjectCountBy(1); err != nil {
+		return fmt.Errorf("increment object count: %w", err)
+	}
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	docIDBytes := keyBuf.Bytes()

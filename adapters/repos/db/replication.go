@@ -286,15 +286,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
-	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("reinit non-vector: %w", err)
-	}
-
-	if err := s.initVector(ctx); err != nil {
-		return fmt.Errorf("reinit vector: %w", err)
-	}
-
-	s.initCycleCallbacks()
+	s.initShard(ctx)
 
 	return nil
 }

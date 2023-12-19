@@ -97,6 +97,8 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		return nil, status, errors.Wrap(err, "check insert/update status")
 	}
 
+
+
 	nextObj.SetDocID(status.docID)
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
@@ -165,10 +167,6 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 		return out, errors.Wrap(err, "check insert/update status")
 	}
 	out.status = status
-
-	if err = s.ChangeObjectCountBy(1); err != nil {
-		return fmt.Errorf("increment object count: %w", err)
-	}
 
 	nextObj.SetDocID(status.docID) // is not changed
 	nextBytes, err := nextObj.MarshalBinary()

@@ -149,6 +149,7 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
+	class            *models.Class
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
 	name             string
@@ -187,23 +188,9 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonPropertyLengthTracker,
-) (*Shard, error) {
+func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 	before := time.Now()
 	var err error
-	s := &Shard{
-		index:       index,
-		name:        shardName,
-		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
-		stopMetrics:      make(chan struct{}),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		indexCheckpoints: indexCheckpoints,
-	}
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -220,9 +207,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	if propLengths != nil {
-		s.propLenTracker = propLengths
-	} else {
+	if s.propLenTracker == nil {
 		plPath := path.Join(s.path(), "proplengths")
 		tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 		if err != nil {
@@ -232,7 +217,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.propLenTracker = tracker
 	}
 
-	if err := s.initNonVector(ctx, class); err != nil {
+	if err := s.initNonVector(ctx, s.class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
@@ -261,7 +246,30 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
+
 	return s, nil
+}
+
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonPropertyLengthTracker,
+) (*Shard, error) {
+
+	s := &Shard{
+		index:       index,
+		name:        shardName,
+		promMetrics: promMetrics,
+		metrics: NewMetrics(index.logger, promMetrics,
+			string(index.Config.ClassName), shardName),
+		stopMetrics:      make(chan struct{}),
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		indexCheckpoints: indexCheckpoints,
+		propLenTracker:   propLengths,
+		class:            class,
+	}
+	return s.initShard(ctx)
+
 }
 
 func (s *Shard) initVector(ctx context.Context) error {
