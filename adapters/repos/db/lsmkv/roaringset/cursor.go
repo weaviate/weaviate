@@ -258,11 +258,14 @@ func (c *CombinedCursorLayer) getCursorIdsWithLowestKey(states []innerCursorStat
 		if lowestKey == nil {
 			lowestKey = state.key
 			ids = []int{id}
-		} else if cmp := bytes.Compare(lowestKey, state.key); cmp > 0 {
-			lowestKey = state.key
-			ids = []int{id}
-		} else if cmp == 0 {
-			ids = append(ids, id)
+		} else {
+			cmp := bytes.Compare(lowestKey, state.key)
+			if cmp > 0 {
+				lowestKey = state.key
+				ids = []int{id}
+			} else if cmp == 0 {
+				ids = append(ids, id)
+			}
 		}
 	}
 
