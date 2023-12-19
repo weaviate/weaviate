@@ -2,6 +2,8 @@ module acceptance_tests_with_client
 
 go 1.21
 
+replace github.com/weaviate/weaviate => ../..
+
 require (
 	github.com/go-openapi/strfmt v0.21.3
 	github.com/google/uuid v1.3.1
