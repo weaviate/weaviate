@@ -124,29 +124,29 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 }
 
 func TestCompactHashTreeLeafMapping(t *testing.T) {
-	capacity := uint64(10_000)
-	maxHeight := 6
+	capacity := uint64(100_000)
+	maxHeight := 13
 
 	ht := NewCompactHashTree(capacity, maxHeight)
 
-	require.LessOrEqual(t, ht.Height(), maxHeight)
+	require.True(t, ht.Height() <= maxHeight)
 	require.Equal(t, LeavesCount(ht.Height()), ht.leavesCount)
-	require.LessOrEqual(t, uint64(ht.leavesCount), capacity)
+	require.True(t, uint64(ht.leavesCount) <= capacity)
 
 	var prevMappedLeaf int
 
 	for l := uint64(0); l < capacity; l++ {
 		ml := ht.mapLeaf(l)
-		require.LessOrEqual(t, uint64(ml), l)
-		require.LessOrEqual(t, ml, ht.leavesCount)
+		require.True(t, uint64(ml) <= l)
+		require.True(t, ml <= ht.leavesCount)
 
 		if l > 0 {
-			require.LessOrEqual(t, prevMappedLeaf, ml)
+			require.True(t, prevMappedLeaf <= ml)
 		}
 
 		uml := ht.unmapLeaf(ml)
-		require.LessOrEqual(t, uml, capacity)
-		require.LessOrEqual(t, uml, l)
+		require.True(t, uml <= capacity)
+		require.True(t, uml <= l)
 
 		var groupSize uint64
 
@@ -156,7 +156,7 @@ func TestCompactHashTreeLeafMapping(t *testing.T) {
 			groupSize = ht.groupSize
 		}
 
-		require.LessOrEqual(t, l, uml+groupSize)
+		require.True(t, l <= uml+groupSize)
 
 		for i := uml; i < l; i++ {
 			// i should be mapped to the same leaf
@@ -166,6 +166,12 @@ func TestCompactHashTreeLeafMapping(t *testing.T) {
 		for i := l; i < uml+groupSize; i++ {
 			// i should be mapped to the same leaf
 			require.Equal(t, ml, ht.mapLeaf(i))
+		}
+
+		if uml+groupSize < capacity {
+			// uml+groupSize should be assigned to the next leaf
+			nextLeaf := ht.mapLeaf(uml + groupSize)
+			require.Equal(t, ml+1, nextLeaf)
 		}
 
 		prevMappedLeaf = ml
