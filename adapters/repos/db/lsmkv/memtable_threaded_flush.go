@@ -37,7 +37,7 @@ func (m *MemtableMulti) flattenInOrderKey() []*binarySearchNode {
 	for _, response := range results {
 		nodes = append(nodes, response.nodesKey)
 	}
-	merged, err := mergeKeyNodes(nodes)
+	merged, err := mergeNodes(nodes)
 	if err != nil {
 		panic(err)
 	}
@@ -55,7 +55,7 @@ func (m *MemtableMulti) flattenInOrderKeyMap() []*binarySearchNodeMap {
 	for _, response := range results {
 		nodes = append(nodes, response.nodesMap)
 	}
-	merged, err := mergeMapNodes(nodes)
+	merged, err := mergeNodes(nodes)
 	if err != nil {
 		panic(err)
 	}
@@ -73,115 +73,67 @@ func (m *MemtableMulti) flattenInOrderKeyMulti() []*binarySearchNodeMulti {
 	for _, response := range results {
 		nodes = append(nodes, response.nodesMulti)
 	}
-	merged, err := mergeMultiNodes(nodes)
+	merged, err := mergeNodes(nodes)
 	if err != nil {
 		panic(err)
 	}
 	return merged
 }
 
-// TODO: this code is mostly duplicate for all node types, and it should be refactored with generics
-func mergeKeyNodes(metaNodes [][]*binarySearchNode) ([]*binarySearchNode, error) {
-	numBuckets, indices, flat := prepareIteration(metaNodes)
-	mergedNodesIndex := 0
-
-	for {
-		var smallestNode *binarySearchNode
-		var smallestNodeIndex int
-		for i := 0; i < numBuckets; i++ {
-			index := indices[i]
-			if index < len(metaNodes[i]) {
-				if smallestNode == nil || bytes.Compare(metaNodes[i][index].key, smallestNode.key) < 0 {
-					smallestNode = metaNodes[i][index]
-					smallestNodeIndex = i
-				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].key, smallestNode.key) {
-					// smallestNode.value = append(smallestNode.value, metaNodes[i][index].value...)
-					indices[i]++
-				}
-			}
-		}
-		if smallestNode == nil {
-			break
-		}
-		flat[mergedNodesIndex] = smallestNode
-		mergedNodesIndex++
-		indices[smallestNodeIndex]++
-	}
-
-	// fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
-	return flat[:mergedNodesIndex], nil
+type Keyer interface {
+	Key() []byte
+	IsNil() bool
 }
 
-func mergeMapNodes(metaNodes [][]*binarySearchNodeMap) ([]*binarySearchNodeMap, error) {
-	numBuckets, indices, flat := prepareIteration(metaNodes)
-	mergedNodesIndex := 0
-
-	for {
-		var smallestNode *binarySearchNodeMap
-		var smallestNodeIndex int
-		for i := 0; i < numBuckets; i++ {
-			index := indices[i]
-			if index < len(metaNodes[i]) {
-				if smallestNode == nil || bytes.Compare(metaNodes[i][index].key, smallestNode.key) < 0 {
-					smallestNode = metaNodes[i][index]
-					smallestNodeIndex = i
-				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].key, smallestNode.key) {
-					// smallestNode.values = append(smallestNode.values, metaNodes[i][index].values...)
-					indices[i]++
-				}
-			}
-		}
-		if smallestNode == nil {
-			break
-		}
-		flat[mergedNodesIndex] = smallestNode
-		mergedNodesIndex++
-		indices[smallestNodeIndex]++
-	}
-
-	// fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
-	return flat[:mergedNodesIndex], nil
+func (n *binarySearchNode) Key() []byte {
+	return n.key
 }
 
-func mergeMultiNodes(metaNodes [][]*binarySearchNodeMulti) ([]*binarySearchNodeMulti, error) {
-	numBuckets, indices, flat := prepareIteration(metaNodes)
-	mergedNodesIndex := 0
-
-	for {
-		var smallestNode *binarySearchNodeMulti
-		var smallestNodeIndex int
-		for i := 0; i < numBuckets; i++ {
-			index := indices[i]
-			if index < len(metaNodes[i]) {
-				if smallestNode == nil || bytes.Compare(metaNodes[i][index].key, smallestNode.key) < 0 {
-					smallestNode = metaNodes[i][index]
-					smallestNodeIndex = i
-				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].key, smallestNode.key) {
-					// smallestNode.values = append(smallestNode.values, metaNodes[i][index].values...)
-					indices[i]++
-				}
-			}
-		}
-		if smallestNode == nil {
-			break
-		}
-		flat[mergedNodesIndex] = smallestNode
-		mergedNodesIndex++
-		indices[smallestNodeIndex]++
-	}
-
-	// fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
-	return flat[:mergedNodesIndex], nil
+func (n *binarySearchNodeMap) Key() []byte {
+	return n.key
 }
 
-func prepareIteration[T any](metaNodes [][]*T) (int, []int, []*T) {
+func (n *binarySearchNodeMulti) Key() []byte {
+	return n.key
+}
+
+func mergeNodes[T Keyer](metaNodes [][]T) ([]T, error) {
 	numBuckets := len(metaNodes)
 	indices := make([]int, numBuckets)
 	totalSize := 0
+
 	for i := 0; i < numBuckets; i++ {
 		totalSize += len(metaNodes[i])
 	}
 
-	flat := make([]*T, totalSize)
-	return numBuckets, indices, flat
+	flat := make([]T, totalSize)
+	mergedNodesIndex := 0
+
+	for {
+		var smallestNode T
+		var smallestNodeIndex int
+		for i := 0; i < numBuckets; i++ {
+			index := indices[i]
+			if index >= len(metaNodes[i]) {
+				continue
+			}
+			if smallestNode.IsNil() || bytes.Compare(metaNodes[i][index].Key(), smallestNode.Key()) < 0 {
+				smallestNode = metaNodes[i][index]
+				smallestNodeIndex = i
+			} else if !smallestNode.IsNil() && bytes.Equal(metaNodes[i][index].Key(), smallestNode.Key()) {
+				// smallestNode.value = append(smallestNode.value, metaNodes[i][index].value...)
+				indices[i]++
+			}
+
+		}
+		if smallestNode.IsNil() {
+			break
+		}
+		flat[mergedNodesIndex] = smallestNode
+		mergedNodesIndex++
+		indices[smallestNodeIndex]++
+	}
+
+	// fmt.Printf("Merged %d nodes into %d nodes\n", totalSize, mergedNodesIndex)
+	return flat[:mergedNodesIndex], nil
 }

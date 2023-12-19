@@ -84,7 +84,14 @@ func (m *MemtableMulti) roaringSetGet(key []byte) (roaringset.BitmapLayer, error
 }
 
 func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset.BinarySearchNode, error) {
-	numBuckets, indices, flat := prepareIteration(metaNodes)
+	numBuckets := len(metaNodes)
+	indices := make([]int, numBuckets)
+	totalSize := 0
+	for i := 0; i < numBuckets; i++ {
+		totalSize += len(metaNodes[i])
+	}
+
+	flat := make([]*roaringset.BinarySearchNode, totalSize)
 	mergedNodesIndex := 0
 
 	for {
@@ -92,16 +99,19 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset
 		var smallestNodeIndex int
 		for i := 0; i < numBuckets; i++ {
 			index := indices[i]
-			if index < len(metaNodes[i]) {
-				if smallestNode == nil || bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) < 0 {
-					smallestNode = metaNodes[i][index]
-					smallestNodeIndex = i
-				} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].Key, smallestNode.Key) {
-					smallestNode.Value.Additions.Or(metaNodes[i][index].Value.Additions)
-					smallestNode.Value.Deletions.Or(metaNodes[i][index].Value.Deletions)
-					indices[i]++
-				}
+			if index >= len(metaNodes[i]) {
+				continue
 			}
+
+			if smallestNode == nil || bytes.Compare(metaNodes[i][index].Key, smallestNode.Key) < 0 {
+				smallestNode = metaNodes[i][index]
+				smallestNodeIndex = i
+			} else if smallestNode != nil && bytes.Equal(metaNodes[i][index].Key, smallestNode.Key) {
+				smallestNode.Value.Additions.Or(metaNodes[i][index].Value.Additions)
+				smallestNode.Value.Deletions.Or(metaNodes[i][index].Value.Deletions)
+				indices[i]++
+			}
+
 		}
 		if smallestNode == nil {
 			break
