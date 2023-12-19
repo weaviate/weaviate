@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -206,7 +207,7 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	}
 
 	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
+		class.VectorIndexType = vectorindex.DefaultVectorIndexType
 	}
 
 	if h.config.DefaultVectorDistanceMetric != "" {
