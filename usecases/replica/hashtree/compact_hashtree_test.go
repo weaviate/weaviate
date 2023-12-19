@@ -122,3 +122,34 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 }
+
+func TestCompactHashTreeLeafMapping(t *testing.T) {
+	capacity := uint64(1_000_000)
+	maxHeight := 16
+
+	ht := NewCompactHashTree(capacity, maxHeight)
+
+	require.LessOrEqual(t, ht.Height(), maxHeight)
+	require.Equal(t, LeavesCount(ht.Height()), ht.leavesCount)
+	require.LessOrEqual(t, uint64(ht.leavesCount), capacity)
+
+	for l := uint64(0); l < capacity; l++ {
+		ml := ht.mapLeaf(l)
+		require.LessOrEqual(t, ml, ht.leavesCount)
+		require.LessOrEqual(t, uint64(ml), l)
+
+		uml := ht.unmapLeaf(ml)
+		require.LessOrEqual(t, uml, capacity)
+		require.LessOrEqual(t, uml, l)
+
+		var groupSize uint64
+
+		if l < ht.leavesCountInExtendedGroups {
+			groupSize = ht.extendedGroupSize
+		} else {
+			groupSize = ht.groupSize
+		}
+
+		require.LessOrEqual(t, l, uml+groupSize)
+	}
+}
