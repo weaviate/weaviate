@@ -118,7 +118,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if !success {
 			return nil, "", fmt.Errorf("failed to parse hex string to integer")
 		}
-		metadata.IdBytes = hexInteger.Bytes()
+		metadata.IdAsBytes = hexInteger.Bytes()
 	}
 	_, ok := asMap["_additional"]
 	if !ok {
