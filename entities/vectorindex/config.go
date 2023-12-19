@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	DefaultVectorIndexType = VectorIndexTypeHNSW
 	VectorIndexTypeHNSW    = "hnsw"
 	VectorIndexTypeFLAT    = "flat"
+	DefaultVectorIndexType = VectorIndexTypeHNSW
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -38,6 +38,6 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schemaCo
 	case VectorIndexTypeFLAT:
 		return flat.ParseAndValidateConfig(input)
 	default:
-		return nil, fmt.Errorf("Invalid vectorIndexType (­%s). Supported types are hnsw and flat", vectorIndexType)
+		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
 	}
 }

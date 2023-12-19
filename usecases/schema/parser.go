@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
