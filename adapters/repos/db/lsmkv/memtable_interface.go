@@ -36,6 +36,7 @@ type Memtable interface {
 	CommitlogPath() string
 	Path() string
 	SecondaryIndices() uint16
+	Strategy() string
 	UpdatePath(bucketDir, newBucketDir string)
 	CommitlogPause()
 	CommitlogUnpause()

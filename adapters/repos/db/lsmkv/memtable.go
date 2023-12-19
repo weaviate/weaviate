@@ -443,3 +443,7 @@ func (m *MemtableSingle) flattenInOrderKeyMap() []*binarySearchNodeMap {
 	defer m.RUnlock()
 	return m.keyMap.flattenInOrder()
 }
+
+func (m *MemtableSingle) Strategy() string {
+	return m.strategy
+}

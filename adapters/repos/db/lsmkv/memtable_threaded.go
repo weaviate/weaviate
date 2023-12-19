@@ -486,3 +486,7 @@ func (m *MemtableMulti) CommitlogFileSize() (int64, error) {
 	}
 	return int64(sumSize), nil
 }
+
+func (m *MemtableMulti) Strategy() string {
+	return m.strategy
+}

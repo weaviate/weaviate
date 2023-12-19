@@ -21,64 +21,42 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (m *MemtableSingle) flush() error {
+func preflush(m Memtable) (*os.File, *bufio.Writer, error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
 
-	if err := m.commitlog.close(); err != nil {
-		return errors.Wrap(err, "close commit log file")
+	if err := m.CommitlogClose(); err != nil {
+		return nil, nil, errors.Wrap(err, "close commit log file")
 	}
 
 	if m.Size() == 0 {
 		// this is an empty memtable, nothing to do
 		// however, we still have to cleanup the commit log, otherwise we will
 		// attempt to recover from it on the next cycle
-		if err := m.commitlog.delete(); err != nil {
-			return errors.Wrap(err, "delete commit log file")
+		if err := m.CommitlogDelete(); err != nil {
+			return nil, nil, errors.Wrap(err, "delete commit log file")
 		}
-		return nil
+		return nil, nil, nil
 	}
 
-	f, err := os.Create(m.path + ".db")
+	f, err := os.Create(m.Path() + ".db")
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	w := bufio.NewWriterSize(f, int(float64(m.size)*1.3)) // calculate 30% overhead for disk representation
+	w := bufio.NewWriterSize(f, int(float64(m.Size())*1.3)) // calculate 30% overhead for disk representation
 
-	var keys []segmentindex.Key
-	switch m.strategy {
-	case StrategyReplace:
-		if keys, err = m.flushDataReplace(w); err != nil {
-			return err
-		}
+	return f, w, err
+}
 
-	case StrategySetCollection:
-		if keys, err = m.flushDataSet(w); err != nil {
-			return err
-		}
-
-	case StrategyRoaringSet:
-		if keys, err = m.flushDataRoaringSet(w); err != nil {
-			return err
-		}
-
-	case StrategyMapCollection:
-		if keys, err = m.flushDataMap(w); err != nil {
-			return err
-		}
-
-	default:
-		return fmt.Errorf("cannot flush strategy %s", m.strategy)
-	}
-
+func postflush(m Memtable, f *os.File, w *bufio.Writer, keys []segmentindex.Key) error {
 	indices := &segmentindex.Indexes{
 		Keys:                keys,
-		SecondaryIndexCount: m.secondaryIndices,
-		ScratchSpacePath:    m.path + ".scratch.d",
+		SecondaryIndexCount: m.SecondaryIndices(),
+		ScratchSpacePath:    m.Path() + ".scratch.d",
 	}
 
 	if _, err := indices.WriteTo(w); err != nil {
@@ -86,31 +64,76 @@ func (m *MemtableSingle) flush() error {
 	}
 
 	if err := w.Flush(); err != nil {
-		return err
+		return errors.Wrap(err, "flush")
 	}
 
 	if err := f.Close(); err != nil {
+		return errors.Wrap(err, "close")
+	}
+
+	if err := m.CommitlogDelete(); err != nil {
+		return errors.Wrap(err, "delete commit log file")
+	}
+
+	return nil
+}
+
+func (m *MemtableSingle) flush() error {
+	return flush(m)
+}
+
+func flush(m Memtable) error {
+	f, w, err := preflush(m)
+	if err != nil {
 		return err
 	}
 
-	// only now that the file has been flushed is it safe to delete the commit log
-	// TODO: there might be an interest in keeping the commit logs around for
-	// longer as they might come in handy for replication
-	return m.commitlog.delete()
+	if f == nil {
+		return nil
+	}
+	var keys []segmentindex.Key
+	switch m.Strategy() {
+	case StrategyReplace:
+		flat := m.flattenInOrderKey()
+		if keys, err = flushDataReplace(m, flat, w); err != nil {
+			return err
+		}
+
+	case StrategySetCollection:
+		flat := m.flattenInOrderKeyMulti()
+		if keys, err = flushDataCollection(m, flat, w); err != nil {
+			return err
+		}
+
+	case StrategyRoaringSet:
+		flat := m.flattenNodesRoaringSet()
+		if keys, err = flushDataRoaringSet(m, flat, w); err != nil {
+			return err
+		}
+
+	case StrategyMapCollection:
+		flat := m.flattenInOrderKeyMap()
+		if keys, err = flushDataMap(m, flat, w); err != nil {
+			return err
+		}
+
+	default:
+		return fmt.Errorf("cannot flush strategy %s", m.Strategy())
+	}
+
+	return postflush(m, f, w, keys)
 }
 
-func (m *MemtableSingle) flushDataReplace(f io.Writer) ([]segmentindex.Key, error) {
-	flat := m.key.flattenInOrder()
-
+func flushDataReplace(m Memtable, flat []*binarySearchNode, f io.Writer) ([]segmentindex.Key, error) {
 	totalDataLength := totalKeyAndValueSize(flat)
-	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(m.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
+	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(m.SecondaryIndices())*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
 	headerSize := segmentindex.HeaderSize
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
 		Version:          0, // always version 0 for now
-		SecondaryIndices: m.secondaryIndices,
-		Strategy:         SegmentStrategyFromString(m.strategy),
+		SecondaryIndices: m.SecondaryIndices(),
+		Strategy:         SegmentStrategyFromString(m.Strategy()),
 	}
 
 	n, err := header.WriteTo(f)
@@ -128,7 +151,7 @@ func (m *MemtableSingle) flushDataReplace(f io.Writer) ([]segmentindex.Key, erro
 			value:               node.value,
 			primaryKey:          node.key,
 			secondaryKeys:       node.secondaryKeys,
-			secondaryIndexCount: m.secondaryIndices,
+			secondaryIndexCount: m.SecondaryIndices(),
 		}
 
 		ki, err := segNode.KeyIndexAndWriteTo(f)
@@ -143,16 +166,7 @@ func (m *MemtableSingle) flushDataReplace(f io.Writer) ([]segmentindex.Key, erro
 	return keys, nil
 }
 
-func (m *MemtableSingle) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
-	flat := m.keyMulti.flattenInOrder()
-	return m.flushDataCollection(f, flat)
-}
-
-func (m *MemtableSingle) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
-	m.RLock()
-	flat := m.keyMap.flattenInOrder()
-	m.RUnlock()
-
+func flushDataMap(m Memtable, flat []*binarySearchNodeMap, f io.Writer) ([]segmentindex.Key, error) {
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic
 	asMulti := make([]*binarySearchNodeMulti, len(flat))
@@ -175,19 +189,20 @@ func (m *MemtableSingle) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
 		}
 
 	}
-	return m.flushDataCollection(f, asMulti)
+	return flushDataCollection(m, asMulti, f)
 }
 
-func (m *MemtableSingle) flushDataCollection(f io.Writer,
+func flushDataCollection(m Memtable,
 	flat []*binarySearchNodeMulti,
+	f io.Writer,
 ) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
 		Version:          0, // always version 0 for now
-		SecondaryIndices: m.secondaryIndices,
-		Strategy:         SegmentStrategyFromString(m.strategy),
+		SecondaryIndices: m.SecondaryIndices(),
+		Strategy:         SegmentStrategyFromString(m.Strategy()),
 	}
 
 	n, err := header.WriteTo(f)

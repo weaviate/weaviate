@@ -12,14 +12,10 @@
 package lsmkv
 
 import (
-	"bufio"
 	"bytes"
-	"fmt"
-	"os"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 func (m *MemtableMulti) roaringSetAddOne(key []byte, value uint64) error {
@@ -88,14 +84,7 @@ func (m *MemtableMulti) roaringSetGet(key []byte) (roaringset.BitmapLayer, error
 }
 
 func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset.BinarySearchNode, error) {
-	numBuckets := len(metaNodes)
-	indices := make([]int, numBuckets)
-	totalSize := 0
-	for i := 0; i < numBuckets; i++ {
-		totalSize += len(metaNodes[i])
-	}
-
-	flat := make([]*roaringset.BinarySearchNode, totalSize)
+	numBuckets, indices, flat := prepareIteration(metaNodes)
 	mergedNodesIndex := 0
 
 	for {
@@ -126,42 +115,6 @@ func mergeRoaringSets(metaNodes [][]*roaringset.BinarySearchNode) ([]*roaringset
 	return flat[:mergedNodesIndex], nil
 }
 
-func writeRoaringSet(flat []*roaringset.BinarySearchNode, f *bufio.Writer) ([]segmentindex.Key, error) {
-	totalDataLength := totalPayloadSizeRoaringSet(flat)
-	header := segmentindex.Header{
-		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
-		Level:            0,
-		Version:          0,
-		SecondaryIndices: 0,
-		Strategy:         segmentindex.StrategyRoaringSet,
-	}
-
-	n, err := header.WriteTo(f)
-	if err != nil {
-		return nil, err
-	}
-	headerSize := int(n)
-	keys := make([]segmentindex.Key, len(flat))
-
-	totalWritten := headerSize
-	for i, node := range flat {
-		sn, err := roaringset.NewSegmentNode(node.Key, node.Value.Additions,
-			node.Value.Deletions)
-		if err != nil {
-			return nil, fmt.Errorf("create segment node: %w", err)
-		}
-
-		ki, err := sn.KeyIndexAndWriteTo(f, totalWritten)
-		if err != nil {
-			return nil, fmt.Errorf("write node %d: %w", i, err)
-		}
-
-		keys[i] = ki
-		totalWritten = ki.ValueEnd
-	}
-	return keys, nil
-}
-
 func (m *MemtableMulti) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
 	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
 		return ThreadedMemtableResponse{
@@ -178,22 +131,4 @@ func (m *MemtableMulti) flattenNodesRoaringSet() []*roaringset.BinarySearchNode 
 		panic(err)
 	}
 	return merged
-}
-
-func (m *MemtableMulti) flushRoaringSet() error {
-	flat := m.flattenNodesRoaringSet()
-	totalSize := len(flat)
-
-	f, err := os.Create(m.path + ".db")
-	if err != nil {
-		return err
-	}
-	w := bufio.NewWriterSize(f, int(float64(totalSize)*1.3))
-
-	keys, err := writeRoaringSet(flat, w)
-	if err != nil {
-		return err
-	}
-
-	return m.writeIndex(keys, w, f)
 }
