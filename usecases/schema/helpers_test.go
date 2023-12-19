@@ -35,12 +35,12 @@ import (
 )
 
 func newTestHandler(t *testing.T, db store.DB) (*Handler, *fakeMetaHandler) {
-	cfg := config.Config{}
+	cfg := config.Config{DefaultVectorizerModule: "hnsw"}
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
-			"model1", "model2",
+			"model1", "model2", "hnsw", "text2vec-contextionary",
 		},
 	}
 	handler, err := NewHandler(
