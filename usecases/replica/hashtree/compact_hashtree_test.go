@@ -239,12 +239,17 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 				}
 			}
 
+			var diffFound bool
+
 			for d := diff0; d <= diff1; d++ {
 				_, ok := conciliated[int(d)]
 				if !ok {
 					diffCount++
+					diffFound = true
 				}
 			}
+
+			require.True(t, diffFound)
 
 			prevDiff = diff1
 		}
