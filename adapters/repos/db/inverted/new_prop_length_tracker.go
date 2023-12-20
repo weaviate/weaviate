@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"os"
 	"sync"
