@@ -90,7 +90,6 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
 			logger.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
-			fmt.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
 			t.Flush(false)
 			return t, nil
 		}

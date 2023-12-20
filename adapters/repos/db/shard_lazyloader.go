@@ -170,10 +170,6 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-	/*
-		l.mustLoad()
-		return l.shard.GetPropertyLengthTracker()
-	*/
 
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
