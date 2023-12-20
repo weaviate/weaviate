@@ -99,9 +99,9 @@ func (ht *CompactHashTree) Reset() *CompactHashTree {
 }
 
 func requiredHeight(n uint64) int {
-	h := 0
+	h := 1
 
-	for ; n > 0; h++ {
+	for n = n - 1; n > 0; h++ {
 		n = n >> 1
 	}
 
