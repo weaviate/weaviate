@@ -544,8 +544,9 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
 	eg := errgroup.Group{}
 	eg.Go(func() (err error) {
-		if cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort); err != nil {
+		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort)
+		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
 		return nil
@@ -576,8 +577,9 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
-			if cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort); err != nil {
+			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort)
+			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}
 			return nil
