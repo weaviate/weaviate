@@ -103,7 +103,7 @@ func (d *DockerCompose) ContainerURI(index int) string {
 	return d.containers[index].URI()
 }
 
-func (d *DockerCompose) ConatinerAt(index int) (*DockerContainer, error) {
+func (d *DockerCompose) ContainerAt(index int) (*DockerContainer, error) {
 	if index > len(d.containers) {
 		return nil, fmt.Errorf("container at index %d does not exit", index)
 	}
