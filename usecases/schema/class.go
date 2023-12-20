@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -205,7 +207,7 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	}
 
 	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
+		class.VectorIndexType = vectorindex.DefaultVectorIndexType
 	}
 
 	if h.config.DefaultVectorDistanceMetric != "" {
@@ -591,7 +593,7 @@ func (h *Handler) validateVectorizer(ctx context.Context, class *models.Class) e
 
 func (h *Handler) validateVectorIndex(ctx context.Context, class *models.Class) error {
 	switch class.VectorIndexType {
-	case "hnsw":
+	case vIndex.VectorIndexTypeHNSW, vIndex.VectorIndexTypeFLAT:
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

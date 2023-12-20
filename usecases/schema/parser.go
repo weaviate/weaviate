@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -49,7 +50,7 @@ func (m *Parser) ParseClass(class *models.Class) error {
 
 func (m *Parser) parseVectorIndexConfig(class *models.Class,
 ) error {
-	if class.VectorIndexType != "hnsw" {
+	if class.VectorIndexType != vIndex.VectorIndexTypeHNSW && class.VectorIndexType != vIndex.VectorIndexTypeFLAT {
 		return errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			class.VectorIndexType)
