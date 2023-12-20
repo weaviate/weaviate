@@ -14,6 +14,8 @@ package hashtree
 import (
 	"fmt"
 	"math"
+	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/spaolacci/murmur3"
@@ -66,14 +68,25 @@ func TestSegmentHashTree(t *testing.T) {
 }
 
 func TestSegmentBigHashTree(t *testing.T) {
-	segmentSize := uint64(math.MaxUint64 / 128)
-	segments := []uint64{1_000, segmentSize + 3_000, 2*segmentSize + 9_000}
+	totalSegmentsCount := 128
+
+	segmentSize := uint64(math.MaxUint64 / uint64(totalSegmentsCount))
+
+	segments := make([]uint64, 30)
+
+	for i, s := range rand.Perm(totalSegmentsCount)[:len(segments)] {
+		segments[i] = uint64(s) * segmentSize
+	}
+
+	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
+
 	maxHeight := 16
 	expectedHeight := 16
 
 	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
+	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.capacity)
 
 	actualNumberOfElementsPerSegment := 1_000_000
 
