@@ -111,7 +111,25 @@ func startWeaviate(ctx context.Context,
 		Name:         containerName,
 		ExposedPorts: exposedPorts,
 		Env:          env,
-		WaitingFor:   wait.ForAll(waitStrategies...).WithStartupTimeoutDefault(120 * time.Second),
+		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
+			{
+				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
+				// which survives stop/start commands
+				PostStarts: []testcontainers.ContainerHook{
+					func(ctx context.Context, container testcontainers.Container) error {
+						for _, waitStrategy := range waitStrategies {
+							ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+							defer cancel()
+
+							if err := waitStrategy.WaitUntilReady(ctx, container); err != nil {
+								return err
+							}
+						}
+						return nil
+					},
+				},
+			},
+		},
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
@@ -134,5 +152,10 @@ func startWeaviate(ctx context.Context,
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
 	}
-	return &DockerContainer{containerName, endpoints, c, nil}, nil
+	return &DockerContainer{
+		name:        containerName,
+		endpoints:   endpoints,
+		container:   c,
+		envSettings: nil,
+	}, nil
 }
