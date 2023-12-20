@@ -12,8 +12,10 @@
 package hashtree
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/spaolacci/murmur3"
@@ -176,4 +178,80 @@ func TestCompactHashTreeLeafMapping(t *testing.T) {
 
 		prevMappedLeaf = ml
 	}
+}
+
+func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
+	capacity := 10_000
+	maxHeight := 7
+
+	ht1 := NewCompactHashTree(uint64(capacity), maxHeight)
+	ht2 := NewCompactHashTree(uint64(capacity), maxHeight)
+
+	diffReader, err := CompactHashTreeDiff(ht1, ht2)
+	require.NoError(t, err)
+	require.NotNil(t, diffReader)
+
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+
+	for i := 0; i < capacity; i++ {
+		ht1.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val1_%d", i)))
+		ht2.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val2_%d", i)))
+	}
+
+	conciliated := make(map[int]struct{})
+	concilliationOrder := rand.Perm(capacity)
+
+	var prevDiffCount int
+	var diffCount int
+
+	for _, i := range concilliationOrder {
+		_, ok := conciliated[i]
+		require.False(t, ok)
+
+		ht1.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val2_%d", i)))
+		ht2.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val1_%d", i)))
+
+		conciliated[i] = struct{}{}
+
+		diffReader, err := CompactHashTreeDiff(ht1, ht2)
+		require.NoError(t, err)
+
+		diffCount = 0
+
+		var prevDiff uint64
+
+		for {
+			diff0, diff1, err := diffReader.Next()
+			if errors.Is(err, ErrNoMoreDifferences) {
+				break
+			}
+			require.NoError(t, err)
+			require.LessOrEqual(t, diff0, diff1)
+			require.LessOrEqual(t, prevDiff, diff1)
+
+			if prevDiff > 0 {
+				require.Less(t, prevDiff, diff0)
+
+				for d := prevDiff + 1; d < diff0; d++ {
+					_, ok := conciliated[int(d)]
+					require.True(t, ok)
+				}
+			}
+
+			for d := diff0; d <= diff1; d++ {
+				_, ok := conciliated[int(d)]
+				if !ok {
+					diffCount++
+				}
+			}
+
+			prevDiff = diff1
+		}
+
+		// pending differences
+		require.LessOrEqual(t, prevDiffCount, diffCount)
+	}
+
+	require.Zero(t, diffCount)
 }
