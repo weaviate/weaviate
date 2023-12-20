@@ -12,7 +12,8 @@
 package test
 
 import (
-	"os"
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
@@ -214,6 +216,22 @@ func Test_NodesAPI(t *testing.T) {
 
 		testStatusResponse(t, assertions, nil, "")
 	})
+}
+
+func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	t.Run("validate flat compression status", func(t *testing.T) {
 		booksClass := books.ClassContextionaryVectorizer()
@@ -297,27 +315,58 @@ func Test_NodesAPI(t *testing.T) {
 		})
 
 		t.Run("check eventually compressed if async enabled", func(t *testing.T) {
-			if os.Getenv("ASYNC_INDEXING") == "true" {
-				checkThunk := func() interface{} {
-					verbose := "verbose"
-					params := nodes.NewNodesGetParams().WithOutput(&verbose)
-					resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-					require.Nil(t, err)
+			checkThunk := func() interface{} {
+				verbose := "verbose"
+				params := nodes.NewNodesGetParams().WithOutput(&verbose)
+				resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+				require.Nil(t, err)
 
-					nodeStatusResp := resp.GetPayload()
-					require.NotNil(t, nodeStatusResp)
+				nodeStatusResp := resp.GetPayload()
+				require.NotNil(t, nodeStatusResp)
 
-					nodes := nodeStatusResp.Nodes
-					require.NotNil(t, nodes)
-					require.Len(t, nodes, 1)
+				nodes := nodeStatusResp.Nodes
+				require.NotNil(t, nodes)
+				require.Len(t, nodes, 1)
 
-					nodeStatus := nodes[0]
-					require.NotNil(t, nodeStatus)
-					return nodeStatus.Shards[0].Compressed
-				}
-
-				helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+				nodeStatus := nodes[0]
+				require.NotNil(t, nodeStatus)
+				return nodeStatus.Shards[0].Compressed
 			}
+
+			helper.AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, 100*time.Millisecond, 10*time.Second)
+		})
+	})
+}
+
+func TestNodesApi_Compression_SyncIndexing(t *testing.T) {
+	t.Run("validate flat compression status", func(t *testing.T) {
+		booksClass := books.ClassContextionaryVectorizer()
+		booksClass.VectorIndexType = "flat"
+		booksClass.VectorIndexConfig = map[string]interface{}{
+			"bq": map[string]interface{}{
+				"enabled": true,
+			},
+		}
+		helper.CreateClass(t, booksClass)
+		defer helper.DeleteClass(t, booksClass.Class)
+
+		t.Run("check compressed true", func(t *testing.T) {
+			verbose := "verbose"
+			params := nodes.NewNodesGetParams().WithOutput(&verbose)
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+			require.Nil(t, err)
+
+			nodeStatusResp := resp.GetPayload()
+			require.NotNil(t, nodeStatusResp)
+
+			nodes := nodeStatusResp.Nodes
+			require.NotNil(t, nodes)
+			require.Len(t, nodes, 1)
+
+			nodeStatus := nodes[0]
+			require.NotNil(t, nodeStatus)
+
+			require.True(t, nodeStatus.Shards[0].Compressed)
 		})
 	})
 }
