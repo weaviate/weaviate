@@ -73,8 +73,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	}
 
 	if hs := req.HybridSearch; hs != nil {
-		fusionType := common_filters.HybridRankedFusion // default value
-		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
+		fusionType := common_filters.HybridFusionDefault
+		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RANKED {
+			fusionType = common_filters.HybridRankedFusion
+		} else if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 

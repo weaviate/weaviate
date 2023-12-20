@@ -22,6 +22,7 @@ const (
 	HybridRankedFusion = iota
 	HybridRelativeScoreFusion
 )
+const HybridFusionDefault = HybridRelativeScoreFusion
 
 func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
 	var subsearches []interface{}
@@ -95,7 +96,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	if ok {
 		args.FusionAlgorithm = fusionType.(int)
 	} else {
-		args.FusionAlgorithm = HybridRankedFusion
+		args.FusionAlgorithm = HybridFusionDefault
 	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
