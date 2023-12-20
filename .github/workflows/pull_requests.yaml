@@ -57,7 +57,7 @@ jobs:
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report-unit
           path: coverage-unit.txt
@@ -74,7 +74,7 @@ jobs:
       - name: Integration test
         run: ./test/run.sh --integration-only
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report-integration
           path: coverage-integration.txt
@@ -122,11 +122,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: coverage-report-unit
       - name: Download coverage unit
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: coverage-report-integration
       - name: Codecov
@@ -152,27 +152,27 @@ jobs:
           sudo apt install goreleaser
           GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
       - name: Upload macos
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
       - name: Upload windows
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: binaries-windows-amd64
           path: dist/weaviate_windows_amd64_v1
       - name: Upload windows
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: binaries-windows-arm64
           path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: binaries-linux-amd64
           path: dist/weaviate_linux_amd64_v1
       - name: Upload linux arm64
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
@@ -189,7 +189,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download binaries
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: binaries-windows-amd64
       - name: Set up Go

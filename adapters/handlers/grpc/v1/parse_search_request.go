@@ -64,26 +64,19 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
+	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection, req.Uses_123Api)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
-	}
-	if out.Properties == nil {
-		// No return properties selected, return all properties.
-		// Ignore blobs and refs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
-		if err != nil {
-			return dto.GetParams{}, err
-		}
-		out.Properties = returnProps
 	}
 	if len(out.Properties) == 0 {
 		out.AdditionalProperties.NoProps = true
 	}
 
 	if hs := req.HybridSearch; hs != nil {
-		fusionType := common_filters.HybridRankedFusion // default value
-		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
+		fusionType := common_filters.HybridFusionDefault
+		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RANKED {
+			fusionType = common_filters.HybridRankedFusion
+		} else if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 
@@ -552,7 +545,115 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool) ([]search.SelectProperty, error) {
+	props := make([]search.SelectProperty, 0)
+
+	if reqProps == nil {
+		// No properties selected at all, return all non-ref properties.
+		// Ignore blobs to not overload the response
+		nonRefProps, err := getAllNonRefNonBlobProperties(scheme, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "get all non ref non blob properties")
+		}
+		return nonRefProps, nil
+	}
+
+	if !usesNewDefaultLogic {
+		// Old stubs being used, use deprecated method
+		return extractPropertiesRequestDeprecated(reqProps, scheme, className)
+	}
+
+	if reqProps.ReturnAllNonrefProperties {
+		// No non-ref return properties selected, return all non-ref properties.
+		// Ignore blobs to not overload the response
+		returnProps, err := getAllNonRefNonBlobProperties(scheme, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "get all non ref non blob properties")
+		}
+		props = append(props, returnProps...)
+	} else if len(reqProps.NonRefProperties) > 0 {
+		// Non-ref properties are selected, return only those specified
+		// This catches the case where users send an empty list of non ref properties as their request,
+		// i.e. they want no non-ref properties
+		for _, prop := range reqProps.NonRefProperties {
+			props = append(props, search.SelectProperty{
+				Name:        schema.LowercaseFirstLetter(prop),
+				IsPrimitive: true,
+				IsObject:    false,
+			})
+		}
+	}
+
+	if len(reqProps.RefProperties) > 0 {
+		class := scheme.GetClass(schema.ClassName(className))
+		for _, prop := range reqProps.RefProperties {
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
+			if err != nil {
+				return nil, err
+			}
+
+			var linkedClassName string
+			if len(schemaProp.DataType) == 1 {
+				// use datatype of the reference property to get the name of the linked class
+				linkedClassName = schemaProp.DataType[0]
+			} else {
+				linkedClassName = prop.TargetCollection
+				if linkedClassName == "" {
+					return nil, fmt.Errorf(
+						"multi target references from collection %v and property %v with need an explicit"+
+							"linked collection. Available linked collections are %v",
+						className, prop.ReferenceProperty, schemaProp.DataType)
+				}
+			}
+			var refProperties []search.SelectProperty
+			var addProps additional.Properties
+			if prop.Properties != nil {
+				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName, usesNewDefaultLogic)
+				if err != nil {
+					return nil, errors.Wrap(err, "extract properties request")
+				}
+			}
+			if prop.Metadata != nil {
+				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata)
+				if err != nil {
+					return nil, errors.Wrap(err, "extract additional props for refs")
+				}
+			}
+
+			if prop.Properties == nil {
+				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
+				if err != nil {
+					return nil, errors.Wrap(err, "get all non ref non blob properties")
+				}
+			}
+			if len(refProperties) == 0 && isIdOnlyRequest(prop.Metadata) {
+				// This is a pure-ID query without any properties or additional metadata.
+				// Indicate this to the DB, so it can optimize accordingly
+				addProps.NoProps = true
+			}
+
+			props = append(props, search.SelectProperty{
+				Name:        normalizedRefPropName,
+				IsPrimitive: false,
+				IsObject:    false,
+				Refs: []search.SelectClass{{
+					ClassName:            linkedClassName,
+					RefProperties:        refProperties,
+					AdditionalProperties: addProps,
+				}},
+			})
+		}
+	}
+
+	if len(reqProps.ObjectProperties) > 0 {
+		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
+	}
+
+	return props, nil
+}
+
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -592,7 +693,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, scheme, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}

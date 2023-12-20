@@ -31,6 +31,63 @@ import (
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
+type harmCategory string
+
+var (
+	// Category is unspecified.
+	HarmCategoryUnspecified harmCategory = "HARM_CATEGORY_UNSPECIFIED"
+	// Negative or harmful comments targeting identity and/or protected attribute.
+	HarmCategoryDerogatory harmCategory = "HARM_CATEGORY_DEROGATORY"
+	// Content that is rude, disrepspectful, or profane.
+	HarmCategoryToxicity harmCategory = "HARM_CATEGORY_TOXICITY"
+	// Describes scenarios depictng violence against an individual or group, or general descriptions of gore.
+	HarmCategoryViolence harmCategory = "HARM_CATEGORY_VIOLENCE"
+	// Contains references to sexual acts or other lewd content.
+	HarmCategorySexual harmCategory = "HARM_CATEGORY_SEXUAL"
+	// Promotes unchecked medical advice.
+	HarmCategoryMedical harmCategory = "HARM_CATEGORY_MEDICAL"
+	// Dangerous content that promotes, facilitates, or encourages harmful acts.
+	HarmCategoryDangerous harmCategory = "HARM_CATEGORY_DANGEROUS"
+	// Harassment content.
+	HarmCategoryHarassment harmCategory = "HARM_CATEGORY_HARASSMENT"
+	// Hate speech and content.
+	HarmCategoryHate_speech harmCategory = "HARM_CATEGORY_HATE_SPEECH"
+	// Sexually explicit content.
+	HarmCategorySexually_explicit harmCategory = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+	// Dangerous content.
+	HarmCategoryDangerous_content harmCategory = "HARM_CATEGORY_DANGEROUS_CONTENT"
+)
+
+type harmBlockThreshold string
+
+var (
+	// Threshold is unspecified.
+	HarmBlockThresholdUnspecified harmBlockThreshold = "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
+	// Content with NEGLIGIBLE will be allowed.
+	BlockLowAndAbove harmBlockThreshold = "BLOCK_LOW_AND_ABOVE"
+	// Content with NEGLIGIBLE and LOW will be allowed.
+	BlockMediumAndAbove harmBlockThreshold = "BLOCK_MEDIUM_AND_ABOVE"
+	// Content with NEGLIGIBLE, LOW, and MEDIUM will be allowed.
+	BlockOnlyHigh harmBlockThreshold = "BLOCK_ONLY_HIGH"
+	// All content will be allowed.
+	BlockNone harmBlockThreshold = "BLOCK_NONE"
+)
+
+type harmProbability string
+
+var (
+	// Probability is unspecified.
+	HARM_PROBABILITY_UNSPECIFIED harmProbability = "HARM_PROBABILITY_UNSPECIFIED"
+	// Content has a negligible chance of being unsafe.
+	NEGLIGIBLE harmProbability = "NEGLIGIBLE"
+	// Content has a low chance of being unsafe.
+	LOW harmProbability = "LOW"
+	// Content has a medium chance of being unsafe.
+	MEDIUM harmProbability = "MEDIUM"
+	// Content has a high chance of being unsafe.
+	HIGH harmProbability = "HIGH"
+)
+
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
@@ -224,14 +281,38 @@ func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.C
 	if useGenerativeAI {
 		if strings.HasPrefix(settings.ModelID(), "gemini") {
 			input := generateContentRequest{
-				Model: settings.ModelID(),
 				Contents: []content{
 					{
+						Role: "user",
 						Parts: []part{
 							{
 								Text: prompt,
 							},
 						},
+					},
+				},
+				GenerationConfig: &generationConfig{
+					Temperature:    settings.Temperature(),
+					TopP:           settings.TopP(),
+					TopK:           settings.TopK(),
+					CandidateCount: 1,
+				},
+				SafetySettings: []safetySetting{
+					{
+						Category:  HarmCategoryHarassment,
+						Threshold: BlockMediumAndAbove,
+					},
+					{
+						Category:  HarmCategoryHate_speech,
+						Threshold: BlockMediumAndAbove,
+					},
+					{
+						Category:  HarmCategoryDangerous_content,
+						Threshold: BlockMediumAndAbove,
+					},
+					{
+						Category:  HarmCategoryDangerous_content,
+						Threshold: BlockMediumAndAbove,
 					},
 				},
 			}
@@ -297,22 +378,28 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
+	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
+		return apiKeyValue, nil
+	}
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
-	}
-	key := "X-Palm-Api-Key"
-	apiKey := ctx.Value(key)
-	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
-	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Palm-Api-Key " +
 		"nor in environment variable under PALM_APIKEY")
+}
+
+func (v *palm) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+	return ""
 }
 
 type generateInput struct {
@@ -423,17 +510,33 @@ type contentFilter struct {
 }
 
 type generateContentRequest struct {
-	Model    string    `json:"model,omitempty"`
-	Contents []content `json:"contents,omitempty"`
+	Contents         []content         `json:"contents,omitempty"`
+	SafetySettings   []safetySetting   `json:"safetySettings,omitempty"`
+	GenerationConfig *generationConfig `json:"generationConfig,omitempty"`
 }
 
 type content struct {
 	Parts []part `json:"parts,omitempty"`
+	Role  string `json:"role,omitempty"`
 }
 
 type part struct {
 	Text       string `json:"text,omitempty"`
 	InlineData string `json:"inline_data,omitempty"`
+}
+
+type safetySetting struct {
+	Category  harmCategory       `json:"category,omitempty"`
+	Threshold harmBlockThreshold `json:"threshold,omitempty"`
+}
+
+type generationConfig struct {
+	StopSequences   []string `json:"stopSequences,omitempty"`
+	CandidateCount  int      `json:"candidateCount,omitempty"`
+	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
+	Temperature     float64  `json:"temperature,omitempty"`
+	TopP            float64  `json:"topP,omitempty"`
+	TopK            int      `json:"topK,omitempty"`
 }
 
 type generateContentResponse struct {
@@ -459,6 +562,7 @@ type promptFeedback struct {
 }
 
 type safetyRating struct {
-	Category    string `json:"category,omitempty"`
-	Probability string `json:"probability,omitempty"`
+	Category    harmCategory    `json:"category,omitempty"`
+	Probability harmProbability `json:"probability,omitempty"`
+	Blocked     *bool           `json:"blocked,omitempty"`
 }

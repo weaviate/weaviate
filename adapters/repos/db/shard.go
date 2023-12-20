@@ -58,13 +58,14 @@ import (
 const IdLockPoolSize = 128
 
 type ShardLike interface {
-	Index() *Index                                                                  // Get the parent index
-	Name() string                                                                   // Get the shard name
-	Store() *lsmkv.Store                                                            // Get the underlying store
-	NotifyReady()                                                                   // Set shard status to ready
-	GetStatus() storagestate.Status                                                 // Return the shard status
-	UpdateStatus(status string) error                                               // Set shard status
-	FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) // Search and return document ids
+	Index() *Index                                                                      // Get the parent index
+	Name() string                                                                       // Get the shard name
+	Store() *lsmkv.Store                                                                // Get the underlying store
+	NotifyReady()                                                                       // Set shard status to ready
+	GetStatus() storagestate.Status                                                     // Return the shard status
+	UpdateStatus(status string) error                                                   // Set shard status
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
+
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
@@ -77,8 +78,8 @@ type ShardLike interface {
 	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
-	DeleteObjectBatch(ctx context.Context, ids []uint64, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
-	DeleteObject(ctx context.Context, id strfmt.UUID) error                                      // Delete object by id
+	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
+	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ID() string // Get the shard id
 	drop() error
@@ -113,7 +114,7 @@ type ShardLike interface {
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
 	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
 	prepareDeleteObject(context.Context, string, strfmt.UUID) replica.SimpleResponse
-	prepareDeleteObjects(context.Context, string, []uint64, bool) replica.SimpleResponse
+	prepareDeleteObjects(context.Context, string, []strfmt.UUID, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
 	commitReplication(context.Context, string, *backupMutex) interface{}
