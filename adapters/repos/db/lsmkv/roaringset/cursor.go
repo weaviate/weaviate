@@ -195,9 +195,7 @@ func (c *CombinedCursorLayer) createState(key []byte, layer BitmapLayer, err err
 	if err == lsmkv.NotFound {
 		return innerCursorState{err: err}
 	}
-	if err != nil {
-		panic(errors.Wrap(err, "unexpected error"))
-	}
+
 	state := innerCursorState{key: key}
 	state.layer = layer
 
