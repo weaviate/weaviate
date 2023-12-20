@@ -862,11 +862,12 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
-	commitLogSize := b.active.CommitlogSize()
-	memtableTooLarge := b.active.Size() >= b.memtableThreshold
+
+	commitLogSize := b.active.CommitlogSizeHighest()
+	memtableSize := b.active.SizeHighest()
+	memtableTooLarge := memtableSize >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
+	dirtyButIdle := (memtableSize > 0 || commitLogSize > 0) &&
 		b.active.IdleDuration() >= b.flushAfterIdle
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 

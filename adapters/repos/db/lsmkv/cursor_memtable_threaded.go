@@ -101,6 +101,7 @@ func (m *MemtableMulti) newCollectionCursor() innerCursorCollection {
 	}
 	set := &CursorSet{
 		unlock: func() {
+			// should be no-op, but there can be some unforeseen edge cases
 		},
 		innerCursors: cursors,
 	}
@@ -135,6 +136,7 @@ func (m *MemtableMulti) newMapCursor() innerCursorMap {
 	}
 	set := &CursorMap{
 		unlock: func() {
+			// should be no-op, but there can be some unforeseen edge cases
 		},
 		innerCursors: cursors,
 	}
@@ -154,6 +156,7 @@ func (m *MemtableMulti) newCursor() innerCursorReplace {
 	}
 	set := &CursorReplace{
 		unlock: func() {
+			// should be no-op, but there can be some unforeseen edge cases
 		},
 		innerCursors: cursors,
 	}

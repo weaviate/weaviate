@@ -319,7 +319,6 @@ func (m *MemtableMulti) appendMapSorted(key []byte, pair MapPair) error {
 	return result.error
 }
 
-// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableMulti) Size() uint64 {
 	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
 		return ThreadedMemtableResponse{size: m.Size()}
@@ -330,6 +329,20 @@ func (m *MemtableMulti) Size() uint64 {
 		sumSize += result.size
 	}
 	return sumSize
+}
+
+func (m *MemtableMulti) SizeHighest() uint64 {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{size: m.Size()}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var maxSize uint64
+	for _, result := range results {
+		if result.size > maxSize {
+			maxSize = result.size
+		}
+	}
+	return maxSize
 }
 
 func (m *MemtableMulti) ActiveDuration() time.Duration {
@@ -395,7 +408,6 @@ func (m *MemtableMulti) writeWAL() error {
 	return nil
 }
 
-// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableMulti) CommitlogSize() int64 {
 	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
 		return ThreadedMemtableResponse{size: uint64(m.CommitlogSize())}
@@ -406,6 +418,20 @@ func (m *MemtableMulti) CommitlogSize() int64 {
 		sumSize += result.size
 	}
 	return int64(sumSize)
+}
+
+func (m *MemtableMulti) CommitlogSizeHighest() int64 {
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{size: uint64(m.CommitlogSize())}
+	}
+	results := m.callAllWorkers(memtableOperation, true)
+	var maxSize uint64
+	for _, result := range results {
+		if result.size > maxSize {
+			maxSize = result.size
+		}
+	}
+	return int64(maxSize)
 }
 
 func (m *MemtableMulti) CommitlogPath() string {
@@ -473,7 +499,6 @@ func (m *MemtableMulti) CommitlogDelete() error {
 	return nil
 }
 
-// TODO: the MemtableThreaded is reporting the max size of the individual Memtables for flushing, not the sum. Not sure what is the best way to handle this, as sometimes we may want the max and other times we may want the sum.
 func (m *MemtableMulti) CommitlogFileSize() (int64, error) {
 	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
 		size, err := m.CommitlogFileSize()

@@ -232,7 +232,6 @@ func (c *CombinedCursorLayer) getResultFromStates(states []innerCursorState) ([]
 		return c.Next()
 	}
 
-	// TODO remove keyOnly option, not used anyway
 	if !c.keyOnly {
 		return key, layer, nil
 	}

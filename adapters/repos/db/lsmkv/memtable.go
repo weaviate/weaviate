@@ -318,6 +318,10 @@ func (m *MemtableSingle) Size() uint64 {
 	return m.size
 }
 
+func (m *MemtableSingle) SizeHighest() uint64 {
+	return m.Size()
+}
+
 func (m *MemtableSingle) ActiveDuration() time.Duration {
 	m.RLock()
 	defer m.RUnlock()
@@ -389,6 +393,10 @@ func (m *MemtableSingle) CommitlogUpdatePath(bucketDir, newBucketDir string) {
 	}
 	m.SetPath(updatePath(m.Path()))
 	m.Commitlog().path = updatePath(m.Commitlog().path)
+}
+
+func (m *MemtableSingle) CommitlogSizeHighest() int64 {
+	return m.commitlog.Size()
 }
 
 func (m *MemtableSingle) CommitlogSize() int64 {

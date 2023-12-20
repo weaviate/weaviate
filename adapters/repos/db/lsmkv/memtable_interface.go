@@ -27,12 +27,18 @@ type Memtable interface {
 	getMap(key []byte) ([]MapPair, error)
 	append(key []byte, values []value) error
 	appendMapSorted(key []byte, pair MapPair) error
+	// sum of all memtable sizes (same as SizeHighest if there is only one commitlog file)
 	Size() uint64
+	// size of the largest memtable
+	SizeHighest() uint64
 	ActiveDuration() time.Duration
 	IdleDuration() time.Duration
 	countStats() *countStats
 	writeWAL() error
+	// sum of all commitlog filesizes (same as commitlogSizeHighest if there is only one commitlog file)
 	CommitlogSize() int64
+	// size of the largest commitlog file
+	CommitlogSizeHighest() int64
 	CommitlogPath() string
 	Path() string
 	SecondaryIndices() uint16
