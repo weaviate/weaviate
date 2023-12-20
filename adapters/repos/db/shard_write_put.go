@@ -245,9 +245,6 @@ func (s *Shard) determineMutableInsertStatus(previous []byte,
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
-	if err := s.ChangeObjectCountBy(1); err != nil {
-		return fmt.Errorf("increment object count: %w", err)
-	}
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	docIDBytes := keyBuf.Bytes()
@@ -276,6 +273,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 				s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
 			}
 
+		}
+	} else {
+		if err := s.ChangeObjectCountBy(1); err != nil {
+			return fmt.Errorf("increment object count: %w", err)
 		}
 	}
 
@@ -347,10 +348,6 @@ func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
 	if !status.docIDChanged {
 		// nothing to do
 		return nil
-	}
-
-	if err := s.ChangeObjectCountBy(-1); err != nil {
-		return fmt.Errorf("increment object count: %w", err)
 	}
 
 	// The doc id changed, so we need to analyze the previous and delete all

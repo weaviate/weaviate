@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"path"
+	"sync"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -43,11 +43,11 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts *deferredShardOpts
+	shardOpts      *deferredShardOpts
 	propLenTracker *inverted.JsonPropertyLengthTracker
-	shard     *Shard
-	loaded    bool
-	mutex     sync.Mutex
+	shard          *Shard
+	loaded         bool
+	mutex          sync.Mutex
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -147,7 +147,10 @@ func (l *LazyLoadShard) UpdateStatus(status string) error {
 }
 
 func (l *LazyLoadShard) ChangeObjectCountBy(delta int) error {
-	return l.propLenTracker.TrackObjects(delta)
+	if err := l.Load(context.Background()); err != nil {
+		return err
+	}
+	return l.shard.ChangeObjectCountBy(delta)
 }
 
 func (l *LazyLoadShard) FindDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
@@ -167,11 +170,13 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-/*
-	l.mustLoad()
-	return l.shard.GetPropertyLengthTracker()
-*/
+	/*
+		l.mustLoad()
+		return l.shard.GetPropertyLengthTracker()
+	*/
 
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
 
 	if l.loaded {
 		return l.shard.GetPropertyLengthTracker()
@@ -188,12 +193,11 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, l.shardOpts.index.logger)
 	l.propLenTracker = tracker
 	if err != nil {
-		panic(fmt.Sprintf("could not create property length tracker at %v: %v",plPath, err))
+		panic(fmt.Sprintf("could not create property length tracker at %v: %v", plPath, err))
 	}
 
 	return l.propLenTracker
 }
-
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := l.Load(ctx); err != nil {

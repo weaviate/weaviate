@@ -596,6 +596,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 		return err
 	}
 
+
 	if err := localShard.PutObject(ctx, object); err != nil {
 		return err
 	}
@@ -796,7 +797,6 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 			return duplicateErr(err, len(objects))
 		}
 	}
-
 	return localShard.PutObjectBatch(ctx, objects)
 }
 
@@ -1595,6 +1595,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	if shard == nil {
 		return errShardNotFound
 	}
+
 
 	return shard.MergeObject(ctx, mergeDoc)
 }

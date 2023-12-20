@@ -389,14 +389,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 	s.versioner = versioner
 
-	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
-	if err != nil {
-		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
-	}
-
-	s.propLenTracker = tracker
-
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}

@@ -153,6 +153,9 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 }
 
 func (t *JsonPropertyLengthTracker) Clear() {
+	if t == nil {
+		return
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -161,10 +164,16 @@ func (t *JsonPropertyLengthTracker) Clear() {
 
 // Path to the file on disk
 func (t *JsonPropertyLengthTracker) FileName() string {
+	if t == nil {
+		return ""
+	}
 	return t.path
 }
 
 func (t *JsonPropertyLengthTracker) TrackObjects(delta int) error {
+	if t == nil {
+		return nil
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -174,6 +183,9 @@ func (t *JsonPropertyLengthTracker) TrackObjects(delta int) error {
 
 // Adds a new value to the tracker
 func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
+	if t == nil {
+		return nil
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -199,6 +211,9 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 
 // Removes a value from the tracker
 func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
+	if t == nil {
+		return nil
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -222,6 +237,9 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 
 // Returns the bucket that the given value belongs to
 func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
+	if t == nil {
+		return 0
+	}
 	if t.UnlimitedBuckets {
 		return int(value)
 	}
@@ -238,6 +256,9 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 
 // Returns the average length of the given property
 func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
+	if t == nil {
+		return 0, nil
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -255,6 +276,9 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 
 // returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
 func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
+	if t == nil {
+		return 0,0,0, nil
+	}
 	t.Lock()
 	defer t.Unlock()
 	sum, ok := t.data.SumData[propName]
@@ -270,6 +294,9 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 
 // Returns the number of documents stored in the shard
 func (t *JsonPropertyLengthTracker) ObjectTally() int {
+	if t == nil {
+		return 0
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -278,6 +305,9 @@ func (t *JsonPropertyLengthTracker) ObjectTally() int {
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
 func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
+	if t == nil {
+		return nil
+	}
 	if !flushBackup { // Write the backup file first
 		t.Flush(true)
 	}
@@ -313,6 +343,9 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 
 // Closes the tracker and removes the backup file
 func (t *JsonPropertyLengthTracker) Close() error {
+	if t == nil {
+		return nil
+	}
 	if err := t.Flush(false); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
@@ -327,6 +360,9 @@ func (t *JsonPropertyLengthTracker) Close() error {
 
 // Drop removes the tracker from disk
 func (t *JsonPropertyLengthTracker) Drop() error {
+	if t == nil {
+		return nil
+	}
 	t.Close()
 
 	t.Lock()
