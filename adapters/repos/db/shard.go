@@ -255,7 +255,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonPropertyLengthTracker,
 ) (*Shard, error) {
-
 	s := &Shard{
 		index:       index,
 		name:        shardName,
@@ -270,7 +269,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		class:            class,
 	}
 	return s.initShard(ctx)
-
 }
 
 func (s *Shard) initVector(ctx context.Context) error {

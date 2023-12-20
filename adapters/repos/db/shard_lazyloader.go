@@ -154,7 +154,6 @@ func (l *LazyLoadShard) ChangeObjectCountBy(delta int) error {
 }
 
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
-
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
 	}
@@ -189,7 +188,7 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 
 	var tracker *inverted.JsonPropertyLengthTracker
 
-	//FIXME add method for tracker path
+	// FIXME add method for tracker path
 	plPath := path.Join(l.shardOpts.index.path(), "proplengths")
 	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, l.shardOpts.index.logger)
 	l.propLenTracker = tracker

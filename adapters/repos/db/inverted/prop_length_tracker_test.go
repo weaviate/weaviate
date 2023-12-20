@@ -643,51 +643,48 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 	require.Nil(t, tracker.Close())
 }
 
-//Test that object racking works
+// Test that object racking works
 func Test_PropertyLengthTracker_ObjectTracking(t *testing.T) {
+	dirName := t.TempDir()
 
-		dirName := t.TempDir()
-	
-		path := path.Join(dirName, "my_test_shard")
-	
-		var tracker *JsonPropertyLengthTracker
+	path := path.Join(dirName, "my_test_shard")
 
-		l := logrus.New()
-	
-		t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
-			tr, err := NewJsonPropertyLengthTracker(path,l)
-			require.Nil(t, err)
-			tracker = tr
-		})
+	var tracker *JsonPropertyLengthTracker
 
-		t.Run("test object tracking", func(t *testing.T) {
-			start := tracker.ObjectTally()
-			require.Equal(t, start, 0)
+	l := logrus.New()
 
-			tracker.TrackObjects(1)
-			require.Equal(t, tracker.ObjectTally(), 1)
+	t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
+		tr, err := NewJsonPropertyLengthTracker(path, l)
+		require.Nil(t, err)
+		tracker = tr
+	})
 
-			tracker.TrackObjects(1)
-			require.Equal(t, tracker.ObjectTally(), 2)
+	t.Run("test object tracking", func(t *testing.T) {
+		start := tracker.ObjectTally()
+		require.Equal(t, start, 0)
 
-			tracker.TrackObjects(-1)
-			require.Equal(t, tracker.ObjectTally(), 1)
+		tracker.TrackObjects(1)
+		require.Equal(t, tracker.ObjectTally(), 1)
 
-			tracker.TrackObjects(-1)
-			require.Equal(t, tracker.ObjectTally(), 0)
+		tracker.TrackObjects(1)
+		require.Equal(t, tracker.ObjectTally(), 2)
 
-			tracker.TrackObjects(2)
-			require.Equal(t, tracker.ObjectTally(), 2)
+		tracker.TrackObjects(-1)
+		require.Equal(t, tracker.ObjectTally(), 1)
 
-			err := tracker.Close()
-			require.Nil(t, err)
+		tracker.TrackObjects(-1)
+		require.Equal(t, tracker.ObjectTally(), 0)
 
-			tr, err := NewJsonPropertyLengthTracker(path,l)
-			require.Nil(t, err)
-			tracker = tr
+		tracker.TrackObjects(2)
+		require.Equal(t, tracker.ObjectTally(), 2)
 
-			require.Equal(t, tracker.ObjectTally(), 2)
+		err := tracker.Close()
+		require.Nil(t, err)
 
-		})
+		tr, err := NewJsonPropertyLengthTracker(path, l)
+		require.Nil(t, err)
+		tracker = tr
 
-	}
+		require.Equal(t, tracker.ObjectTally(), 2)
+	})
+}

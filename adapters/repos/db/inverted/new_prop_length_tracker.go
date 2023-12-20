@@ -13,9 +13,9 @@ package inverted
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
-	"fmt"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -33,7 +33,7 @@ type PropLenData struct {
 
 type JsonPropertyLengthTracker struct {
 	path string
-	data *PropLenData //Only this is saved in the file
+	data *PropLenData // Only this is saved in the file
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
@@ -277,7 +277,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 // returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
 func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
 	if t == nil {
-		return 0,0,0, nil
+		return 0, 0, 0, nil
 	}
 	t.Lock()
 	defer t.Unlock()

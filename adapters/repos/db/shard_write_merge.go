@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -95,8 +94,6 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		lock.Unlock()
 		return nil, status, errors.Wrap(err, "check insert/update status")
 	}
-
-
 
 	nextObj.SetDocID(status.docID)
 	nextBytes, err := nextObj.MarshalBinary()

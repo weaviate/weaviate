@@ -282,7 +282,7 @@ func (s *Shard) filePutter(ctx context.Context,
 }
 
 func (s *Shard) reinit(ctx context.Context) error {
-	//This is a short term fix to deal with the problem that the shard is still running while we are changing its files on disk.  The shard needs to be shut down before we can safely change the files.  Otherwise the shutdown process will overwrite, or possibly even corrupt the changed files.
+	// This is a short term fix to deal with the problem that the shard is still running while we are changing its files on disk.  The shard needs to be shut down before we can safely change the files.  Otherwise the shutdown process will overwrite, or possibly even corrupt the changed files.
 	s.propLenTracker = nil
 	if err := s.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)

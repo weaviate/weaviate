@@ -289,7 +289,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,nil)
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, nil)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -356,7 +356,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics,
 ) (ShardLike, error) {
 	if i.Config.DisableLazyLoadShards {
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,nil)
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, nil)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -595,7 +595,6 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	if err := i.parseDateFieldsInProps(object.Object.Properties); err != nil {
 		return err
 	}
-
 
 	if err := localShard.PutObject(ctx, object); err != nil {
 		return err
@@ -1595,7 +1594,6 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	if shard == nil {
 		return errShardNotFound
 	}
-
 
 	return shard.MergeObject(ctx, mergeDoc)
 }
