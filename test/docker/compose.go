@@ -84,7 +84,6 @@ type Compose struct {
 	withTransformers           bool
 	withContextionary          bool
 	withQnATransformers        bool
-	withWeaviate               bool
 	withWeaviateExposeGRPCPort bool
 	withSecondWeaviate         bool
 	size                       int
@@ -315,20 +314,18 @@ func (d *Compose) WithOllamaGenerative() *Compose {
 }
 
 func (d *Compose) WithWeaviate() *Compose {
-	d.withWeaviate = true
-	return d
+	return d.With1NodeCluster()
 }
 
 func (d *Compose) WithWeaviateWithGRPC() *Compose {
-	d.withWeaviate = true
+	d.With1NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
 
 func (d *Compose) WithSecondWeaviate() *Compose {
-	d.withWeaviate = true
-	d.withWeaviateCluster = false
-	d.withSecondWeaviate = true
+	d.With1NodeCluster()
+	d.withSecondWeaviate = true // TODO: create a second 1 node cluster
 	return d
 }
 
@@ -337,8 +334,7 @@ func (d *Compose) WithWeaviateCluster() *Compose {
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.withWeaviate = true
-	d.withWeaviateCluster = true
+	d.With2NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
@@ -536,33 +532,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		return &DockerCompose{network, containers}, err
 	}
 
-	if d.withWeaviate {
-		image := os.Getenv(envTestWeaviateImage)
-		hostname := Weaviate1
-		if d.withWeaviateBasicAuth {
-			envSettings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
-			envSettings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
-		}
-		if d.withWeaviateAuth {
-			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"
-			envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
-			envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
-			envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
-			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
-			envSettings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
-		}
-		for k, v := range d.weaviateEnvs {
-			envSettings[k] = v
-		}
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
-		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", hostname)
-		}
-		containers = append(containers, container)
-	}
-
 	if d.withSecondWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
 		hostname := SecondWeaviate
@@ -610,6 +579,9 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if size == 0 || size > 3 {
 		return nil, nil
 	}
+	for k, v := range d.weaviateEnvs {
+		settings[k] = v
+	}
 
 	raft_join := "node1,node2,node3"
 	if size == 1 {
@@ -634,6 +606,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 	}
+
 	settings["RAFT_PORT"] = "8300"
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join

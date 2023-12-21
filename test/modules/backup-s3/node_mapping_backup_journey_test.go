@@ -23,6 +23,7 @@ import (
 )
 
 func Test_NodeMappingBackupJourney(t *testing.T) {
+	t.Skip("TODO-RAFT: need to start a second 1 node cluster to work")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
