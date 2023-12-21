@@ -145,10 +145,11 @@ func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
 }
 
 func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
-	leavesSpace := 100_000
+	leavesSpace := 1_000_000
 	totalSegmentsCount := 128
 	segmentSize := leavesSpace / totalSegmentsCount
-	actualNumberOfElementsPerSegment := segmentSize / 5
+	actualNumberOfElementsPerSegment := segmentSize / 100
+	maxHeight := 11
 
 	segments := make([]uint64, 9)
 
@@ -157,8 +158,6 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	}
 
 	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
-
-	maxHeight := 11
 
 	ht1 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
 	ht2 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
@@ -248,8 +247,13 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		}
 
 		// pending differences
-		require.LessOrEqual(t, prevDiffCount, diffCount)
+		if prevDiffCount > 0 {
+			require.Less(t, diffCount, prevDiffCount)
+		}
+
+		prevDiffCount = diffCount
 	}
 
 	require.Zero(t, diffCount)
+	require.EqualValues(t, toConciliate, conciliated)
 }
