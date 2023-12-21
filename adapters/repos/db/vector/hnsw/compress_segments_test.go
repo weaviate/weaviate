@@ -82,7 +82,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 			index.Add(uint64(id), vectors[id])
 		})
-		cfg := ent.PQConfig{
+		uc.PQ = ent.PQConfig{
 			Enabled: true,
 			Encoder: ent.PQEncoder{
 				Type:         ent.PQEncoderTypeKMeans,
@@ -91,7 +91,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 			Segments:  0,
 			Centroids: 256,
 		}
-		index.Compress(cfg)
+		index.compress(uc)
 		assert.Equal(t, expectedSegments, int(index.compressor.ExposeFields().M))
 		assert.Equal(t, expectedSegments, index.pqConfig.Segments)
 		index.Shutdown(context.Background())

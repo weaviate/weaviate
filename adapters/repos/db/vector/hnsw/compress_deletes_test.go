@@ -11,7 +11,7 @@
 
 //go:build !race
 
-package hnsw_test
+package hnsw
 
 import (
 	"context"
@@ -23,7 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -54,10 +53,10 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	uc.VectorCacheMaxObjects = 10e12
 	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}}
 
-	index, _ := hnsw.New(hnsw.Config{
+	index, _ := New(Config{
 		RootPath:              t.TempDir(),
 		ID:                    "recallbenchmark",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer,
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
@@ -84,7 +83,7 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 		Centroids: 256,
 	}
 	uc.PQ = cfg
-	index.Compress(uc.PQ)
+	index.compress(uc)
 	for _, v := range queries {
 		_, _, err := index.SearchByVector(v, k, nil)
 		assert.Nil(t, err)
@@ -124,15 +123,15 @@ func TestHnswPqNilVectors(t *testing.T) {
 		}
 	}(rootPath)
 
-	index, err := hnsw.New(hnsw.Config{
+	index, err := New(Config{
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return vectors[int(id)], nil
 		},
-		TempVectorForIDThunk: hnsw.TempVectorForIDThunk(vectors),
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)

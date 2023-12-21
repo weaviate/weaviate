@@ -30,19 +30,23 @@ func (h *hnsw) calculateOptimalSegments(dims int) int {
 	return dims
 }
 
-func (h *hnsw) Compress(cfg ent.PQConfig) error {
+func (h *hnsw) compress(cfg ent.UserConfig) error {
+	if !cfg.PQ.Enabled && !cfg.BQ.Enabled {
+		return nil
+	}
+
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()
-	if cfg.Enabled {
+	if cfg.PQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
 		}
 		dims := int(h.dims)
 
-		if cfg.Segments <= 0 {
-			cfg.Segments = h.calculateOptimalSegments(dims)
-			h.pqConfig.Segments = cfg.Segments
+		if cfg.PQ.Segments <= 0 {
+			cfg.PQ.Segments = h.calculateOptimalSegments(dims)
+			h.pqConfig.Segments = cfg.PQ.Segments
 		}
 
 		cleanData := make([][]float32, 0, len(data))
@@ -54,7 +58,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 		}
 
 		var err error
-		h.compressor, err = compressionhelpers.NewPQCompressor(cfg, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+		h.compressor, err = compressionhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
 		if err != nil {
 			return errors.Wrap(err, "Compressing vectors.")
 		}

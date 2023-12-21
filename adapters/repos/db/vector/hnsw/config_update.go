@@ -139,7 +139,13 @@ func (h *hnsw) TurnOnCompression(callback func()) error {
 func (h *hnsw) compressThenCallback(callback func()) {
 	defer callback()
 
-	if err := h.Compress(h.pqConfig); err != nil {
+	uc := ent.UserConfig{
+		PQ: h.pqConfig,
+		BQ: ent.BQConfig{
+			Enabled: !h.pqConfig.Enabled,
+		},
+	}
+	if err := h.compress(uc); err != nil {
 		h.logger.Error(err)
 		return
 	}

@@ -43,11 +43,6 @@ type VectorCompressor interface {
 	Prefetch(id uint64)
 	PrefillCache()
 
-	PauseCompaction(ctx context.Context) error
-	FlushMemtables(ctx context.Context) error
-	ResumeCompaction(ctx context.Context) error
-	ListFiles(ctx context.Context, basePath string) ([]string, error)
-
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, x uint64, y []float32) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
@@ -66,22 +61,6 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
 	compressor.cache.Drop()
 	return nil
-}
-
-func (compressor *quantizedVectorsCompressor[T]) PauseCompaction(ctx context.Context) error {
-	return compressor.compressedStore.PauseCompaction(ctx)
-}
-
-func (compressor *quantizedVectorsCompressor[T]) FlushMemtables(ctx context.Context) error {
-	return compressor.compressedStore.FlushMemtables(ctx)
-}
-
-func (compressor *quantizedVectorsCompressor[T]) ResumeCompaction(ctx context.Context) error {
-	return compressor.compressedStore.ResumeCompaction(ctx)
-}
-
-func (compressor *quantizedVectorsCompressor[T]) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	return compressor.compressedStore.ListFiles(ctx, basePath)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) GrowCache(size uint64) {
@@ -180,13 +159,12 @@ func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) 
 		distancer:  compressor.quantizer.NewQuantizerDistancer(vector),
 	}
 	return d, func() {
-		// ReturnDistancer method can be changed to private and removed from interface, not to be used directly
 		compressor.returnDistancer(d)
 	}
 }
 
 func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) (CompressorDistancer, ReturnDistancerFn) {
-	compressedVector, _ := compressor.getCompressedVectorForID(context.Background(), id)
+	compressedVector, _ := compressor.compressedVectorFromID(context.Background(), id)
 	d := &quantizedCompressorDistancer[T]{
 		compressor: compressor,
 		distancer:  compressor.quantizer.NewCompressedQuantizerDistancer(compressedVector),
