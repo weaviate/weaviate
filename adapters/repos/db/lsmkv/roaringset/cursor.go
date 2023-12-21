@@ -87,7 +87,7 @@ func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) i
 		return innerCursorState{err: err}
 	}
 	if err != nil {
-		panic(errors.Wrap(err, "unexpected error")) // TODO necessary?
+		panic(errors.Wrap(err, "unexpected error"))
 	}
 	state := innerCursorState{key: key}
 	state.layer = layer
