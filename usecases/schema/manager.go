@@ -236,31 +236,7 @@ func NewManager(migrator Migrator,
 		Authorizer:   authorizer,
 	}
 
-	if err := m.loadOrInitializeSchema(context.Background()); err != nil {
-		return nil, fmt.Errorf("could not load or initialize schema: %v", err)
-	}
-
 	return m, nil
-}
-
-func (m *Manager) Shutdown(ctx context.Context) error { //
-	// TODO-RAFT START
-	// Fix shutdown logic
-	//
-
-	// allCommitsDone := make(chan struct{})
-	// go func() {
-	// 	m.cluster.Shutdown()
-	// 	allCommitsDone <- struct{}{}
-	// }()
-
-	// select {
-	// case <-ctx.Done():
-	// 	return fmt.Errorf("waiting for transactions to commit: %w", ctx.Err())
-	// case <-allCommitsDone:
-	// 	return nil
-	// }
-	return nil
 }
 
 func (m *Manager) TxManager() *cluster.TxManager {
@@ -269,66 +245,6 @@ func (m *Manager) TxManager() *cluster.TxManager {
 
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
-}
-
-func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
-	return nil
-	// localSchema, err := m.repo.Load(ctx)
-	// if err != nil {
-	// 	return fmt.Errorf("could not load schema:  %v", err)
-	// }
-	// if err := m.parseConfigs(ctx, &localSchema); err != nil {
-	// 	return errors.Wrap(err, "load schema")
-	// }
-
-	// if err := m.migrateSchemaIfNecessary(ctx, &localSchema); err != nil {
-	// 	return fmt.Errorf("migrate schema: %w", err)
-	// }
-
-	// // There was a bug that allowed adding the same prop multiple times. This
-	// // leads to a race at startup. If an instance is already affected by this,
-	// // this step can remove the duplicate ones.
-	// //
-	// // See https://github.com/weaviate/weaviate/issues/2609
-	// for _, c := range localSchema.ObjectSchema.Classes {
-	// 	c.Properties = m.deduplicateProps(c.Properties, c.Class)
-	// }
-
-	// // set internal state since it is used by startupClusterSync
-	// m.schemaCache.setState(localSchema)
-
-	// // make sure that all migrations have completed before checking sync,
-	// // otherwise two identical schemas might fail the check based on form rather
-	// // than content
-
-	// if err := m.startupClusterSync(ctx); err != nil {
-	// 	return errors.Wrap(err, "sync schema with other nodes in the cluster")
-	// }
-
-	// // store in persistent storage
-	// // TODO: investigate if save() is redundant because it is called in startupClusterSync()
-	// err = m.RLockGuard(func() error { return m.repo.Save(ctx, m.schemaCache.State) })
-	// if err != nil {
-	// 	return fmt.Errorf("store to persistent storage: %v", err)
-	// }
-
-	// return nil
-}
-
-// StartServing indicates that the schema manager is ready to accept incoming
-// connections in cluster mode, i.e. it will accept opening transactions.
-//
-// Some transactions are exempt, such as ReadSchema which is required for nodes
-// to start up.
-//
-// This method should be called when all backends, primarily the DB, are ready
-// to serve.
-func (m *Manager) StartServing(ctx context.Context) error {
-	// only start accepting incoming connections when dangling txs have been
-	// resumed, otherwise there is potential for conflict
-	// m.cluster.StartAcceptIncoming()
-
-	return nil
 }
 
 // func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
@@ -403,40 +319,6 @@ func newSchema() *State {
 		},
 		ShardingState: map[string]*sharding.State{},
 	}
-}
-
-func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
-	// for _, class := range schema.ObjectSchema.Classes {
-	// 	for _, prop := range class.Properties {
-	// 		setPropertyDefaults(prop)
-	// 		migratePropertySettings(prop)
-	// 	}
-
-	// 	if err := m.parseVectorIndexConfig(class); err != nil {
-	// 		return errors.Wrapf(err, "class %s: vector index config", class.Class)
-	// 	}
-
-	// 	if err := m.parseShardingConfig(class); err != nil {
-	// 		return errors.Wrapf(err, "class %s: sharding config", class.Class)
-	// 	}
-
-	// 	// Pass dummy replication config with minimum factor 1. Otherwise the
-	// 	// setting is not backward-compatible. The user may have created a class
-	// 	// with factor=1 before the change was introduced. Now their setup would no
-	// 	// longer start up if the required minimum is now higher than 1. We want
-	// 	// the required minimum to only apply to newly created classes - not block
-	// 	// loading existing ones.
-	// 	if err := replica.ValidateConfig(class, replication.GlobalConfig{MinimumFactor: 1}); err != nil {
-	// 		return fmt.Errorf("replication config: %w", err)
-	// 	}
-	// }
-	// m.schemaCache.LockGuard(func() {
-	// 	for _, shardState := range schema.ShardingState {
-	// 		shardState.SetLocalName(m.clusterState.LocalName())
-	// 	}
-	// })
-
-	return nil
 }
 
 func (m *Manager) ClusterHealthScore() int {

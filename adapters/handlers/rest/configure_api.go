@@ -337,15 +337,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 	// TODO-RAFT END
 
-	if err := schemaManager.StartServing(ctx); err != nil {
-		appState.Logger.
-			WithError(err).
-			WithField("action", "startup").
-			Fatal("schema manager: resume dangling txs")
-		os.Exit(1)
-
-	}
-
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
@@ -532,10 +523,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-
-		if err := appState.SchemaManager.Shutdown(ctx); err != nil {
-			panic(err)
-		}
 
 		if err := appState.CloudService.Close(ctx); err != nil {
 			panic(err)
