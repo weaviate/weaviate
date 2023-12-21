@@ -19,33 +19,6 @@ import (
 	"path/filepath"
 )
 
-// BeginBackup prepares the hnsw index so a backup can be created
-func (h *hnsw) BeginBackup(ctx context.Context) error {
-	if err := h.SwitchCommitLogs(ctx); err != nil {
-		return err
-	}
-
-	if h.compressed.Load() {
-		if err := h.compressor.PauseCompaction(ctx); err != nil {
-			return fmt.Errorf("pause compressed store compaction: %w", err)
-		}
-		if err := h.compressor.FlushMemtables(ctx); err != nil {
-			return fmt.Errorf("flush compressed store memtables: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (h *hnsw) ResumeMaintenanceCycles(ctx context.Context) error {
-	if h.compressed.Load() {
-		if err := h.compressor.ResumeCompaction(ctx); err != nil {
-			return fmt.Errorf("resume compressed store compaction: %w", err)
-		}
-	}
-	return nil
-}
-
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
 func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
