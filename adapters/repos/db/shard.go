@@ -252,14 +252,14 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 }
 
 /* NewShard - create a new physical storage shard
- *  ctx - context
+ *  ctx - the timeout context
  *  promMetrics - prometheus metrics
  *  shardName - shard name
  *  index - The owning index
  *  class - The class this shard belongs to
  *  jobQueueCh - The central job queue
  *  indexCheckpoints - The index checkpoints
- *  propLengths - The property lengths tracker.
+ *  propLengths - The property lengths tracker.  There should only be one instance per shard, and it is stored in the shard.  If a null pointer is passed, a new one will be created.  Care must be taken to only create one, otherwise they will overwrite each other on disk.
  */
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
