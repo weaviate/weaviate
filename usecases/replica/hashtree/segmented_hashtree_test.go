@@ -12,6 +12,7 @@
 package hashtree
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -94,7 +95,8 @@ func TestSegmentBigHashTree(t *testing.T) {
 
 	for _, s := range segments {
 		for i := 0; i < actualNumberOfElementsPerSegment; i++ {
-			ht.AggregateLeafWith(s+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			l := s + uint64(rand.Int()%int(segmentSize))
+			ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
 		}
 	}
 
@@ -140,4 +142,114 @@ func TestSegmentHashTreeComparisonHeight1(t *testing.T) {
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
+}
+
+func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
+	leavesSpace := 100_000
+	totalSegmentsCount := 128
+	segmentSize := leavesSpace / totalSegmentsCount
+	actualNumberOfElementsPerSegment := segmentSize / 5
+
+	segments := make([]uint64, 9)
+
+	for i, s := range rand.Perm(totalSegmentsCount)[:len(segments)] {
+		segments[i] = uint64(s * segmentSize)
+	}
+
+	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
+
+	maxHeight := 11
+
+	ht1 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
+	ht2 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
+
+	diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+	require.NoError(t, err)
+	require.NotNil(t, diffReader)
+
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+
+	toConciliate := make(map[uint64]struct{}, actualNumberOfElementsPerSegment*len(segments))
+
+	for _, s := range segments {
+		for _, i := range rand.Perm(segmentSize)[:actualNumberOfElementsPerSegment] {
+			l := s + uint64(i)
+
+			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+
+			toConciliate[l] = struct{}{}
+		}
+	}
+
+	conciliated := make(map[uint64]struct{})
+
+	var prevDiffCount int
+	var diffCount int
+
+	for l := range toConciliate {
+		_, ok := conciliated[l]
+		require.False(t, ok)
+
+		ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+		ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+
+		conciliated[l] = struct{}{}
+
+		diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+		require.NoError(t, err)
+
+		diffCount = 0
+
+		var prevDiff uint64
+
+		for {
+			diff0, diff1, err := diffReader.Next()
+			if errors.Is(err, ErrNoMoreDifferences) {
+				break
+			}
+			require.NoError(t, err)
+			require.LessOrEqual(t, diff0, diff1)
+			require.LessOrEqual(t, prevDiff, diff1)
+
+			if prevDiff > 0 {
+				require.Less(t, prevDiff, diff0)
+
+				for d := prevDiff + 1; d < diff0; d++ {
+					_, ok := toConciliate[d]
+					if !ok {
+						continue
+					}
+
+					_, ok = conciliated[d]
+					require.True(t, ok)
+				}
+			}
+
+			var diffFound bool
+
+			for d := diff0; d <= diff1; d++ {
+				_, ok := toConciliate[d]
+				if !ok {
+					continue
+				}
+
+				_, ok = conciliated[d]
+				if !ok {
+					diffCount++
+					diffFound = true
+				}
+			}
+
+			require.True(t, diffFound)
+
+			prevDiff = diff1
+		}
+
+		// pending differences
+		require.LessOrEqual(t, prevDiffCount, diffCount)
+	}
+
+	require.Zero(t, diffCount)
 }
