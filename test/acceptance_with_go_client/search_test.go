@@ -323,7 +323,7 @@ func TestHybridExplainScore(t *testing.T) {
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	t.Run("hybrid explainscore 1", func(t *testing.T) {
-		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain nice\", alpha: 0.5, properties: [\"contents\"]}){num _additional { score explainScore id }}}}", className)).Do(ctx)
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain nice\", fusionType: HybridRankedFusion, alpha: 0.5, properties: [\"contents\"]}){num _additional { score explainScore id }}}}", className)).Do(ctx)
 
 		require.Nil(t, err)
 		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
@@ -337,7 +337,7 @@ func TestHybridExplainScore(t *testing.T) {
 		require.Contains(t, explainScore, "contributed 0.00819672131147541 to the score")
 	})
 	t.Run("hybrid explainscore 2", func(t *testing.T) {
-		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\", properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\",fusionType: HybridRankedFusion, properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
 		require.Nil(t, err)
 		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 		require.Len(t, result, 5)
