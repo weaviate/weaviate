@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -120,82 +119,57 @@ func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *model
 	// return h.mergeClassObjectProperty(ctx, class, property)
 }
 
-func (h *Handler) mergeClassObjectProperty(ctx context.Context,
-	className string, prop *models.Property,
-) error {
-	return nil
-	// h.Lock()
-	// defer h.Unlock()
+// func (h *Handler) mergeClassObjectProperty(ctx context.Context,
+// 	className string, prop *models.Property,
+// ) error {
+// 	return nil
+// h.Lock()
+// defer h.Unlock()
 
-	// class, err := h.schemaCache.readOnlyClass(className)
-	// if err != nil {
-	// 	return err
-	// }
-	// prop.Name = schema.LowercaseFirstLetter(prop.Name)
+// class, err := h.schemaCache.readOnlyClass(className)
+// if err != nil {
+// 	return err
+// }
+// prop.Name = schema.LowercaseFirstLetter(prop.Name)
 
-	// // reuse setDefaults/validation/migrate methods coming from add property
-	// // (empty existing names map, to validate existing updated property)
-	// // TODO nested - refactor / cleanup setDefaults/validation/migrate methods
-	// if err := h.setNewPropDefaults(class, prop); err != nil {
-	// 	return err
-	// }
-	// if err := h.validateProperty(prop, className, map[string]bool{}, false); err != nil {
-	// 	return err
-	// }
-	// // migrate only after validation in completed
-	// migratePropertySettings(prop)
+// // reuse setDefaults/validation/migrate methods coming from add property
+// // (empty existing names map, to validate existing updated property)
+// // TODO nested - refactor / cleanup setDefaults/validation/migrate methods
+// if err := h.setNewPropDefaults(class, prop); err != nil {
+// 	return err
+// }
+// if err := h.validateProperty(prop, className, map[string]bool{}, false); err != nil {
+// 	return err
+// }
+// // migrate only after validation in completed
+// migratePropertySettings(prop)
 
-	// return h.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
-}
+// return h.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
+// }
 
-func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
-	className string, prop *models.Property,
-) error {
-	return nil
-	// class, err := h.schemaCache.mergeObjectProperty(className, prop)
-	// if err != nil {
-	// 	return err
-	// }
-	// metadata, err := json.Marshal(&class)
-	// if err != nil {
-	// 	return fmt.Errorf("marshal class %s: %w", className, err)
-	// }
-	// h.logger.
-	// 	WithField("action", "schema.update_object_property").
-	// 	Debug("saving updated schema to configuration store")
-	// err = h.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
-	// if err != nil {
-	// 	return err
-	// }
-	// h.triggerSchemaUpdateCallbacks()
+// func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
+// 	className string, prop *models.Property,
+// ) error {
+// 	return nil
+// class, err := h.schemaCache.mergeObjectProperty(className, prop)
+// if err != nil {
+// 	return err
+// }
+// metadata, err := json.Marshal(&class)
+// if err != nil {
+// 	return fmt.Errorf("marshal class %s: %w", className, err)
+// }
+// h.logger.
+// 	WithField("action", "schema.update_object_property").
+// 	Debug("saving updated schema to configuration store")
+// err = h.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
+// if err != nil {
+// 	return err
+// }
+// h.triggerSchemaUpdateCallbacks()
 
-	// // TODO nested - implement MergeObjectProperty (needed for indexing/filtering)
-	// // will result in a mismatch between schema and index if function below fails
-	// // return h.migrator.MergeObjectProperty(ctx, className, prop)
-	// return nil
-}
-
-func (h *Handler) deduplicateProps(props []*models.Property,
-	className string,
-) []*models.Property {
-	seen := map[string]struct{}{}
-	i := 0
-	for j, prop := range props {
-		name := strings.ToLower(prop.Name)
-		if _, ok := seen[name]; ok {
-			h.logger.WithFields(logrus.Fields{
-				"action": "startup_repair_schema",
-				"prop":   prop.Name,
-				"class":  className,
-			}).Warningf("removing duplicate property %s", prop.Name)
-			continue
-		}
-		if i != j {
-			props[i] = prop
-		}
-		seen[name] = struct{}{}
-		i++
-	}
-
-	return props[:i]
-}
+// // TODO nested - implement MergeObjectProperty (needed for indexing/filtering)
+// // will result in a mismatch between schema and index if function below fails
+// // return h.migrator.MergeObjectProperty(ctx, className, prop)
+// return nil
+// }
