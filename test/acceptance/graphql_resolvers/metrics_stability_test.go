@@ -179,9 +179,13 @@ func countMetricsLines(t *testing.T) int {
 	scanner := bufio.NewScanner(res.Body)
 	lineCount := 0
 	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
+			continue
+		}
 		require.NotContains(
 			t,
-			strings.ToLower(scanner.Text()),
+			strings.ToLower(line),
 			strings.ToLower(metricClassPrefix),
 		)
 		lineCount++

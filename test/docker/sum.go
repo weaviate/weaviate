@@ -24,10 +24,11 @@ import (
 const SUMTransformers = "sum-transformers"
 
 func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*DockerContainer, error) {
-	image := "semitechnologies/sum-transformers:facebook-bart-large-cnn-1.0.0"
+	image := "semitechnologies/sum-transformers:facebook-bart-large-cnn"
 	if len(sumImage) > 0 {
 		image = sumImage
 	}
+	port := nat.Port("8080/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -40,7 +41,7 @@ func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*D
 			AutoRemove:   true,
 			WaitingFor: wait.
 				ForHTTP("/.well-known/ready").
-				WithPort(nat.Port("8080")).
+				WithPort(port).
 				WithStatusCodeMatcher(func(status int) bool {
 					return status == 204
 				}).
@@ -51,13 +52,13 @@ func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*D
 	if err != nil {
 		return nil, err
 	}
-	uri, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["SUM_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", SUMTransformers, "8080")
+	envSettings["SUM_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", SUMTransformers, port.Port())
 	endpoints := make(map[EndpointName]endpoint)
-	endpoints[HTTP] = endpoint{"8080/tcp", uri}
+	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{SUMTransformers, endpoints, container, envSettings}, nil
 }

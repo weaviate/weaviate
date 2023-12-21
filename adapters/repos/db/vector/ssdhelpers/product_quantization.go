@@ -218,6 +218,7 @@ func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensio
 }
 
 func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []PQEncoder) (*ProductQuantizer, error) {
+	cfg.Segments = len(encoders)
 	pq, err := NewProductQuantizer(cfg, distance, dimensions)
 	if err != nil {
 		return nil, err

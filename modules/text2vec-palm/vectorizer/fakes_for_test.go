@@ -23,7 +23,7 @@ type fakeClient struct {
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
+	text []string, cfg ent.VectorizationConfig, titlePropertyValue string,
 ) (*ent.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
@@ -82,4 +82,8 @@ func (f *fakeSettings) ProjectID() string {
 
 func (f *fakeSettings) ModelID() string {
 	return f.truncateType
+}
+
+func (f *fakeSettings) TitleProperty() string {
+	return ""
 }

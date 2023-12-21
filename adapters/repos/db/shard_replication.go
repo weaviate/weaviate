@@ -150,9 +150,9 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 	return replica.SimpleResponse{}
 }
 
-func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
-		result := newDeleteObjectsBatcher(s).Delete(ctx, docIDs, dryRun)
+		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
 		resp := replica.DeleteBatchResponse{
 			Batch: make([]replica.UUID2Error, len(result)),
 		}

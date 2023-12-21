@@ -53,7 +53,7 @@ func TestClient(t *testing.T) {
 				ApiEndpoint: "endpoint",
 				ProjectID:   "project",
 				Model:       "model",
-			})
+			}, "")
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -73,7 +73,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -94,7 +94,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to Google PaLM failed with status: 500 error: nope, not gonna happen")
@@ -119,7 +119,7 @@ func TestClient(t *testing.T) {
 			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -139,7 +139,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
@@ -159,7 +159,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+

@@ -28,6 +28,7 @@ const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
 	modelIDProperty     = "modelId"
+	titleProperty       = "titleProperty"
 )
 
 const (
@@ -44,6 +45,10 @@ var availablePalmModels = []string{
 	DefaultModelID,
 	"textembedding-gecko@latest",
 	"textembedding-gecko-multilingual@latest",
+	"textembedding-gecko@003",
+	"textembedding-gecko@002",
+	"textembedding-gecko-multilingual@001",
+	"textembedding-gecko@001",
 }
 
 var availableGenerativeAIModels = []string{
@@ -230,4 +235,8 @@ func (ic *classSettings) ProjectID() string {
 
 func (ic *classSettings) ModelID() string {
 	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
+}
+
+func (ic *classSettings) TitleProperty() string {
+	return ic.getStringProperty(titleProperty, "")
 }

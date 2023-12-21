@@ -27,6 +27,8 @@ import (
 type NodesGetClassURL struct {
 	ClassName string
 
+	Output *string
+
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -65,6 +67,18 @@ func (o *NodesGetClassURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var outputQ string
+	if o.Output != nil {
+		outputQ = *o.Output
+	}
+	if outputQ != "" {
+		qs.Set("output", outputQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

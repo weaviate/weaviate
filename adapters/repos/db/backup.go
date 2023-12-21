@@ -168,7 +168,9 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	}
 
 	for _, shard := range ss.Physical {
-		unique[shard.BelongsToNode()] = struct{}{}
+		for _, node := range shard.BelongsToNodes {
+			unique[node] = struct{}{}
+		}
 	}
 
 	var (

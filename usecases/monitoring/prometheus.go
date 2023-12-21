@@ -61,6 +61,11 @@ type PrometheusMetrics struct {
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
+	ShardsLoaded    *prometheus.GaugeVec
+	ShardsUnloaded  *prometheus.GaugeVec
+	ShardsLoading   *prometheus.GaugeVec
+	ShardsUnloading *prometheus.GaugeVec
+
 	Group bool
 }
 
@@ -201,6 +206,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of currently ongoing async operations",
 		}, []string{"operation", "class_name", "shard_name", "path"}),
 
+		// LSM metrics
 		LSMSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_active_segments",
 			Help: "Number of currently present segments per shard",
@@ -230,6 +236,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
+		// Vector index metrics
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",
 			Help: "Number of active vector index tombstones",
@@ -267,6 +274,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Total segments in a shard if quantization enabled",
 		}, []string{"class_name", "shard_name"}),
 
+		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
 			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
@@ -287,6 +295,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "query_dimensions_combined_total",
 			Help: "The vector dimensions used by any read-query that involves vectors, aggregated across all classes and shards. The sum of all labels for query_dimensions_total should always match this labelless metric",
 		}),
+
+		// Backup/restore metrics
 		BackupRestoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_restore_ms",
 			Help: "Duration of a backup restore",
@@ -319,6 +329,24 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+
+		// Shard metrics
+		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_loaded",
+			Help: "Number of shards loaded",
+		}, []string{"class_name"}),
+		ShardsUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_unloaded",
+			Help: "Number of shards on not loaded",
+		}, []string{"class_name"}),
+		ShardsLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_loading",
+			Help: "Number of shards in process of loading",
+		}, []string{"class_name"}),
+		ShardsUnloading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_unloading",
+			Help: "Number of shards in process of unloading",
+		}, []string{"class_name"}),
 	}
 }
 

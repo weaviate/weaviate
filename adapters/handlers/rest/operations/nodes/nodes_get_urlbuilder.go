@@ -24,7 +24,11 @@ import (
 
 // NodesGetURL generates an URL for the nodes get operation
 type NodesGetURL struct {
+	Output *string
+
 	_basePath string
+	// avoid unkeyed usage
+	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
@@ -53,6 +57,18 @@ func (o *NodesGetURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var outputQ string
+	if o.Output != nil {
+		outputQ = *o.Output
+	}
+	if outputQ != "" {
+		qs.Set("output", outputQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

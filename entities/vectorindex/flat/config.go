@@ -117,7 +117,7 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 				return err
 			}
 
-			if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescore", func(v int) {
+			if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescoreLimit", func(v int) {
 				uc.PQ.RescoreLimit = v
 			}); err != nil {
 				return err
@@ -143,12 +143,16 @@ func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
 			return err
 		}
 
-		if err := vectorindexcommon.OptionalIntFromMap(bqConfigMap, "rescore", func(v int) {
+		if err := vectorindexcommon.OptionalIntFromMap(bqConfigMap, "rescoreLimit", func(v int) {
 			uc.BQ.RescoreLimit = v
 		}); err != nil {
 			return err
 		}
 
+	}
+	// TODO: remove once PQ is supported
+	if uc.PQ.Enabled {
+		return errors.New("PQ is not currently supported for flat indices")
 	}
 	if uc.PQ.Cache && !uc.PQ.Enabled {
 		return errors.New("not possible to use the cache without compression")

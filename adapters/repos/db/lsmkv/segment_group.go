@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -20,7 +21,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -110,13 +110,13 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		potentialWALFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
 		ok, err := fileExists(filepath.Join(sg.dir, potentialWALFileName))
 		if err != nil {
-			return nil, errors.Wrapf(err, "check for presence of wals for segment %s",
-				entry.Name())
+			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
+				entry.Name(), err)
 		}
 
 		if ok {
 			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, errors.Wrapf(err, "delete corrupt segment %s", entry.Name())
+				return nil, fmt.Errorf("delete corrupt segment %s: %w", entry.Name(), err)
 			}
 
 			logger.WithField("action", "lsm_segment_init").
@@ -130,7 +130,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		info, err := entry.Info()
 		if err != nil {
-			return nil, errors.Wrapf(err, "obtain file info")
+			return nil, fmt.Errorf("obtain file info: %w", err)
 		}
 
 		if info.Size() == 0 {
@@ -141,7 +141,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			metrics, sg.makeExistsOnLower(segmentIndex),
 			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 		if err != nil {
-			return nil, errors.Wrapf(err, "init segment %s", entry.Name())
+			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
 
 		sg.segments[segmentIndex] = segment
@@ -170,8 +170,8 @@ func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSeg
 
 		v, err := sg.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
 		if err != nil {
-			return false, errors.Wrapf(err, "check exists on segments lower than %d",
-				nextSegmentIndex)
+			return false, fmt.Errorf("check exists on segments lower than %d: %w",
+				nextSegmentIndex, err)
 		}
 
 		return v != nil, nil
@@ -187,7 +187,7 @@ func (sg *SegmentGroup) add(path string) error {
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
 		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
 	if err != nil {
-		return errors.Wrapf(err, "init segment %s", path)
+		return fmt.Errorf("init segment %s: %w", path, err)
 	}
 
 	sg.segments = append(sg.segments, segment)
@@ -211,11 +211,11 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	for i := topMostSegment; i >= 0; i-- {
 		v, err := sg.segments[i].get(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
-			if err == lsmkv.Deleted {
+			if errors.Is(err, lsmkv.Deleted) {
 				return nil, nil
 			}
 
@@ -239,11 +239,11 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	for i := len(sg.segments) - 1; i >= 0; i-- {
 		v, err, allocatedBuff := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
-			if err == lsmkv.Deleted {
+			if errors.Is(err, lsmkv.Deleted) {
 				return nil, nil, nil
 			}
 
@@ -266,7 +266,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
@@ -294,7 +294,7 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
@@ -318,7 +318,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 	for _, segment := range sg.segments {
 		rs, err := segment.roaringSetGet(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
@@ -345,7 +345,7 @@ func (sg *SegmentGroup) count() int {
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
+		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
