@@ -250,15 +250,16 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 
 	return s, nil
 }
+
 /* NewShard - create a new physical storage shard
- * @param ctx - context
- * @param promMetrics - prometheus metrics
- * @param shardName - shard name
- * @param index - The owning index
- * @param class - The class this shard belongs to
- * @param jobQueueCh - The central job queue
- * @param indexCheckpoints - The index checkpoints
- * @param propLengths - The property lengths tracker.
+ *  ctx - context
+ *  promMetrics - prometheus metrics
+ *  shardName - shard name
+ *  index - The owning index
+ *  class - The class this shard belongs to
+ *  jobQueueCh - The central job queue
+ *  indexCheckpoints - The index checkpoints
+ *  propLengths - The property lengths tracker.
  */
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
