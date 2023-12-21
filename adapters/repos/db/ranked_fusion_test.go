@@ -268,37 +268,33 @@ func TestRFJourney(t *testing.T) {
 	docId3 := uint64(3)
 
 	doc1 := &search.Result{
-
-			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
-			DocID: &docId1,
-			Schema: map[string]interface{}{
-				"title": "peanuts",
-			},
-			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-			Score:  0.1,
-
+		ID:    strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
+		DocID: &docId1,
+		Schema: map[string]interface{}{
+			"title": "peanuts",
+		},
+		Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+		Score:  0.1,
 	}
 
 	doc2 := &search.Result{
-			ID: strfmt.UUID("2b7a8bc9-29d9-4cc8-b145-a0baf5fc231d"),
-			DocID: &docId2,
-			Schema: map[string]interface{}{
-				"title": "journey",
-			},
-			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
-			Score:  0.2,
-
+		ID:    strfmt.UUID("2b7a8bc9-29d9-4cc8-b145-a0baf5fc231d"),
+		DocID: &docId2,
+		Schema: map[string]interface{}{
+			"title": "journey",
+		},
+		Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
+		Score:  0.2,
 	}
 
 	doc3 := &search.Result{
-			ID: strfmt.UUID("dddddddd-29d9-4cc8-b145-a0baf5fc231d"),
-			DocID: &docId3,
-			Schema: map[string]interface{}{
-				"title": "alalala",
-			},
-			Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
-			Score:  0.2,
-
+		ID:    strfmt.UUID("dddddddd-29d9-4cc8-b145-a0baf5fc231d"),
+		DocID: &docId3,
+		Schema: map[string]interface{}{
+			"title": "alalala",
+		},
+		Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
+		Score:  0.2,
 	}
 
 	resultSet1 := []*search.Result{doc1, doc2, doc3}
@@ -394,14 +390,12 @@ func TestRFJourney(t *testing.T) {
 	for _, r := range results_set_1 {
 		// parse the last 12 digits of the id to get the uint64
 
-
 		results_set_1_hybrid = append(results_set_1_hybrid, &r)
 	}
 
 	var results_set_2_hybrid []*search.Result
 	for _, r := range results_set_2 {
-
-		results_set_2_hybrid = append(results_set_2_hybrid,  &r)
+		results_set_2_hybrid = append(results_set_2_hybrid, &r)
 	}
 
 	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*search.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
@@ -758,36 +752,33 @@ func TestStability(t *testing.T) {
 	docId3 := uint64(3)
 
 	doc1 := &search.Result{
-			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
-			DocID: &docId1,
-			Schema: map[string]interface{}{
-				"title": "peanuts",
-			},
-			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-			Score:  0.1,
-
+		ID:    strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfa"),
+		DocID: &docId1,
+		Schema: map[string]interface{}{
+			"title": "peanuts",
+		},
+		Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+		Score:  0.1,
 	}
 
 	doc2 := &search.Result{
-			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfb"),
-			DocID: &docId2,
-			Schema: map[string]interface{}{
-				"title": "peanuts",
-			},
-			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-			Score:  0.1,
-
+		ID:    strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfb"),
+		DocID: &docId2,
+		Schema: map[string]interface{}{
+			"title": "peanuts",
+		},
+		Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+		Score:  0.1,
 	}
 
 	doc3 := &search.Result{
-			ID: strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfc"),
-			DocID: &docId3,
-			Schema: map[string]interface{}{
-				"title": "peanuts",
-			},
-			Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
-			Score:  0.1,
-
+		ID:    strfmt.UUID("e6f7e8b1-ac53-48eb-b6e4-cbe67396bcfc"),
+		DocID: &docId3,
+		Schema: map[string]interface{}{
+			"title": "peanuts",
+		},
+		Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
+		Score:  0.1,
 	}
 
 	resultSet1 := []*search.Result{doc1, doc2, doc3}

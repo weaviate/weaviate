@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 
-
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -45,8 +44,6 @@ type Params struct {
 
 type Results []*search.Result
 
-
-
 // sparseSearchFunc is the signature of a closure which performs sparse search.
 // Any package which wishes use hybrid search must provide this. The weights are
 // used in calculating the final scores of the result set.
@@ -72,9 +69,9 @@ type modulesProvider interface {
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
 func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) ([]*search.Result, error) {
 	var (
-		resultSet   [][]*search.Result
-		weights []float64
-		names   []string
+		resultSet [][]*search.Result
+		weights   []float64
+		names     []string
 	)
 
 	if params.Query != "" {

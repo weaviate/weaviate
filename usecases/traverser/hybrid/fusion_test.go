@@ -48,7 +48,7 @@ func TestFusionRelativeScore(t *testing.T) {
 				var result []*search.Result
 				for j, score := range tt.inputScores[i] {
 					docId := uint64(j)
-					result = append(result,  &search.Result{SecondarySortValue: score, DocID: &docId, ID: strfmt.UUID(fmt.Sprint(j))})
+					result = append(result, &search.Result{SecondarySortValue: score, DocID: &docId, ID: strfmt.UUID(fmt.Sprint(j))})
 				}
 				results = append(results, result)
 			}
@@ -73,12 +73,12 @@ func TestFusionRelativeScoreExplain(t *testing.T) {
 	result1 := []*search.Result{
 
 		&search.Result{DocID: &docId1, SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
-		 &search.Result{DocID: &docId2,SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))},
+		&search.Result{DocID: &docId2, SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))},
 	}
 
 	result2 := []*search.Result{
-		&search.Result{DocID:&docId1,SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))},
-		 &search.Result{DocID: &docId2, SecondarySortValue:1, ID: strfmt.UUID(fmt.Sprint(2))},
+		&search.Result{DocID: &docId1, SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))},
+		&search.Result{DocID: &docId2, SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2))},
 	}
 	results := [][]*search.Result{result1, result2}
 	fused := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})

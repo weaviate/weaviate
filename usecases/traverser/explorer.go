@@ -385,11 +385,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	out := make([]search.Result, len(poiinterResultList))
-	for i:= range poiinterResultList {
+	for i := range poiinterResultList {
 		out[i] = *poiinterResultList[i]
 	}
 
-	return  out, nil
+	return out, nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
