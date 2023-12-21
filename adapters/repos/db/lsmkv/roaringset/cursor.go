@@ -13,8 +13,9 @@ package roaringset
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -77,11 +78,11 @@ func (c *CombinedCursor) runAll(cursorRun cursorRun) []innerCursorState {
 }
 
 func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) innerCursorState {
-	if err == lsmkv.NotFound {
+	if errors.Is(err, lsmkv.NotFound) {
 		return innerCursorState{err: err}
 	}
 	if err != nil {
-		panic(errors.Wrap(err, "unexpected error")) // TODO necessary?
+		panic(fmt.Errorf("unexpected error: %w", err)) // TODO necessary?
 	}
 	state := innerCursorState{key: key}
 	state.layer = layer
@@ -132,7 +133,7 @@ func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([
 	allNotFound := true
 
 	for id, state := range states {
-		if state.err == lsmkv.NotFound {
+		if errors.Is(state.err, lsmkv.NotFound) {
 			continue
 		}
 		allNotFound = false

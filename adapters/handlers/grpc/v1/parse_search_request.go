@@ -64,26 +64,19 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection)
+	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection, req.Uses_123Api)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
-	}
-	if out.Properties == nil {
-		// No return properties selected, return all properties.
-		// Ignore blobs and refs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(scheme, req.Collection)
-		if err != nil {
-			return dto.GetParams{}, err
-		}
-		out.Properties = returnProps
 	}
 	if len(out.Properties) == 0 {
 		out.AdditionalProperties.NoProps = true
 	}
 
 	if hs := req.HybridSearch; hs != nil {
-		fusionType := common_filters.HybridRankedFusion // default value
-		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
+		fusionType := common_filters.HybridFusionDefault
+		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RANKED {
+			fusionType = common_filters.HybridRankedFusion
+		} else if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
 			fusionType = common_filters.HybridRelativeScoreFusion
 		}
 
@@ -393,7 +386,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			returnFilter.Operator = filters.ContainsAny
 		case pb.Filters_OPERATOR_CONTAINS_ALL:
 			returnFilter.Operator = filters.ContainsAll
-
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
@@ -432,17 +424,32 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			val = filterIn.GetValueNumberArray().Values
 		case *pb.Filters_ValueBooleanArray:
 			val = filterIn.GetValueBooleanArray().Values
-
+		case *pb.Filters_ValueGeo:
+			valueFilter := filterIn.GetValueGeo()
+			val = filters.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{
+					Latitude:  &valueFilter.Latitude,
+					Longitude: &valueFilter.Longitude,
+				},
+				Distance: valueFilter.Distance,
+			}
 		default:
 			return filters.Clause{}, fmt.Errorf("unknown value type %v", filterIn.TestValue)
 		}
 
-		// correct the type of value when filtering on a float property but sending an int. This is easy to get wrong
+		// correct the type of value when filtering on a float/int property but sending an int/float. This is easy to
+		// get wrong
 		if number, ok := val.(int); ok && dataType == schema.DataTypeNumber {
 			val = float64(number)
 		}
+		if number, ok := val.(float64); ok && dataType == schema.DataTypeInt {
+			val = int(number)
+			if float64(int(number)) != number {
+				return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", number)
+			}
+		}
 
-		// correct type for containsXXX in case users send int for a float array
+		// correct type for containsXXX in case users send int/float for a float/int array
 		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeNumber {
 			valSlice, ok := val.([]int)
 			if ok {
@@ -454,6 +461,20 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			}
 		}
 
+		if (returnFilter.Operator == filters.ContainsAll || returnFilter.Operator == filters.ContainsAny) && dataType == schema.DataTypeInt {
+			valSlice, ok := val.([]float64)
+			if ok {
+				valInt := make([]int, len(valSlice))
+				for i := 0; i < len(valSlice); i++ {
+					if float64(int(valSlice[i])) != valSlice[i] {
+						return filters.Clause{}, fmt.Errorf("filtering for integer, but received a floating point number %v", valSlice[i])
+					}
+					valInt[i] = int(valSlice[i])
+				}
+				val = valInt
+			}
+		}
+
 		value := filters.Value{Value: val, Type: dataType}
 		returnFilter.Value = &value
 
@@ -462,7 +483,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 	return returnFilter, nil
 }
 
-func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+func extractDataTypeProperty(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
 	var dataType schema.DataType
 	if operator == filters.OperatorIsNull {
 		dataType = schema.DataTypeBoolean
@@ -493,12 +514,22 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 		dataType = schema.DataType(prop.DataType[0])
 	}
 
-	if operator == filters.ContainsAll || operator == filters.ContainsAny {
-		if baseType, isArray := schema.IsArrayType(dataType); isArray {
-			return baseType, nil
-		}
+	// searches on array datatypes always need the base-type as value-type
+	if baseType, isArray := schema.IsArrayType(dataType); isArray {
+		return baseType, nil
 	}
 	return dataType, nil
+}
+
+func extractDataType(scheme schema.Schema, operator filters.Operator, classname string, on []string) (schema.DataType, error) {
+	propToFilterOn := on[len(on)-1]
+	if propToFilterOn == filters.InternalPropID {
+		return schema.DataTypeText, nil
+	} else if propToFilterOn == filters.InternalPropCreationTimeUnix || propToFilterOn == filters.InternalPropLastUpdateTimeUnix {
+		return schema.DataTypeDate, nil
+	} else {
+		return extractDataTypeProperty(scheme, operator, classname, on)
+	}
 }
 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
@@ -514,7 +545,115 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool) ([]search.SelectProperty, error) {
+	props := make([]search.SelectProperty, 0)
+
+	if reqProps == nil {
+		// No properties selected at all, return all non-ref properties.
+		// Ignore blobs to not overload the response
+		nonRefProps, err := getAllNonRefNonBlobProperties(scheme, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "get all non ref non blob properties")
+		}
+		return nonRefProps, nil
+	}
+
+	if !usesNewDefaultLogic {
+		// Old stubs being used, use deprecated method
+		return extractPropertiesRequestDeprecated(reqProps, scheme, className)
+	}
+
+	if reqProps.ReturnAllNonrefProperties {
+		// No non-ref return properties selected, return all non-ref properties.
+		// Ignore blobs to not overload the response
+		returnProps, err := getAllNonRefNonBlobProperties(scheme, className)
+		if err != nil {
+			return nil, errors.Wrap(err, "get all non ref non blob properties")
+		}
+		props = append(props, returnProps...)
+	} else if len(reqProps.NonRefProperties) > 0 {
+		// Non-ref properties are selected, return only those specified
+		// This catches the case where users send an empty list of non ref properties as their request,
+		// i.e. they want no non-ref properties
+		for _, prop := range reqProps.NonRefProperties {
+			props = append(props, search.SelectProperty{
+				Name:        schema.LowercaseFirstLetter(prop),
+				IsPrimitive: true,
+				IsObject:    false,
+			})
+		}
+	}
+
+	if len(reqProps.RefProperties) > 0 {
+		class := scheme.GetClass(schema.ClassName(className))
+		for _, prop := range reqProps.RefProperties {
+			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
+			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
+			if err != nil {
+				return nil, err
+			}
+
+			var linkedClassName string
+			if len(schemaProp.DataType) == 1 {
+				// use datatype of the reference property to get the name of the linked class
+				linkedClassName = schemaProp.DataType[0]
+			} else {
+				linkedClassName = prop.TargetCollection
+				if linkedClassName == "" {
+					return nil, fmt.Errorf(
+						"multi target references from collection %v and property %v with need an explicit"+
+							"linked collection. Available linked collections are %v",
+						className, prop.ReferenceProperty, schemaProp.DataType)
+				}
+			}
+			var refProperties []search.SelectProperty
+			var addProps additional.Properties
+			if prop.Properties != nil {
+				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName, usesNewDefaultLogic)
+				if err != nil {
+					return nil, errors.Wrap(err, "extract properties request")
+				}
+			}
+			if prop.Metadata != nil {
+				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata)
+				if err != nil {
+					return nil, errors.Wrap(err, "extract additional props for refs")
+				}
+			}
+
+			if prop.Properties == nil {
+				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
+				if err != nil {
+					return nil, errors.Wrap(err, "get all non ref non blob properties")
+				}
+			}
+			if len(refProperties) == 0 && isIdOnlyRequest(prop.Metadata) {
+				// This is a pure-ID query without any properties or additional metadata.
+				// Indicate this to the DB, so it can optimize accordingly
+				addProps.NoProps = true
+			}
+
+			props = append(props, search.SelectProperty{
+				Name:        normalizedRefPropName,
+				IsPrimitive: false,
+				IsObject:    false,
+				Refs: []search.SelectClass{{
+					ClassName:            linkedClassName,
+					RefProperties:        refProperties,
+					AdditionalProperties: addProps,
+				}},
+			})
+		}
+	}
+
+	if len(reqProps.ObjectProperties) > 0 {
+		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
+	}
+
+	return props, nil
+}
+
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -554,7 +693,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, scheme, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}

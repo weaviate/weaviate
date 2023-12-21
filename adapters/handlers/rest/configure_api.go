@@ -50,6 +50,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -706,6 +707,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativepalm.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativeanyscale.Name]; ok {
+		appState.Modules.Register(modgenerativeanyscale.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeanyscale.Name).
 			Debug("enabled module")
 	}
 

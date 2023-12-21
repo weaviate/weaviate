@@ -26,6 +26,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantApiEndpoint string
 		wantProjectID   string
 		wantModelID     string
+		wantTitle       string
 		wantErr         error
 	}{
 		{
@@ -44,13 +45,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom values",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
-					"projectId":   "projectId",
+					"apiEndpoint":   "google.com",
+					"projectId":     "projectId",
+					"titleProperty": "title",
 				},
 			},
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
+			wantTitle:       "title",
 			wantErr:         nil,
 		},
 		{
@@ -70,7 +73,10 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong modelId available model names are: [textembedding-gecko@001 textembedding-gecko@latest textembedding-gecko-multilingual@latest]"),
+			wantErr: errors.Errorf("wrong modelId available model names are: " +
+				"[textembedding-gecko@001 textembedding-gecko@latest " +
+				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
 		},
 		{
 			name: "all wrong",
@@ -82,7 +88,9 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("projectId cannot be empty, " +
 				"wrong modelId available model names are: " +
-				"[textembedding-gecko@001 textembedding-gecko@latest textembedding-gecko-multilingual@latest]"),
+				"[textembedding-gecko@001 textembedding-gecko@latest " +
+				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
 		},
 		{
 			name: "Generative AI",
@@ -129,6 +137,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.ModelID())
+				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
 			}
 		})
 	}

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -25,6 +26,15 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+)
+
+type taskType string
+
+var (
+	// Specifies the given text is a document in a search/retrieval setting
+	retrievalQuery taskType = "RETRIEVAL_QUERY"
+	// Specifies the given text is a query in a search/retrieval setting
+	retrievalDocument taskType = "RETRIEVAL_DOCUMENT"
 )
 
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
@@ -58,21 +68,23 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *palm 
 }
 
 func (v *palm) Vectorize(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
+	config ent.VectorizationConfig, titlePropertyValue string,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config)
+	return v.vectorize(ctx, input, retrievalDocument, titlePropertyValue, config)
 }
 
 func (v *palm) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config)
+	return v.vectorize(ctx, input, retrievalQuery, "", config)
 }
 
-func (v *palm) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *palm) vectorize(ctx context.Context, input []string, taskType taskType,
+	titlePropertyValue string, config ent.VectorizationConfig,
+) (*ent.VectorizationResult, error) {
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(config)
 
-	payload := v.getPayload(useGenerativeAIEndpoint, input)
+	payload := v.getPayload(useGenerativeAIEndpoint, input, taskType, titlePropertyValue, config)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -119,13 +131,20 @@ func (v *palm) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
 	return v.getApiEndpoint(config) == "generativelanguage.googleapis.com"
 }
 
-func (v *palm) getPayload(useGenerativeAI bool, input []string) interface{} {
+func (v *palm) getPayload(useGenerativeAI bool, input []string,
+	taskType taskType, title string, config ent.VectorizationConfig,
+) interface{} {
 	if useGenerativeAI {
 		return batchEmbedTextRequest{Texts: input}
 	}
+	isModelVersion001 := strings.HasSuffix(config.Model, "@001")
 	instances := make([]instance, len(input))
 	for i := range input {
-		instances[i] = instance{Content: input[i]}
+		if isModelVersion001 {
+			instances[i] = instance{Content: input[i]}
+		} else {
+			instances[i] = instance{Content: input[i], TaskType: taskType, Title: title}
+		}
 	}
 	return embeddingsRequest{instances}
 }
@@ -142,22 +161,28 @@ func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
+	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
+		return apiKeyValue, nil
+	}
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
-	}
-	key := "X-Palm-Api-Key"
-	apiKey := ctx.Value(key)
-	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
-	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Palm-Api-Key " +
 		"nor in environment variable under PALM_APIKEY")
+}
+
+func (v *palm) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+	return ""
 }
 
 func (v *palm) parseGenerativeAIApiResponse(statusCode int,
@@ -235,7 +260,9 @@ type embeddingsRequest struct {
 }
 
 type instance struct {
-	Content string `json:"content"`
+	Content  string   `json:"content"`
+	TaskType taskType `json:"task_type,omitempty"`
+	Title    string   `json:"title,omitempty"`
 }
 
 type embeddingsResponse struct {

@@ -38,7 +38,7 @@ type Replicator interface {
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		docIDs []uint64, dryRun bool) replica.SimpleResponse
+		uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(shard,
@@ -92,14 +92,14 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
-	shard, requestID string, docIDs []uint64, dryRun bool,
+	shard, requestID string, uuids []strfmt.UUID, dryRun bool,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, docIDs, dryRun)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -197,12 +197,12 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
 	}
-	return localShard.prepareDeleteObjects(ctx, requestID, docIDs, dryRun)
+	return localShard.prepareDeleteObjects(ctx, requestID, uuids, dryRun)
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
@@ -242,10 +242,10 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	return localShard.filePutter(ctx, filePath)
 }
 
-func (i *Index) IncomingCreateShard(ctx context.Context,
-	shardName string,
-) error {
-	if err := i.addNewShard(ctx, nil, shardName); err != nil {
+func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
+	sch := i.getSchema.GetSchemaSkipAuth()
+	class := sch.GetClass(schema.ClassName(className))
+	if err := i.addNewShard(ctx, class, shardName); err != nil {
 		return fmt.Errorf("incoming create shard: %w", err)
 	}
 	return nil
@@ -293,6 +293,8 @@ func (s *Shard) reinit(ctx context.Context) error {
 	if err := s.initVector(ctx); err != nil {
 		return fmt.Errorf("reinit vector: %w", err)
 	}
+
+	s.initCycleCallbacks()
 
 	return nil
 }

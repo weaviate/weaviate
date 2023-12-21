@@ -22,12 +22,14 @@ import (
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -74,6 +76,7 @@ type Compose struct {
 	withContextionary             bool
 	withQnATransformers           bool
 	withWeaviate                  bool
+	withWeaviateExposeGRPCPort    bool
 	withSecondWeaviate            bool
 	withWeaviateAuth              bool
 	withWeaviateBasicAuth         bool
@@ -198,6 +201,11 @@ func (d *Compose) WithText2VecPaLM() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecAWS() *Compose {
+	d.enableModules = append(d.enableModules, modaws.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecHuggingFace() *Compose {
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
 	return d
@@ -223,6 +231,11 @@ func (d *Compose) WithGenerativePaLM() *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeAnyscale() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeanyscale.Name)
+	return d
+}
+
 func (d *Compose) WithQnAOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modqnaopenai.Name)
 	return d
@@ -244,6 +257,12 @@ func (d *Compose) WithWeaviate() *Compose {
 	return d
 }
 
+func (d *Compose) WithWeaviateWithGRPC() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
 func (d *Compose) WithSecondWeaviate() *Compose {
 	d.withSecondWeaviate = true
 	return d
@@ -252,6 +271,13 @@ func (d *Compose) WithSecondWeaviate() *Compose {
 func (d *Compose) WithWeaviateCluster() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateCluster = true
+	return d
+}
+
+func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateCluster = true
+	d.withWeaviateExposeGRPCPort = true
 	return d
 }
 
@@ -424,7 +450,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname)
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -438,7 +464,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
 		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname)
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -454,7 +480,8 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}

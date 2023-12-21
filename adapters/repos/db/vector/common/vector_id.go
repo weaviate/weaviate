@@ -73,14 +73,14 @@ func NewPqMaxPool(defaultCap int) *PqMaxPool {
 	return &PqMaxPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return priorityqueue.NewMax(defaultCap)
+				return priorityqueue.NewMax[any](defaultCap)
 			},
 		},
 	}
 }
 
-func (pqh *PqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
-	pq := pqh.pool.Get().(*priorityqueue.Queue)
+func (pqh *PqMaxPool) GetMax(capacity int) *priorityqueue.Queue[any] {
+	pq := pqh.pool.Get().(*priorityqueue.Queue[any])
 	if pq.Cap() < capacity {
 		pq.ResetCap(capacity)
 	} else {
@@ -90,6 +90,6 @@ func (pqh *PqMaxPool) GetMax(capacity int) *priorityqueue.Queue {
 	return pq
 }
 
-func (pqh *PqMaxPool) Put(pq *priorityqueue.Queue) {
+func (pqh *PqMaxPool) Put(pq *priorityqueue.Queue[any]) {
 	pqh.pool.Put(pq)
 }

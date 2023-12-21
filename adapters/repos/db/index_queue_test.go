@@ -23,11 +23,17 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func startWorker(t testing.TB, retryInterval ...time.Duration) chan job {
@@ -544,6 +550,145 @@ func TestIndexQueue(t *testing.T) {
 		}
 	})
 
+	t.Run("pause/resume indexing", func(t *testing.T) {
+		var idx mockBatchIndexer
+		called := make(chan struct{})
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			called <- struct{}{}
+			// simulate work
+			<-time.After(100 * time.Millisecond)
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+
+		// batch indexed
+		<-called
+
+		// pause indexing: this will block until the batch is indexed
+		q.pauseIndexing()
+
+		// add more vectors
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
+
+		// wait enough time to make sure the indexing is not happening
+		<-time.After(200 * time.Millisecond)
+
+		select {
+		case <-called:
+			t.Fatal("should not have been called")
+		default:
+		}
+
+		// resume indexing
+		q.resumeIndexing()
+
+		// wait for the indexing to be done
+		<-called
+	})
+
+	t.Run("compression", func(t *testing.T) {
+		var idx mockBatchIndexer
+		called := make(chan struct{})
+		idx.shouldCompress = true
+		idx.threshold = 4
+		idx.alreadyIndexed = 6
+
+		release := make(chan struct{})
+		idx.onCompressionTurnedOn = func(callback func()) error {
+			go func() {
+				<-release
+				callback()
+			}()
+
+			close(called)
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+
+		// compression requested
+		<-called
+
+		// indexing should be paused
+		require.True(t, q.paused.Load())
+
+		// release the compression
+		idx.compressed = true
+		close(release)
+
+		// indexing should be resumed eventually
+		time.Sleep(100 * time.Millisecond)
+		require.False(t, q.paused.Load())
+
+		indexed := make(chan struct{})
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			close(indexed)
+			return nil
+		}
+
+		// add more vectors
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
+
+		// indexing should happen
+		<-indexed
+	})
+
+	t.Run("compression does not occur at the indexing if async is enabled", func(t *testing.T) {
+		vectors := [][]float32{{0, 1, 3, 4, 5, 6}, {0, 1, 3, 4, 5, 6}, {0, 1, 3, 4, 5, 6}}
+		distancer := distancer.NewL2SquaredProvider()
+		uc := ent.UserConfig{}
+		uc.MaxConnections = 112
+		uc.EFConstruction = 112
+		uc.EF = 10
+		uc.VectorCacheMaxObjects = 10e12
+		index, _ := hnsw.New(
+			hnsw.Config{
+				RootPath:              t.TempDir(),
+				ID:                    "recallbenchmark",
+				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+				DistanceProvider:      distancer,
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return vectors[int(id)], nil
+				},
+				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+					copy(container.Slice, vectors[int(id)])
+					return container.Slice, nil
+				},
+			}, uc,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+		defer index.Shutdown(context.Background())
+
+		q, err := NewIndexQueue("1", new(mockShard), index, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "please break...", Distribution: "normal"}}
+		err = index.UpdateUserConfig(uc, func() {})
+		require.Nil(t, err)
+	})
+
 	t.Run("sending batch with deleted ids to worker", func(t *testing.T) {
 		var idx mockBatchIndexer
 		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
@@ -614,14 +759,19 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 
 type mockBatchIndexer struct {
 	sync.Mutex
-	addBatchFn        func(id []uint64, vector [][]float32) error
-	vectors           map[uint64][]float32
-	containsNodeFn    func(id uint64) bool
-	deleteFn          func(ids ...uint64) error
-	distancerProvider distancer.Provider
+	addBatchFn            func(id []uint64, vector [][]float32) error
+	vectors               map[uint64][]float32
+	containsNodeFn        func(id uint64) bool
+	deleteFn              func(ids ...uint64) error
+	distancerProvider     distancer.Provider
+	shouldCompress        bool
+	threshold             int
+	compressed            bool
+	alreadyIndexed        uint64
+	onCompressionTurnedOn func(func()) error
 }
 
-func (m *mockBatchIndexer) AddBatch(ids []uint64, vector [][]float32) (err error) {
+func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector [][]float32) (err error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -794,4 +944,33 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 	}
 
 	return m.distancerProvider
+}
+
+func (m *mockBatchIndexer) ShouldCompress() (bool, int) {
+	return m.shouldCompress, m.threshold
+}
+
+func (m *mockBatchIndexer) Compressed() bool {
+	return m.compressed
+}
+
+func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
+	return m.alreadyIndexed
+}
+
+func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
+	if m.onCompressionTurnedOn != nil {
+		return m.onCompressionTurnedOn(callback)
+	}
+
+	return nil
+}
+
+func newDummyStore(t *testing.T) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	storeDir := t.TempDir()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
 }

@@ -12,12 +12,14 @@
 package hnsw
 
 import (
+	"os"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
@@ -101,6 +103,8 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		return nil
 	}
 
+	h.pqConfig = parsed.PQ
+
 	// compression got enabled in this update
 	if h.compressedVectorsCache == (cache.Cache[byte])(nil) {
 		h.compressedVectorsCache = cache.NewShardedByteLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger, 0)
@@ -112,36 +116,43 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		}
 	}
 
-	// ToDo: check atomic operation
+	if asyncEnabled() {
+		callback()
+		return nil
+	}
+
 	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
-		h.turnOnCompression(parsed, callback)
+		return h.TurnOnCompression(callback)
 	} else {
 		// without a compression we need to fire the callback right away
 		callback()
+		return nil
 	}
-
-	return nil
 }
 
-func (h *hnsw) turnOnCompression(cfg ent.UserConfig, callback func()) error {
+func asyncEnabled() bool {
+	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
+}
+
+func (h *hnsw) TurnOnCompression(callback func()) error {
 	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 
-	err := ent.ValidatePQConfig(cfg.PQ)
+	err := ent.ValidatePQConfig(h.pqConfig)
 	if err != nil {
 		callback()
 		return err
 	}
 
-	go h.compressThenCallback(cfg, callback)
+	go h.compressThenCallback(callback)
 
 	return nil
 }
 
-func (h *hnsw) compressThenCallback(cfg ent.UserConfig, callback func()) {
+func (h *hnsw) compressThenCallback(callback func()) {
 	defer callback()
 
-	if err := h.Compress(cfg.PQ); err != nil {
+	if err := h.Compress(h.pqConfig); err != nil {
 		h.logger.Error(err)
 		return
 	}

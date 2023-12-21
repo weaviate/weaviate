@@ -174,7 +174,7 @@ type wClient interface {
 	MergeObject(ctx context.Context, host, index, shard, requestID string,
 		mergeDoc *objects.MergeDocument) (SimpleResponse, error)
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-		docIDs []uint64, dryRun bool) (SimpleResponse, error)
+		uuids []strfmt.UUID, dryRun bool) (SimpleResponse, error)
 	AddReferences(ctx context.Context, host, index, shard, requestID string,
 		refs []objects.BatchReference) (SimpleResponse, error)
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
