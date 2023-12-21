@@ -255,7 +255,11 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		}
 
 		// pending differences
-		require.LessOrEqual(t, prevDiffCount, diffCount)
+		if prevDiffCount > 0 {
+			require.Less(t, diffCount, prevDiffCount)
+		}
+
+		prevDiffCount = diffCount
 	}
 
 	require.Zero(t, diffCount)
