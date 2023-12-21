@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -151,18 +150,18 @@ func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *model
 	// return h.mergeClassObjectProperty(ctx, class, property)
 }
 
-func (h *Handler) mergeClassObjectProperty(ctx context.Context,
-	className string, prop *models.Property,
-) error {
-	return nil
-	// h.Lock()
-	// defer h.Unlock()
+// func (h *Handler) mergeClassObjectProperty(ctx context.Context,
+// 	className string, prop *models.Property,
+// ) error {
+// 	return nil
+// h.Lock()
+// defer h.Unlock()
 
-	// class, err := h.schemaCache.readOnlyClass(className)
-	// if err != nil {
-	// 	return err
-	// }
-	// prop.Name = schema.LowercaseFirstLetter(prop.Name)
+// class, err := h.schemaCache.readOnlyClass(className)
+// if err != nil {
+// 	return err
+// }
+// prop.Name = schema.LowercaseFirstLetter(prop.Name)
 
 	// // reuse setDefaults/validation/migrate methods coming from add property
 	// // (empty existing names map, to validate existing updated property)
