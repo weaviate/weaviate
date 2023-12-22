@@ -35,7 +35,7 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 	return &filteredAggregator{Aggregator: agg}
 }
 
-func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	return fa.propLenTracker
 }
 
