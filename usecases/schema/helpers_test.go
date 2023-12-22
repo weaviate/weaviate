@@ -14,10 +14,6 @@ package schema
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -66,28 +62,6 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.DB, authorizer au
 		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, metaHandler
-}
-
-type randomHostURL struct {
-	address string
-	host    string
-	port    int
-}
-
-func newRandomHostURL(t *testing.T) randomHostURL {
-	srv := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {}),
-	)
-	defer srv.Close()
-	split := strings.Split(srv.URL, ":")
-	host := strings.TrimPrefix(split[1], "//")
-	port, err := strconv.Atoi(split[2])
-	require.Nil(t, err)
-	return randomHostURL{
-		address: srv.URL,
-		host:    host,
-		port:    port,
-	}
 }
 
 type fakeDB struct {
@@ -156,15 +130,6 @@ func (f *fakeScaleOutManager) Scale(ctx context.Context,
 }
 
 func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
-}
-
-type fakeShardReader struct {
-	mock.Mock
-}
-
-func (f *fakeShardReader) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := f.Called(class)
-	return args.Get(0).(models.ShardStatusList), nil
 }
 
 type fakeValidator struct{}
@@ -320,26 +285,27 @@ func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
 	return nil
 }
 
-type fakeMigrator struct{}
+type fakeMigrator struct {
+	mock.Mock
+}
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	return nil, nil
 }
 
-func (f *fakeMigrator) AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
-	return nil
+func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) error {
+	args := f.Called(ctx, cls, ss)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) DropClass(ctx context.Context, className string) error {
-	return nil
-}
-
-func (f *fakeMigrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
-	return nil
+	args := f.Called(ctx, className)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
-	return nil
+	args := f.Called(ctx, className, prop)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, propName string, newName *string) error {
@@ -347,137 +313,48 @@ func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, pro
 }
 
 func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error) {
-	return nil, nil
+	args := f.Called(ctx, class, creates)
+	return args.Get(0).(func(success bool)), args.Error(1)
 }
 
 func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error) {
-	return nil, nil
+	args := f.Called(ctx, class, updates)
+	return args.Get(0).(func(success bool)), args.Error(1)
 }
 
 func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
-	return nil, nil
+	args := f.Called(ctx, class, tenants)
+	return args.Get(0).(func(success bool)), args.Error(1)
 }
 
 func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
-	return nil, nil
+	args := f.Called(ctx, className, tenant)
+	return args.Get(0).(map[string]string), args.Error(1)
 }
 
 func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
-	return nil
-}
-
-func (f *fakeMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schemaConfig.VectorIndexConfig) error {
-	return nil
+	args := f.Called(ctx, className, shardName, targetStatus)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
-	return nil
-}
-
-func (f *fakeMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
-	return nil
+	args := f.Called(ctx, className, updated)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
-	return nil
+	args := f.Called(ctx, className, updated)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
-	return nil
+	args := f.Called(ctx)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) Shutdown(ctx context.Context) error {
-	return nil
-}
-
-type configMigrator struct {
-	fakeMigrator
-	vectorConfigValidationError    error
-	vectorConfigValidateCalledWith schemaConfig.VectorIndexConfig
-	vectorConfigUpdateCalled       bool
-	vectorConfigUpdateCalledWith   schemaConfig.VectorIndexConfig
-}
-
-func (m *configMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schemaConfig.VectorIndexConfig,
-) error {
-	m.vectorConfigValidateCalledWith = updated
-	return m.vectorConfigValidationError
-}
-
-func (m *configMigrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schemaConfig.VectorIndexConfig,
-) error {
-	m.vectorConfigUpdateCalledWith = updated
-	m.vectorConfigUpdateCalled = true
-	return nil
-}
-
-func newSchemaManager() *Manager {
-	logger, _ := test.NewNullLogger()
-	vectorizerValidator := &fakeVectorizerValidator{
-		valid: []string{"text2vec-contextionary", "model1", "model2"},
-	}
-	dummyConfig := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
-		DefaultVectorDistanceMetric: "cosine",
-	}
-	sm, err := NewManager(&fakeMigrator{}, nil, nil, newFakeRepo(), logger, &fakeAuthorizer{},
-		dummyConfig, dummyParseVectorConfig, // only option for now
-		vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
-		nil, nil, &fakeScaleOutManager{},
-	)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	sm.StartServing(context.Background()) // will also mark tx manager as ready
-
-	return sm
-}
-
-type fakeRepo struct {
-	schema State
-}
-
-func newFakeRepo() *fakeRepo {
-	return &fakeRepo{
-		schema: NewState(1),
-	}
-}
-
-func (f *fakeRepo) Save(ctx context.Context, schema State) error {
-	f.schema = schema
-	return nil
-}
-
-func (f *fakeRepo) Load(context.Context) (State, error) {
-	return f.schema, nil
-}
-
-func (f *fakeRepo) NewClass(context.Context, ClassPayload) error {
-	return nil
-}
-
-func (f *fakeRepo) UpdateClass(context.Context, ClassPayload) error {
-	return nil
-}
-
-func (f *fakeRepo) DeleteClass(ctx context.Context, class string) error {
-	return nil
-}
-
-func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []KeyValuePair) error {
-	return nil
-}
-
-func (f *fakeRepo) UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error {
-	return nil
-}
-
-func (f *fakeRepo) DeleteShards(ctx context.Context, class string, shards []string) error {
-	return nil
+	args := f.Called(ctx)
+	return args.Error(0)
 }
 
 type fakeNodes struct {
