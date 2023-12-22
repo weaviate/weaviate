@@ -68,7 +68,7 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
@@ -161,7 +161,7 @@ type Shard struct {
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonPropertyLengthTracker
+	propLenTracker   *inverted.JsonShardMetaData
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -210,7 +210,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 
 	if s.propLenTracker == nil {
 		plPath := path.Join(s.path(), "proplengths")
-		tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+		tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 		}
@@ -263,7 +263,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
  */
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonPropertyLengthTracker,
+	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonShardMetaData,
 ) (*Shard, error) {
 	s := &Shard{
 		index:       index,

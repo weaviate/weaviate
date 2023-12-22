@@ -23,16 +23,16 @@ import (
 
 var MAX_BUCKETS = 64
 
-type PropLenData struct {
+type ShardMetaData struct {
 	BucketedData map[string]map[int]int
 	SumData      map[string]int
 	CountData    map[string]int
 	ObjectCount  int
 }
 
-type JsonPropertyLengthTracker struct {
+type JsonShardMetaData struct {
 	path string
-	data *PropLenData // Only this is saved in the file
+	data *ShardMetaData // Only this part is saved in the file
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
@@ -62,23 +62,23 @@ type JsonPropertyLengthTracker struct {
 //
 // Note that some of the code in this file is forced by the need to be backwards-compatible with the old format.  Once we are confident that all users have migrated to the new format, we can remove the old format code and simplify this file.
 
-// NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
-func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *JsonPropertyLengthTracker, err error) {
+// NewJsonShardMetaData creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
+func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardMetaData, err error) {
 	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
-			t.logger.Printf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
-			t = &JsonPropertyLengthTracker{
-				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
+			t.logger.Printf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
+			t = &JsonShardMetaData{
+				data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 				path:             path,
 				UnlimitedBuckets: false,
 			}
-			err = errors.Errorf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
+			err = errors.Errorf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
 		}
 	}()
 
-	t = &JsonPropertyLengthTracker{
-		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
+	t = &JsonShardMetaData{
+		data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 		path:             path,
 		UnlimitedBuckets: false,
 		logger:           logger,
@@ -108,7 +108,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 		}
 
 		propertyNames := plt.PropertyNames()
-		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+		data := &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 		// Loop over every page and bucket in the old tracker and add it to the new tracker
 		for _, name := range propertyNames {
 			data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
@@ -150,25 +150,25 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	return t, nil
 }
 
-func (t *JsonPropertyLengthTracker) Clear() {
+func (t *JsonShardMetaData) Clear() {
 	if t == nil {
 		return
 	}
 	t.Lock()
 	defer t.Unlock()
 
-	t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 }
 
 // Path to the file on disk
-func (t *JsonPropertyLengthTracker) FileName() string {
+func (t *JsonShardMetaData) FileName() string {
 	if t == nil {
 		return ""
 	}
 	return t.path
 }
 
-func (t *JsonPropertyLengthTracker) TrackObjects(delta int) error {
+func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	if t == nil {
 		return nil
 	}
@@ -180,7 +180,7 @@ func (t *JsonPropertyLengthTracker) TrackObjects(delta int) error {
 }
 
 // Adds a new value to the tracker
-func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
+func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error {
 	if t == nil {
 		return nil
 	}
@@ -190,7 +190,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] + int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] + 1
@@ -208,7 +208,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 }
 
 // Removes a value from the tracker
-func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
+func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) error {
 	if t == nil {
 		return nil
 	}
@@ -218,7 +218,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
@@ -234,7 +234,7 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 }
 
 // Returns the bucket that the given value belongs to
-func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
+func (t *JsonShardMetaData) bucketFromValue(value float32) int {
 	if t == nil {
 		return 0
 	}
@@ -253,7 +253,7 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 }
 
 // Returns the average length of the given property
-func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
+func (t *JsonShardMetaData) PropertyMean(propName string) (float32, error) {
 	if t == nil {
 		return 0, nil
 	}
@@ -273,7 +273,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 }
 
 // returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
-func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
+func (t *JsonShardMetaData) PropertyTally(propName string) (int, int, float64, error) {
 	if t == nil {
 		return 0, 0, 0, nil
 	}
@@ -291,7 +291,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 }
 
 // Returns the number of documents stored in the shard
-func (t *JsonPropertyLengthTracker) ObjectTally() int {
+func (t *JsonShardMetaData) ObjectTally() int {
 	if t == nil {
 		return 0
 	}
@@ -302,7 +302,7 @@ func (t *JsonPropertyLengthTracker) ObjectTally() int {
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
-func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
+func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	if t == nil {
 		return nil
 	}
@@ -340,7 +340,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 }
 
 // Closes the tracker and removes the backup file
-func (t *JsonPropertyLengthTracker) Close() error {
+func (t *JsonShardMetaData) Close() error {
 	if t == nil {
 		return nil
 	}
@@ -357,7 +357,7 @@ func (t *JsonPropertyLengthTracker) Close() error {
 }
 
 // Drop removes the tracker from disk
-func (t *JsonPropertyLengthTracker) Drop() error {
+func (t *JsonShardMetaData) Drop() error {
 	if t == nil {
 		return nil
 	}

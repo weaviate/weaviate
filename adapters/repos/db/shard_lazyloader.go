@@ -44,7 +44,7 @@ import (
 
 type LazyLoadShard struct {
 	shardOpts      *deferredShardOpts
-	propLenTracker *inverted.JsonPropertyLengthTracker
+	propLenTracker *inverted.JsonShardMetaData
 	shard          *Shard
 	loaded         bool
 	mutex          sync.Mutex
@@ -169,7 +169,7 @@ func (l *LazyLoadShard) ObjectCount() int {
 	return l.GetPropertyLengthTracker().ObjectTally()
 }
 
-func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -181,11 +181,11 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 		return l.propLenTracker
 	}
 
-	var tracker *inverted.JsonPropertyLengthTracker
+	var tracker *inverted.JsonShardMetaData
 
 	// FIXME add method for tracker path
 	plPath := path.Join(l.shardOpts.index.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, l.shardOpts.index.logger)
+	tracker, err := inverted.NewJsonShardMetaData(plPath, l.shardOpts.index.logger)
 	l.propLenTracker = tracker
 	if err != nil {
 		panic(fmt.Sprintf("could not create property length tracker at %v: %v", plPath, err))
