@@ -45,9 +45,14 @@ func TestCollectionFromAndToModel(t *testing.T) {
 				Properties:         make([]*models.Property, 0),
 				ReplicationConfig:  &models.ReplicationConfig{},
 				ShardingConfig:     sharding.Config{},
-				VectorIndexType:    "unknown",
+				VectorIndexType:    "",
 			},
 		},
+		{
+			name:       "unknown",
+			inputModel: models.Class{VectorIndexType: "unknown"},
+		},
+
 		{
 			name: "all elements",
 			inputModel: models.Class{
@@ -359,7 +364,12 @@ func TestCollectionFromAndToModel(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			c := CollectionFromClass(tc.inputModel)
+			c, err := CollectionFromClass(tc.inputModel)
+			if vi := tc.inputModel.VectorIndexType; vi != "" && vi != "hnsw" && vi != "flat" {
+				require.NotNil(t, err)
+				return
+			}
+			require.Nil(t, err)
 			m := CollectionToClass(c)
 
 			require.Equal(t, tc.outputModel, m)
