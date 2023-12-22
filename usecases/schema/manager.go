@@ -32,7 +32,7 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator     Migrator
+	validator     validator
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorizer
@@ -207,7 +207,7 @@ type scaleOut interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator Migrator,
+func NewManager(migrator validator,
 	store metaWriter, metaReader metaReader,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
@@ -227,7 +227,7 @@ func NewManager(migrator Migrator,
 	}
 	m := &Manager{
 		config:       config,
-		migrator:     migrator,
+		validator:     migrator,
 		repo:         repo,
 		logger:       logger,
 		clusterState: clusterState,
@@ -305,21 +305,21 @@ type authorizer interface {
 // 	return nil
 // }
 
-func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
-	for _, classState := range localSchema.ShardingState {
-		classState.MigrateFromOldFormat()
-	}
-	return nil
-}
+// func (m *Manager) checkShardingStateForReplication(ctx context.Context, localSchema *State) error {
+// 	for _, classState := range localSchema.ShardingState {
+// 		classState.MigrateFromOldFormat()
+// 	}
+// 	return nil
+// }
 
-func newSchema() *State {
-	return &State{
-		ObjectSchema: &models.Schema{
-			Classes: []*models.Class{},
-		},
-		ShardingState: map[string]*sharding.State{},
-	}
-}
+// func newSchema() *State {
+// 	return &State{
+// 		ObjectSchema: &models.Schema{
+// 			Classes: []*models.Class{},
+// 		},
+// 		ShardingState: map[string]*sharding.State{},
+// 	}
+// }
 
 func (m *Manager) ClusterHealthScore() int {
 	return m.clusterState.ClusterHealthScore()
