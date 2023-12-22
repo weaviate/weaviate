@@ -71,14 +71,13 @@ func TestFusionRelativeScoreExplain(t *testing.T) {
 	docId1 := uint64(1)
 	docId2 := uint64(2)
 	result1 := []*search.Result{
-
-		&search.Result{DocID: &docId1, SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
-		&search.Result{DocID: &docId2, SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))},
+		{DocID: &docId1, SecondarySortValue: 0.5, ID: strfmt.UUID(fmt.Sprint(1))},
+		{DocID: &docId2, SecondarySortValue: 0.1, ID: strfmt.UUID(fmt.Sprint(2))},
 	}
 
 	result2 := []*search.Result{
-		&search.Result{DocID: &docId1, SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))},
-		&search.Result{DocID: &docId2, SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2))},
+		{DocID: &docId1, SecondarySortValue: 2, ID: strfmt.UUID(fmt.Sprint(1))},
+		{DocID: &docId2, SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2))},
 	}
 	results := [][]*search.Result{result1, result2}
 	fused := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})

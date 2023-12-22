@@ -332,7 +332,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	postProcess := func(results []*search.Result) ([]search.Result, error) {
-
 		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 		if err != nil {
 			return nil, err
