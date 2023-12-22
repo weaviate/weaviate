@@ -44,10 +44,11 @@ func (pq *ProductQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistan
 }
 
 func (pq *ProductQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {
-	if distancer == nil {
+	concreteDistancer := distancer.(*PQDistancer)
+	if concreteDistancer == nil {
 		return
 	}
-	pq.ReturnDistancer(distancer.(*PQDistancer))
+	pq.ReturnDistancer(concreteDistancer)
 }
 
 func (bq *BinaryQuantizer) CompressedBytes(compressed []uint64) []byte {
