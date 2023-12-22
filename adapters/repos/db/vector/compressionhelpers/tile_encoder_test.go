@@ -11,7 +11,7 @@
 
 //go:build !race
 
-package ssdhelpers_test
+package compressionhelpers_test
 
 import (
 	"math"
@@ -19,11 +19,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func Test_NoRaceTileEncoderEncode(t *testing.T) {
-	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.LogNormalEncoderDistribution)
+	encoder := compressionhelpers.NewTileEncoder(4, 0, compressionhelpers.LogNormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64() + 100)})
 	}
@@ -34,7 +34,7 @@ func Test_NoRaceTileEncoderEncode(t *testing.T) {
 }
 
 func Test_NoRaceTileEncoderCentroids(t *testing.T) {
-	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.LogNormalEncoderDistribution)
+	encoder := compressionhelpers.NewTileEncoder(4, 0, compressionhelpers.LogNormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64() + 100)})
 	}
@@ -45,7 +45,7 @@ func Test_NoRaceTileEncoderCentroids(t *testing.T) {
 }
 
 func Test_NoRaceNormalTileEncoderEncode(t *testing.T) {
-	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.NormalEncoderDistribution)
+	encoder := compressionhelpers.NewTileEncoder(4, 0, compressionhelpers.NormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64())})
 	}
@@ -56,7 +56,7 @@ func Test_NoRaceNormalTileEncoderEncode(t *testing.T) {
 }
 
 func Test_NoRaceNormalTileEncoderCentroids(t *testing.T) {
-	encoder := ssdhelpers.NewTileEncoder(4, 0, ssdhelpers.NormalEncoderDistribution)
+	encoder := compressionhelpers.NewTileEncoder(4, 0, compressionhelpers.NormalEncoderDistribution)
 	for i := 0; i < 1000000; i++ {
 		encoder.Add([]float32{float32(rand.NormFloat64())})
 	}

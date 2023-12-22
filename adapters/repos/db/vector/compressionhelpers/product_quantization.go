@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ssdhelpers
+package compressionhelpers
 
 import (
 	"errors"
@@ -290,7 +290,7 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 	}
 }
 
-func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float32 {
+func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	dist := float32(0)
 
 	for i := 0; i < pq.m; i++ {
@@ -299,30 +299,41 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) float3
 		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
 	}
 
-	return pq.distance.Wrap(dist)
+	return pq.distance.Wrap(dist), nil
 }
 
-func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) float32 {
+func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
 	dist := float32(0)
 	for i := 0; i < pq.m; i++ {
 		cY := pq.kms[i].Centroid(ExtractCode8(encoded, i))
 		dist += pq.distance.Step(x[i*pq.ds:(i+1)*pq.ds], cY)
 	}
-	return pq.distance.Wrap(dist)
+	return pq.distance.Wrap(dist), nil
 }
 
 type PQDistancer struct {
-	x   []float32
-	pq  *ProductQuantizer
-	lut *DistanceLookUpTable
+	x          []float32
+	pq         *ProductQuantizer
+	lut        *DistanceLookUpTable
+	compressed []byte
 }
 
 func (pq *ProductQuantizer) NewDistancer(a []float32) *PQDistancer {
 	lut := pq.CenterAt(a)
 	return &PQDistancer{
-		x:   a,
-		pq:  pq,
-		lut: lut,
+		x:          a,
+		pq:         pq,
+		lut:        lut,
+		compressed: nil,
+	}
+}
+
+func (pq *ProductQuantizer) NewCompressedQuantizerDistancer(a []byte) quantizerDistancer[byte] {
+	return &PQDistancer{
+		x:          nil,
+		pq:         pq,
+		lut:        nil,
+		compressed: a,
 	}
 }
 
@@ -331,11 +342,20 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
 }
 
 func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
+	if d.lut == nil {
+		dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
+		return dist, err == nil, err
+	}
 	return d.pq.Distance(x, d.lut), true, nil
 }
 
 func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
-	return d.pq.distance.SingleDist(x, d.lut.flatCenter)
+	if d.lut != nil {
+		return d.pq.distance.SingleDist(x, d.lut.flatCenter)
+	}
+	xComp := d.pq.Encode(x)
+	dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
+	return dist, err == nil, err
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) {

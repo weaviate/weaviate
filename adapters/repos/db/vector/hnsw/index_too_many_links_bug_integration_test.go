@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -103,7 +104,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
 		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx
@@ -238,7 +239,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 2 * n,
 		}, tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		idx.PostStartup()
 		index = idx

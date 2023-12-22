@@ -11,7 +11,7 @@
 
 //go:build !race
 
-package ssdhelpers_test
+package compressionhelpers_test
 
 import (
 	"fmt"
@@ -19,9 +19,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
-	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -51,7 +51,7 @@ func Test_NoRacePQSettings(t *testing.T) {
 		Segments:  128,
 	}
 
-	_, err := ssdhelpers.NewProductQuantizer(
+	_, err := compressionhelpers.NewProductQuantizer(
 		cfg,
 		distanceProvider,
 		128,
@@ -76,7 +76,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 		Centroids: 255,
 		Segments:  dimensions,
 	}
-	pq, _ := ssdhelpers.NewProductQuantizer(
+	pq, _ := compressionhelpers.NewProductQuantizer(
 		cfg,
 		distanceProvider,
 		dimensions,
@@ -121,7 +121,7 @@ func Test_NoRacePQDecodeBytes(t *testing.T) {
 			values = append(values, i)
 		}
 		for i := 0; i < amount; i++ {
-			code := ssdhelpers.ExtractCode8(values, i)
+			code := compressionhelpers.ExtractCode8(values, i)
 			assert.Equal(t, code, uint8(i))
 		}
 	})
@@ -141,7 +141,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			TrainingLimit: 75,
 			Segments:      amount,
 		}
-		_, err := ssdhelpers.NewProductQuantizer(
+		_, err := compressionhelpers.NewProductQuantizer(
 			cfg,
 			nil,
 			amount,
@@ -157,7 +157,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			TrainingLimit: 75,
 			Segments:      amount,
 		}
-		_, err = ssdhelpers.NewProductQuantizer(
+		_, err = compressionhelpers.NewProductQuantizer(
 			cfg,
 			nil,
 			amount,
@@ -173,7 +173,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			TrainingLimit: 75,
 			Segments:      0,
 		}
-		_, err = ssdhelpers.NewProductQuantizer(
+		_, err = compressionhelpers.NewProductQuantizer(
 			cfg,
 			nil,
 			amount,
@@ -189,7 +189,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			TrainingLimit: 75,
 			Segments:      3,
 		}
-		_, err = ssdhelpers.NewProductQuantizer(
+		_, err = compressionhelpers.NewProductQuantizer(
 			cfg,
 			nil,
 			4,
@@ -213,7 +213,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			TrainingLimit: 260,
 			Segments:      amount,
 		}
-		pq, err := ssdhelpers.NewProductQuantizer(
+		pq, err := compressionhelpers.NewProductQuantizer(
 			cfg,
 			distanceProvider,
 			amount,
@@ -230,10 +230,10 @@ func Test_NoRacePQEncodeBytes(t *testing.T) {
 		amount := 100
 		values := make([]byte, amount)
 		for i := 0; i < amount; i++ {
-			ssdhelpers.PutCode8(uint8(i), values, i)
+			compressionhelpers.PutCode8(uint8(i), values, i)
 		}
 		for i := 0; i < amount; i++ {
-			code := ssdhelpers.ExtractCode8(values, i)
+			code := compressionhelpers.ExtractCode8(values, i)
 			assert.Equal(t, code, uint8(i))
 		}
 	})

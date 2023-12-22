@@ -51,6 +51,7 @@ type UserConfig struct {
 	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
 	Distance               string   `json:"distance"`
 	PQ                     PQConfig `json:"pq"`
+	BQ                     BQConfig `json:"bq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -86,6 +87,9 @@ func (u *UserConfig) SetDefaults() {
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
 		},
+	}
+	u.BQ = BQConfig{
+		Enabled: DefaultBQEnabled,
 	}
 }
 
@@ -174,6 +178,10 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 		return uc, err
 	}
 
+	if err := parseBQMap(asMap, &uc.BQ); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -196,6 +204,10 @@ func (u *UserConfig) validate() error {
 	if len(errMsgs) > 0 {
 		return fmt.Errorf("invalid hnsw config: %s",
 			strings.Join(errMsgs, ", "))
+	}
+
+	if u.PQ.Enabled && u.BQ.Enabled {
+		return fmt.Errorf("invalid hnsw config: two compression methods enabled: PQ and BQ")
 	}
 
 	return nil
