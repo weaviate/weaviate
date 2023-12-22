@@ -114,6 +114,14 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
+func (s *shardedLockCache[T]) RLock() {
+	s.shardedLocks.RLockAll()
+}
+
+func (s *shardedLockCache[T]) RUnlock() {
+	s.shardedLocks.RUnlockAll()
+}
+
 func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
 }
@@ -130,6 +138,16 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	return s.handleCacheMiss(ctx, id)
 }
 
+func (s *shardedLockCache[T]) GetNoLock(ctx context.Context, id uint64) ([]T, error) {
+	vec := s.cache[id]
+
+	if vec != nil {
+		return vec, nil
+	}
+
+	return s.handleCacheMissNoLock(ctx, id)
+}
+
 func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
@@ -140,6 +158,18 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 
 	s.cache[id] = nil
 	atomic.AddInt64(&s.count, -1)
+}
+
+func (s *shardedLockCache[T]) handleCacheMissNoLock(ctx context.Context, id uint64) ([]T, error) {
+	vec, err := s.vectorForID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	atomic.AddInt64(&s.count, 1)
+	s.cache[id] = vec
+
+	return vec, nil
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {

@@ -20,6 +20,7 @@ const DefaultDeletionInterval = 3 * time.Second
 
 type Cache[T any] interface {
 	Get(ctx context.Context, id uint64) ([]T, error)
+	GetNoLock(ctx context.Context, id uint64) ([]T, error)
 	MultiGet(ctx context.Context, ids []uint64) ([][]T, []error)
 	Len() int32
 	CountVectors() int64
@@ -31,4 +32,6 @@ type Cache[T any] interface {
 	UpdateMaxSize(size int64)
 	CopyMaxSize() int64
 	All() [][]T
+	RLock()
+	RUnlock()
 }
