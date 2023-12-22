@@ -33,7 +33,7 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	validator     validator
+	validator    validator
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorizer
@@ -166,7 +166,7 @@ type scaleOut interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator validator,
+func NewManager(validator validator,
 	store metaWriter, metaReader metaReader,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
@@ -177,7 +177,7 @@ func NewManager(migrator validator,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	handler, err := NewHandler(
-		store, metaReader, migrator,
+		store, metaReader, validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager)
@@ -186,7 +186,7 @@ func NewManager(migrator validator,
 	}
 	m := &Manager{
 		config:       config,
-		validator:     migrator,
+		validator:    validator,
 		repo:         repo,
 		logger:       logger,
 		clusterState: clusterState,
