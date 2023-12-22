@@ -33,14 +33,12 @@ type executor struct {
 // NewManager creates a new manager
 func NewExecutor(migrator Migrator, mr metaReader,
 	logger logrus.FieldLogger,
-) (*executor, error) {
-	m := &executor{
+) *executor {
+	return &executor{
 		migrator: migrator,
 		logger:   logger,
 		store:    mr,
 	}
-
-	return m, nil
 }
 
 func (e *executor) Open(ctx context.Context) error {
@@ -52,7 +50,6 @@ func (e *executor) Close(ctx context.Context) error {
 }
 
 func (e *executor) AddClass(pl cluster.AddClassRequest) error {
-	// TODO-RAFT: do we need context here for every applyFunc?
 	ctx := context.Background()
 	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
