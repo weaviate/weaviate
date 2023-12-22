@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ssdhelpers
+package compressionhelpers
 
 import (
 	"math"

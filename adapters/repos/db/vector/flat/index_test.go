@@ -31,8 +31,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -87,7 +87,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 		return 0, 0, err
 	}
 
-	ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
 		index.Add(id, vectors[id])
 	})
 
@@ -114,7 +114,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 		allowList = helpers.NewAllowList(allowIds...)
 	}
 	err = nil
-	ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 		before := time.Now()
 		results, _, _ := index.SearchByVector(queries[i], k, allowList)
 

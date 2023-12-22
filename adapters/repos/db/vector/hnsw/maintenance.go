@@ -56,7 +56,7 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	defer h.metrics.GrowDuration(before)
 
 	if h.compressed.Load() {
-		h.compressedVectorsCache.Grow(uint64(len(newIndex)))
+		h.compressor.GrowCache(uint64(len(newIndex)))
 	} else {
 		h.cache.Grow(uint64(len(newIndex)))
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 )
 
 func TestRecall(t *testing.T) {
@@ -71,7 +72,7 @@ func TestRecall(t *testing.T) {
 			MaxConnections: maxNeighbors,
 			EFConstruction: efConstruction,
 			EF:             ef,
-		}, newDummyStore(t))
+		}, testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
 

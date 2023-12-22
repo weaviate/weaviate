@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -98,24 +97,12 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if !parsed.PQ.Enabled {
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled {
 		callback()
 		return nil
 	}
 
 	h.pqConfig = parsed.PQ
-
-	// compression got enabled in this update
-	if h.compressedVectorsCache == (cache.Cache[byte])(nil) {
-		h.compressedVectorsCache = cache.NewShardedByteLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger, 0)
-	} else {
-		if h.compressed.Load() {
-			h.compressedVectorsCache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
-		} else {
-			h.cache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
-		}
-	}
-
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -125,7 +112,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 		// the compression will fire the callback once it's complete
 		return h.TurnOnCompression(callback)
 	} else {
-		// without a compression we need to fire the callback right away
+		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
 		callback()
 		return nil
 	}
@@ -152,7 +139,13 @@ func (h *hnsw) TurnOnCompression(callback func()) error {
 func (h *hnsw) compressThenCallback(callback func()) {
 	defer callback()
 
-	if err := h.Compress(h.pqConfig); err != nil {
+	uc := ent.UserConfig{
+		PQ: h.pqConfig,
+		BQ: ent.BQConfig{
+			Enabled: !h.pqConfig.Enabled,
+		},
+	}
+	if err := h.compress(uc); err != nil {
 		h.logger.Error(err)
 		return
 	}
