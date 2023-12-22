@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -272,6 +273,10 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 				s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
 			}
 
+		}
+	} else {
+		if err := s.ChangeObjectCountBy(1); err != nil {
+			return fmt.Errorf("increment object count: %w", err)
 		}
 	}
 
