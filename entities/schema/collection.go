@@ -12,9 +12,12 @@
 package schema
 
 import (
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	sharding "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -59,22 +62,22 @@ type Collection struct {
 type VectorIndexType int
 
 const (
-	// VectorIndexTypeUnknown is used when we parse an unexpected index type
-	VectorIndexTypeUnknown VectorIndexType = iota
+	// VectorIndexTypeEmpty is used when we parse an unexpected index type
+	VectorIndexTypeEmpty VectorIndexType = iota
 	VectorIndexTypeHNSW
 	VectorIndexTypeFlat
 )
 
 var (
 	vectorIndexTypeToString = map[VectorIndexType]string{
-		VectorIndexTypeHNSW:    vIndex.VectorIndexTypeHNSW,
-		VectorIndexTypeFlat:    vIndex.VectorIndexTypeFLAT,
-		VectorIndexTypeUnknown: "unknown",
+		VectorIndexTypeHNSW:  vIndex.VectorIndexTypeHNSW,
+		VectorIndexTypeFlat:  vIndex.VectorIndexTypeFLAT,
+		VectorIndexTypeEmpty: "",
 	}
 	stringToVectorIndexType = map[string]VectorIndexType{
 		vIndex.VectorIndexTypeHNSW: VectorIndexTypeHNSW,
 		vIndex.VectorIndexTypeFLAT: VectorIndexTypeFlat,
-		"unknown":                  VectorIndexTypeUnknown,
+		"":                         VectorIndexTypeEmpty,
 	}
 )
 
@@ -309,7 +312,7 @@ func ShardingConfigToModel(s ShardingConfig) interface{} {
 }
 
 // CollectionFromClass returns a Collection copied from m.
-func CollectionFromClass(m models.Class) Collection {
+func CollectionFromClass(m models.Class) (Collection, error) {
 	c := Collection{}
 
 	c.Name = m.Class
@@ -324,6 +327,8 @@ func CollectionFromClass(m models.Class) Collection {
 		c.MultiTenancyConfig.Enabled = m.MultiTenancyConfig.Enabled
 	}
 	c.Properties = make([]Property, len(m.Properties))
+	c.Vectorizer = m.Vectorizer
+
 	for i, mp := range m.Properties {
 		p := PropertyFromModel(*mp)
 
@@ -335,16 +340,22 @@ func CollectionFromClass(m models.Class) Collection {
 	if m.ShardingConfig != nil {
 		c.ShardingConfig = ShardingConfigFromModel(m.ShardingConfig)
 	}
-	c.VectorIndexType = stringToVectorIndexType[m.VectorIndexType]
-	switch c.VectorIndexType {
+
+	vIndex, ok := stringToVectorIndexType[m.VectorIndexType]
+	if !ok {
+		return c, fmt.Errorf("unknown vector index: %s", m.VectorIndexType)
+	}
+
+	c.VectorIndexType = vIndex
+	switch vIndex {
 	case VectorIndexTypeHNSW:
 		c.VectorIndexConfig = m.VectorIndexConfig.(hnsw.UserConfig)
-	case VectorIndexTypeUnknown:
-		// Do not unmarshal
+	case VectorIndexTypeFlat:
+		c.VectorIndexConfig = m.VectorIndexConfig.(flat.UserConfig)
+	default:
 	}
-	c.Vectorizer = m.Vectorizer
 
-	return c
+	return c, nil
 }
 
 // CollectionToClass returns a models.Class from c. If the original models.Class from which c was created had nil pointers they will be replaced

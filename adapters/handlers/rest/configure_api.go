@@ -281,11 +281,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.CloudService = cloud.New(rConfig)
-	executor, err := schema.NewExecutor(migrator, appState.CloudService.SchemaReader(), appState.Logger)
-	if err != nil {
-		appState.Logger.Errorf("could not init executor %v:", err)
-		os.Exit(1)
-	}
+	executor := schema.NewExecutor(migrator, appState.CloudService.SchemaReader(), appState.Logger)
+
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.CloudService.Service,
 		appState.CloudService.SchemaReader(),
