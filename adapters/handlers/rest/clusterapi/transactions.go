@@ -13,7 +13,6 @@ package clusterapi
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -31,12 +30,12 @@ type txManager interface {
 	IncomingAbortTransaction(ctx context.Context, tx *cluster.Transaction)
 }
 
-type txPayload struct {
-	ID            string                  `json:"id"`
-	Type          cluster.TransactionType `json:"type"`
-	Payload       json.RawMessage         `json:"payload"`
-	DeadlineMilli int64                   `json:"deadlineMilli"`
-}
+// type txPayload struct {
+// 	ID            string                  `json:"id"`
+// 	Type          cluster.TransactionType `json:"type"`
+// 	Payload       json.RawMessage         `json:"payload"`
+// 	DeadlineMilli int64                   `json:"deadlineMilli"`
+// }
 
 type txHandler struct {
 	manager txManager
