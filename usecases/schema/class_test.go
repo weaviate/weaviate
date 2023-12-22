@@ -1335,15 +1335,3 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		assert.NoError(t, err)
 	}
 }
-
-func testGetClassNames(h *Handler) []string {
-	var names []string
-	sch, _ := h.GetSchema(nil)
-
-	// Extract all names
-	for _, class := range sch.SemanticSchemaFor().Classes {
-		names = append(names, class.Class)
-	}
-
-	return names
-}
