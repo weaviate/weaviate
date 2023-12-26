@@ -92,6 +92,8 @@ func (ht *MultiSegmentHashTree) mapLeaf(i uint64) uint64 {
 		if i >= segmentStart && i < segmentStart+segmentSize {
 			return offset + (i - segmentStart)
 		}
+
+		offset += segmentSize
 	}
 
 	panic("out of segment")

@@ -23,14 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSingleSegmentedHashTree(t *testing.T) {
-	segmentSize := uint64(1_000)
-	segments := []uint64{0}
+func TestMultiSegmentHashTree(t *testing.T) {
+	segments := []Segment{NewSegment(0, 1_000)}
 	maxHeight := 1
 
 	expectedHeight := 1
 
-	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht := NewMultiSegmentHashTree(segments, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
@@ -52,39 +51,38 @@ func TestSingleSegmentedHashTree(t *testing.T) {
 	require.Equal(t, expectedRoot, rootLevel[0])
 }
 
-func TestMultiSegmentedHashTree(t *testing.T) {
-	segmentSize := uint64(100)
-	segments := []uint64{100, 300, 900}
+func TestMultiSegmentHashTree1(t *testing.T) {
+	segments := []Segment{NewSegment(0, 100), NewSegment(300, 100), NewSegment(900, 100)}
 	maxHeight := 4
 
-	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht := NewMultiSegmentHashTree(segments, maxHeight)
 
 	valuePrefix := "somevalue"
 
 	for _, s := range segments {
-		for i := 0; i < int(segmentSize); i++ {
-			ht.AggregateLeafWith(s+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+		for i := 0; i < int(s.Size()); i++ {
+			ht.AggregateLeafWith(s.Start()+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
 		}
 	}
 }
 
-func TestSegmentedBigHashTree(t *testing.T) {
+func TestMultiSegmentBigHashTree(t *testing.T) {
 	totalSegmentsCount := 128
 
 	segmentSize := uint64(math.MaxUint64 / uint64(totalSegmentsCount))
 
-	segments := make([]uint64, 30)
+	segments := make([]Segment, 30)
 
 	for i, s := range rand.Perm(totalSegmentsCount)[:len(segments)] {
-		segments[i] = uint64(s) * segmentSize
+		segments[i] = NewSegment(uint64(s)*segmentSize, segmentSize)
 	}
 
-	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
+	sort.Slice(segments, func(i, j int) bool { return segments[i].Start() < segments[j].Start() })
 
 	maxHeight := 16
 	expectedHeight := 16
 
-	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht := NewMultiSegmentHashTree(segments, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
 	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.capacity)
@@ -95,7 +93,7 @@ func TestSegmentedBigHashTree(t *testing.T) {
 
 	for _, s := range segments {
 		for i := 0; i < actualNumberOfElementsPerSegment; i++ {
-			l := s + uint64(rand.Int()%int(segmentSize))
+			l := s.Start() + uint64(rand.Int()%int(s.Size()))
 			ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
 		}
 	}
@@ -107,15 +105,19 @@ func TestSegmentedBigHashTree(t *testing.T) {
 	require.Equal(t, 1, n)
 }
 
-func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
+func TestMultiSegmentHashTreeComparisonHeight1(t *testing.T) {
 	segmentSize := uint64(math.MaxUint64 / 128)
-	segments := []uint64{1_000, segmentSize + 3_000, 2*segmentSize + 9_000}
+	segments := []Segment{
+		NewSegment(1_000, segmentSize),
+		NewSegment(segmentSize+3_000, segmentSize),
+		NewSegment(2*segmentSize+9_000, segmentSize),
+	}
 	maxHeight := 16
 
-	ht1 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
-	ht2 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht1 := NewMultiSegmentHashTree(segments, maxHeight)
+	ht2 := NewMultiSegmentHashTree(segments, maxHeight)
 
-	diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+	diffReader, err := MultiSegmentHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 	require.NotNil(t, diffReader)
 
@@ -124,7 +126,7 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 
 	ht1.AggregateLeafWith(1_000, []byte("val1"))
 
-	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
+	diffReader, err = MultiSegmentHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 
 	diff0, diff1, err := diffReader.Next()
@@ -137,32 +139,32 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 
 	ht2.AggregateLeafWith(1_000, []byte("val1"))
 
-	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
+	diffReader, err = MultiSegmentHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 }
 
-func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
+func TestMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	leavesSpace := 1_000_000
 	totalSegmentsCount := 128
 	segmentSize := leavesSpace / totalSegmentsCount
 	actualNumberOfElementsPerSegment := segmentSize / 100
 	maxHeight := 11
 
-	segments := make([]uint64, 9)
+	segments := make([]Segment, 9)
 
 	for i, s := range rand.Perm(totalSegmentsCount)[:len(segments)] {
-		segments[i] = uint64(s * segmentSize)
+		segments[i] = NewSegment(uint64(s*segmentSize), uint64(segmentSize))
 	}
 
-	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
+	sort.Slice(segments, func(i, j int) bool { return segments[i].Start() < segments[j].Start() })
 
-	ht1 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
-	ht2 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
+	ht1 := NewMultiSegmentHashTree(segments, maxHeight)
+	ht2 := NewMultiSegmentHashTree(segments, maxHeight)
 
-	diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+	diffReader, err := MultiSegmentHashTreeDiff(ht1, ht2)
 	require.NoError(t, err)
 	require.NotNil(t, diffReader)
 
@@ -173,7 +175,7 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 	for _, s := range segments {
 		for _, i := range rand.Perm(segmentSize)[:actualNumberOfElementsPerSegment] {
-			l := s + uint64(i)
+			l := s.Start() + uint64(i)
 
 			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
 			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
@@ -196,7 +198,7 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 		conciliated[l] = struct{}{}
 
-		diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+		diffReader, err := MultiSegmentHashTreeDiff(ht1, ht2)
 		require.NoError(t, err)
 
 		diffCount = 0
