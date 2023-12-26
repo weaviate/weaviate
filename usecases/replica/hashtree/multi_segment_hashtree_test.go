@@ -259,3 +259,126 @@ func TestMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	require.Zero(t, diffCount)
 	require.EqualValues(t, toConciliate, conciliated)
 }
+
+func TestNonUniformMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
+	segments := make([]Segment, 7)
+	maxSegmentSize := 1_000
+
+	for i := range segments {
+		var segmentStart uint64
+
+		if i > 0 {
+			segmentStart = segments[i-1].Start() + segments[i-1].Size()
+		}
+
+		segmentStart += rand.Uint64() % 10_000
+
+		segmentSize := 1 + rand.Intn(maxSegmentSize)
+
+		segments[i] = NewSegment(uint64(segmentStart), uint64(segmentSize))
+	}
+
+	maxHeight := 11
+
+	ht1 := NewMultiSegmentHashTree(segments, maxHeight)
+	ht2 := NewMultiSegmentHashTree(segments, maxHeight)
+
+	diffReader, err := MultiSegmentHashTreeDiff(ht1, ht2)
+	require.NoError(t, err)
+	require.NotNil(t, diffReader)
+
+	_, _, err = diffReader.Next()
+	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
+
+	toConciliate := make(map[uint64]struct{})
+
+	for _, s := range segments {
+		segmentSize := int(s.Size())
+
+		elementsInSegment := 1 + segmentSize/10
+
+		for _, i := range rand.Perm(segmentSize)[:elementsInSegment] {
+			l := s.Start() + uint64(i)
+
+			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+
+			toConciliate[l] = struct{}{}
+		}
+	}
+
+	conciliated := make(map[uint64]struct{})
+
+	var prevDiffCount int
+	var diffCount int
+
+	for l := range toConciliate {
+		_, ok := conciliated[l]
+		require.False(t, ok)
+
+		ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+		ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+
+		conciliated[l] = struct{}{}
+
+		diffReader, err := MultiSegmentHashTreeDiff(ht1, ht2)
+		require.NoError(t, err)
+
+		diffCount = 0
+
+		var prevDiff uint64
+
+		for {
+			diff0, diff1, err := diffReader.Next()
+			if errors.Is(err, ErrNoMoreDifferences) {
+				break
+			}
+			require.NoError(t, err)
+			require.LessOrEqual(t, diff0, diff1)
+			require.LessOrEqual(t, prevDiff, diff1)
+
+			if prevDiff > 0 {
+				require.Less(t, prevDiff, diff0)
+
+				for d := prevDiff + 1; d < diff0; d++ {
+					_, ok := toConciliate[d]
+					if !ok {
+						continue
+					}
+
+					_, ok = conciliated[d]
+					require.True(t, ok)
+				}
+			}
+
+			var diffFound bool
+
+			for d := diff0; d <= diff1; d++ {
+				_, ok := toConciliate[d]
+				if !ok {
+					continue
+				}
+
+				_, ok = conciliated[d]
+				if !ok {
+					diffCount++
+					diffFound = true
+				}
+			}
+
+			require.True(t, diffFound)
+
+			prevDiff = diff1
+		}
+
+		// pending differences
+		if prevDiffCount > 0 {
+			require.Less(t, diffCount, prevDiffCount)
+		}
+
+		prevDiffCount = diffCount
+	}
+
+	require.Zero(t, diffCount)
+	require.EqualValues(t, toConciliate, conciliated)
+}
