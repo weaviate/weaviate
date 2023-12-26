@@ -67,21 +67,14 @@ func (ht *SegmentedHashTree) AggregateLeafWith(i uint64, val []byte) *SegmentedH
 }
 
 func (ht *SegmentedHashTree) mapLeaf(i uint64) uint64 {
-	// validate leaf belong to one of the segments
-	segmentFound := -1
-
+	// find the segment the leaf belong to
 	for segment, segmentStart := range ht.segments {
 		if i >= segmentStart && i < segmentStart+ht.segmentSize {
-			segmentFound = segment
-			break
+			return uint64(segment)*ht.segmentSize + (i - ht.segments[segment])
 		}
 	}
 
-	if segmentFound < 0 {
-		panic("out of segment")
-	}
-
-	return uint64(segmentFound)*ht.segmentSize + (i - ht.segments[segmentFound])
+	panic("out of segment")
 }
 
 func (ht *SegmentedHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
