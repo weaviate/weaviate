@@ -215,13 +215,19 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return fmt.Errorf("replication config: %w", err)
 	}
 
+	updatedSharding := updated.ShardingConfig.(shardingConfig.Config)
 	initialRF := initial.ReplicationConfig.Factor
 	updatedRF := updated.ReplicationConfig.Factor
-	// TODO-RAFT: implement raft based scaling
+	var updatedState *sharding.State
 	if initialRF != updatedRF {
-		return fmt.Errorf("scaling is not implemented")
+		uss, err := h.scaleOut.Scale(ctx, className, updatedSharding, initialRF, updatedRF)
+		if err != nil {
+			return fmt.Errorf("scale out from %d to %d replicas", initialRF, updatedRF)
+		}
+		updatedState = uss
 	}
-	return h.metaWriter.UpdateClass(updated, nil)
+
+	return h.metaWriter.UpdateClass(updated, updatedState)
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
