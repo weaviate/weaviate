@@ -944,7 +944,7 @@ func TestGRPCReply(t *testing.T) {
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"id":     UUID1,
-						"rerank": &addModels.RankResult{Score: &someFloat64},
+						"rerank": []*addModels.RankResult{{Score: &someFloat64}},
 					},
 				},
 			},
