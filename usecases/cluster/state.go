@@ -100,7 +100,6 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 
 	if len(joinAddr) > 0 {
-
 		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 		if err != nil {
 			logger.WithField("action", "cluster_attempt_join").
