@@ -21,7 +21,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
+// TODO AL_skip_vector_reindex: handle nil props
+func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
 	docID uint64,
 ) error {
 	for _, prop := range props {

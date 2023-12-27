@@ -150,7 +150,8 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
-	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
+	// TODO AL_skip_vector_reindex: pass nil props?
+	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, nil, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
