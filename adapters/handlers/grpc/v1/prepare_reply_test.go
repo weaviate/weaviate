@@ -942,8 +942,8 @@ func TestGRPCReply(t *testing.T) {
 			name: "rerank only",
 			res: []interface{}{
 				map[string]interface{}{
-					"id": UUID1, // confirm ID found normally when reranking
 					"_additional": map[string]interface{}{
+						"id":     UUID1,
 						"rerank": &addModels.RankResult{Score: &someFloat64},
 					},
 				},
@@ -956,7 +956,6 @@ func TestGRPCReply(t *testing.T) {
 				{
 					Metadata: &pb.MetadataResult{
 						Id:                 string(UUID1),
-						IdAsBytes:          idByte(string(UUID1)),
 						RerankScore:        someFloat64,
 						RerankScorePresent: true,
 					},
