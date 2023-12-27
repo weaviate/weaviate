@@ -224,6 +224,7 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	var positions []int
 	for pos, object := range ob.objects {
 		status := ob.statuses[object.ID()]
+		// TODO AL_skip_vector_reindex: delete on muteate without docID change?
 		if status.docIDChanged {
 			docIDsToDelete = append(docIDsToDelete, status.oldDocID)
 			positions = append(positions, pos)
