@@ -101,6 +101,7 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 
 func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
 	_, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
+	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
 
 	metadata := &pb.MetadataResult{}
 	if additionalPropsParams.ID && !generativeSearchEnabled && !fromGroup {
@@ -175,6 +176,19 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 				generativeGroupResults = *generateFmt.GroupedResult
 			}
 		}
+	}
+
+	if rerankEnabled {
+		rerank, ok := additionalPropertiesMap["rerank"]
+		if !ok && firstObject {
+			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
+		}
+		rerankFmt, ok := rerank.(*models.RankResult)
+		if !ok {
+			return nil, "", errors.New("could not cast rerank result additional prop")
+		}
+		metadata.RerankScore = *rerankFmt.Score
+		metadata.RerankScorePresent = true
 	}
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
