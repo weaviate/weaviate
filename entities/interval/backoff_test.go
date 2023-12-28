@@ -40,7 +40,7 @@ func TestBackoffInterval(t *testing.T) {
 		boff.IncreaseInterval()
 		assert.False(t, boff.IntervalElapsed())
 		assert.Equal(t, i, boff.backoffLevel)
-		assert.Equal(t, 24*time.Hour, boff.calculateInterval())
+		assert.Equal(t, defaultBackoffs[len(defaultBackoffs)-1], boff.calculateInterval())
 	})
 
 	t.Run("with custom backoffs", func(t *testing.T) {
@@ -73,6 +73,6 @@ func TestBackoffInterval(t *testing.T) {
 		boff.IncreaseInterval()
 		assert.False(t, boff.IntervalElapsed())
 		assert.False(t, boff.IntervalElapsed())
-		assert.Equal(t, 24*time.Hour, boff.calculateInterval())
+		assert.Equal(t, sorted[len(sorted)-1], boff.calculateInterval())
 	})
 }

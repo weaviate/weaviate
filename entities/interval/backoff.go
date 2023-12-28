@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-const maxInterval = 24 * time.Hour
-
 var defaultBackoffs = []time.Duration{
 	time.Duration(0),
 	30 * time.Second,
@@ -60,8 +58,7 @@ func (b *BackoffTimer) IncreaseInterval() {
 
 // IntervalElapsed returns if the current interval has elapsed
 func (b *BackoffTimer) IntervalElapsed() bool {
-	return time.Since(b.lastInterval) >
-		b.calculateInterval()
+	return time.Since(b.lastInterval) > b.calculateInterval()
 }
 
 // Reset returns BackoffTimer to its original empty state
@@ -72,7 +69,7 @@ func (b *BackoffTimer) Reset() {
 
 func (b *BackoffTimer) calculateInterval() time.Duration {
 	if b.backoffLevel >= len(b.backoffs) {
-		return maxInterval
+		return b.backoffs[len(b.backoffs)-1]
 	}
 
 	interval := b.backoffs[b.backoffLevel]
