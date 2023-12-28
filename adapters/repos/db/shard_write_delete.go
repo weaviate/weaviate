@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -86,6 +87,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		}
 	}
 
+	if err = s.deleteObjectHashTree(idBytes); err != nil {
+		return fmt.Errorf("object deletion in hashtree: %w", err)
+	}
+
 	return nil
 }
 
@@ -139,6 +144,10 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
+	if err = s.deleteObjectHashTree(idBytes); err != nil {
+		return fmt.Errorf("store object deletion in hashtree: %w", err)
+	}
+
 	return nil
 }
 
@@ -172,6 +181,20 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 			}
 		}
 	}
+
+	return nil
+}
+
+func (s *Shard) deleteObjectHashTree(uuidBytes []byte) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+
+	h := murmur3.New64()
+	h.Write(uuidBytes)
+	token := h.Sum64()
+
+	s.hashtree.AggregateLeafWith(token, uuidBytes)
 
 	return nil
 }
