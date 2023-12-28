@@ -134,6 +134,13 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch obj
 			continue
 		}
 
+		if err := b.shard.upsertObjectHashTree(res.next, idBytes); err != nil {
+			errLock.Lock()
+			errs[i] = fmt.Errorf("object merge in hashtree: %w", err)
+			errLock.Unlock()
+			continue
+		}
+
 		prop, ok := propsByName[ref.From.Property.String()]
 		if !ok {
 			errLock.Lock()

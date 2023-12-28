@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"sync"
@@ -60,6 +61,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 const IdLockPoolSize = 128
@@ -152,6 +154,7 @@ type ShardLike interface {
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	upsertObjectHashTree(object *storobj.Object, idBytes []byte) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
@@ -187,6 +190,8 @@ type Shard struct {
 	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
+
+	hashtree *hashtree.CompactHashTree
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -520,6 +525,11 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
+	err = s.initHashTree(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+	}
+
 	counter, err := indexcounter.New(s.path())
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
@@ -617,6 +627,11 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 
 	s.store = store
 
+	return nil
+}
+
+func (s *Shard) initHashTree(ctx context.Context) error {
+	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
 	return nil
 }
 
