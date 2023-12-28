@@ -43,6 +43,7 @@ message SearchRequest {
   optional NearVideoSearch near_video = 48;
 
   optional GenerativeSearch generative = 60;
+  optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
 }
@@ -227,6 +228,11 @@ message NearObject {
   optional double distance = 3;
 }
 
+message Rerank {
+  string property = 1;
+  optional string query = 2;
+}
+
 message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
@@ -269,6 +275,8 @@ message MetadataResult {
   bool is_consistent_present = 18;
   bytes vector_bytes = 19;
   bytes id_as_bytes = 20;
+  double rerank_score = 21;
+  bool rerank_score_present = 22;
 }
 
 message PropertiesResult {

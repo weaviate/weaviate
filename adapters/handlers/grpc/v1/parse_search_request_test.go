@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
@@ -1039,6 +1040,38 @@ func TestGRPCRequest(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Rerank without query",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Rerank:     &pb.Rerank{Property: someString1},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps:      false,
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Rerank with query",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Rerank:     &pb.Rerank{Property: someString1, Query: &someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps:      false,
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
 				},
 			},
 			error: false,
