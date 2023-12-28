@@ -34,8 +34,8 @@ type BackoffTimer struct {
 
 // NewBackoffTimer constructs and returns a *BackoffTimer instance
 // If no backoffs are provided, defaultBackoffs is used. When the
-// final backoff duration is elapsed, a maximum duration of 24 hrs
-// is used for the remainder of the BackoffTimer's lifetime
+// last backoff duration has elapsed, the timer will use the final
+// duration for the remainder of the BackoffTimer's lifetime
 func NewBackoffTimer(backoffs ...time.Duration) *BackoffTimer {
 	boff := &BackoffTimer{backoffs: backoffs}
 	if len(backoffs) == 0 {
