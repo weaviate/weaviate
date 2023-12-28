@@ -368,7 +368,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 }
 
 func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker *reindexablePropertyChecker,
-	docID uint64, nilProperty nilProp,
+	docID uint64, nilProperty inverted.NilProperty,
 ) error {
 	if r.shard.Index().invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
 		key, err := r.shard.keyPropertyLength(0)

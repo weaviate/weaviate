@@ -91,7 +91,7 @@ type ShardLike interface {
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error //
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
-	AnalyzeObject(*storobj.Object) ([]inverted.Property, []nilProp, error) //
+	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) //
 
 	// TODO tests only
 	Dimensions() int // dim(vector)*number vectors

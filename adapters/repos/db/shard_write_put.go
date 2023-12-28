@@ -299,7 +299,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	var prevObject *storobj.Object
 	var prevProps []inverted.Property
-	var prevNilprops []nilProp
+	var prevNilprops []inverted.NilProperty
 
 	if previous != nil {
 		prevObject, err = storobj.FromBinary(previous)
@@ -337,23 +337,22 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	// }
 
 	var propsToAdd []inverted.Property
-	var nilpropsToAdd []nilProp
 	var propsToDel []inverted.Property
-	var nilpropsToDel []nilProp
+	var nilpropsToAdd []inverted.NilProperty
+	var nilpropsToDel []inverted.NilProperty
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
 		delta := inverted.Delta(prevProps, props)
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
-
-		// TODO delta for nil props
-		nilpropsToAdd = nilprops
-		nilpropsToDel = prevNilprops
+		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)
+		nilpropsToAdd = deltaNil.ToAdd
+		nilpropsToDel = deltaNil.ToDelete
 	} else {
 		propsToAdd = inverted.DedupItems(props)
-		nilpropsToAdd = nilprops
 		propsToDel = inverted.DedupItems(prevProps)
+		nilpropsToAdd = nilprops
 		nilpropsToDel = prevNilprops
 	}
 
