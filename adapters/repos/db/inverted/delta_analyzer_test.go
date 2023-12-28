@@ -277,3 +277,231 @@ func TestDeltaAnalyzer(t *testing.T) {
 		assert.Equal(t, expectedDelete, res.ToDelete)
 	})
 }
+
+func TestDeltaAnalyzer_Arrays(t *testing.T) {
+	lexInt64 := func(val int64) []byte {
+		bytes, _ := LexicographicallySortableInt64(val)
+		return bytes
+	}
+	lexBool := func(val bool) []byte {
+		if val {
+			return []uint8{1}
+		}
+		return []uint8{0}
+	}
+
+	t.Run("with previous indexing - both additions and deletions", func(t *testing.T) {
+		previous := []Property{
+			{
+				Name: "ints",
+				Items: []Countable{
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(102)},
+					{Data: lexInt64(103)},
+					{Data: lexInt64(104)},
+				},
+				Length:             9,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "booleans",
+				Items: []Countable{
+					{Data: lexBool(true)},
+					{Data: lexBool(true)},
+					{Data: lexBool(true)},
+					{Data: lexBool(false)},
+				},
+				Length:             4,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name:               "numbers",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "texts",
+				Items: []Countable{
+					{Data: []byte("aaa")},
+					{Data: []byte("bbb")},
+					{Data: []byte("ccc")},
+				},
+				Length:             3,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "dates",
+				Items: []Countable{
+					{Data: []byte("2021-06-01T22:18:59.640162Z")},
+					{Data: []byte("2022-06-01T22:18:59.640162Z")},
+				},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "_creationTimeUnix",
+				Items: []Countable{
+					{Data: []byte("1703778000000")},
+				},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "_lastUpdateTimeUnix",
+				Items: []Countable{
+					{Data: []byte("1703778000000")},
+				},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+		}
+		next := []Property{
+			{
+				Name: "ints",
+				Items: []Countable{
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(101)},
+					{Data: lexInt64(103)},
+					{Data: lexInt64(104)},
+					{Data: lexInt64(105)},
+				},
+				Length:             7,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "booleans",
+				Items: []Countable{
+					{Data: lexBool(true)},
+					{Data: lexBool(true)},
+					{Data: lexBool(true)},
+					{Data: lexBool(false)},
+				},
+				Length:             4,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name:               "texts",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "_creationTimeUnix",
+				Items: []Countable{
+					{Data: []byte("1703778000000")},
+				},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "_lastUpdateTimeUnix",
+				Items: []Countable{
+					{Data: []byte("1703778500000")},
+				},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+		}
+
+		expectedAdd := []Property{
+			{
+				Name: "ints",
+				Items: []Countable{
+					{Data: lexInt64(105)},
+				},
+				Length:             7,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name:               "texts",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "_lastUpdateTimeUnix",
+				Items: []Countable{
+					{Data: []byte("1703778500000")},
+				},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+		}
+
+		expectedDelete := []Property{
+			{
+				Name: "ints",
+				Items: []Countable{
+					{Data: lexInt64(102)},
+				},
+				Length:             9,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "texts",
+				Items: []Countable{
+					{Data: []byte("aaa")},
+					{Data: []byte("bbb")},
+					{Data: []byte("ccc")},
+				},
+				Length:             3,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "_lastUpdateTimeUnix",
+				Items: []Countable{
+					{Data: []byte("1703778000000")},
+				},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name:               "numbers",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name: "dates",
+				Items: []Countable{
+					{Data: []byte("2021-06-01T22:18:59.640162Z")},
+					{Data: []byte("2022-06-01T22:18:59.640162Z")},
+				},
+				Length:             2,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+		}
+
+		delta := Delta(previous, next)
+		assert.Equal(t, expectedAdd, delta.ToAdd)
+		assert.Equal(t, expectedDelete, delta.ToDelete)
+	})
+}
