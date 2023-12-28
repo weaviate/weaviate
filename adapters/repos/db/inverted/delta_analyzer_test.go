@@ -450,7 +450,6 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 				HasSearchableIndex: false,
 			},
 		}
-
 		expectedDelete := []Property{
 			{
 				Name: "ints",
@@ -504,4 +503,60 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 		assert.Equal(t, expectedAdd, delta.ToAdd)
 		assert.Equal(t, expectedDelete, delta.ToDelete)
 	})
+}
+
+func TestDeltaNilAnalyzer(t *testing.T) {
+	previous := []NilProperty{
+		{
+			Name:                "ints",
+			AddToPropertyLength: false,
+		},
+		{
+			Name:                "booleans",
+			AddToPropertyLength: true,
+		},
+		{
+			Name:                "numbers",
+			AddToPropertyLength: true,
+		},
+	}
+	next := []NilProperty{
+		{
+			Name:                "booleans",
+			AddToPropertyLength: true,
+		},
+		{
+			Name:                "texts",
+			AddToPropertyLength: true,
+		},
+		{
+			Name:                "dates",
+			AddToPropertyLength: false,
+		},
+	}
+
+	expectedAdd := []NilProperty{
+		{
+			Name:                "texts",
+			AddToPropertyLength: true,
+		},
+		{
+			Name:                "dates",
+			AddToPropertyLength: false,
+		},
+	}
+	expectedDelete := []NilProperty{
+		{
+			Name:                "ints",
+			AddToPropertyLength: false,
+		},
+		{
+			Name:                "numbers",
+			AddToPropertyLength: true,
+		},
+	}
+
+	deltaNil := DeltaNil(previous, next)
+	assert.Equal(t, expectedAdd, deltaNil.ToAdd)
+	assert.Equal(t, expectedDelete, deltaNil.ToDelete)
 }

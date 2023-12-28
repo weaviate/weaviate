@@ -22,7 +22,7 @@ import (
 )
 
 // TODO AL_skip_vector_reindex: handle nil props
-func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
+func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
 	docID uint64,
 ) error {
 	for _, prop := range props {

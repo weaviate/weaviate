@@ -35,6 +35,11 @@ type Property struct {
 	HasSearchableIndex bool // map index (with frequencies)
 }
 
+type NilProperty struct {
+	Name                string
+	AddToPropertyLength bool
+}
+
 func DedupItems(props []Property) []Property {
 	for i := range props {
 		seen := map[string]struct{}{}

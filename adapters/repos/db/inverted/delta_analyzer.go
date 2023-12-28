@@ -39,6 +39,7 @@ func Delta(previous, next []Property) DeltaResults {
 		if !ok {
 			// this prop didn't exist before so we can add all of it
 			out.ToAdd = append(out.ToAdd, nextProp)
+			continue
 		}
 		delete(previousByProp, nextProp.Name)
 
@@ -148,4 +149,40 @@ func listsIdentical(a []Countable, b []Countable) bool {
 	// while O(n) is the worst case for this check it prevents us from running a
 	// considerably more expensive merge
 	return true
+}
+
+type DeltaNilResults struct {
+	ToDelete []NilProperty
+	ToAdd    []NilProperty
+}
+
+func DeltaNil(previous, next []NilProperty) DeltaNilResults {
+	out := DeltaNilResults{}
+
+	if previous == nil {
+		out.ToAdd = next
+		return out
+	}
+
+	previousByProp := map[string]NilProperty{}
+	for _, prevProp := range previous {
+		previousByProp[prevProp.Name] = prevProp
+	}
+
+	for _, nextProp := range next {
+		if _, ok := previousByProp[nextProp.Name]; !ok {
+			out.ToAdd = append(out.ToAdd, nextProp)
+			continue
+		}
+		delete(previousByProp, nextProp.Name)
+	}
+
+	// extend ToDelete with props from previous missing in next
+	for _, prevProp := range previous {
+		if _, ok := previousByProp[prevProp.Name]; ok {
+			out.ToDelete = append(out.ToDelete, prevProp)
+		}
+	}
+
+	return out
 }

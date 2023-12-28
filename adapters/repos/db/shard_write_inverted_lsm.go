@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
+func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
 	docID uint64,
 ) error {
 	for _, prop := range props {
