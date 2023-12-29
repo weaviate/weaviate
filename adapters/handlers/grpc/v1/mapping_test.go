@@ -133,6 +133,7 @@ func TestNewPrimitiveValue(t *testing.T) {
 				schema.DataTypeString: {Kind: &pb.Value_StringValue{StringValue: "a string"}},
 				schema.DataTypeText:   {Kind: &pb.Value_StringValue{StringValue: "a string"}},
 				schema.DataTypeUUID:   {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+				schema.DataTypeBlob:   {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
 			}),
 		},
 		{
