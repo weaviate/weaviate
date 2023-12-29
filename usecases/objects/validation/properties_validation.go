@@ -205,6 +205,7 @@ func objectVal(ctx context.Context, v *Validator, val interface{}, propertyPrefi
 		} else {
 			data, err = v.extractAndValidateProperty(ctx, propertyName, nestedValue,
 				className, nestedDataType, "")
+			// tenant isn't relevant for nested properties since crossrefs are not allowed
 		}
 		if err != nil {
 			return nil, fmt.Errorf("property '%s': %w", propertyName, err)
