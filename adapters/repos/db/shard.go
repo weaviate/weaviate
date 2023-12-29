@@ -127,8 +127,6 @@ type ShardLike interface {
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
-	keyPropertyNull(isNull bool) ([]byte, error)
-	keyPropertyLength(length int) ([]byte, error)
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
@@ -823,4 +821,15 @@ func shardId(indexId, shardName string) string {
 
 func shardPath(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName)
+}
+
+func bucketKeyPropertyLength(length int) ([]byte, error) {
+	return inverted.LexicographicallySortableInt64(int64(length))
+}
+
+func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
+	if isNull {
+		return []byte{uint8(filters.InternalNullState)}, nil
+	}
+	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
