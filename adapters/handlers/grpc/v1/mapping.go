@@ -112,6 +112,12 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob property", v)
 			}
 			return NewBlobValue(val), nil
+		case schema.DataTypePhoneNumber:
+			val, ok := v.(string)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing phone number property", v)
+			}
+			return NewPhoneNumberValue(val), nil
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
@@ -260,4 +266,8 @@ func NewListValue(v *pb.ListValue) *pb.Value {
 // NewBlobValue constructs a new blob Value.
 func NewBlobValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_BlobValue{BlobValue: v}}
+}
+
+func NewPhoneNumberValue(v string) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_PhoneNumberValue{PhoneNumberValue: v}}
 }
