@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 const (
@@ -202,6 +203,9 @@ type rClient interface {
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]RepairResponse, error)
+
+	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
+		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
 // finderClient extends RClient with consistency checks
