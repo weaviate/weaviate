@@ -19,12 +19,42 @@ import (
 	"sync"
 
 	"github.com/spaolacci/murmur3"
+	"github.com/square/go-jose/json"
 )
 
-var ErrIllegalArguments = errors.New("illegal arguments")
-var ErrIllegalState = errors.New("illegal state")
+var (
+	ErrIllegalArguments = errors.New("illegal arguments")
+	ErrIllegalState     = errors.New("illegal state")
+)
 
 type Digest [2]uint64
+
+func (d *Digest) MarshalJSON() ([]byte, error) {
+	var b [16]byte
+
+	binary.LittleEndian.PutUint64(b[:], d[0])
+	binary.LittleEndian.PutUint64(b[8:], d[1])
+
+	return json.Marshal(b)
+}
+
+func (d *Digest) UnmarshalJSON(b []byte) error {
+	var bs [16]byte
+
+	err := json.Unmarshal(b, &bs)
+	if err != nil {
+		return err
+	}
+
+	if len(bs) != 16 {
+		return fmt.Errorf("invalid Digest serialization")
+	}
+
+	d[0] = binary.LittleEndian.Uint64(b)
+	d[1] = binary.LittleEndian.Uint64(b[8:])
+
+	return nil
+}
 
 // HashTree is a fixed-size hash tree with leaf aggregation and partial root recalculation.
 type HashTree struct {
