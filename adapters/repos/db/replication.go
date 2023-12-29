@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type Replicator interface {
@@ -425,6 +426,30 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	return i.digestObjects(ctx, shardName, ids)
+}
+
+func (db *DB) HashTreeLevel(ctx context.Context,
+	class, shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.hashtreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (i *Index) hashtreeLevel(ctx context.Context,
+	shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	s := i.localShard(shardName)
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shardName)
+	}
+
+	return s.HashTreeLevel(ctx, level, discriminant)
+}
+
+func (i *Index) IncomingHashTreeLevel(ctx context.Context,
+	shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	return i.hashtreeLevel(ctx, shardName, level, discriminant)
 }
 
 func (db *DB) FetchObject(ctx context.Context,
