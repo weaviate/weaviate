@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -391,6 +392,13 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
