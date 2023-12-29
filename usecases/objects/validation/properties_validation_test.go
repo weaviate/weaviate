@@ -130,7 +130,7 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 				exists: tt.fields.exists,
 				config: tt.fields.config,
 			}
-			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType)
+			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validator.extractAndValidateProperty() error = %v, wantErr %v", err, tt.wantErr)
 				return
