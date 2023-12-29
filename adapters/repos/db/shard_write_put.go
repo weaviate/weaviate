@@ -133,7 +133,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-// TODO AL_skip_vector_reindex: adjust to batch
+// TODO AL_skip_vector_reindex: adjust to batch?
 func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
@@ -328,14 +328,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "store field length values for props")
 	}
 
-	// if s.index.invertedIndexConfig.IndexTimestamps {
-	// 	// update the inverted timestamp indices as well
-	// 	err = s.addIndexedTimestampsToProps(object, &props)
-	// 	if err != nil {
-	// 		return errors.Wrap(err, "add indexed timestamps to props")
-	// 	}
-	// }
-
 	var propsToAdd []inverted.Property
 	var propsToDel []inverted.Property
 	var nilpropsToAdd []inverted.NilProperty
@@ -382,71 +374,3 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	return nil
 }
-
-// // addIndexedTimestampsToProps ensures that writes are indexed
-// // by internal timestamps
-// func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inverted.Property) error {
-// 	createTime, err := json.Marshal(object.CreationTimeUnix())
-// 	if err != nil {
-// 		return errors.Wrap(err, "failed to marshal _creationTimeUnix")
-// 	}
-
-// 	updateTime, err := json.Marshal(object.LastUpdateTimeUnix())
-// 	if err != nil {
-// 		return errors.Wrap(err, "failed to marshal _lastUpdateTimeUnix")
-// 	}
-
-// 	*props = append(*props,
-// 		inverted.Property{
-// 			Name:  filters.InternalPropCreationTimeUnix,
-// 			Items: []inverted.Countable{{Data: createTime}},
-// 		},
-// 		inverted.Property{
-// 			Name:  filters.InternalPropLastUpdateTimeUnix,
-// 			Items: []inverted.Countable{{Data: updateTime}},
-// 		},
-// 	)
-
-// 	return nil
-// }
-
-// func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
-// 	previous []byte,
-// ) error {
-// 	if !status.docIDChanged {
-// 		// nothing to do
-// 		return nil
-// 	}
-
-// 	// The doc id changed, so we need to analyze the previous and delete all
-// 	// entries (immediately - since the async part is now handled inside the
-// 	// LSMKV store, as part of merging/compaction)
-// 	//
-// 	// NOTE: Since Doc IDs are immutable, there is no need to use a
-// 	// DeltaAnalyzer. docIDChanged==true, therefore the old docID is
-// 	// "worthless" and can be cleaned up in the inverted index fully.
-// 	previousObject, err := storobj.FromBinary(previous)
-// 	if err != nil {
-// 		return errors.Wrap(err, "unmarshal previous object")
-// 	}
-
-// 	// TODO text_rbm_inverted_index null props cleanup?
-// 	previousInvertProps, _, err := s.AnalyzeObject(previousObject)
-// 	if err != nil {
-// 		return errors.Wrap(err, "analyze previous object")
-// 	}
-
-// 	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
-// 	if err != nil {
-// 		return errors.Wrap(err, "put inverted indices props")
-// 	}
-
-// 	if s.index.Config.TrackVectorDimensions {
-// 		err = s.removeDimensionsLSM(len(previousObject.Vector), status.oldDocID)
-// 		if err != nil {
-// 			return errors.Wrap(err, "track dimensions (delete)")
-// 		}
-// 	}
-
-// 	return nil
-// }
