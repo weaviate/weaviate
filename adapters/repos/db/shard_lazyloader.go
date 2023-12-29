@@ -552,9 +552,9 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idByt
 	return l.shard.mutableMergeObjectLSM(merge, idBytes)
 }
 
-func (l *LazyLoadShard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error {
+func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
-	return l.shard.deleteInvertedIndexItemLSM(bucket, item, docID)
+	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
