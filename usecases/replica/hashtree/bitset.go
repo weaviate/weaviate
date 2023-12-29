@@ -11,6 +11,11 @@
 
 package hashtree
 
+import (
+	"encoding/binary"
+	"fmt"
+)
+
 type Bitset struct {
 	size     int
 	bits     []int64
@@ -84,4 +89,44 @@ func (bset *Bitset) Reset() *Bitset {
 	bset.setCount = 0
 
 	return bset
+}
+
+func (bset *Bitset) Marshal() ([]byte, error) {
+	b := make([]byte, 8+8*len(bset.bits))
+
+	binary.LittleEndian.PutUint32(b, uint32(bset.size))
+	binary.LittleEndian.PutUint32(b[4:], uint32(bset.setCount))
+
+	off := 8
+	for _, n := range bset.bits {
+		binary.LittleEndian.PutUint64(b[off:], uint64(n))
+		off += 8
+	}
+
+	return b, nil
+}
+
+func (bset *Bitset) Unmarshal(b []byte) error {
+	if len(b) < 8 {
+		return fmt.Errorf("invalid bset serialization")
+	}
+
+	bset.size = int(binary.LittleEndian.Uint32(b))
+	bset.setCount = int(binary.LittleEndian.Uint32(b[4:]))
+
+	n := (bset.size + 63) / 64
+
+	if len(b) != 8+n*8 {
+		return fmt.Errorf("invalid bset serialization")
+	}
+
+	bset.bits = make([]int64, n)
+
+	off := 8
+	for i := 0; i < n; i++ {
+		bset.bits[i] = int64(binary.LittleEndian.Uint64(b[off:]))
+		off += 8
+	}
+
+	return nil
 }
