@@ -98,7 +98,7 @@ type ShardLike interface {
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
-
+	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
@@ -554,6 +554,18 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 func (s *Shard) initHashTree(ctx context.Context) error {
 	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
 	return nil
+}
+
+func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	// TODO (jeroiraz): reusable pool of digests slices
+	digests = make([]hashtree.Digest, hashtree.LeavesCount(level+1))
+
+	n, err := s.hashtree.Level(level, discriminant, digests)
+	if err != nil {
+		return nil, err
+	}
+
+	return digests[:n], nil
 }
 
 // IMPORTANT:
