@@ -109,7 +109,7 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 		case schema.DataTypeBlob:
 			val, ok := v.(string)
 			if !ok {
-				return nil, protoimpl.X.NewError("invalid type: %T expected []byte when serializing blob property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob property", v)
 			}
 			return NewBlobValue(val), nil
 		default:
