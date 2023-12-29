@@ -114,7 +114,7 @@ func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, len
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
 
-	key, err := s.keyPropertyLength(length)
+	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
 	}
@@ -130,7 +130,7 @@ func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNul
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}
 
-	key, err := s.keyPropertyNull(isNull)
+	key, err := bucketKeyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}

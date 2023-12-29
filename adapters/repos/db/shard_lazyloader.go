@@ -510,16 +510,6 @@ func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen fl
 	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
 }
 
-func (l *LazyLoadShard) keyPropertyNull(isNull bool) ([]byte, error) {
-	l.mustLoad()
-	return l.shard.keyPropertyNull(isNull)
-}
-
-func (l *LazyLoadShard) keyPropertyLength(length int) ([]byte, error) {
-	l.mustLoad()
-	return l.shard.keyPropertyLength(length)
-}
-
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
 	l.mustLoad()
 	l.shard.setFallbackToSearchable(fallback)
