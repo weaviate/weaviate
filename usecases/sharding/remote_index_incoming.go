@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type RemoteIncomingRepo interface {
@@ -71,6 +72,8 @@ type RemoteIndexIncomingRepo interface {
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
+	IncomingHashTreeLevel(ctx context.Context, shardName string,
+		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
@@ -314,4 +317,15 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	}
 
 	return index.IncomingDigestObjects(ctx, shardName, ids)
+}
+
+func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
+	indexName, shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingHashTreeLevel(ctx, shardName, level, discriminant)
 }
