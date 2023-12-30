@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -54,7 +54,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		},
 	}
 
-	store := newDummyStore(t)
+	store := testinghelpers.NewDummyStore(t)
 	defer func() {
 		err := store.Shutdown(ctx)
 		require.NoError(t, err)
@@ -81,10 +81,10 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
 	})
-	cfg := ent.PQConfig{
+	uc.PQ = ent.PQConfig{
 		Enabled: true,
 		Encoder: ent.PQEncoder{
 			Type:         ent.PQEncoderTypeKMeans,
@@ -93,7 +93,7 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		Segments:  0,
 		Centroids: 256,
 	}
-	index.Compress(cfg)
-	assert.Equal(t, expectedSegments, int(index.pq.ExposeFields().M))
+	index.compress(uc)
+	assert.Equal(t, expectedSegments, int(index.compressor.ExposeFields().M))
 	assert.Equal(t, expectedSegments, index.pqConfig.Segments)
 }
