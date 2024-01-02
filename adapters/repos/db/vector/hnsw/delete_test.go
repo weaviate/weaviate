@@ -550,7 +550,6 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				if int(id) >= len(vectors) {
 					return nil, storobj.NewErrNotFoundf(id, "out of range")
 				}
-
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
