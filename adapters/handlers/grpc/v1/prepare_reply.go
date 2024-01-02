@@ -101,9 +101,10 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 
 func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
 	_, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
+	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
 
 	metadata := &pb.MetadataResult{}
-	if additionalPropsParams.ID && !generativeSearchEnabled && !fromGroup {
+	if additionalPropsParams.ID && !generativeSearchEnabled && !rerankEnabled && !fromGroup {
 		idRaw, ok := asMap["id"]
 		if !ok {
 			return nil, "", errors.New("could not extract get id in additional prop")
@@ -136,8 +137,8 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		additionalPropertiesMap["distance"] = addPropertiesGroup.Distance
 	}
 	generativeGroupResults := ""
-	// id is part of the _additional map in case of generative search - don't aks me why
-	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup) {
+	// id is part of the _additional map in case of generative search, group, & rerank - don't aks me why
+	if additionalPropsParams.ID && (generativeSearchEnabled || fromGroup || rerankEnabled) {
 		idRaw, ok := additionalPropertiesMap["id"]
 		if !ok {
 			return nil, "", errors.New("could not extract get id generative in additional prop")
@@ -175,6 +176,19 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 				generativeGroupResults = *generateFmt.GroupedResult
 			}
 		}
+	}
+
+	if rerankEnabled {
+		rerank, ok := additionalPropertiesMap["rerank"]
+		if !ok && firstObject {
+			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
+		}
+		rerankFmt, ok := rerank.([]*models.RankResult)
+		if !ok {
+			return nil, "", errors.New("could not cast rerank result additional prop")
+		}
+		metadata.RerankScore = *rerankFmt[0].Score
+		metadata.RerankScorePresent = true
 	}
 
 	// additional properties are only present for certain searches/configs => don't return an error if not available
