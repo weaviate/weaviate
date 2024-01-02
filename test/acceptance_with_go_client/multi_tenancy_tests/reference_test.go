@@ -152,6 +152,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
+		pizzaBeacons := fixtures.BeaconsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
@@ -194,6 +195,21 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 			}
 		}
 
+		_, err := client.Data().Creator().
+			WithClassName("Soup").
+			WithID(fixtures.SOUP_TRIPE_ID).
+			WithProperties(map[string]interface{}{
+				"name":           "Tripe",
+				"description":    "Tripe soup is a speciality of Romanian cuisine where it is known as Ciorbă de Burtă.",
+				"price":          float32(2.3),
+				"relatedToPizza": pizzaBeacons,
+			}).
+			Do(context.Background())
+		require.NotNil(t, err)
+		clientErr := err.(*fault.WeaviateClientError)
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "has multi-tenancy enabled, but request was without tenant")
+
 		t.Run("verify not created", func(t *testing.T) {
 			for _, tenant := range tenants {
 				for _, soupId := range soupIds {
@@ -208,6 +224,15 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					require.Len(t, objects, 1)
 					assert.Nil(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"])
 				}
+				_, err := client.Data().ObjectsGetter().
+					WithClassName("Soup").
+					WithID(fixtures.SOUP_TRIPE_ID).
+					WithTenant(tenant.Name).
+					Do(context.Background())
+				require.NotNil(t, err)
+				clientErr := err.(*fault.WeaviateClientError)
+				assert.Equal(t, 404, clientErr.StatusCode)
+				assert.Contains(t, clientErr.Msg, "")
 			}
 		})
 	})
@@ -221,6 +246,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
+		pizzaBeacons := fixtures.BeaconsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
@@ -264,6 +290,22 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 			}
 		}
 
+		_, err := client.Data().Creator().
+			WithClassName("Soup").
+			WithID(fixtures.SOUP_TRIPE_ID).
+			WithProperties(map[string]interface{}{
+				"name":           "Tripe",
+				"description":    "Tripe soup is a speciality of Romanian cuisine where it is known as Ciorbă de Burtă.",
+				"price":          float32(2.3),
+				"relatedToPizza": pizzaBeacons,
+			}).
+			WithTenant("nonExistentTenant").
+			Do(context.Background())
+		require.NotNil(t, err)
+		clientErr := err.(*fault.WeaviateClientError)
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "tenant not found")
+
 		t.Run("verify not created", func(t *testing.T) {
 			for _, tenant := range tenants {
 				for _, soupId := range soupIds {
@@ -278,6 +320,15 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 					require.Len(t, objects, 1)
 					assert.Nil(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"])
 				}
+				_, err := client.Data().ObjectsGetter().
+					WithClassName("Soup").
+					WithID(fixtures.SOUP_TRIPE_ID).
+					WithTenant(tenant.Name).
+					Do(context.Background())
+				require.NotNil(t, err)
+				clientErr := err.(*fault.WeaviateClientError)
+				assert.Equal(t, 404, clientErr.StatusCode)
+				assert.Contains(t, clientErr.Msg, "")
 			}
 		})
 	})
@@ -291,6 +342,7 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 		}
 		soupIds := fixtures.IdsByClass["Soup"]
 		pizzaIds := fixtures.IdsByClass["Pizza"]
+		pizzaBeacons := fixtures.BeaconsByClass["Pizza"]
 
 		fixtures.CreateSchemaSoupForTenants(t, client)
 		fixtures.CreateTenantsSoup(t, client, tenants...)
@@ -334,6 +386,22 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 			}
 		}
 
+		_, err := client.Data().Creator().
+			WithClassName("Soup").
+			WithID(fixtures.SOUP_TRIPE_ID).
+			WithProperties(map[string]interface{}{
+				"name":           "Tripe",
+				"description":    "Tripe soup is a speciality of Romanian cuisine where it is known as Ciorbă de Burtă.",
+				"price":          float32(2.3),
+				"relatedToPizza": pizzaBeacons,
+			}).
+			WithTenant(tenants[1].Name).
+			Do(context.Background())
+		require.NotNil(t, err)
+		clientErr := err.(*fault.WeaviateClientError)
+		assert.Equal(t, 422, clientErr.StatusCode)
+		assert.Contains(t, clientErr.Msg, "no object with id")
+
 		t.Run("verify not created", func(t *testing.T) {
 			for _, soupId := range soupIds {
 				objects, err := client.Data().ObjectsGetter().
@@ -347,6 +415,15 @@ func TestDataReference_MultiTenancy(t *testing.T) {
 				require.Len(t, objects, 1)
 				assert.Nil(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"])
 			}
+			_, err := client.Data().ObjectsGetter().
+				WithClassName("Soup").
+				WithID(fixtures.SOUP_TRIPE_ID).
+				WithTenant(tenants[0].Name).
+				Do(context.Background())
+			require.NotNil(t, err)
+			clientErr := err.(*fault.WeaviateClientError)
+			assert.Equal(t, 404, clientErr.StatusCode)
+			assert.Contains(t, clientErr.Msg, "")
 		})
 
 		t.Run("verify new objects not created", func(t *testing.T) {
