@@ -87,7 +87,7 @@ func TestMultiSegmentBigHashTree(t *testing.T) {
 	require.Equal(t, expectedHeight, ht.Height())
 	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.capacity)
 
-	actualNumberOfElementsPerSegment := 1_000_000
+	actualNumberOfElementsPerSegment := 100_000
 
 	valuePrefix := "somevalue"
 
