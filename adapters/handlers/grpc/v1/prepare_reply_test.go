@@ -83,6 +83,7 @@ func TestGRPCReply(t *testing.T) {
 	}}
 	truePointer := true
 
+	someFloat64 := float64(0.1)
 	refClass1 := "RefClass1"
 	refClass2 := "RefClass2"
 	className := "className"
@@ -936,6 +937,31 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			}},
+		},
+		{
+			name: "rerank only",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id":     UUID1,
+						"rerank": []*addModels.RankResult{{Score: &someFloat64}},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ID:           true,
+				ModuleParams: map[string]interface{}{"rerank": "must be present for extraction"},
+			}},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{
+						Id:                 string(UUID1),
+						RerankScore:        someFloat64,
+						RerankScorePresent: true,
+					},
+					Properties: &pb.PropertiesResult{},
+				},
+			},
 		},
 	}
 

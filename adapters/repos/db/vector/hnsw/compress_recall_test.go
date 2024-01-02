@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -82,6 +83,9 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			ShardName:             "shardRecallBenchmark",
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "out of range")
+				}
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
