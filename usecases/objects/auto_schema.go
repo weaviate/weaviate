@@ -81,7 +81,7 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	if schemaClass == nil && !allowCreateClass {
 		return fmt.Errorf("given class does not exist")
 	}
-	properties, err := m.getProperties(object)
+	properties, err := m.getProperties(object, schemaClass)
 	if err != nil {
 		return err
 	}
@@ -161,12 +161,28 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 	return nil
 }
 
-func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
+func (m *autoSchemaManager) getProperties(object *models.Object, class *models.Class) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	if props, ok := object.Properties.(map[string]interface{}); ok {
+	Outer:
 		for name, value := range props {
+			alreadyExistingProp := false
+			if class != nil && class.Properties != nil {
+				for _, prop := range class.Properties {
+					if name == prop.Name {
+						alreadyExistingProp = true
+					}
+				}
+			}
+
 			now := time.Now()
 			dt, err := m.determineType(value, false)
+			if alreadyExistingProp && err != nil {
+				// if the property already exists it is not a problem if we cannot determine the type (for example
+				// because it is an empty array) and we can skip the rest of autoschema. However, if we can determine
+				// the type we still need to check for nested properties
+				continue Outer
+			}
 			if err != nil {
 				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
 			}
@@ -181,9 +197,9 @@ func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Prop
 				default:
 					// do nothing
 				}
-			}
-			if err != nil {
-				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
+				if err != nil {
+					return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
+				}
 			}
 
 			property := &models.Property{
@@ -208,7 +224,6 @@ func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 
 func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) ([]schema.DataType, error) {
 	fallbackDataType := []schema.DataType{schema.DataTypeText}
-	fallbackArrayDataType := []schema.DataType{schema.DataTypeTextArray}
 
 	switch typedValue := value.(type) {
 	case string:
@@ -243,7 +258,7 @@ func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) 
 		return []schema.DataType{schema.DataTypeObject}, nil
 	case []interface{}:
 		if len(typedValue) == 0 {
-			return fallbackArrayDataType, nil
+			return nil, ErrAutoSchemaCannotDetermineObject
 		}
 
 		refDataTypes := []schema.DataType{}

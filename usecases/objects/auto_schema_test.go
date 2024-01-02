@@ -1166,9 +1166,99 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			properties, _ := manager.getProperties(&models.Object{
 				Class:      "ClassWithObjectProps",
 				Properties: tc.valProperties,
-			})
+			}, &models.Class{})
 
 			assertPropsMatch(t, tc.expectedProperties, properties)
+		})
+	}
+}
+
+func TestFilterExistingProps(t *testing.T) {
+	className := "ClassWithObjectProps"
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
+			},
+			{
+				Name:     "textArray",
+				DataType: schema.DataTypeTextArray.PropString(),
+			},
+		},
+	}
+
+	manager := &autoSchemaManager{
+		schemaManager: &fakeSchemaManager{},
+		vectorRepo:    &fakeVectorRepo{},
+		config: config.AutoSchema{
+			Enabled:       true,
+			DefaultNumber: schema.DataTypeNumber.String(),
+			DefaultString: schema.DataTypeText.String(),
+		},
+	}
+
+	cases := []struct {
+		name            string
+		props           map[string]interface{}
+		addedProperties []*models.Property
+		error           bool
+	}{
+		{
+			name: "Add age and array",
+			props: map[string]interface{}{
+				"name":        "Jodie Sparrow",
+				"age":         json.Number("30"),
+				"textArray":   []interface{}{"a", "b"},
+				"numberArray": []interface{}{json.Number("30")},
+			},
+			addedProperties: []*models.Property{
+				{
+					Name:     "age",
+					DataType: schema.DataTypeNumber.PropString(),
+				},
+				{
+					Name:     "numberArray",
+					DataType: schema.DataTypeNumberArray.PropString(),
+				},
+				{
+					Name:     "name",
+					DataType: schema.DataTypeText.PropString(),
+				},
+				{
+					Name:     "textArray",
+					DataType: schema.DataTypeTextArray.PropString(),
+				},
+			},
+		},
+		{
+			name: "Add empty non-existing array",
+			props: map[string]interface{}{
+				"numberArray": []interface{}{},
+			},
+			error: true,
+		},
+		{
+			name: "Add empty existing array",
+			props: map[string]interface{}{
+				"textArray": []interface{}{},
+			},
+			addedProperties: []*models.Property{},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			properties, err := manager.getProperties(&models.Object{
+				Class:      class.Class,
+				Properties: tt.props,
+			}, class)
+			if tt.error {
+				assert.NotNil(t, err)
+			} else {
+				assertPropsMatch(t, tt.addedProperties, properties)
+			}
 		})
 	}
 }

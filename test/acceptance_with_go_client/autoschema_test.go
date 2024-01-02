@@ -197,24 +197,6 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 			containsErrMessage: "property 'nilPropertyArray' on class 'BeautifulWeather': element [0]: unrecognized data type of value '<nil>'",
 		},
 		{
-			name: "empty string array property",
-			properties: map[string]interface{}{
-				"emptyPropertyArray": []string{},
-			},
-		},
-		{
-			name: "empty interface array property",
-			properties: map[string]interface{}{
-				"emptyPropertyArray": []interface{}{},
-			},
-		},
-		{
-			name: "empty int array property",
-			properties: map[string]interface{}{
-				"emptyPropertyArray": []int{},
-			},
-		},
-		{
 			name: "array property with empty string",
 			properties: map[string]interface{}{
 				"emptyPropertyArray": []string{""},
@@ -285,7 +267,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 				"stringProperty": "value",
 			},
 		}
-		resp, err := c.Batch().ObjectsBatcher().WithObject(obj).Do(ctx)
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
 		require.Nil(t, err)
 		require.Len(t, resp, 1)
 		require.NotNil(t, resp[0].Result)
@@ -299,5 +281,17 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 
 		err = c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 		require.Nil(t, err)
+	})
+
+	t.Run("should return an error if datatype cannot be determined", func(t *testing.T) {
+		obj := &models.Object{
+			Class: className,
+			Properties: map[string]interface{}{
+				"emptyArrayProp": []interface{}{},
+			},
+		}
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
+		require.Nil(t, err)
+		require.Contains(t, resp[0].Result.Errors.Error[0].Message, "AS001")
 	})
 }

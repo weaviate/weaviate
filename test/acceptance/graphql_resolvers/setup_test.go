@@ -732,14 +732,25 @@ func addTestDataCompanies(t *testing.T) {
 				})
 		}
 
-		createObject(t, &models.Object{
-			Class: "Company",
-			ID:    company.id,
-			Properties: map[string]interface{}{
-				"inCity": inCity,
-				"name":   company.name,
-			},
-		})
+		if len(inCity) > 0 {
+			createObject(t, &models.Object{
+				Class: "Company",
+				ID:    company.id,
+				Properties: map[string]interface{}{
+					"inCity": inCity,
+					"name":   company.name,
+				},
+			})
+		} else {
+			createObject(t, &models.Object{
+				Class: "Company",
+				ID:    company.id,
+				Properties: map[string]interface{}{
+					"name": company.name,
+				},
+			})
+		}
+
 	}
 
 	assertGetObjectEventually(t, companies[len(companies)-1].id)
@@ -790,15 +801,20 @@ func addTestDataPersons(t *testing.T) {
 				})
 		}
 
+		props := map[string]interface{}{
+			"name":       person.name,
+			"profession": person.profession,
+			"about":      person.about,
+		}
+
+		if len(person.livesIn) > 0 {
+			props["livesIn"] = livesIn
+		}
+
 		createObject(t, &models.Object{
-			Class: "Person",
-			ID:    person.id,
-			Properties: map[string]interface{}{
-				"livesIn":    livesIn,
-				"name":       person.name,
-				"profession": person.profession,
-				"about":      person.about,
-			},
+			Class:      "Person",
+			ID:         person.id,
+			Properties: props,
 		})
 	}
 

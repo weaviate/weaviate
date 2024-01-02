@@ -15,6 +15,9 @@ import (
 	"fmt"
 )
 
+// Errors with codes that the clients can evaluate - keep these stable
+var ErrAutoSchemaCannotDetermineObject = fmt.Errorf("AS001: cannot determine datatype of empty list")
+
 // objects status code
 const (
 	StatusForbidden           = 403
