@@ -35,24 +35,6 @@ func parseArray[T float64 | bool | string](v interface{}, innerDt schema.DataTyp
 	return NewListValue(list), nil
 }
 
-// NewValue constructs a Value from a general-purpose Go interface.
-//
-//	╔════════════════════════╤════════════════════════════════════════════╗
-//	║ Go type                │ Conversion                                 ║
-//	╠════════════════════════╪════════════════════════════════════════════╣
-//	║ bool                   │ stored as BoolValue                        ║
-//	║ int, int32, int64      │ stored as NumberValue                      ║
-//	║ uint, uint32, uint64   │ stored as NumberValue                      ║
-//	║ float32, float64       │ stored as NumberValue                      ║
-//	║ geo coordinate         │ stored as GeoCoordinate                    ║
-//	║ string                 │ stored as StringValue; must be valid UTF-8 ║
-//	║ []byte                 │ stored as StringValue; base64-encoded      ║
-//	║ map[string]interface{} │ stored as StructValue                      ║
-//	║ []interface{}          │ stored as ListValue                        ║
-//	╚════════════════════════╧════════════════════════════════════════════╝
-//
-// When converting an int64 or uint64 to a NumberValue, numeric precision loss
-// is possible since they are stored as a float64.
 func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 	innerDt, ok := schema.IsArrayType(dt)
 	if ok {
@@ -124,6 +106,12 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 				return nil, protoimpl.X.NewError("invalid type: %T expected *models.GeoCoordinates when serializing geocoordinate property", v)
 			}
 			return NewGeoValue(val), nil
+		case schema.DataTypeBlob:
+			val, ok := v.(string)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob property", v)
+			}
+			return NewBlobValue(val), nil
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
@@ -267,4 +255,9 @@ func NewObjectValue(v *pb.Properties) *pb.Value {
 // NewListValue constructs a new list Value.
 func NewListValue(v *pb.ListValue) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: v}}
+}
+
+// NewBlobValue constructs a new blob Value.
+func NewBlobValue(v string) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_BlobValue{BlobValue: v}}
 }
