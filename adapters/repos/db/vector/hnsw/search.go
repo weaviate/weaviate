@@ -414,6 +414,15 @@ func (h *hnsw) distanceToByteNode(distancer *ssdhelpers.PQDistancer,
 			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
 	}
+
+	if vec == nil {
+		// if the vector was already deleted (but not cleaned up) before PQ fitting
+		// started, we don't have an entry for this vector. In this case we need to
+		// treat it like a deleted node.
+		h.handleDeletedNode(nodeID)
+		return 0, false, nil
+	}
+
 	return distancer.Distance(vec)
 }
 
