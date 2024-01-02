@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -225,4 +226,67 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
+}
+
+func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
+	shardName string, l ConsistencyLevel, directCandidate string,
+	initialUUID, finalUUID strfmt.UUID, limit int,
+) ([]*storobj.Object, error) {
+	coord := newReadCoordinator[[]*storobj.Object](f, shardName)
+
+	op := func(ctx context.Context, host string, fullRead bool) ([]*storobj.Object, error) {
+		ds, err := f.client.DigestReads(ctx, host, f.class, shardName, []strfmt.UUID{initialUUID, finalUUID})
+		// TODO (jeroiraz)
+		// ds, err := f.client.DigestReads(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
+		if err != nil {
+			return nil, err
+		}
+
+		ret := make([]*storobj.Object, len(ds))
+
+		for i, d := range ds {
+			ret[i] = &storobj.Object{
+				Object: models.Object{
+					ID:                 strfmt.UUID(d.ID),
+					LastUpdateTimeUnix: d.UpdateTime,
+				},
+				BelongsToShard: shardName,
+				BelongsToNode:  host,
+			}
+		}
+
+		return ret, nil
+	}
+
+	replyCh, _, err := coord.Pull(ctx, l, op, directCandidate)
+	if err != nil {
+		return nil, fmt.Errorf("pull shard: %w", errReplicas)
+	}
+
+	var retObjects []*storobj.Object
+	ret := make(map[strfmt.UUID]struct{})
+
+	for r := range replyCh { // len(ch) == st.Level
+		if r.Err != nil {
+			f.log.WithField("op", "read_batch.get").WithField("class", f.class).WithField("shard", shardName).Error(r.Err)
+			continue
+		}
+
+		for _, obj := range r.Value {
+			_, ok := ret[obj.ID()]
+			if ok {
+				continue
+			}
+
+			retObjects = append(retObjects, obj)
+			ret[obj.ID()] = struct{}{}
+		}
+	}
+
+	err = f.CheckConsistency(ctx, l, retObjects)
+	if err != nil {
+		return nil, err
+	}
+
+	return retObjects, nil
 }
