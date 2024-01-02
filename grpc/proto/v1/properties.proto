@@ -21,6 +21,7 @@ message Value {
     string uuid_value = 7;
     int64 int_value = 8;
     GeoCoordinate geo_value = 9;
+    string blob_value = 10;
   }
 }
 

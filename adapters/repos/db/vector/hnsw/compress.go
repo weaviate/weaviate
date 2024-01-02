@@ -12,8 +12,13 @@
 package hnsw
 
 import (
-	"github.com/pkg/errors"
+	"context"
+	"errors"
+	"fmt"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -50,17 +55,34 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		}
 
 		cleanData := make([][]float32, 0, len(data))
-		for _, point := range data {
-			if point == nil {
+		for i := range data {
+			// Rather than just taking the cache dump at face value, let's explicitly
+			// request the vectors. Otherwise we would miss any vector that's currently
+			// not in the cache, for example because the cache is not hot yet after a
+			// restart.
+			p, err := h.cache.Get(context.Background(), uint64(i))
+			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					// already deleted, ignore
+					continue
+				} else {
+					return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
+				}
+			}
+
+			if p == nil {
+				// already deleted, ignore
 				continue
 			}
-			cleanData = append(cleanData, point)
+
+			cleanData = append(cleanData, p)
 		}
 
 		var err error
 		h.compressor, err = compressionhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
 		if err != nil {
-			return errors.Wrap(err, "Compressing vectors.")
+			return fmt.Errorf("Compressing vectors: %w", err)
 		}
 		h.commitLog.AddPQ(h.compressor.ExposeFields())
 	} else {

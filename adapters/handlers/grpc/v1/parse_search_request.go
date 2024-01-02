@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 
@@ -225,6 +226,13 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req)
 	}
 
+	if req.Rerank != nil {
+		if out.AdditionalProperties.ModuleParams == nil {
+			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
+		}
+		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
@@ -305,6 +313,16 @@ func extractGenerative(req *pb.SearchRequest) *generate.Params {
 		generative.Properties = req.Generative.GroupedProperties
 	}
 	return &generative
+}
+
+func extractRerank(req *pb.SearchRequest) *rank.Params {
+	rerank := rank.Params{
+		Property: &req.Rerank.Property,
+	}
+	if req.Rerank.Query != nil {
+		rerank.Query = req.Rerank.Query
+	}
+	return &rerank
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearText2.ExploreMove, error) {
