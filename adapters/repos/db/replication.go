@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -426,6 +427,46 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	return i.digestObjects(ctx, shardName, ids)
+}
+
+func (db *DB) DigestObjectsInRange(ctx context.Context,
+	class, shardName string, initialUUID, finalUUID uuid.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	index := db.GetIndex(schema.ClassName(class))
+	return index.digestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
+}
+
+func (i *Index) digestObjectsInRange(ctx context.Context,
+	shardName string, initialUUID, finalUUID uuid.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	s := i.localShard(shardName)
+	if s == nil {
+		return nil, fmt.Errorf("shard %q not found locally", shardName)
+	}
+
+	objs, err := s.MultiObjectByIDInRange(ctx, initialUUID, finalUUID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("shard objects digest in range: %w", err)
+	}
+
+	result = make([]replica.RepairResponse, len(objs))
+
+	for j, obj := range objs {
+		result[j] = replica.RepairResponse{
+			ID:         obj.ID().String(),
+			UpdateTime: obj.LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+	}
+
+	return result, nil
+}
+
+func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
+	shardName string, initialUUID, finalUUID uuid.UUID, limit int,
+) (result []replica.RepairResponse, err error) {
+	return i.digestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (db *DB) HashTreeLevel(ctx context.Context,

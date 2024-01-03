@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -164,6 +165,12 @@ func fromReplicas(xs []objects.Replica) []*storobj.Object {
 	return rs
 }
 
+type ObjectRange struct {
+	InitialUUID strfmt.UUID `json:"initialUUID,omitempty"`
+	FinalUUID   strfmt.UUID `json:"finalUUID,omitempty"`
+	Limit       int         `json:"limit,omitempty"`
+}
+
 // wClient is the client used to write to replicas
 type wClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
@@ -204,6 +211,9 @@ type rClient interface {
 	DigestObjects(ctx context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]RepairResponse, error)
 
+	DigestObjectsInRange(ctx context.Context, host, index, shard string,
+		initialUUID, finalUUID uuid.UUID, limit int) ([]RepairResponse, error)
+
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -234,6 +244,13 @@ func (fc finderClient) DigestReads(ctx context.Context,
 		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
 	}
 	return rs, err
+}
+
+func (fc finderClient) DigestObjectsInRange(ctx context.Context,
+	host, index, shard string,
+	initialUUID, finalUUID uuid.UUID, limit int,
+) ([]RepairResponse, error) {
+	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 }
 
 // FullReads read full objects

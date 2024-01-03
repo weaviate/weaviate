@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -228,14 +229,12 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 
 func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
 	shardName string, l ConsistencyLevel, directCandidate string,
-	initialUUID, finalUUID strfmt.UUID, limit int,
+	initialUUID, finalUUID uuid.UUID, limit int,
 ) ([]*storobj.Object, error) {
 	coord := newReadCoordinator[[]*storobj.Object](f, shardName)
 
 	op := func(ctx context.Context, host string, fullRead bool) ([]*storobj.Object, error) {
-		ds, err := f.client.DigestReads(ctx, host, f.class, shardName, []strfmt.UUID{initialUUID, finalUUID})
-		// TODO (jeroiraz)
-		// ds, err := f.client.DigestReads(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
+		ds, err := f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
 		if err != nil {
 			return nil, err
 		}

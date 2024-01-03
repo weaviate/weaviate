@@ -92,6 +92,42 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
+func (s *Shard) MultiObjectByIDInRange(ctx context.Context, initialUUID, finalUUID uuid.UUID, limit int) ([]*storobj.Object, error) {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	// TODO (jeroiraz): deleted objects may need to be returned as well
+	// TODO (jeroiraz): cut key may be returned when limit is reached
+
+	initialUUIDBytes, err := initialUUID.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	finalUUIDBytes, err := finalUUID.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	n := 0
+
+	var objs []*storobj.Object
+
+	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return nil, fmt.Errorf("cannot unmarshal object: %v", err)
+		}
+
+		objs = append(objs, obj)
+		n++
+	}
+
+	return objs, nil
+}
+
 // TODO: This does an actual read which is not really needed, if we see this
 // come up in profiling, we could optimize this by adding an explicit Exists()
 // on the LSMKV which only checks the bloom filters, which at least in the case
