@@ -45,6 +45,7 @@ type fakeSchemaManager struct {
 	}
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
+	tenantsEnabled    bool
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -101,6 +102,13 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	return nil
 }
 
+func (f *fakeSchemaManager) AddTenants(ctx context.Context,
+	principal *models.Principal, class string, tenants []*models.Tenant,
+) error {
+	f.tenantsEnabled = true
+	return nil
+}
+
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property,
 ) error {
@@ -137,6 +145,10 @@ func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, princi
 		}
 	}
 	return nil
+}
+
+func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
+	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
 }
 
 type fakeLocks struct {

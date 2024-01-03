@@ -492,3 +492,48 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 
 	return nestedProperties, nil
 }
+
+func (m *autoSchemaManager) autoTenants(ctx context.Context,
+	principal *models.Principal, objects []*models.Object,
+) error {
+	classTenants := make(map[string]map[string]struct{})
+
+	for _, obj := range objects {
+		// TODO: track the classes we have already checked
+		//       before calling getClass again
+		if m.schemaManager.MultiTenancy(obj.Class).AutoTenantCreation {
+			cls, ok := classTenants[obj.Class]
+			if !ok {
+				classTenants[obj.Class] = map[string]struct{}{obj.Tenant: {}}
+				continue
+			}
+			cls[obj.Tenant] = struct{}{}
+		}
+	}
+
+	for class, tenantNames := range classTenants {
+		tenants := make([]*models.Tenant, len(tenantNames))
+		i := 0
+		for name := range tenantNames {
+			tenants[i] = &models.Tenant{Name: name}
+			i++
+		}
+		if err := m.addTenants(ctx, principal, class, tenants); err != nil {
+			return fmt.Errorf("add tenants to class %q: %w", class, err)
+		}
+	}
+	return nil
+}
+
+func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
+	class string, tenants []*models.Tenant,
+) error {
+	if len(tenants) == 0 {
+		return fmt.Errorf(
+			"tenants must be included for multitenant-enabled class %q", class)
+	}
+	if err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+		return err
+	}
+	return nil
+}
