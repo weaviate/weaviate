@@ -17,6 +17,7 @@ import (
 	"io"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -78,6 +79,8 @@ type RemoteIndexIncomingRepo interface {
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
+	IncomingDigestObjectsInRange(ctx context.Context, shardName string,
+		initialUUID, finalUUID uuid.UUID, limit int) (result []replica.RepairResponse, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
@@ -339,6 +342,17 @@ func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, index
 	}
 
 	return index, nil
+}
+
+func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
+	indexName, shardName string, initialUUID, finalUUID uuid.UUID, limit int,
+) ([]replica.RepairResponse, error) {
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingDigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
