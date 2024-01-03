@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -60,46 +61,15 @@ func (d *DB) scanResourceUsage() {
 }
 
 type resourceScanState struct {
-	disk       *scanState
-	mem        *scanState
-	isReadOnly bool
-}
-
-type scanState struct {
-	backoffLevel int
-	backoffs     []time.Duration
-	lastWarning  time.Time
-}
-
-func (s *scanState) getWarningInterval() time.Duration {
-	if s.backoffLevel >= len(s.backoffs) {
-		return time.Hour * 24
-	}
-
-	interval := s.backoffs[s.backoffLevel]
-
-	return interval
-}
-
-func (s *scanState) increaseWarningInterval() {
-	if s.backoffLevel < len(s.backoffs) {
-		s.backoffLevel += 1
-	}
+	diskWarning *interval.BackoffTimer
+	memWarning  *interval.BackoffTimer
+	isReadOnly  bool
 }
 
 func newResourceScanState() *resourceScanState {
-	backoffs := []time.Duration{
-		time.Duration(0),
-		30 * time.Second,
-		2 * time.Minute,
-		10 * time.Minute,
-		1 * time.Hour,
-		12 * time.Hour,
-	}
-
 	return &resourceScanState{
-		disk: &scanState{backoffs: backoffs},
-		mem:  &scanState{backoffs: backoffs},
+		diskWarning: interval.NewBackoffTimer(),
+		memWarning:  interval.NewBackoffTimer(),
 	}
 }
 
@@ -114,8 +84,7 @@ func (db *DB) diskUseWarn(du diskUse) {
 	diskWarnPercent := db.config.ResourceUsage.DiskUse.WarningPercentage
 	if diskWarnPercent > 0 {
 		if pu := du.percentUsed(); pu > float64(diskWarnPercent) {
-			if time.Since(db.resourceScanState.disk.lastWarning) >
-				db.resourceScanState.disk.getWarningInterval() {
+			if db.resourceScanState.diskWarning.IntervalElapsed() {
 				db.logger.WithField("action", "read_disk_use").
 					WithField("path", db.config.RootPath).
 					Warnf("disk usage currently at %.2f%%, threshold set to %.2f%%",
@@ -124,9 +93,7 @@ func (db *DB) diskUseWarn(du diskUse) {
 				db.logger.WithField("action", "disk_use_stats").
 					WithField("path", db.config.RootPath).
 					Debugf("%s", du.String())
-
-				db.resourceScanState.disk.lastWarning = time.Now()
-				db.resourceScanState.disk.increaseWarningInterval()
+				db.resourceScanState.diskWarning.IncreaseInterval()
 			}
 		}
 	}
@@ -136,15 +103,12 @@ func (db *DB) memUseWarn(mon *memwatch.Monitor) {
 	memWarnPercent := db.config.ResourceUsage.MemUse.WarningPercentage
 	if memWarnPercent > 0 {
 		if pu := mon.Ratio() * 100; pu > float64(memWarnPercent) {
-			if time.Since(db.resourceScanState.mem.lastWarning) >
-				db.resourceScanState.mem.getWarningInterval() {
+			if db.resourceScanState.memWarning.IntervalElapsed() {
 				db.logger.WithField("action", "read_memory_use").
 					WithField("path", db.config.RootPath).
 					Warnf("memory usage currently at %.2f%%, threshold set to %.2f%%",
 						pu, float64(memWarnPercent))
-
-				db.resourceScanState.mem.lastWarning = time.Now()
-				db.resourceScanState.mem.increaseWarningInterval()
+				db.resourceScanState.memWarning.IncreaseInterval()
 			}
 		}
 	}
