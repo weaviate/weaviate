@@ -37,6 +37,7 @@ type schemaManager interface {
 		class string, property *models.Property) error
 	MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
 		class string, property *models.Property) error
+	MultiTenancy(class string) models.MultiTenancyConfig
 }
 
 // AddObject Class Instance to the connected DB.
