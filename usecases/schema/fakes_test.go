@@ -93,9 +93,9 @@ func (f *fakeMetaHandler) ClassEqual(name string) string {
 	return ""
 }
 
-func (f *fakeMetaHandler) MultiTenancy(class string) bool {
+func (f *fakeMetaHandler) MultiTenancy(class string) models.MultiTenancyConfig {
 	args := f.Called(class)
-	return args.Bool(0)
+	return args.Get(0).(models.MultiTenancyConfig)
 }
 
 func (f *fakeMetaHandler) ClassInfo(class string) (ci store.ClassInfo) {

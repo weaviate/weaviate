@@ -493,72 +493,47 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 	return nestedProperties, nil
 }
 
-type classTenants map[*models.Class]map[string]struct{}
-
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	principal *models.Principal, objects []*models.Object,
 ) error {
-	ct := make(classTenants)
+	classTenants := make(map[string]map[string]struct{})
 
 	for _, obj := range objects {
 		// TODO: track the classes we have already checked
 		//       before calling getClass again
-		o := models.Object{Class: obj.Class}
-		class, err := m.getClass(principal, &o)
-		if err != nil {
-			return err
-		}
-
-		// class not found in schema. this will have already
-		// been caught by b.validateObjectsConcurrently, and
-		// will be handled accordingly, so we don't need to
-		// do anything here
-		if class == nil {
-			continue
-		}
-
-		if shouldAutoCreateTenants(class) {
-			cls, ok := ct[class]
+		if m.schemaManager.MultiTenancy(obj.Class).AutoTenantCreation {
+			cls, ok := classTenants[obj.Class]
 			if !ok {
-				ct[class] = map[string]struct{}{obj.Tenant: {}}
+				classTenants[obj.Class] = map[string]struct{}{obj.Tenant: {}}
 				continue
 			}
 			cls[obj.Tenant] = struct{}{}
 		}
 	}
 
-	for c, ts := range ct {
-		l := make([]*models.Tenant, len(ts))
+	for class, tenantNames := range classTenants {
+		tenants := make([]*models.Tenant, len(tenantNames))
 		i := 0
-		for t := range ts {
-			l[i] = &models.Tenant{Name: t}
+		for name := range tenantNames {
+			tenants[i] = &models.Tenant{Name: name}
 			i++
 		}
-		if err := m.addTenants(ctx, principal, c, l); err != nil {
-			return err
+		if err := m.addTenants(ctx, principal, class, tenants); err != nil {
+			return fmt.Errorf("add tenants to class %q: %w", class, err)
 		}
 	}
 	return nil
 }
 
 func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
-	class *models.Class, tenants []*models.Tenant,
+	class string, tenants []*models.Tenant,
 ) error {
 	if len(tenants) == 0 {
 		return fmt.Errorf(
-			"tenants must be included for multitenant-enabled class %q", class.Class)
+			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if err := m.schemaManager.AddTenants(ctx, principal, class.Class, tenants); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return err
-		}
+	if err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+		return err
 	}
 	return nil
-}
-
-func shouldAutoCreateTenants(class *models.Class) bool {
-	if class.MultiTenancyConfig == nil {
-		return false
-	}
-	return class.MultiTenancyConfig.Enabled && class.MultiTenancyConfig.AutoTenantCreation
 }
