@@ -188,7 +188,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 
 type ClassInfo struct {
 	Exists            bool
-	MultiTenancy      bool
+	MultiTenancy      models.MultiTenancyConfig
 	ReplicationFactor int
 	Tenants           int
 }
@@ -202,7 +202,7 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 		return
 	}
 	ci.Exists = true
-	ci.MultiTenancy = i.Class.MultiTenancyConfig != nil && i.Class.MultiTenancyConfig.Enabled
+	ci.MultiTenancy = parseMultiTenancyConfig(i)
 	ci.ReplicationFactor = 1
 	if i.Class.ReplicationConfig != nil && i.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(i.Class.ReplicationConfig.Factor)
@@ -211,12 +211,20 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 	return ci
 }
 
-func (s *schema) MultiTenancy(class string) bool {
+func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
 	s.RLock()
 	defer s.RUnlock()
 
 	i := s.Classes[class]
-	return i != nil && i.Class.MultiTenancyConfig != nil && i.Class.MultiTenancyConfig.Enabled
+	return parseMultiTenancyConfig(i)
+}
+
+func parseMultiTenancyConfig(class *metaClass) (cfg models.MultiTenancyConfig) {
+	if class == nil || class.Class.MultiTenancyConfig == nil {
+		return
+	}
+	cfg = *class.Class.MultiTenancyConfig
+	return
 }
 
 // Read
@@ -356,6 +364,6 @@ func (s *schema) CopyShardingState(class string) *sharding.State {
 	return &st
 }
 
-func (f *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	return f.shardReader.GetShardsStatus(class)
+func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
+	return s.shardReader.GetShardsStatus(class)
 }
