@@ -242,7 +242,7 @@ func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
 	if !info.Exists {
 		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
-	if !info.MultiTenancy {
+	if !info.MultiTenancy.Enabled {
 		return info, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
 	return info, nil

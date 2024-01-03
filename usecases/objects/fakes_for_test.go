@@ -147,6 +147,10 @@ func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, princi
 	return nil
 }
 
+func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
+	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
+}
+
 type fakeLocks struct {
 	Err error
 }
