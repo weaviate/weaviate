@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -85,6 +86,7 @@ type ShardLike interface {
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
+	MultiObjectByIDInRange(ctx context.Context, initialUUID, finalUUID uuid.UUID, limit int) ([]*storobj.Object, error)
 	ID() string // Get the shard id
 	drop() error
 	addIDProperty(ctx context.Context) error
