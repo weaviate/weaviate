@@ -105,6 +105,21 @@ func (ht *CompactHashTree) Reset() BigHashTree {
 	return ht
 }
 
+func (ht *CompactHashTree) Clone() BigHashTree {
+	clone := &CompactHashTree{
+		capacity: ht.capacity,
+		hashtree: ht.hashtree.Clone(),
+
+		leavesCount:                 ht.leavesCount,
+		groupSize:                   ht.groupSize,
+		extendedGroupSize:           ht.extendedGroupSize,
+		extendedGroupsCount:         ht.extendedGroupsCount,
+		leavesCountInExtendedGroups: ht.leavesCountInExtendedGroups,
+	}
+
+	return clone
+}
+
 func requiredHeight(n uint64) int {
 	h := 1
 

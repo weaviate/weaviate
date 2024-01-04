@@ -130,3 +130,15 @@ func (bset *Bitset) Unmarshal(b []byte) error {
 
 	return nil
 }
+
+func (bset *Bitset) Clone() *Bitset {
+	clone := &Bitset{
+		size:     bset.size,
+		bits:     make([]int64, len(bset.bits)),
+		setCount: bset.setCount,
+	}
+
+	copy(clone.bits, bset.bits)
+
+	return clone
+}
