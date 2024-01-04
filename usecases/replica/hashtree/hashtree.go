@@ -242,3 +242,17 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 
 	return n, nil
 }
+
+func (ht *HashTree) Clone() *HashTree {
+	clone := &HashTree{
+		height:          ht.height,
+		nodes:           make([]Digest, len(ht.nodes)),
+		syncState:       ht.syncState.Clone(),
+		hash:            murmur3.New128(),
+		innerNodesCount: ht.innerNodesCount,
+	}
+
+	copy(clone.nodes, ht.nodes)
+
+	return clone
+}
