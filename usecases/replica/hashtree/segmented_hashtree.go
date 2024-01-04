@@ -102,11 +102,9 @@ func (ht *SegmentedHashTree) Reset() BigHashTree {
 func (ht *SegmentedHashTree) Clone() BigHashTree {
 	clone := &SegmentedHashTree{
 		segmentSize: ht.segmentSize,
-		segments:    make([]uint64, len(ht.segments)),
+		segments:    ht.segments,
 		hashtree:    (ht.hashtree.Clone()).(*CompactHashTree),
 	}
-
-	copy(clone.segments, ht.segments)
 
 	return clone
 }
