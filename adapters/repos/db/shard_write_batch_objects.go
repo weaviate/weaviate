@@ -44,6 +44,10 @@ func asyncEnabled() bool {
 	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
+func asyncFromDiskEnabled() bool {
+	return config.Enabled(os.Getenv("ASYNC_INDEXING_FROM_DISK"))
+}
+
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
@@ -277,6 +281,8 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		return
 	}
 
+	qFromDisk := asyncFromDiskEnabled()
+
 	ob.batchStartTime = time.Now()
 
 	shouldGeoIndex := ob.shard.hasGeoIndex()
@@ -300,6 +306,12 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			continue
 		}
 
+		// if async indexing from disk is enabled, no need to
+		// queue vectors in memory
+		if qFromDisk {
+			continue
+		}
+
 		desc := vectorDescriptor{
 			id:     status.docID,
 			vector: object.Vector,
@@ -308,9 +320,14 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 		vectors = append(vectors, desc)
 	}
 
-	err := ob.shard.Queue().Push(ctx, vectors...)
-	if err != nil {
-		ob.setErrorAtIndex(err, 0)
+	if !qFromDisk {
+		err := ob.shard.Queue().Push(ctx, vectors...)
+		if err != nil {
+			ob.setErrorAtIndex(err, 0)
+		}
+	} else {
+		// notify the queue vectors have been added to disk
+		ob.shard.Queue().onDisk.Notify()
 	}
 }
 

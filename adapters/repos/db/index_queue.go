@@ -15,6 +15,7 @@ import (
 	"container/list"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"runtime"
 	"sync"
@@ -53,7 +54,8 @@ type IndexQueue struct {
 	wg sync.WaitGroup
 
 	// queue of not-yet-indexed vectors
-	queue *vectorQueue
+	queue  *vectorQueue
+	onDisk *onDiskIndexQueue
 
 	// keeps track of the last call to Push()
 	lastPushed atomic.Pointer[time.Time]
@@ -159,6 +161,11 @@ func NewIndexQueue(
 		return &q, nil
 	}
 
+	if asyncFromDiskEnabled() {
+		q.onDisk = newOnDiskIndexQueue(&q)
+		q.onDisk.Start(q.ctx)
+	}
+
 	q.wg.Add(1)
 	go func() {
 		defer q.wg.Done()
@@ -201,6 +208,10 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 		return errors.New("index queue closed")
 	}
 
+	if len(vectors) == 0 {
+		return nil
+	}
+
 	// store the time of the last push
 	now := time.Now()
 	q.lastPushed.Store(&now)
@@ -211,6 +222,10 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 
 // Size returns the number of vectors waiting to be indexed.
 func (q *IndexQueue) Size() int64 {
+	if q.onDisk != nil {
+		return q.onDisk.Size()
+	}
+
 	var count int64
 	q.queue.fullChunks.Lock()
 	e := q.queue.fullChunks.list.Front()
@@ -236,6 +251,13 @@ func (q *IndexQueue) Size() int64 {
 func (q *IndexQueue) Delete(ids ...uint64) error {
 	if !asyncEnabled() {
 		return q.Index.Delete(ids...)
+	}
+
+	if q.onDisk != nil {
+		err := q.onDisk.Delete(ids...)
+		if err != nil {
+			return errors.Wrap(err, "delete from on-disk index queue")
+		}
 	}
 
 	remaining := make([]uint64, 0, len(ids))
@@ -269,7 +291,7 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 // PreloadShard goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
 func (q *IndexQueue) PreloadShard(shard ShardLike) error {
-	if !asyncEnabled() {
+	if !asyncEnabled() || q.onDisk != nil {
 		return nil
 	}
 
@@ -370,6 +392,11 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
+			if q.onDisk != nil {
+				q.checkCompressionSettings()
+				continue
+			}
+
 			lastPushed := q.lastPushed.Load()
 			if lastPushed == nil || time.Since(*lastPushed) > time.Second {
 				// send at most 2 times the number of workers in one go,
@@ -395,6 +422,7 @@ func (q *IndexQueue) indexer() {
 func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 	chunks := q.queue.borrowChunks(max)
 	for i, c := range chunks {
+		currentChunk := c
 		select {
 		case <-q.ctx.Done():
 			// release unsent borrowed chunks
@@ -404,10 +432,29 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 
 			return
 		case q.indexCh <- job{
-			chunk:   c,
 			indexer: q.Index,
-			queue:   q.queue,
 			ctx:     q.ctx,
+
+			getVectors: func(dst []vectorDescriptor) []vectorDescriptor {
+				c := currentChunk
+
+				for i := range c.data[:c.cursor] {
+					if q.queue.IsDeleted(c.data[i].id) {
+						q.queue.ResetDeleted(c.data[i].id)
+					} else {
+						dst = append(dst, c.data[i])
+					}
+				}
+
+				return dst
+			},
+
+			commit: func(ids []uint64) {
+				c := currentChunk
+				q.queue.persistCheckpoint(ids)
+
+				q.queue.releaseChunk(c)
+			},
 		}:
 		}
 	}
@@ -516,6 +563,9 @@ func (q *IndexQueue) checkCompressionSettings() {
 func (q *IndexQueue) pauseIndexing() {
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
+	if q.onDisk != nil {
+		q.onDisk.pauseIndexing()
+	}
 	q.queue.wait(q.ctx)
 	q.Logger.Debug("indexing paused")
 }
@@ -523,6 +573,10 @@ func (q *IndexQueue) pauseIndexing() {
 // resume indexing
 func (q *IndexQueue) resumeIndexing() {
 	q.paused.Store(false)
+	if q.onDisk != nil {
+		q.onDisk.resumeIndexing()
+	}
+
 	q.Logger.Debug("indexing resumed")
 }
 
@@ -983,4 +1037,481 @@ type chunk struct {
 	elem      *list.Element
 	createdAt *time.Time
 	indexed   chan struct{}
+}
+
+type onDiskIndexQueue struct {
+	logger      logrus.FieldLogger
+	Index       batchIndexer
+	ctx         context.Context
+	cancelFn    context.CancelFunc
+	closed      chan struct{}
+	notify      chan struct{}
+	lastImport  atomic.Pointer[time.Time]
+	indexCh     chan job
+	batchSize   int
+	shard       ShardLike
+	cursor      uint64
+	checkpoints *indexcheckpoint.Checkpoints
+
+	paused atomic.Bool
+
+	paced  atomic.Bool
+	pacedC chan struct{}
+
+	prefetched []vectorDescriptor
+	deleted    struct {
+		sync.Mutex
+
+		m map[uint64]struct{}
+	}
+
+	stats struct {
+		sync.Mutex
+
+		prefetch     uint64
+		fromPrefetch uint64
+		fromDisk     uint64
+		directSend   uint64
+		busySend     uint64
+	}
+}
+
+func newOnDiskIndexQueue(q *IndexQueue) *onDiskIndexQueue {
+	return &onDiskIndexQueue{
+		logger:      q.Logger.WithField("component", "on_disk_index_queue"),
+		Index:       q.Index,
+		shard:       q.Shard.(ShardLike),
+		batchSize:   q.BatchSize,
+		indexCh:     q.indexCh,
+		checkpoints: q.checkpoints,
+		notify:      make(chan struct{}),
+	}
+}
+
+func (q *onDiskIndexQueue) Start(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	q.cancelFn = cancel
+	q.ctx = ctx
+	q.closed = make(chan struct{})
+
+	go func() {
+		err := q.run(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+
+			q.logger.WithError(err).Error("on-disk index queue stopped")
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+
+		for {
+			select {
+			case <-t.C:
+				q.stats.Lock()
+				fromPrefetch := q.stats.fromPrefetch
+				fromDisk := q.stats.fromDisk
+				prefetch := q.stats.prefetch
+				directSend := q.stats.directSend
+				busySend := q.stats.busySend
+				q.stats.Unlock()
+
+				q.logger.WithField("from_prefetch", fromPrefetch).
+					WithField("from_disk", fromDisk).
+					WithField("prefetch", prefetch).
+					WithField("direct_send", directSend).
+					WithField("busy_send", busySend).
+					Debug("on-disk index queue stats")
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (q *onDiskIndexQueue) Stop() {
+	q.cancelFn()
+
+	<-q.closed
+}
+
+// Notify the queue that new vectors are available.
+// It is also used to pace the indexing during imports
+// to prevent contention on the LSM store.
+func (q *onDiskIndexQueue) Notify() {
+	now := time.Now()
+	q.lastImport.Store(&now)
+
+	select {
+	case q.notify <- struct{}{}:
+	default:
+	}
+}
+
+// run loads batches from disk and send them to the shared indexing workers.
+// if the queue is empty, it waits for 1s before trying again.
+func (q *onDiskIndexQueue) run(ctx context.Context) error {
+	defer close(q.closed)
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	var err error
+
+	// load last checkpoint
+	q.cursor, err = q.checkpoints.Get(q.shard.ID())
+	if err != nil {
+		return errors.Wrap(err, "get last indexed id")
+	}
+
+	for {
+		err = q.tick(ctx)
+		if err != nil {
+			return err
+		}
+
+		job, err := q.loadJob(ctx)
+		if err != nil {
+			return err
+		}
+
+		if job == nil {
+			// nothing to index, wait 5s
+			q.wait(ctx, 5*time.Second)
+			continue
+		}
+
+		if q.sendIfAvailable(ctx, job) {
+			q.stats.Lock()
+			q.stats.directSend++
+			q.stats.Unlock()
+			// job sent, do not wait and send the next one
+			continue
+		}
+
+		// workers are busy, prefetch the next job
+		err = q.prefetch(ctx)
+		if err != nil {
+			return err
+		}
+
+		// send the current job
+		err = q.send(ctx, job)
+		if err != nil {
+			return err
+		}
+		q.stats.Lock()
+		q.stats.busySend++
+		q.stats.Unlock()
+
+	}
+}
+
+func (q *onDiskIndexQueue) Delete(ids ...uint64) error {
+	q.deleted.Lock()
+	defer q.deleted.Unlock()
+
+	if q.deleted.m == nil {
+		q.deleted.m = make(map[uint64]struct{})
+	}
+
+	for _, id := range ids {
+		q.deleted.m[id] = struct{}{}
+	}
+
+	return nil
+}
+
+func (q *onDiskIndexQueue) IsDeleted(id uint64) bool {
+	q.deleted.Lock()
+	defer q.deleted.Unlock()
+
+	_, ok := q.deleted.m[id]
+	return ok
+}
+
+func (q *onDiskIndexQueue) ResetDeleted(id ...uint64) {
+	q.deleted.Lock()
+	for _, id := range id {
+		delete(q.deleted.m, id)
+	}
+	q.deleted.Unlock()
+}
+
+func (q *onDiskIndexQueue) prefetch(ctx context.Context) error {
+	if len(q.prefetched) > 0 {
+		return nil
+	}
+
+	// prefetchSize := q.batchSize - len(q.prefetched)
+	prefetchSize := q.batchSize * 10
+
+	// if prefetchSize <= 0 {
+	// 	return nil
+	// }
+
+	q.stats.Lock()
+	q.stats.prefetch++
+	q.stats.Unlock()
+	var err error
+
+	for {
+		q.prefetched, err = q.loadN(ctx, q.prefetched, prefetchSize)
+		if err == nil {
+			return nil
+		}
+
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+
+		q.logger.WithError(err).Error("prefetch batch failed")
+		q.wait(ctx, 1*time.Second)
+	}
+}
+
+func (q *onDiskIndexQueue) tick(ctx context.Context) error {
+	// if the queue is paused, loop until it is resumed
+	for q.paused.Load() {
+		err := q.wait(ctx, 1*time.Second)
+		if err != nil {
+			return err
+		}
+	}
+
+	// in case we are importing, wait for the batch to be indexed
+	// before loading the next one
+	if q.paced.Load() {
+		// prefetch the next batch
+		err := q.prefetch(ctx)
+		if err != nil {
+			return err
+		}
+
+		return q.waitForBatch(ctx)
+	}
+
+	return nil
+}
+
+func (q *onDiskIndexQueue) wait(ctx context.Context, duration time.Duration) error {
+	t := time.NewTimer(duration)
+
+	select {
+	case <-ctx.Done():
+		if !t.Stop() {
+			<-t.C
+		}
+		return ctx.Err()
+	case <-q.notify:
+	case <-t.C:
+	}
+
+	return nil
+}
+
+func (q *onDiskIndexQueue) waitForBatch(ctx context.Context) error {
+	if q.paced.Load() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-q.pacedC:
+		}
+	}
+	return nil
+}
+
+// loadJob creates a job either from the prefetched vectors or from disk.
+// The returned pace function is used to wait for the job to be indexed before
+// moving to the next one. This is used during imports to prevent contention
+// on the LSM store.
+func (q *onDiskIndexQueue) loadJob(ctx context.Context) (j *job, err error) {
+	j = &job{
+		indexer: q.Index,
+		ctx:     ctx,
+		commit:  q.commitCheckpoint,
+	}
+
+	// use prefetched vectors if any
+	if len(q.prefetched) > 0 {
+		q.stats.Lock()
+		q.stats.fromPrefetch++
+		q.stats.Unlock()
+		vectors := make([]vectorDescriptor, 0, len(q.prefetched))
+		// for _, v := range q.prefetched {
+		i := 0
+		for ; i < q.batchSize && i < len(q.prefetched); i++ {
+			v := q.prefetched[i]
+
+			if q.IsDeleted(v.id) {
+				q.ResetDeleted(v.id)
+				continue
+			}
+
+			vectors = append(vectors, v)
+		}
+
+		q.prefetched = q.prefetched[i:]
+		if len(q.prefetched) == 0 {
+			q.prefetched = nil // avoid leaks
+		}
+
+		j.getVectors = func(dst []vectorDescriptor) []vectorDescriptor {
+			return append(dst, vectors...)
+		}
+	} else {
+		q.stats.Lock()
+		q.stats.fromDisk++
+		q.stats.Unlock()
+
+		// load vectors from disk
+		vectors := make([]vectorDescriptor, 0, q.batchSize)
+		vectors, err = q.loadN(ctx, vectors, q.batchSize)
+		if err != nil {
+			return nil, err
+		}
+		if len(vectors) == 0 {
+			return nil, nil
+		}
+
+		j.getVectors = func(dst []vectorDescriptor) []vectorDescriptor {
+			return append(dst, vectors...)
+		}
+	}
+
+	// during imports, wait for the previous job to be indexed
+	if q.shouldPace() {
+		q.pacedC = make(chan struct{})
+		q.paced.Store(true)
+		j.commit = func(ids []uint64) {
+			defer func() {
+				q.paced.Store(false)
+				close(q.pacedC)
+			}()
+
+			q.commitCheckpoint(ids)
+		}
+	}
+
+	return j, nil
+}
+
+// load N vectors from disk, from the given cursor
+func (q *onDiskIndexQueue) loadN(ctx context.Context, dst []vectorDescriptor, n int) ([]vectorDescriptor, error) {
+	maxDocID := q.shard.Counter().Get()
+
+	var counter int
+
+	buf := make([]byte, 8)
+	for i := q.cursor; i < maxDocID; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		binary.LittleEndian.PutUint64(buf, i)
+
+		v, err := q.shard.Store().Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
+		if err != nil {
+			return nil, errors.Wrap(err, "get last indexed object")
+		}
+		if v == nil {
+			continue
+		}
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshal last indexed object")
+		}
+		id := obj.DocID()
+		if q.shard.VectorIndex().ContainsNode(id) {
+			continue
+		}
+		if len(obj.Vector) == 0 {
+			continue
+		}
+
+		dst = append(dst, vectorDescriptor{
+			id:     id,
+			vector: obj.Vector,
+		})
+
+		counter++
+		q.cursor = id
+
+		if counter >= n {
+			break
+		}
+	}
+
+	return dst, nil
+}
+
+func (q *onDiskIndexQueue) sendIfAvailable(ctx context.Context, batch *job) bool {
+	select {
+	case q.indexCh <- *batch:
+		return true
+	default:
+	}
+
+	return false
+}
+
+func (q *onDiskIndexQueue) send(ctx context.Context, batch *job) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case q.indexCh <- *batch:
+		return nil
+	}
+}
+
+// shouldPace returns true if the last import was less than 3s ago.
+func (q *onDiskIndexQueue) shouldPace() bool {
+	lastImport := q.lastImport.Load()
+	if lastImport == nil {
+		return false
+	}
+
+	if time.Since(*lastImport) > 3*time.Second {
+		return false
+	}
+
+	return true
+}
+
+func (q *onDiskIndexQueue) commitCheckpoint(ids []uint64) {
+	if len(ids) == 0 {
+		return
+	}
+
+	err := q.checkpoints.Update(q.shard.ID(), ids[len(ids)-1])
+	if err != nil {
+		q.logger.WithError(err).Error("update checkpoint")
+	}
+}
+
+func (q *onDiskIndexQueue) pauseIndexing() {
+	q.paused.Store(true)
+	q.waitForBatch(q.ctx)
+	fmt.Println(">>> paused")
+}
+
+func (q *onDiskIndexQueue) resumeIndexing() {
+	q.paused.Store(false)
+	fmt.Println(">>> resumed")
+}
+
+// Size returns the approximate number of vectors waiting to be indexed.
+func (q *onDiskIndexQueue) Size() int64 {
+	maxDocID := q.shard.Counter().Get()
+
+	return int64(maxDocID) - int64(q.cursor)
+}
+
+func (q *onDiskIndexQueue) Stats() (uint64, uint64) {
+	return q.stats.fromPrefetch, q.stats.fromDisk
 }

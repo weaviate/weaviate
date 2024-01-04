@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"math"
 	"runtime"
 	"runtime/debug"
@@ -172,6 +174,8 @@ func New(logger logrus.FieldLogger, config Config,
 		}
 	}
 
+	go reportIndexedCount(1_000_000)
+
 	return db, nil
 }
 
@@ -321,25 +325,45 @@ type job struct {
 	batcher *objectsBatcher
 
 	// async only
-	chunk   *chunk
-	indexer batchIndexer
-	queue   *vectorQueue
+	indexer    batchIndexer
+	getVectors func(dst []vectorDescriptor) []vectorDescriptor
+	commit     func(ids []uint64)
+}
+
+var indexed atomic.Int64
+var indexingStartedAt time.Time
+
+func reportIndexedCount(target int64) {
+	for {
+		t := time.NewTimer(5 * time.Second)
+		<-t.C
+		if indexed.Load() == 0 {
+			continue
+		}
+
+		if indexingStartedAt.IsZero() {
+			indexingStartedAt = time.Now()
+		}
+
+		count := indexed.Load()
+		if count >= target {
+			log.Println("----->>> INDEXED DONE:", count, "in", time.Since(indexingStartedAt))
+		} else {
+			log.Println("----->>> INDEXED: ", count, "in", time.Since(indexingStartedAt))
+		}
+	}
 }
 
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
+	var desc []vectorDescriptor
 	var ids []uint64
 	var vectors [][]float32
-	var deleted []uint64
 
 	for job := range ch {
-		c := job.chunk
-		for i := range c.data[:c.cursor] {
-			if job.queue.IsDeleted(c.data[i].id) {
-				deleted = append(deleted, c.data[i].id)
-			} else {
-				ids = append(ids, c.data[i].id)
-				vectors = append(vectors, c.data[i].vector)
-			}
+		desc = job.getVectors(desc)
+		for i := range desc {
+			ids = append(ids, desc[i].id)
+			vectors = append(vectors, desc[i].vector)
 		}
 
 		var err error
@@ -347,8 +371,10 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 		if len(ids) > 0 {
 		LOOP:
 			for {
+				fmt.Println("INDEXING BATCH", len(ids))
 				err = job.indexer.AddBatch(job.ctx, ids, vectors)
 				if err == nil {
+					indexed.Add(int64(len(ids)))
 					break LOOP
 				}
 
@@ -374,17 +400,11 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 
 		// only persist checkpoint if we indexed a full batch
 		if err == nil {
-			job.queue.persistCheckpoint(ids)
+			job.commit(ids)
 		}
 
-		job.queue.releaseChunk(c)
-
-		if len(deleted) > 0 {
-			job.queue.ResetDeleted(deleted...)
-		}
-
+		desc = desc[:0]
 		ids = ids[:0]
 		vectors = vectors[:0]
-		deleted = deleted[:0]
 	}
 }
