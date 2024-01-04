@@ -15,16 +15,18 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
-	settings ClassSettings,
+	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	vectors := make([][]float32, len(inputs))
 	for i := range inputs {
 		res, err := v.client.VectorizeQuery(ctx, inputs[i], ent.VectorizationConfig{
-			PoolingStrategy: settings.PoolingStrategy(),
+			PoolingStrategy: NewClassSettings(cfg).PoolingStrategy(),
 		})
 		if err != nil {
 			return nil, errors.Wrap(err, "remote client vectorize")
@@ -32,5 +34,5 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		vectors[i] = res.Vector
 	}
 
-	return v.CombineVectors(vectors), nil
+	return libvectorizer.CombineVectors(vectors), nil
 }

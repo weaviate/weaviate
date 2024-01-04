@@ -52,7 +52,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client)
 
-			settings := &fakeSettings{}
+			settings := &fakeClassConfig{}
 			vec, err := v.Texts(context.Background(), test.input, settings)
 
 			require.Nil(t, err)
