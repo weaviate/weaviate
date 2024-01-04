@@ -11,6 +11,8 @@
 
 package hashtree
 
+var _ BigHashTree = (*CompactHashTree)(nil)
+
 type CompactHashTree struct {
 	capacity uint64
 	hashtree *HashTree
@@ -63,7 +65,7 @@ func (ht *CompactHashTree) Height() int {
 
 // AggregateLeafWith aggregates a new value into a shared leaf
 // Each compacted leaf is shared by a number of consecutive leaves
-func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) *CompactHashTree {
+func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) BigHashTree {
 	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 
 	return ht
@@ -89,11 +91,16 @@ func (ht *CompactHashTree) unmapLeaf(mappedLeaf int) uint64 {
 	return uint64(mappedLeaf)*ht.groupSize + uint64(ht.extendedGroupsCount)
 }
 
+func (ht *CompactHashTree) Sync() BigHashTree {
+	ht.hashtree.Sync()
+	return ht
+}
+
 func (ht *CompactHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *CompactHashTree) Reset() *CompactHashTree {
+func (ht *CompactHashTree) Reset() BigHashTree {
 	ht.hashtree.Reset()
 	return ht
 }
