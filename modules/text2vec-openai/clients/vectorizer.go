@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	vectorizer2 "github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 	"io"
 	"net/http"
 	"net/url"
@@ -55,7 +56,7 @@ type openAIApiError struct {
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 	if isAzure {
 		host := baseURL
-		if host == "" {
+		if host == "" || host == vectorizer2.DefaultBaseURL {
 			// Fall back to old assumption
 			host = "https://" + resourceName + ".openai.azure.com"
 		}
