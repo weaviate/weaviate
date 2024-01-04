@@ -48,6 +48,7 @@ type MemtableMulti struct {
 
 type ThreadedMemtableResponse struct {
 	error                 error
+	errors                []error
 	bitmap                roaringset.BitmapLayer
 	nodesRoaring          []*roaringset.BinarySearchNode
 	nodesKey              []*binarySearchNode

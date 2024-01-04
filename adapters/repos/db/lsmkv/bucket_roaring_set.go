@@ -29,6 +29,17 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 	return b.active.roaringSetAddOne(key, value)
 }
 
+func (b *Bucket) RoaringSetAddBatch(keyValues []KeyValue) []error {
+	if err := checkStrategyRoaringSet(b.strategy); err != nil {
+		return []error{err}
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.roaringSetAddListBatch(keyValues)
+}
+
 func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 	if err := checkStrategyRoaringSet(b.strategy); err != nil {
 		return err

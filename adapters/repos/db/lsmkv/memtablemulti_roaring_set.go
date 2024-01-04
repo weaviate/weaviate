@@ -142,3 +142,23 @@ func (m *MemtableMulti) flattenNodesRoaringSet() []*roaringset.BinarySearchNode 
 	}
 	return merged
 }
+
+func (m *MemtableMulti) roaringSetAddListBatch(batch []KeyValue) []error {
+	batches := make([][]KeyValue, m.numWorkers)
+	for _, kv := range batch {
+		workerId := threadHashKey(kv.Key, m.numWorkers)
+		batches[workerId] = append(batches[workerId], kv)
+	}
+
+	memtableOperation := func(id int, m *MemtableSingle) ThreadedMemtableResponse {
+		return ThreadedMemtableResponse{errors: m.roaringSetAddListBatch(batches[id])}
+	}
+
+	results := m.callAllWorkers(memtableOperation, true)
+	allErrors := make([]error, 0)
+	for _, result := range results {
+		allErrors = append(allErrors, result.errors...)
+	}
+
+	return allErrors
+}

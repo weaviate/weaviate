@@ -31,14 +31,52 @@ func (m *MemtableSingle) roaringSetAddList(key []byte, values []uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(values...), roaringset.NewBitmap()); err != nil {
+	additions := roaringset.NewBitmap(values...)
+	deletions := roaringset.NewBitmap()
+	if err := m.roaringSetAddCommitLog(key, additions, deletions); err != nil {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
+	m.roaringSet.InsertBitmaps(key, roaringset.Insert{Additions: values}, additions, deletions)
 
 	m.roaringSetAdjustMeta(len(values))
 	return nil
+}
+
+// KeyValue struct
+type KeyValue struct {
+	Key    []byte
+	Values []uint64
+}
+
+func (m *MemtableSingle) roaringSetAddListBatch(batch []KeyValue) []error {
+	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+		return []error{err}
+	}
+
+	// empty error slice
+	errs := []error{}
+
+	totalValueCount := 0
+
+	m.Lock()
+	defer m.Unlock()
+
+	for _, kv := range batch {
+		key := kv.Key
+		values := kv.Values
+		additions := roaringset.NewBitmap(values...)
+		deletions := roaringset.NewBitmap()
+		err := m.roaringSetAddCommitLog(key, additions, deletions)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		m.roaringSet.InsertBitmaps(key, roaringset.Insert{Additions: values}, additions, deletions)
+		totalValueCount += len(values)
+	}
+
+	m.roaringSetAdjustMeta(totalValueCount)
+	return errs
 }
 
 func (m *MemtableSingle) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
@@ -148,6 +186,17 @@ func (m *MemtableSingle) roaringSetAddCommitLog(key []byte, additions *sroar.Bit
 	}
 	return nil
 }
+
+/*
+func (m *MemtableSingle) roaringSetAddCommitLogBatch(keys []byte, additionss []*sroar.Bitmap, deletionss []*sroar.Bitmap) error {
+	if node, err := roaringset.NewSegmentNode(key, additions, deletions); err != nil {
+		return errors.Wrap(err, "create node for commit log")
+	} else if err := m.commitlog.addBatch(node); err != nil {
+		return errors.Wrap(err, "add node to commit log")
+	}
+	return nil
+}
+*/
 
 func (m *MemtableSingle) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
 	return m.roaringSet.FlattenInOrder()
