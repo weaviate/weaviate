@@ -158,6 +158,13 @@ func writeDigest(w io.Writer, d Digest) {
 	w.Write(b[:])
 }
 
+func (ht *HashTree) Sync() {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
+	ht.sync()
+}
+
 func (ht *HashTree) sync() {
 	if !ht.syncRequired(0) {
 		return
