@@ -34,7 +34,8 @@ import (
 func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, usesPropertiesMessage bool) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
-		Took: float32(tookSeconds),
+		Took:                    float32(tookSeconds),
+		GenerativeGroupedResult: new(string), // pointer to empty string
 	}
 
 	if searchParams.GroupBy != nil {
