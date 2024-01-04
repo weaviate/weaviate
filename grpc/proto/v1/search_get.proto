@@ -240,12 +240,22 @@ message SearchReply {
   repeated GroupByResult group_by_results = 4;
 }
 
+message RerankReply {
+  double score = 1;
+}
+
+message GenerativeReply {
+  string result = 1;
+}
+
 message GroupByResult {
   string name = 1;
   float min_distance = 2;
   float max_distance = 3;
   int64 number_of_objects = 4;
   repeated SearchResult objects = 5;
+  optional RerankReply rerank = 6;
+  optional GenerativeReply generative = 7;
 }
 
 message SearchResult {
