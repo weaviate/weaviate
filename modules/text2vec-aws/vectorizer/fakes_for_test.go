@@ -46,50 +46,60 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-type fakeSettings struct {
-	skippedProperty    string
-	vectorizeClassName bool
-	excludedProperty   string
-	service            string
-	region             string
-	model              string
-	endpoint           string
-	targetModel        string
-	targetVariant      string
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizeClassName    bool
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+	// module specific settings
+	service       string
+	region        string
+	model         string
+	endpoint      string
+	targetModel   string
+	targetVariant string
 }
 
-func (f *fakeSettings) PropertyIndexed(propName string) bool {
-	return f.skippedProperty != propName
+func (f fakeClassConfig) Class() map[string]interface{} {
+	if len(f.classConfig) > 0 {
+		return f.classConfig
+	}
+	classSettings := map[string]interface{}{
+		"vectorizeClassName": f.vectorizeClassName,
+		"service":            f.service,
+		"region":             f.region,
+		"model":              f.model,
+		"endpoint":           f.endpoint,
+		"targetModel":        f.targetModel,
+		"targetVariant":      f.targetVariant,
+	}
+	return classSettings
 }
 
-func (f *fakeSettings) VectorizePropertyName(propName string) bool {
-	return f.excludedProperty != propName
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
 }
 
-func (f *fakeSettings) VectorizeClassName() bool {
-	return f.vectorizeClassName
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
 }
 
-func (f *fakeSettings) Service() string {
-	return f.service
-}
-
-func (f *fakeSettings) Region() string {
-	return f.region
-}
-
-func (f *fakeSettings) Model() string {
-	return f.model
-}
-
-func (f *fakeSettings) Endpoint() string {
-	return f.endpoint
-}
-
-func (f *fakeSettings) TargetModel() string {
-	return f.targetModel
-}
-
-func (f *fakeSettings) TargetVariant() string {
-	return f.targetVariant
+func (f fakeClassConfig) Tenant() string {
+	return ""
 }
