@@ -16,9 +16,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+var errPropertyNotFound = errors.New("property not found")
 
 // AddClassProperty to an existing Class
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
@@ -104,72 +107,64 @@ func validateUserProp(class *models.Class, prop *models.Property) error {
 	return nil
 }
 
+func mergeObjectProperty(c *models.Class, p *models.Property) error {
+	var prop *models.Property
+	for i := range c.Properties {
+		if c.Properties[i].Name == p.Name {
+			prop = c.Properties[i]
+			break
+		}
+	}
+	if prop == nil {
+		return errPropertyNotFound
+	}
+
+	prop.NestedProperties, _ = schema.MergeRecursivelyNestedProperties(prop.NestedProperties, p.NestedProperties)
+	return nil
+}
+
 // MergeClassObjectProperty of an existing Class
 // Merges NestedProperties of incoming object/object[] property into existing one
-func (h *Handler) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
+func (h *Handler) MergeClassObjectProperty(
+	ctx context.Context,
+	principal *models.Principal,
+	className string,
+	prop *models.Property,
 ) error {
 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
 
-	// TODO-RAFT
+	class := h.metaReader.ReadOnlyClass(className)
+	prop.Name = schema.LowercaseFirstLetter(prop.Name)
+
+	// reuse setDefaults/validation/migrate methods coming from add property
+	// (empty existing names map, to validate existing updated property)
+	// TODO nested - refactor / cleanup setDefaults/validation/migrate methods
+	if err := h.setNewPropDefaults(class, prop); err != nil {
+		return err
+	}
+	if err := h.validateProperty(prop, className, map[string]bool{}, false); err != nil {
+		return err
+	}
+
+	// migrate only after validation in completed
+	migratePropertySettings(prop)
+
+	err = mergeObjectProperty(class, prop)
+	if err != nil {
+		return err
+	}
+
+	h.logger.WithField("action", "schema.update_object_property").Debugf("updating class %s after property merge", className)
+	err = h.metaWriter.UpdateClass(class, nil)
+	if err != nil {
+		return err
+	}
+
+	// TODO: implement MergeObjectProperty (needed for indexing/filtering)
+	// will result in a mismatch between schema and index if function below fails
+	// return h.migrator.MergeObjectProperty(ctx, className, prop)
 	return nil
-	// return h.mergeClassObjectProperty(ctx, class, property)
 }
-
-// func (h *Handler) mergeClassObjectProperty(ctx context.Context,
-// 	className string, prop *models.Property,
-// ) error {
-// 	return nil
-// h.Lock()
-// defer h.Unlock()
-
-// class, err := h.schemaCache.readOnlyClass(className)
-// if err != nil {
-// 	return err
-// }
-// prop.Name = schema.LowercaseFirstLetter(prop.Name)
-
-// // reuse setDefaults/validation/migrate methods coming from add property
-// // (empty existing names map, to validate existing updated property)
-// // TODO nested - refactor / cleanup setDefaults/validation/migrate methods
-// if err := h.setNewPropDefaults(class, prop); err != nil {
-// 	return err
-// }
-// if err := h.validateProperty(prop, className, map[string]bool{}, false); err != nil {
-// 	return err
-// }
-// // migrate only after validation in completed
-// migratePropertySettings(prop)
-
-// return h.mergeClassObjectPropertyApplyChanges(ctx, className, prop)
-// }
-
-// func (h *Handler) mergeClassObjectPropertyApplyChanges(ctx context.Context,
-// 	className string, prop *models.Property,
-// ) error {
-// 	return nil
-// class, err := h.schemaCache.mergeObjectProperty(className, prop)
-// if err != nil {
-// 	return err
-// }
-// metadata, err := json.Marshal(&class)
-// if err != nil {
-// 	return fmt.Errorf("marshal class %s: %w", className, err)
-// }
-// h.logger.
-// 	WithField("action", "schema.update_object_property").
-// 	Debug("saving updated schema to configuration store")
-// err = h.repo.UpdateClass(ctx, ClassPayload{Name: className, Metadata: metadata})
-// if err != nil {
-// 	return err
-// }
-// h.triggerSchemaUpdateCallbacks()
-
-// // TODO nested - implement MergeObjectProperty (needed for indexing/filtering)
-// // will result in a mismatch between schema and index if function below fails
-// // return h.migrator.MergeObjectProperty(ctx, className, prop)
-// return nil
-// }
