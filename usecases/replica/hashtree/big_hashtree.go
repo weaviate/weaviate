@@ -17,6 +17,7 @@ type BigHashTree interface {
 	Sync() BigHashTree
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
 	Reset() BigHashTree
+	Clone() BigHashTree
 }
 
 type BigHashTreeDiffReader interface {

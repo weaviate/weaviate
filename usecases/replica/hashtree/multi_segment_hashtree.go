@@ -131,3 +131,14 @@ func (ht *MultiSegmentHashTree) Reset() BigHashTree {
 	ht.hashtree.Reset()
 	return ht
 }
+
+func (ht *MultiSegmentHashTree) Clone() BigHashTree {
+	clone := &MultiSegmentHashTree{
+		segments: make([]Segment, len(ht.segments)),
+		hashtree: (ht.hashtree.Clone()).(*CompactHashTree),
+	}
+
+	copy(clone.segments, ht.segments)
+
+	return clone
+}
