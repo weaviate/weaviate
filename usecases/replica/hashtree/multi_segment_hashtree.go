@@ -13,6 +13,8 @@ package hashtree
 
 import "math"
 
+var _ BigHashTree = (*MultiSegmentHashTree)(nil)
+
 type Segment [2]uint64
 
 func NewSegment(start, size uint64) Segment {
@@ -75,7 +77,7 @@ func (ht *MultiSegmentHashTree) Height() int {
 	return ht.hashtree.Height()
 }
 
-func (ht *MultiSegmentHashTree) AggregateLeafWith(i uint64, val []byte) *MultiSegmentHashTree {
+func (ht *MultiSegmentHashTree) AggregateLeafWith(i uint64, val []byte) BigHashTree {
 	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 
 	return ht
@@ -116,11 +118,16 @@ func (ht *MultiSegmentHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 	panic("out of segment")
 }
 
+func (ht *MultiSegmentHashTree) Sync() BigHashTree {
+	ht.hashtree.Sync()
+	return ht
+}
+
 func (ht *MultiSegmentHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *MultiSegmentHashTree) Reset() *MultiSegmentHashTree {
+func (ht *MultiSegmentHashTree) Reset() BigHashTree {
 	ht.hashtree.Reset()
 	return ht
 }
