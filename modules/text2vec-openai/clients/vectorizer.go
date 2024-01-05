@@ -16,11 +16,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	vectorizer2 "github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 	"io"
 	"net/http"
 	"net/url"
 	"time"
+
+	vectorizer2 "github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
