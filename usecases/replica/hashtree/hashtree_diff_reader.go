@@ -16,37 +16,37 @@ import "errors"
 var ErrNoMoreDifferences = errors.New("no more differences")
 
 type HashTreeDiffReader struct {
-	diff         *Bitset
+	discriminant *Bitset
 	firstLeafPos int
 	pos          int
 }
 
-func (ht *HashTree) NewDiffReader(diff *Bitset) *HashTreeDiffReader {
-	if diff == nil || diff.Size() != NodesCount(ht.Height()) {
-		panic("illegal diff")
+func (ht *HashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
+	if discriminant == nil || discriminant.Size() != NodesCount(ht.Height()) {
+		panic("illegal discriminant")
 	}
 
 	firstLeafPos := NodesCount(ht.Height() - 1)
 
 	return &HashTreeDiffReader{
-		diff:         diff,
+		discriminant: discriminant,
 		firstLeafPos: firstLeafPos,
 		pos:          firstLeafPos,
 	}
 }
 
-func (r *HashTreeDiffReader) Next() (int, int, error) {
-	for ; r.pos < r.diff.Size() && !r.diff.IsSet(r.pos); r.pos++ {
+func (r *HashTreeDiffReader) Next() (uint64, uint64, error) {
+	for ; r.pos < r.discriminant.Size() && !r.discriminant.IsSet(r.pos); r.pos++ {
 	}
 
-	if r.pos == r.diff.Size() {
+	if r.pos == r.discriminant.Size() {
 		return 0, 0, ErrNoMoreDifferences
 	}
 
 	pos0 := r.pos
 
-	for ; r.pos < r.diff.Size() && r.diff.IsSet(r.pos); r.pos++ {
+	for ; r.pos < r.discriminant.Size() && r.discriminant.IsSet(r.pos); r.pos++ {
 	}
 
-	return pos0 - r.firstLeafPos, r.pos - 1 - r.firstLeafPos, nil
+	return uint64(pos0 - r.firstLeafPos), uint64(r.pos - 1 - r.firstLeafPos), nil
 }

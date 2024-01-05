@@ -13,17 +13,13 @@ package hashtree
 
 type SegmentedHashTreeDiffReader struct {
 	ht         *SegmentedHashTree
-	diffReader *CompactHashTreeDiffReader
+	diffReader AggregatedHashTreeDiffReader
 }
 
-func (ht *SegmentedHashTree) NewDiffReader(diffReader *CompactHashTreeDiffReader) *SegmentedHashTreeDiffReader {
-	if diffReader == nil {
-		panic("illegal diff reader")
-	}
-
+func (ht *SegmentedHashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
 	return &SegmentedHashTreeDiffReader{
 		ht:         ht,
-		diffReader: diffReader,
+		diffReader: ht.hashtree.NewDiffReader(discriminant),
 	}
 }
 

@@ -87,7 +87,7 @@ func TestSegmentedBigHashTree(t *testing.T) {
 	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
 	require.Equal(t, expectedHeight, ht.Height())
-	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.capacity)
+	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.(*CompactHashTree).capacity)
 
 	actualNumberOfElementsPerSegment := 1_000_000
 
@@ -115,17 +115,20 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 	ht1 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 	ht2 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
 
-	diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
-	require.NotNil(t, diffReader)
+
+	diffReader := ht1.NewDiffReader(diff)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
 	ht1.AggregateLeafWith(1_000, []byte("val1"))
 
-	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
+	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
+
+	diffReader = ht1.NewDiffReader(diff)
 
 	diff0, diff1, err := diffReader.Next()
 	require.NoError(t, err)
@@ -137,8 +140,10 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 
 	ht2.AggregateLeafWith(1_000, []byte("val1"))
 
-	diffReader, err = SegmentedHashTreeDiff(ht1, ht2)
+	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
+
+	diffReader = ht1.NewDiffReader(diff)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
@@ -162,9 +167,10 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	ht1 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
 	ht2 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
 
-	diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
-	require.NotNil(t, diffReader)
+
+	diffReader := ht1.NewDiffReader(diff)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
@@ -196,8 +202,10 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 		conciliated[l] = struct{}{}
 
-		diffReader, err := SegmentedHashTreeDiff(ht1, ht2)
+		diff, err := ht1.Diff(ht2)
 		require.NoError(t, err)
+
+		diffReader := ht1.NewDiffReader(diff)
 
 		diffCount = 0
 

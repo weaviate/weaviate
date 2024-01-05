@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/spaolacci/murmur3"
-	"github.com/square/go-jose/json"
 )
 
 var (
@@ -27,34 +26,7 @@ var (
 	ErrIllegalState     = errors.New("illegal state")
 )
 
-type Digest [2]uint64
-
-func (d *Digest) MarshalJSON() ([]byte, error) {
-	var b [16]byte
-
-	binary.LittleEndian.PutUint64(b[:], d[0])
-	binary.LittleEndian.PutUint64(b[8:], d[1])
-
-	return json.Marshal(b)
-}
-
-func (d *Digest) UnmarshalJSON(b []byte) error {
-	var bs [16]byte
-
-	err := json.Unmarshal(b, &bs)
-	if err != nil {
-		return err
-	}
-
-	if len(bs) != 16 {
-		return fmt.Errorf("invalid Digest serialization")
-	}
-
-	d[0] = binary.LittleEndian.Uint64(b)
-	d[1] = binary.LittleEndian.Uint64(b[8:])
-
-	return nil
-}
+var _ AggregatedHashTree = (*HashTree)(nil)
 
 // HashTree is a fixed-size hash tree with leaf aggregation and partial root recalculation.
 type HashTree struct {
@@ -113,7 +85,7 @@ func (ht *HashTree) Height() int {
 	return ht.height
 }
 
-func (ht *HashTree) AggregateLeafWith(i int, val []byte) *HashTree {
+func (ht *HashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
@@ -121,7 +93,7 @@ func (ht *HashTree) AggregateLeafWith(i int, val []byte) *HashTree {
 	ht.hash.Write(val)
 	valh1, valh2 := ht.hash.Sum128()
 
-	leaf := ht.innerNodesCount + i
+	leaf := ht.innerNodesCount + int(i)
 
 	// XOR with current leaf digest
 	ht.nodes[leaf][0] ^= valh1
@@ -133,7 +105,7 @@ func (ht *HashTree) AggregateLeafWith(i int, val []byte) *HashTree {
 	return ht
 }
 
-func (ht *HashTree) Reset() *HashTree {
+func (ht *HashTree) Reset() AggregatedHashTree {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
@@ -158,11 +130,13 @@ func writeDigest(w io.Writer, d Digest) {
 	w.Write(b[:])
 }
 
-func (ht *HashTree) Sync() {
+func (ht *HashTree) Sync() AggregatedHashTree {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
 	ht.sync()
+
+	return ht
 }
 
 func (ht *HashTree) sync() {
@@ -243,7 +217,7 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 	return n, nil
 }
 
-func (ht *HashTree) Clone() *HashTree {
+func (ht *HashTree) Clone() AggregatedHashTree {
 	clone := &HashTree{
 		height:          ht.height,
 		nodes:           make([]Digest, len(ht.nodes)),
