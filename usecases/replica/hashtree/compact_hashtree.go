@@ -11,11 +11,11 @@
 
 package hashtree
 
-var _ BigHashTree = (*CompactHashTree)(nil)
+var _ AggregatedHashTree = (*CompactHashTree)(nil)
 
 type CompactHashTree struct {
 	capacity uint64
-	hashtree *HashTree
+	hashtree AggregatedHashTree
 
 	// derived values from capacity and hashtree height
 	// kept here just to avoid recalculation
@@ -65,33 +65,33 @@ func (ht *CompactHashTree) Height() int {
 
 // AggregateLeafWith aggregates a new value into a shared leaf
 // Each compacted leaf is shared by a number of consecutive leaves
-func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) BigHashTree {
+func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
 	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 
 	return ht
 }
 
-func (ht *CompactHashTree) mapLeaf(i uint64) int {
+func (ht *CompactHashTree) mapLeaf(i uint64) uint64 {
 	if i >= ht.capacity {
 		panic("out of capacity")
 	}
 
 	if i < ht.leavesCountInExtendedGroups {
-		return int(i / ht.extendedGroupSize)
+		return i / ht.extendedGroupSize
 	} else {
-		return int((i - uint64(ht.extendedGroupsCount)) / ht.groupSize)
+		return (i - uint64(ht.extendedGroupsCount)) / ht.groupSize
 	}
 }
 
-func (ht *CompactHashTree) unmapLeaf(mappedLeaf int) uint64 {
-	if mappedLeaf < ht.extendedGroupsCount {
-		return uint64(mappedLeaf) * ht.extendedGroupSize
+func (ht *CompactHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
+	if mappedLeaf < uint64(ht.extendedGroupsCount) {
+		return mappedLeaf * ht.extendedGroupSize
 	}
 
-	return uint64(mappedLeaf)*ht.groupSize + uint64(ht.extendedGroupsCount)
+	return mappedLeaf*ht.groupSize + uint64(ht.extendedGroupsCount)
 }
 
-func (ht *CompactHashTree) Sync() BigHashTree {
+func (ht *CompactHashTree) Sync() AggregatedHashTree {
 	ht.hashtree.Sync()
 	return ht
 }
@@ -100,12 +100,12 @@ func (ht *CompactHashTree) Level(level int, discriminant *Bitset, digests []Dige
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *CompactHashTree) Reset() BigHashTree {
+func (ht *CompactHashTree) Reset() AggregatedHashTree {
 	ht.hashtree.Reset()
 	return ht
 }
 
-func (ht *CompactHashTree) Clone() BigHashTree {
+func (ht *CompactHashTree) Clone() AggregatedHashTree {
 	clone := &CompactHashTree{
 		capacity: ht.capacity,
 		hashtree: ht.hashtree.Clone(),
