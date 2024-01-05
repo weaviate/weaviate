@@ -113,11 +113,11 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 func makeAddLogging(logger logrus.FieldLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// logger.
-			// 	WithField("action", "restapi_request").
-			// 	WithField("method", r.Method).
-			// 	WithField("url", r.URL).
-			// 	Debug("received HTTP request")
+			logger.
+				WithField("action", "restapi_request").
+				WithField("method", r.Method).
+				WithField("url", r.URL).
+				Debug("received HTTP request")
 			next.ServeHTTP(w, r)
 		})
 	}

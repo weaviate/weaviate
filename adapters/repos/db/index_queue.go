@@ -15,7 +15,6 @@ import (
 	"container/list"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"runtime"
 	"sync"
@@ -1064,16 +1063,6 @@ type onDiskIndexQueue struct {
 
 		m map[uint64]struct{}
 	}
-
-	stats struct {
-		sync.Mutex
-
-		prefetch     uint64
-		fromPrefetch uint64
-		fromDisk     uint64
-		directSend   uint64
-		busySend     uint64
-	}
 }
 
 func newOnDiskIndexQueue(q *IndexQueue) *onDiskIndexQueue {
@@ -1102,33 +1091,6 @@ func (q *onDiskIndexQueue) Start(ctx context.Context) {
 			}
 
 			q.logger.WithError(err).Error("on-disk index queue stopped")
-		}
-	}()
-
-	go func() {
-		t := time.NewTicker(5 * time.Second)
-		defer t.Stop()
-
-		for {
-			select {
-			case <-t.C:
-				q.stats.Lock()
-				fromPrefetch := q.stats.fromPrefetch
-				fromDisk := q.stats.fromDisk
-				prefetch := q.stats.prefetch
-				directSend := q.stats.directSend
-				busySend := q.stats.busySend
-				q.stats.Unlock()
-
-				q.logger.WithField("from_prefetch", fromPrefetch).
-					WithField("from_disk", fromDisk).
-					WithField("prefetch", prefetch).
-					WithField("direct_send", directSend).
-					WithField("busy_send", busySend).
-					Debug("on-disk index queue stats")
-			case <-ctx.Done():
-				return
-			}
 		}
 	}()
 }
@@ -1187,9 +1149,6 @@ func (q *onDiskIndexQueue) run(ctx context.Context) error {
 		}
 
 		if q.sendIfAvailable(ctx, job) {
-			q.stats.Lock()
-			q.stats.directSend++
-			q.stats.Unlock()
 			// job sent, do not wait and send the next one
 			continue
 		}
@@ -1205,10 +1164,6 @@ func (q *onDiskIndexQueue) run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		q.stats.Lock()
-		q.stats.busySend++
-		q.stats.Unlock()
-
 	}
 }
 
@@ -1248,16 +1203,8 @@ func (q *onDiskIndexQueue) prefetch(ctx context.Context) error {
 		return nil
 	}
 
-	// prefetchSize := q.batchSize - len(q.prefetched)
 	prefetchSize := q.batchSize * 10
 
-	// if prefetchSize <= 0 {
-	// 	return nil
-	// }
-
-	q.stats.Lock()
-	q.stats.prefetch++
-	q.stats.Unlock()
 	var err error
 
 	for {
@@ -1327,9 +1274,6 @@ func (q *onDiskIndexQueue) waitForBatch(ctx context.Context) error {
 }
 
 // loadJob creates a job either from the prefetched vectors or from disk.
-// The returned pace function is used to wait for the job to be indexed before
-// moving to the next one. This is used during imports to prevent contention
-// on the LSM store.
 func (q *onDiskIndexQueue) loadJob(ctx context.Context) (j *job, err error) {
 	j = &job{
 		indexer: q.Index,
@@ -1339,11 +1283,7 @@ func (q *onDiskIndexQueue) loadJob(ctx context.Context) (j *job, err error) {
 
 	// use prefetched vectors if any
 	if len(q.prefetched) > 0 {
-		q.stats.Lock()
-		q.stats.fromPrefetch++
-		q.stats.Unlock()
 		vectors := make([]vectorDescriptor, 0, len(q.prefetched))
-		// for _, v := range q.prefetched {
 		i := 0
 		for ; i < q.batchSize && i < len(q.prefetched); i++ {
 			v := q.prefetched[i]
@@ -1365,10 +1305,6 @@ func (q *onDiskIndexQueue) loadJob(ctx context.Context) (j *job, err error) {
 			return append(dst, vectors...)
 		}
 	} else {
-		q.stats.Lock()
-		q.stats.fromDisk++
-		q.stats.Unlock()
-
 		// load vectors from disk
 		vectors := make([]vectorDescriptor, 0, q.batchSize)
 		vectors, err = q.loadN(ctx, vectors, q.batchSize)
@@ -1401,7 +1337,8 @@ func (q *onDiskIndexQueue) loadJob(ctx context.Context) (j *job, err error) {
 	return j, nil
 }
 
-// load N vectors from disk, from the given cursor
+// load the next n vectors from disk.
+// the cursor is updated to the last loaded vector.
 func (q *onDiskIndexQueue) loadN(ctx context.Context, dst []vectorDescriptor, n int) ([]vectorDescriptor, error) {
 	maxDocID := q.shard.Counter().Get()
 
@@ -1497,12 +1434,10 @@ func (q *onDiskIndexQueue) commitCheckpoint(ids []uint64) {
 func (q *onDiskIndexQueue) pauseIndexing() {
 	q.paused.Store(true)
 	q.waitForBatch(q.ctx)
-	fmt.Println(">>> paused")
 }
 
 func (q *onDiskIndexQueue) resumeIndexing() {
 	q.paused.Store(false)
-	fmt.Println(">>> resumed")
 }
 
 // Size returns the approximate number of vectors waiting to be indexed.
@@ -1510,8 +1445,4 @@ func (q *onDiskIndexQueue) Size() int64 {
 	maxDocID := q.shard.Counter().Get()
 
 	return int64(maxDocID) - int64(q.cursor)
-}
-
-func (q *onDiskIndexQueue) Stats() (uint64, uint64) {
-	return q.stats.fromPrefetch, q.stats.fromDisk
 }

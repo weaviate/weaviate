@@ -13,8 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"math"
 	"runtime"
 	"runtime/debug"
@@ -174,8 +172,6 @@ func New(logger logrus.FieldLogger, config Config,
 		}
 	}
 
-	go reportIndexedCount(1_000_000)
-
 	return db, nil
 }
 
@@ -330,30 +326,6 @@ type job struct {
 	commit     func(ids []uint64)
 }
 
-var indexed atomic.Int64
-var indexingStartedAt time.Time
-
-func reportIndexedCount(target int64) {
-	for {
-		t := time.NewTimer(5 * time.Second)
-		<-t.C
-		if indexed.Load() == 0 {
-			continue
-		}
-
-		if indexingStartedAt.IsZero() {
-			indexingStartedAt = time.Now()
-		}
-
-		count := indexed.Load()
-		if count >= target {
-			log.Println("----->>> INDEXED DONE:", count, "in", time.Since(indexingStartedAt))
-		} else {
-			log.Println("----->>> INDEXED: ", count, "in", time.Since(indexingStartedAt))
-		}
-	}
-}
-
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
 	var desc []vectorDescriptor
 	var ids []uint64
@@ -371,10 +343,8 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 		if len(ids) > 0 {
 		LOOP:
 			for {
-				fmt.Println("INDEXING BATCH", len(ids))
 				err = job.indexer.AddBatch(job.ctx, ids, vectors)
 				if err == nil {
-					indexed.Add(int64(len(ids)))
 					break LOOP
 				}
 
