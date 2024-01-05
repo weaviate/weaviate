@@ -13,7 +13,7 @@ package lsmkv
 
 import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 
-func (m *Memtable) newRoaringSetCursor() roaringset.InnerCursor {
+func (m *MemtableSingle) newRoaringSetCursor() roaringset.InnerCursor {
 	m.RLock()
 	defer m.RUnlock()
 

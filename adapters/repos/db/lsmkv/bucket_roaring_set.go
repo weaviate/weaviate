@@ -29,6 +29,17 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 	return b.active.roaringSetAddOne(key, value)
 }
 
+func (b *Bucket) RoaringSetAddBatch(keyValues []KeyValue) []error {
+	if err := checkStrategyRoaringSet(b.strategy); err != nil {
+		return []error{err}
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.roaringSetAddListBatch(keyValues)
+}
+
 func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 	if err := checkStrategyRoaringSet(b.strategy); err != nil {
 		return err
@@ -51,6 +62,17 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 	return b.active.roaringSetAddList(key, values)
 }
 
+func (b *Bucket) RoaringSetRemoveList(key []byte, values []uint64) error {
+	if err := checkStrategyRoaringSet(b.strategy); err != nil {
+		return err
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.roaringSetRemoveList(key, values)
+}
+
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := checkStrategyRoaringSet(b.strategy); err != nil {
 		return err
@@ -60,6 +82,28 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.roaringSetAddBitmap(key, bm)
+}
+
+func (b *Bucket) RoaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
+	if err := checkStrategyRoaringSet(b.strategy); err != nil {
+		return err
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.roaringSetRemoveBitmap(key, bm)
+}
+
+func (b *Bucket) RoaringSetAddRemoveBitmaps(key []byte, additions, deletions *sroar.Bitmap) error {
+	if err := checkStrategyRoaringSet(b.strategy); err != nil {
+		return err
+	}
+
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.roaringSetAddRemoveBitmaps(key, additions, deletions)
 }
 
 func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {

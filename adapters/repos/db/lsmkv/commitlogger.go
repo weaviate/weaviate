@@ -169,7 +169,10 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
-	return os.Remove(cl.path)
+	if stat, _ := os.Stat(cl.path); stat != nil {
+		return os.Remove(cl.path)
+	}
+	return nil
 }
 
 func (cl *commitLogger) flushBuffers() error {

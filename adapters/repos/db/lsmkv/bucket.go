@@ -35,8 +35,8 @@ import (
 type Bucket struct {
 	dir      string
 	rootDir  string
-	active   *Memtable
-	flushing *Memtable
+	active   Memtable
+	flushing Memtable
 	disk     *SegmentGroup
 	logger   logrus.FieldLogger
 
@@ -847,6 +847,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	if err := b.active.flush(); err != nil {
 		return err
 	}
+	if b.active != nil {
+		b.active.closeRequestChannels()
+	}
 	b.flushLock.Unlock()
 
 	if b.flushing == nil {
@@ -872,10 +875,12 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.commitlog.Size()
-	memtableTooLarge := b.active.Size() >= b.memtableThreshold
+
+	commitLogSize := b.active.CommitlogSizeHighest()
+	memtableSize := b.active.SizeHighest()
+	memtableTooLarge := memtableSize >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
+	dirtyButIdle := (memtableSize > 0 || commitLogSize > 0) &&
 		b.active.IdleDuration() >= b.flushAfterIdle
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
 
@@ -973,9 +978,13 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
-	path := b.flushing.path
+	path := b.flushing.Path()
 	if err := b.disk.add(path + ".db"); err != nil {
 		return err
+	}
+
+	if b.flushing != nil {
+		b.flushing.closeRequestChannels()
 	}
 	b.flushing = nil
 
@@ -991,7 +1000,9 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 func (b *Bucket) atomicallySwitchMemtable() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
-
+	if b.flushing != nil {
+		b.flushing.closeRequestChannels()
+	}
 	b.flushing = b.active
 	return b.setNewActiveMemtable()
 }

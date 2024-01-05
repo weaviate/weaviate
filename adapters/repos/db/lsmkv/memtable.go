@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-type Memtable struct {
+type MemtableSingle struct {
 	sync.RWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
@@ -39,15 +40,15 @@ type Memtable struct {
 	metrics            *memtableMetrics
 }
 
-func newMemtable(path string, strategy string,
+func newMemtableSingle(path string, strategy string,
 	secondaryIndices uint16, metrics *Metrics,
-) (*Memtable, error) {
+) (*MemtableSingle, error) {
 	cl, err := newCommitLogger(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	m := &Memtable{
+	m := &MemtableSingle{
 		key:              &binarySearchTree{},
 		keyMulti:         &binarySearchTreeMulti{},
 		keyMap:           &binarySearchTreeMap{},
@@ -74,7 +75,7 @@ func newMemtable(path string, strategy string,
 	return m, nil
 }
 
-func (m *Memtable) get(key []byte) ([]byte, error) {
+func (m *MemtableSingle) get(key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.get(start.UnixNano())
 
@@ -93,7 +94,7 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
+func (m *MemtableSingle) getBySecondary(pos int, key []byte) ([]byte, error) {
 	start := time.Now()
 	defer m.metrics.getBySecondary(start.UnixNano())
 
@@ -117,7 +118,7 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
+func (m *MemtableSingle) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
 	defer m.metrics.put(start.UnixNano())
 
@@ -165,7 +166,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	return nil
 }
 
-func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
+func (m *MemtableSingle) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	start := time.Now()
 	defer m.metrics.setTombstone(start.UnixNano())
 
@@ -204,7 +205,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 	return nil
 }
 
-func (m *Memtable) getCollection(key []byte) ([]value, error) {
+func (m *MemtableSingle) getCollection(key []byte) ([]value, error) {
 	start := time.Now()
 	defer m.metrics.getCollection(start.UnixNano())
 
@@ -224,7 +225,7 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	return v, nil
 }
 
-func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
+func (m *MemtableSingle) getMap(key []byte) ([]MapPair, error) {
 	start := time.Now()
 	defer m.metrics.getMap(start.UnixNano())
 
@@ -244,7 +245,7 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	return v, nil
 }
 
-func (m *Memtable) append(key []byte, values []value) error {
+func (m *MemtableSingle) append(key []byte, values []value) error {
 	start := time.Now()
 	defer m.metrics.append(start.UnixNano())
 
@@ -273,7 +274,7 @@ func (m *Memtable) append(key []byte, values []value) error {
 	return nil
 }
 
-func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
+func (m *MemtableSingle) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.appendMapSorted(start.UnixNano())
 
@@ -310,28 +311,32 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	return nil
 }
 
-func (m *Memtable) Size() uint64 {
+func (m *MemtableSingle) Size() uint64 {
 	m.RLock()
 	defer m.RUnlock()
 
 	return m.size
 }
 
-func (m *Memtable) ActiveDuration() time.Duration {
+func (m *MemtableSingle) SizeHighest() uint64 {
+	return m.Size()
+}
+
+func (m *MemtableSingle) ActiveDuration() time.Duration {
 	m.RLock()
 	defer m.RUnlock()
 
 	return time.Since(m.createdAt)
 }
 
-func (m *Memtable) IdleDuration() time.Duration {
+func (m *MemtableSingle) IdleDuration() time.Duration {
 	m.RLock()
 	defer m.RUnlock()
 
 	return time.Since(m.lastWrite)
 }
 
-func (m *Memtable) countStats() *countStats {
+func (m *MemtableSingle) countStats() *countStats {
 	m.RLock()
 	defer m.RUnlock()
 	return m.key.countStats()
@@ -343,9 +348,110 @@ func (m *Memtable) countStats() *countStats {
 // on the WAL just once. This does not make a batch atomic, but it guarantees
 // that the WAL is written before a successful response is returned to the
 // user.
-func (m *Memtable) writeWAL() error {
+func (m *MemtableSingle) writeWAL() error {
 	m.Lock()
 	defer m.Unlock()
 
 	return m.commitlog.flushBuffers()
+}
+
+func (m *MemtableSingle) Commitlog() *commitLogger {
+	return m.commitlog
+}
+
+func (m *MemtableSingle) CommitlogClose() error {
+	return m.commitlog.close()
+}
+
+func (m *MemtableSingle) CommitlogDelete() error {
+	return m.commitlog.delete()
+}
+
+func (m *MemtableSingle) CommitlogPath() string {
+	return m.commitlog.path
+}
+
+func (m *MemtableSingle) CommitlogFileSize() (int64, error) {
+	stat, err := m.Commitlog().file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	return stat.Size(), nil
+}
+
+func (m *MemtableSingle) CommitlogPause() {
+	m.commitlog.pause()
+}
+
+func (m *MemtableSingle) CommitlogUnpause() {
+	m.commitlog.unpause()
+}
+
+func (m *MemtableSingle) CommitlogUpdatePath(bucketDir, newBucketDir string) {
+	updatePath := func(src string) string {
+		return strings.Replace(src, bucketDir, newBucketDir, 1)
+	}
+	m.SetPath(updatePath(m.Path()))
+	m.Commitlog().path = updatePath(m.Commitlog().path)
+}
+
+func (m *MemtableSingle) CommitlogSizeHighest() int64 {
+	return m.commitlog.Size()
+}
+
+func (m *MemtableSingle) CommitlogSize() int64 {
+	return m.commitlog.Size()
+}
+
+func (m *MemtableSingle) RoaringSet() *roaringset.BinarySearchTree {
+	m.RLock()
+	defer m.RUnlock()
+	return m.roaringSet
+}
+
+func (m *MemtableSingle) Path() string {
+	return m.path
+}
+
+func (m *MemtableSingle) SecondaryIndices() uint16 {
+	return m.secondaryIndices
+}
+
+func (m *MemtableSingle) SetPath(path string) {
+	m.Lock()
+	defer m.Unlock()
+	m.path = path
+}
+
+func (m *MemtableSingle) UpdatePath(bucketDir, newBucketDir string) {
+	updatePath := func(src string) string {
+		return strings.Replace(src, bucketDir, newBucketDir, 1)
+	}
+	m.SetPath(updatePath(m.Path()))
+}
+
+func (m *MemtableSingle) closeRequestChannels() {
+	// This function is intentionally left empty.
+}
+
+func (m *MemtableSingle) flattenInOrderKey() []*binarySearchNode {
+	m.RLock()
+	defer m.RUnlock()
+	return m.key.flattenInOrder()
+}
+
+func (m *MemtableSingle) flattenInOrderKeyMulti() []*binarySearchNodeMulti {
+	m.RLock()
+	defer m.RUnlock()
+	return m.keyMulti.flattenInOrder()
+}
+
+func (m *MemtableSingle) flattenInOrderKeyMap() []*binarySearchNodeMap {
+	m.RLock()
+	defer m.RUnlock()
+	return m.keyMap.flattenInOrder()
+}
+
+func (m *MemtableSingle) Strategy() string {
+	return m.strategy
 }

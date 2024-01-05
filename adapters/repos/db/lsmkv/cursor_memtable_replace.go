@@ -24,7 +24,7 @@ type memtableCursor struct {
 	unlock  func()
 }
 
-func (m *Memtable) newCursor() innerCursorReplace {
+func (m *MemtableSingle) newCursor() innerCursorReplace {
 	// This cursor is a really primitive approach, it actually requires
 	// flattening the entire memtable - even if the cursor were to point to the
 	// very last element. However, given that the memtable will on average be

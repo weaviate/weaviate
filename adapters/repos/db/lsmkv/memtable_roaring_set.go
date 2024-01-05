@@ -19,11 +19,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
-func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
+func (m *MemtableSingle) roaringSetAddOne(key []byte, value uint64) error {
 	return m.roaringSetAddList(key, []uint64{value})
 }
 
-func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
+func (m *MemtableSingle) roaringSetAddList(key []byte, values []uint64) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
@@ -31,17 +31,55 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(values...), roaringset.NewBitmap()); err != nil {
+	additions := roaringset.NewBitmap(values...)
+	deletions := roaringset.NewBitmap()
+	if err := m.roaringSetAddCommitLog(key, additions, deletions); err != nil {
 		return err
 	}
 
-	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
+	m.roaringSet.InsertBitmaps(key, roaringset.Insert{Additions: values}, additions, deletions)
 
 	m.roaringSetAdjustMeta(len(values))
 	return nil
 }
 
-func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
+// KeyValue struct
+type KeyValue struct {
+	Key    []byte
+	Values []uint64
+}
+
+func (m *MemtableSingle) roaringSetAddListBatch(batch []KeyValue) []error {
+	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+		return []error{err}
+	}
+
+	// empty error slice
+	errs := []error{}
+
+	totalValueCount := 0
+
+	m.Lock()
+	defer m.Unlock()
+
+	for _, kv := range batch {
+		key := kv.Key
+		values := kv.Values
+		additions := roaringset.NewBitmap(values...)
+		deletions := roaringset.NewBitmap()
+		err := m.roaringSetAddCommitLog(key, additions, deletions)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		m.roaringSet.InsertBitmaps(key, roaringset.Insert{Additions: values}, additions, deletions)
+		totalValueCount += len(values)
+	}
+
+	m.roaringSetAdjustMeta(totalValueCount)
+	return errs
+}
+
+func (m *MemtableSingle) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
@@ -59,11 +97,11 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return nil
 }
 
-func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
+func (m *MemtableSingle) roaringSetRemoveOne(key []byte, value uint64) error {
 	return m.roaringSetRemoveList(key, []uint64{value})
 }
 
-func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
+func (m *MemtableSingle) roaringSetRemoveList(key []byte, values []uint64) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
@@ -81,7 +119,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	return nil
 }
 
-func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
+func (m *MemtableSingle) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
@@ -99,7 +137,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 	return nil
 }
 
-func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
+func (m *MemtableSingle) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
@@ -120,7 +158,7 @@ func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitma
 	return nil
 }
 
-func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (m *MemtableSingle) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
@@ -131,7 +169,7 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	return m.roaringSet.Get(key)
 }
 
-func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
+func (m *MemtableSingle) roaringSetAdjustMeta(entriesChanged int) {
 	// in the worst case roaring bitmaps take 2 bytes per entry. A reasonable
 	// estimation is therefore to take the changed entries and multiply them by
 	// 2.
@@ -140,11 +178,26 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 	m.lastWrite = time.Now()
 }
 
-func (m *Memtable) roaringSetAddCommitLog(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
+func (m *MemtableSingle) roaringSetAddCommitLog(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
 	if node, err := roaringset.NewSegmentNode(key, additions, deletions); err != nil {
 		return errors.Wrap(err, "create node for commit log")
 	} else if err := m.commitlog.add(node); err != nil {
 		return errors.Wrap(err, "add node to commit log")
 	}
 	return nil
+}
+
+/*
+func (m *MemtableSingle) roaringSetAddCommitLogBatch(keys []byte, additionss []*sroar.Bitmap, deletionss []*sroar.Bitmap) error {
+	if node, err := roaringset.NewSegmentNode(key, additions, deletions); err != nil {
+		return errors.Wrap(err, "create node for commit log")
+	} else if err := m.commitlog.addBatch(node); err != nil {
+		return errors.Wrap(err, "add node to commit log")
+	}
+	return nil
+}
+*/
+
+func (m *MemtableSingle) flattenNodesRoaringSet() []*roaringset.BinarySearchNode {
+	return m.roaringSet.FlattenInOrder()
 }

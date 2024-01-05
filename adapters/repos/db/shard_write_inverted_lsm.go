@@ -75,12 +75,26 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 			return errors.Errorf("no bucket for prop '%s' found", property.Name)
 		}
 
+		keyValues := make([]lsmkv.KeyValue, len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			if bucketValue.Strategy() == lsmkv.StrategySetCollection {
+				if err := s.addToPropertySetBucket(bucketValue, docID, key); err != nil {
+					return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				}
+			} else {
+				keyValues = append(keyValues, lsmkv.KeyValue{
+					Key:    key,
+					Values: []uint64{docID},
+				})
 			}
 		}
+		if bucketValue.Strategy() != lsmkv.StrategySetCollection {
+			if errs := s.addToPropertySetBucketBatch(bucketValue, keyValues); len(errs) > 0 {
+				return errors.Wrapf(errs[0], "failed adding to prop '%s' value bucket", property.Name)
+			}
+		}
+
 	}
 
 	if property.HasSearchableIndex {
@@ -182,6 +196,23 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	}
 
 	return bucket.RoaringSetAddOne(key, docID)
+}
+
+func (s *Shard) addToPropertySetBucketBatch(bucket *lsmkv.Bucket, keyValues []lsmkv.KeyValue) []error {
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+
+	if bucket.Strategy() == lsmkv.StrategySetCollection {
+		for _, kv := range keyValues {
+			docIDBytes := make([]byte, 8)
+			binary.LittleEndian.PutUint64(docIDBytes, kv.Values[0])
+
+			if err := bucket.SetAdd(kv.Key, [][]byte{docIDBytes}); err != nil {
+				return []error{err}
+			}
+		}
+	}
+
+	return bucket.RoaringSetAddBatch(keyValues)
 }
 
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,

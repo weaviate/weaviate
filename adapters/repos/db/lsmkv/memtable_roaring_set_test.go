@@ -51,11 +51,11 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Additions.Contains(3))
 		assert.True(t, setKey2.Additions.Contains(4))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("inserting lists", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		m, err := newMemtableSingle(memPath(), StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -78,11 +78,11 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Additions.Contains(3))
 		assert.True(t, setKey2.Additions.Contains(4))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("inserting bitmaps", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		m, err := newMemtableSingle(memPath(), StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -107,11 +107,11 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Additions.Contains(3))
 		assert.True(t, setKey2.Additions.Contains(4))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("removing individual entries", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		m, err := newMemtableSingle(memPath(), StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -130,11 +130,11 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.False(t, setKey2.Additions.Contains(8))
 		assert.True(t, setKey2.Deletions.Contains(8))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("removing lists", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		m, err := newMemtableSingle(memPath(), StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -157,11 +157,11 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Deletions.Contains(9))
 		assert.True(t, setKey2.Deletions.Contains(10))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("removing bitmaps", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		m, err := newMemtableSingle(memPath(), StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -184,11 +184,11 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Deletions.Contains(9))
 		assert.True(t, setKey2.Deletions.Contains(10))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 
 	t.Run("adding/removing bitmaps", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		m, err := newMemtableSingle(memPath(), StrategyRoaringSet, 0, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -217,6 +217,6 @@ func TestMemtableRoaringSet(t *testing.T) {
 		assert.True(t, setKey2.Deletions.Contains(9))
 		assert.True(t, setKey2.Deletions.Contains(10))
 
-		require.Nil(t, m.commitlog.close())
+		require.Nil(t, m.CommitlogClose())
 	})
 }

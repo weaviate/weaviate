@@ -14,6 +14,7 @@ package roaringset
 import (
 	"bytes"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -41,6 +42,25 @@ func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 	}
 
 	if newRoot := t.root.insert(key, values); newRoot != nil {
+		t.root = newRoot
+	}
+	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
+}
+
+func (t *BinarySearchTree) InsertBitmaps(key []byte, values Insert, additions *sroar.Bitmap, deletions *sroar.Bitmap) {
+	if t.root == nil {
+		t.root = &BinarySearchNode{
+			Key: key,
+			Value: BitmapLayer{
+				Additions: additions,
+				Deletions: deletions,
+			},
+			colourIsRed: false, // root node is always black
+		}
+		return
+	}
+
+	if newRoot := t.root.insertBitmaps(key, values, additions, deletions); newRoot != nil {
 		t.root = newRoot
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
@@ -204,6 +224,65 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 				Value: BitmapLayer{
 					Additions: NewBitmap(values.Additions...),
 					Deletions: NewBitmap(values.Deletions...),
+				},
+				parent:      n,
+				colourIsRed: true,
+			}
+			return BinarySearchNodeFromRB(rbtree.Rebalance(n.right))
+		}
+	}
+}
+
+func (n *BinarySearchNode) insertBitmaps(key []byte, values Insert, additions *sroar.Bitmap, deletions *sroar.Bitmap) *BinarySearchNode {
+	if bytes.Equal(key, n.Key) {
+		// Merging the new additions and deletions into the existing ones is a
+		// four-step process:
+		//
+		// 1. make sure anything that's added is not part of the deleted list, in
+		//    case it was previously deleted
+		// 2. actually add the new entries to additions
+		// 3. make sure anything that's deleted is not part of the additions list,
+		//    in case it was recently added
+		// 4. actually add the new entries to deletions (this step is vital in case
+		//    a delete points to an entry of a previous segment that's not added in
+		//    this memtable)
+		for _, x := range values.Additions {
+			n.Value.Deletions.Remove(x)
+			n.Value.Additions.Set(x)
+		}
+
+		for _, x := range values.Deletions {
+			n.Value.Additions.Remove(x)
+			n.Value.Deletions.Set(x)
+		}
+
+		return nil
+	}
+
+	if bytes.Compare(key, n.Key) < 0 {
+		if n.left != nil {
+			return n.left.insertBitmaps(key, values, additions, deletions)
+		} else {
+			n.left = &BinarySearchNode{
+				Key: key,
+				Value: BitmapLayer{
+					Additions: additions,
+					Deletions: deletions,
+				},
+				parent:      n,
+				colourIsRed: true,
+			}
+			return BinarySearchNodeFromRB(rbtree.Rebalance(n.left))
+		}
+	} else {
+		if n.right != nil {
+			return n.right.insertBitmaps(key, values, additions, deletions)
+		} else {
+			n.right = &BinarySearchNode{
+				Key: key,
+				Value: BitmapLayer{
+					Additions: additions,
+					Deletions: deletions,
 				},
 				parent:      n,
 				colourIsRed: true,

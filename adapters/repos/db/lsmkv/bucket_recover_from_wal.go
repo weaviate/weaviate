@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -47,7 +48,7 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
-		if filepath.Join(b.dir, fileInfo.Name()) == b.active.path+".wal" {
+		if strings.HasPrefix(filepath.Join(b.dir, fileInfo.Name()), b.active.Path()) {
 			// this is the new one which was just created
 			continue
 		}
@@ -75,7 +76,7 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 			Info("successfully recovered from write-ahead-log")
 	}
 
-	if b.active.size > 0 {
+	if b.active.Size() > 0 {
 		if err := b.FlushAndSwitch(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
 		}
@@ -95,8 +96,8 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 func (b *Bucket) parseWALIntoMemtable(fname string) error {
 	// pause commit logging while reading the old log to avoid creating a
 	// duplicate of the log
-	b.active.commitlog.pause()
-	defer b.active.commitlog.unpause()
+	b.active.CommitlogPause()
+	defer b.active.CommitlogUnpause()
 
 	err := newCommitLoggerParser(fname, b.active, b.strategy, b.metrics).Do()
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {

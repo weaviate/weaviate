@@ -96,7 +96,6 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 			logger.WithField("className", object.Class).
 				Warningf(warningSkipVectorProvided)
 		}
-
 		return nil
 	}
 
