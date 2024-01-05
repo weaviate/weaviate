@@ -53,9 +53,6 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 			}
 			out.GroupByResults[i] = group
 		}
-		if generativeSearchEnabled && *out.GenerativeGroupedResult == "" {
-			return nil, errors.New("No grouped results for generative search despite a search request. Is a generative module enabled?")
-		}
 	} else {
 		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesPropertiesMessage)
 		if err != nil {
@@ -162,9 +159,10 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 
 	if generativeSearchEnabled {
 		generate, ok := additionalPropertiesMap["generate"]
-		if !ok && firstObject {
+		if !ok {
 			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
 		}
+
 		generateFmt, ok := generate.(*models.GenerateResult)
 		if !ok {
 			return nil, "", errors.New("could not cast generative result additional prop")
@@ -179,14 +177,16 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		}
 
 		// grouped results are only added to the first object for GQL reasons
-		if firstObject && generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
+		// however, reranking can result in a different order, so we need to check every object
+		// recording the result if it's present assuming that it is at least somewhere and will be caught
+		if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
 			generativeGroupResults = *generateFmt.GroupedResult
 		}
 	}
 
 	if rerankEnabled {
 		rerank, ok := additionalPropertiesMap["rerank"]
-		if !ok && firstObject {
+		if !ok {
 			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
 		}
 		rerankFmt, ok := rerank.([]*models.RankResult)
@@ -331,25 +331,23 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
 		}
 
-		if ok {
-			generateFmt, ok := generate.(*models.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
-			if generateFmt.Error != nil {
-				return nil, "", generateFmt.Error
-			}
+		generateFmt, ok := generate.(*models.GenerateResult)
+		if !ok {
+			return nil, "", errors.New("could not cast generative result additional prop")
+		}
+		if generateFmt.Error != nil {
+			return nil, "", generateFmt.Error
+		}
 
-			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
-				ret.Generative = &pb.GenerativeReply{Result: *generateFmt.SingleResult}
-			}
+		if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
+			ret.Generative = &pb.GenerativeReply{Result: *generateFmt.SingleResult}
+		}
 
-			// grouped results are only added to the first object for GQL reasons
-			// however, reranking can result in a different order, so we need to check every object
-			// recording the result if it's present assuming that it is at least somewhere and will be caught
-			if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
-				groupedGenerativeResults = *generateFmt.GroupedResult
-			}
+		// grouped results are only added to the first object for GQL reasons
+		// however, reranking can result in a different order, so we need to check every object
+		// recording the result if it's present assuming that it is at least somewhere and will be caught
+		if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
+			groupedGenerativeResults = *generateFmt.GroupedResult
 		}
 	}
 
