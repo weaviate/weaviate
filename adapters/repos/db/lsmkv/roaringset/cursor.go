@@ -13,8 +13,8 @@ package roaringset
 
 import (
 	"bytes"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -87,7 +87,7 @@ func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) i
 		return innerCursorState{err: err}
 	}
 	if err != nil {
-		panic(errors.Wrap(err, "unexpected error"))
+		panic(fmt.Errorf("unexpected error: %w", err)) // TODO necessary?
 	}
 	state := innerCursorState{key: key}
 	state.layer = layer
