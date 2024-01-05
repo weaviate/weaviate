@@ -31,6 +31,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -769,8 +770,12 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
-				ID:           true,
-				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+				ID: true,
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Prompt: &refClass1,
+					},
+				},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
@@ -806,7 +811,11 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
-				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Prompt: &refClass1,
+					},
+				},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
@@ -842,8 +851,12 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
-				ID:           true,
-				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+				ID: true,
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Task: &refClass1,
+					},
+				},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
@@ -1008,8 +1021,11 @@ func TestGRPCReply(t *testing.T) {
 					ID:     true,
 					Vector: true,
 					ModuleParams: map[string]interface{}{
-						"generate": "must be present for extraction",
-						"rerank":   "must be present for extraction",
+						"generate": &generate.Params{
+							Prompt: &refClass1,
+							Task:   &refClass2,
+						},
+						"rerank": "must be present for extraction",
 					},
 				},
 				GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "name"},
