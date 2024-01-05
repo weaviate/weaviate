@@ -13,12 +13,12 @@ package hashtree
 
 import "math"
 
-var _ BigHashTree = (*SegmentedHashTree)(nil)
+var _ AggregatedHashTree = (*SegmentedHashTree)(nil)
 
 type SegmentedHashTree struct {
 	segmentSize uint64
 	segments    []uint64
-	hashtree    *CompactHashTree
+	hashtree    AggregatedHashTree
 }
 
 func NewSegmentedHashTree(segmentSize uint64, segments []uint64, maxHeight int) *SegmentedHashTree {
@@ -62,7 +62,7 @@ func (ht *SegmentedHashTree) Height() int {
 	return ht.hashtree.Height()
 }
 
-func (ht *SegmentedHashTree) AggregateLeafWith(i uint64, val []byte) BigHashTree {
+func (ht *SegmentedHashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
 	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 
 	return ht
@@ -85,7 +85,7 @@ func (ht *SegmentedHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 	return ht.segments[segment] + (mappedLeaf - segment*ht.segmentSize)
 }
 
-func (ht *SegmentedHashTree) Sync() BigHashTree {
+func (ht *SegmentedHashTree) Sync() AggregatedHashTree {
 	ht.hashtree.Sync()
 	return ht
 }
@@ -94,12 +94,12 @@ func (ht *SegmentedHashTree) Level(level int, discriminant *Bitset, digests []Di
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *SegmentedHashTree) Reset() BigHashTree {
+func (ht *SegmentedHashTree) Reset() AggregatedHashTree {
 	ht.hashtree.Reset()
 	return ht
 }
 
-func (ht *SegmentedHashTree) Clone() BigHashTree {
+func (ht *SegmentedHashTree) Clone() AggregatedHashTree {
 	clone := &SegmentedHashTree{
 		segmentSize: ht.segmentSize,
 		segments:    ht.segments,

@@ -11,28 +11,22 @@
 
 package hashtree
 
-func MultiSegmentHashTreeDiff(ht1, ht2 *MultiSegmentHashTree) (diffReader *MultiSegmentHashTreeDiffReader, err error) {
-	if ht1 == nil || ht2 == nil {
+func (ht *MultiSegmentHashTree) Diff(ht2 AggregatedHashTree) (discriminant *Bitset, err error) {
+	msht2, isMultiSegmentHashTree := ht2.(*MultiSegmentHashTree)
+
+	if ht2 == nil || !isMultiSegmentHashTree {
 		return nil, ErrIllegalArguments
 	}
 
-	r, err := CompactHashTreeDiff(ht1.hashtree, ht2.hashtree)
-	if err != nil {
-		return nil, err
-	}
-
-	return ht1.NewDiffReader(r), nil
+	return ht.hashtree.Diff(msht2.hashtree)
 }
 
-func MultiSegmentHashTreeDiffWith(ht1, ht2 *MultiSegmentHashTree, diff *Bitset, digests1, digests2 []Digest) (diffReader *MultiSegmentHashTreeDiffReader, err error) {
-	if ht1 == nil || ht2 == nil {
-		return nil, ErrIllegalArguments
+func (ht *MultiSegmentHashTree) DiffUsing(ht2 AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error {
+	msht2, isMultiSegmentHashTree := ht2.(*MultiSegmentHashTree)
+
+	if ht2 == nil || !isMultiSegmentHashTree {
+		return ErrIllegalArguments
 	}
 
-	r, err := CompactHashTreeDiffWith(ht1.hashtree, ht2.hashtree, diff, digests1, digests2)
-	if err != nil {
-		return nil, err
-	}
-
-	return ht1.NewDiffReader(r), nil
+	return ht.hashtree.DiffUsing(msht2.hashtree, discriminant, digests1, digests2)
 }

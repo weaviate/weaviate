@@ -13,95 +13,71 @@ package hashtree
 
 import "fmt"
 
-func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
-	var offset int
+func (ht *HashTree) Diff(ht2 AggregatedHashTree) (discriminant *Bitset, err error) {
+	_, isHashTree := ht2.(*HashTree)
 
-	if l > 0 {
-		offset = NodesCount(l)
-	}
-
-	n := 0
-
-	for j := 0; j < nodesAtLevel(l); j++ {
-		node := offset + j
-
-		if !discriminant.IsSet(node) {
-			continue
-		}
-
-		if digests1[n] == digests2[n] {
-			n++
-			discriminant.Unset(node)
-			continue
-		}
-
-		n++
-
-		leftChild := 2*node + 1
-		rightChild := 2*node + 2
-
-		if discriminant.Size() <= rightChild {
-			// node is a leaf
-			continue
-		}
-
-		discriminant.Set(leftChild)
-		discriminant.Set(rightChild)
-	}
-}
-
-func HashTreeDiff(ht1, ht2 *HashTree) (*HashTreeDiffReader, error) {
-	if ht1 == nil || ht2 == nil {
+	if ht2 == nil || !isHashTree {
 		return nil, ErrIllegalArguments
 	}
 
-	if ht1.Height() != ht2.Height() {
+	if ht.Height() != ht2.Height() {
 		return nil, fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
 	}
 
 	// init for comparison
-	diff := NewBitset(NodesCount(ht1.Height()))
+	discriminant = NewBitset(NodesCount(ht.Height()))
 
-	leavesCount := LeavesCount(ht1.Height())
+	leavesCount := LeavesCount(ht.Height())
 	digests1 := make([]Digest, leavesCount)
 	digests2 := make([]Digest, leavesCount)
 
-	return HashTreeDiffWith(ht1, ht2, diff, digests1, digests2)
+	err = ht.DiffUsing(ht2, discriminant, digests1, digests2)
+	if err != nil {
+		return nil, err
+	}
+
+	return discriminant, nil
 }
 
-func HashTreeDiffWith(ht1, ht2 *HashTree, diff *Bitset, digests1, digests2 []Digest) (*HashTreeDiffReader, error) {
-	if ht1 == nil || ht2 == nil || diff == nil {
-		return nil, ErrIllegalArguments
+func (ht *HashTree) DiffUsing(ht2 AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error {
+	_, isHashTree := ht2.(*HashTree)
+
+	if ht2 == nil || !isHashTree {
+		return ErrIllegalArguments
 	}
 
-	if ht1.Height() != ht2.Height() {
-		return nil, fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
+	if discriminant == nil {
+		return ErrIllegalArguments
 	}
 
-	if diff.Size() != NodesCount(ht1.Height()) {
-		return nil, fmt.Errorf("%w: diff bitset size should mismatch", ErrIllegalArguments)
+	if ht.Height() != ht2.Height() {
+		return fmt.Errorf("%w: hash trees of different heights are non-comparable", ErrIllegalArguments)
 	}
 
-	diff.Reset().Set(0) // init comparison at root level
+	if discriminant.Size() != NodesCount(ht.Height()) {
+		return fmt.Errorf("%w: diff bitset size should mismatch", ErrIllegalArguments)
+	}
 
-	for l := 0; l < ht1.Height(); l++ {
-		_, err := ht1.Level(l, diff, digests1)
+	discriminant.Reset().Set(0) // init comparison at root level
+
+	for l := 0; l < ht.Height(); l++ {
+		_, err := ht.Level(l, discriminant, digests1)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		_, err = ht2.Level(l, diff, digests2)
+		_, err = ht2.Level(l, discriminant, digests2)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		LevelDiff(l, diff, digests1, digests2)
+		LevelDiff(l, discriminant, digests1, digests2)
 
-		if diff.SetCount() == 0 {
+		if discriminant.SetCount() == 0 {
 			// no difference found
 			break
 		}
 	}
 
-	return ht1.NewDiffReader(diff), nil
+	return nil
 }

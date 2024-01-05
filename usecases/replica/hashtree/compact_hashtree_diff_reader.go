@@ -13,17 +13,13 @@ package hashtree
 
 type CompactHashTreeDiffReader struct {
 	ht         *CompactHashTree
-	diffReader *HashTreeDiffReader
+	diffReader AggregatedHashTreeDiffReader
 }
 
-func (ht *CompactHashTree) NewDiffReader(diffReader *HashTreeDiffReader) *CompactHashTreeDiffReader {
-	if diffReader == nil {
-		panic("illegal diff reader")
-	}
-
+func (ht *CompactHashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
 	return &CompactHashTreeDiffReader{
 		ht:         ht,
-		diffReader: diffReader,
+		diffReader: ht.hashtree.NewDiffReader(discriminant),
 	}
 }
 
@@ -35,7 +31,7 @@ func (r *CompactHashTreeDiffReader) Next() (uint64, uint64, error) {
 
 	var groupSize uint64
 
-	if mappedLeaf1 < r.ht.extendedGroupsCount {
+	if mappedLeaf1 < uint64(r.ht.extendedGroupsCount) {
 		groupSize = r.ht.extendedGroupSize
 	} else {
 		groupSize = r.ht.groupSize
