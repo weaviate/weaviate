@@ -40,7 +40,10 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	var id strfmt.UUID
 
 	shardState := singleShardState()
-	sg := &fakeSchemaGetter{shardState: shardState}
+	sg := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 
 	vrepo, err := db.New(logger, db.Config{
 		MemtablesFlushIdleAfter:   60,

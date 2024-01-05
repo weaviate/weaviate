@@ -18,7 +18,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -82,7 +81,7 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 	})
 
 	t.Run("Get global tenant objects count", func(t *testing.T) {
-		params := nodes.NewNodesGetClassParams().WithClassName(testClass.Class)
+		params := nodes.NewNodesGetClassParams().WithClassName(testClass.Class).WithOutput(&verbose)
 		resp, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
 		require.Nil(t, err)
 

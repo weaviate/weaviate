@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	testhelper "github.com/weaviate/weaviate/test/helper"
@@ -44,8 +45,8 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		CleanupIntervalSeconds: cleanupIntervalSeconds,
 		MaxConnections:         30,
 		EFConstruction:         128,
-	},
-		tombstoneCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, tombstoneCallbacks, cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	index.PostStartup()
 
 	require.Nil(t, err)

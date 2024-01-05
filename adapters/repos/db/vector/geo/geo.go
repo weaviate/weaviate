@@ -71,8 +71,7 @@ func NewIndex(config Config,
 		MaxConnections:         64,
 		EFConstruction:         128,
 		CleanupIntervalSeconds: hnswent.DefaultCleanupIntervalSeconds,
-	},
-		tombstoneCleanupCallbacks, compactionCallbacks, flushCallbacks)
+	}, tombstoneCleanupCallbacks, compactionCallbacks, flushCallbacks, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
 	}

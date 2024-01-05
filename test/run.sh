@@ -11,23 +11,30 @@ function main() {
   run_unit_tests=false
   run_integration_tests=false
   run_benchmark=false
+  run_module_only_backup_tests=false
+  run_module_except_backup_tests=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
-          --acceptance-only) run_all_tests=false; run_acceptance_tests=true ;;
-          --unit-and-integration-only) run_all_tests=false; run_unit_and_integration_tests=true;;
-          --unit-only) run_all_tests=false; run_unit_tests=true;;
-          --integration-only) run_all_tests=false; run_integration_tests=true;;
-          --benchmark-only) run_all_tests=false; run_benchmark=true;;
-          --acceptance-module-tests-only) run_all_tests=false; run_module_tests=true; echo $run_module_tests ;;
+          --unit-only|-u) run_all_tests=false; run_unit_tests=true;;
+          --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
+          --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
+          --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
+          --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
+          --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
+          --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
+          --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --help|-h) printf '%s\n' \
               "Options:"\
-              "--acceptance-only"\
-              "--unit-and-integration-only"\
-              "--unit-only-integration-only" \
-              "--benchmark-only" \
-              "--acceptance-module-tests-only"\
-              "--help|-h"; exit 1;;
+              "--unit-only | -u"\
+              "--unit-and-integration-only | -ui"\
+              "--integration-only | -i"\
+              "--acceptance-only | -a"\
+              "--acceptance-module-tests-only | --modules-only | -m"\
+              "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
+              "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
+              "--benchmark-only | -b" \
+              "--help | -h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
       esac
       shift
@@ -101,6 +108,7 @@ function main() {
     docker build --build-arg GITHASH="$GIT_HASH" -t $module_test_image .
     export "TEST_WEAVIATE_IMAGE"=$module_test_image
 
+    echo_green "Weaviate image successfully built, run module tests..."
     run_module_tests "$@"
     echo_green "Module acceptance tests successful"
   fi
@@ -129,14 +137,31 @@ function run_acceptance_tests() {
   ./test/acceptance/run.sh --include-slow
 }
 
+function run_module_only_backup_tests() {
+  for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_module_except_backup_tests() {
+  for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/backup'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
 function run_module_tests() {
-  # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/modules'); do
-      if ! go test -v -count 1 -race "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        return 1
-      fi
-    done
+  if $run_module_only_backup_tests; then
+    run_module_only_backup_tests "$@"
+  fi
+  if $run_module_except_backup_tests; then
+    run_module_except_backup_tests "$@"
+  fi
 }
 
 suppress_on_success() {

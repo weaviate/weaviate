@@ -143,8 +143,7 @@ func New(logger logrus.FieldLogger, config Config,
 		asyncIndexRetryInterval: 5 * time.Second,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
-		memMonitor: memwatch.NewMonitor(runtime.MemProfile,
-			debug.SetMemoryLimit, runtime.MemProfileRate, 0.97),
+		memMonitor:              memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97),
 	}
 
 	// make sure memMonitor has an initial state
@@ -160,6 +159,7 @@ func New(logger logrus.FieldLogger, config Config,
 			go db.worker(i == 0)
 		}
 	} else {
+		logger.Info("async indexing enabled")
 		w := runtime.GOMAXPROCS(0) - 1
 		db.shutDownWg.Add(w)
 		db.jobQueueCh = make(chan job, w)
@@ -191,6 +191,7 @@ type Config struct {
 	ServerVersion             string
 	GitHash                   string
 	AvoidMMap                 bool
+	DisableLazyLoadShards     bool
 	Replication               replication.GlobalConfig
 }
 
@@ -340,28 +341,42 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 				vectors = append(vectors, c.data[i].vector)
 			}
 		}
-	LOOP:
-		for {
-			err := job.indexer.AddBatch(ids, vectors)
-			if err == nil {
-				break LOOP
-			}
 
-			logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+		var err error
 
-			t := time.NewTimer(retryInterval)
-			select {
-			case <-job.ctx.Done():
-				// drain the timer
-				if !t.Stop() {
-					<-t.C
+		if len(ids) > 0 {
+		LOOP:
+			for {
+				err = job.indexer.AddBatch(job.ctx, ids, vectors)
+				if err == nil {
+					break LOOP
 				}
-				return
-			case <-t.C:
+
+				if errors.Is(err, context.Canceled) {
+					logger.WithError(err).Debugf("skipping indexing batch due to context cancellation")
+					break LOOP
+				}
+
+				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+
+				t := time.NewTimer(retryInterval)
+				select {
+				case <-job.ctx.Done():
+					// drain the timer
+					if !t.Stop() {
+						<-t.C
+					}
+					return
+				case <-t.C:
+				}
 			}
 		}
 
-		job.queue.persistCheckpoint(ids)
+		// only persist checkpoint if we indexed a full batch
+		if err == nil {
+			job.queue.persistCheckpoint(ids)
+		}
+
 		job.queue.releaseChunk(c)
 
 		if len(deleted) > 0 {

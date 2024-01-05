@@ -20,18 +20,10 @@ import (
 var (
 	ObjectsBucket              = []byte("objects")
 	ObjectsBucketLSM           = "objects"
-	CompressedObjectsBucketLSM = "compressed_objects"
-	VectorsFlatBucketLSM       = "vectors_flat"
-	VectorsFlatBQBucketLSM     = "vectors_flat_bq"
+	VectorsCompressedBucketLSM = "vectors_compressed"
+	VectorsBucketLSM           = "vectors"
 	DimensionsBucketLSM        = "dimensions"
-	DocIDBucket                = []byte("doc_ids")
 )
-
-// BucketFromPropName creates the byte-representation used as the bucket name
-// for a particular prop in the inverted index
-func BucketFromPropName(propName string) []byte {
-	return []byte(fmt.Sprintf("property_%s", propName))
-}
 
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
@@ -48,7 +40,7 @@ func PropNull(propName string) string {
 	return propName + filters.InternalNullIndex
 }
 
-// BucketFromPropName creates string used as the bucket name
+// BucketFromPropNameLSM creates string used as the bucket name
 // for a particular prop in the inverted index
 func BucketFromPropNameLSM(propName string) string {
 	return fmt.Sprintf("property_%s", propName)

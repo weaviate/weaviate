@@ -43,8 +43,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
-	}, enthnsw.NewDefaultUserConfig(),
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -73,8 +72,7 @@ func TestBackup_ListFiles(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
-	}, enthnsw.NewDefaultUserConfig(),
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
 	idx.PostStartup()
 

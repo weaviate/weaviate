@@ -14,15 +14,13 @@ package hnsw
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"io"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
@@ -117,40 +115,53 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	h.Lock()
+	h.shardedNodeLocks.LockAll()
 	h.nodes = state.Nodes
-	h.Unlock()
+	h.shardedNodeLocks.UnlockAll()
 
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint
+	h.Unlock()
 
 	h.tombstoneLock.Lock()
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
-	h.compressed.Store(state.Compressed)
-
 	if state.Compressed {
-		err := h.initCompressedStore()
-		if err != nil {
-			return err
-		}
+		h.compressed.Store(state.Compressed)
+		h.dims = int32(state.PQData.Dimensions)
 		h.cache.Drop()
 
-		h.pq, err = ssdhelpers.NewProductQuantizerWithEncoders(
-			h.pqConfig,
-			h.distancerProvider,
-			int(state.PQData.Dimensions),
-			state.PQData.Encoders,
-		)
-		if err != nil {
-			return errors.Wrap(err, "Restoring PQ data.")
+		if len(state.PQData.Encoders) > 0 {
+			// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
+			if h.pqConfig.Segments == 0 {
+				h.pqConfig.Segments = int(state.PQData.Dimensions)
+			}
+			h.compressor, err = compressionhelpers.RestorePQCompressor(
+				h.pqConfig,
+				h.distancerProvider,
+				int(state.PQData.Dimensions),
+				// ToDo: we need to read this value from somewhere
+				1e12,
+				h.logger,
+				state.PQData.Encoders,
+				h.store,
+			)
+			if err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
 		}
-
 		// make sure the compressed cache fits the current size
-		h.compressedVectorsCache.Grow(uint64(len(h.nodes)))
-	} else {
+		h.compressor.GrowCache(uint64(len(h.nodes)))
+	} else if !h.compressed.Load() {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(len(h.nodes)))
+
+		if len(h.nodes) > 0 {
+			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
+				h.dims = int32(len(vec))
+			}
+		}
 	}
 
 	// make sure the visited list pool fits the current size
@@ -182,7 +193,7 @@ func (h *hnsw) PostStartup() {
 func (h *hnsw) prefillCache() {
 	limit := 0
 	if h.compressed.Load() {
-		limit = int(h.compressedVectorsCache.CopyMaxSize())
+		limit = int(h.compressor.GetCacheMaxSize())
 	} else {
 		limit = int(h.cache.CopyMaxSize())
 	}
@@ -193,22 +204,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			cursor := h.compressedStore.Bucket(helpers.CompressedObjectsBucketLSM).Cursor()
-			for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-				id := binary.LittleEndian.Uint64(k)
-				h.compressedVectorsCache.Grow(id)
-
-				// Make sure to copy the vector. The cursor only guarantees that
-				// the underlying memory won't change until we hit .Next(). Since
-				// we want to keep this around in the cache "forever", we need to
-				// alloc some new memory and copy the vector.
-				//
-				// https://github.com/weaviate/weaviate/issues/3049
-				vc := make([]byte, len(v))
-				copy(vc, v)
-				h.compressedVectorsCache.Preload(id, vc)
-			}
-			cursor.Close()
+			h.compressor.PrefillCache()
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
 		}

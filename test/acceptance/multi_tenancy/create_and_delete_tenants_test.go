@@ -19,8 +19,11 @@ import (
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+var verbose = verbosity.OutputVerbose
 
 func TestCreateTenants(t *testing.T) {
 	testClass := models.Class{
@@ -60,7 +63,7 @@ func TestCreateTenants(t *testing.T) {
 		require.NotNil(t, respGet)
 		require.ElementsMatch(t, respGet.Payload, tenants)
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
@@ -126,7 +129,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.Nil(t, err)
 
 		// deleted once
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
@@ -146,7 +149,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.Nil(t, err)
 
 		// deleted once
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
@@ -159,7 +162,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.Nil(t, err)
 
 		// idempotent - deleting multiple times works - tenant1 is removed
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
@@ -172,7 +175,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.Nil(t, err)
 
 		// successfully deleted
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)

@@ -85,6 +85,7 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				AvoidMMap:                 db.config.AvoidMMap,
+				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
 				ReplicationFactor:         class.ReplicationConfig.Factor,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
@@ -97,7 +98,6 @@ func (db *DB) init(ctx context.Context) error {
 
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
-			idx.notifyReady()
 			db.indexLock.Unlock()
 		}
 	}

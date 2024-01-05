@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -227,8 +226,6 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 		}
 	}
 
-	log.Printf("pread valueLength: %d", valueLength)
-
 	return nil
 }
 
@@ -273,8 +270,6 @@ func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16,
 	}
 
 	out.offset = int(r.Position)
-
-	log.Printf("mmap valueLength: %d", valueLength)
 	return nil
 }
 

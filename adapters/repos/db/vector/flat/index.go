@@ -26,28 +26,37 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
+const (
+	compressionBQ   = "bq"
+	compressionPQ   = "pq"
+	compressionNone = "none"
+)
+
 type flat struct {
+	sync.Mutex
 	id                  string
 	dims                int32
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
 	trackDimensionsOnce sync.Once
-	ef                  int64
-	bq                  ssdhelpers.BinaryQuantizer
+	rescore             int64
+	bq                  compressionhelpers.BinaryQuantizer
 
 	pqResults *common.PqMaxPool
 	pool      *pools
 
 	compression string
+	bqCache     cache.Cache[uint64]
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -68,24 +77,65 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		id:                cfg.ID,
 		logger:            logger,
 		distancerProvider: cfg.DistanceProvider,
-		ef:                int64(uc.EF),
+		rescore:           extractCompressionRescore(uc),
 		pqResults:         common.NewPqMaxPool(100),
-		// disable for now until we have tested more
-		compression: flatent.CompressionNone,
-		pool:        newPools(),
-		store:       store,
+		compression:       extractCompression(uc),
+		pool:              newPools(),
+		store:             store,
 	}
 	index.initBuckets(context.Background())
+	if uc.BQ.Enabled && uc.BQ.Cache {
+		index.bqCache = cache.NewShardedUInt64LockCache(index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+	}
 
 	return index, nil
 }
 
+func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) {
+	key := flat.pool.byteSlicePool.Get(8)
+	defer flat.pool.byteSlicePool.Put(key)
+	binary.BigEndian.PutUint64(key.slice, id)
+	bytes, err := flat.store.Bucket(helpers.VectorsCompressedBucketLSM).Get(key.slice)
+	if err != nil {
+		return nil, err
+	}
+	return uint64SliceFromByteSlice(bytes, make([]uint64, len(bytes)/8)), nil
+}
+
+func extractCompression(uc flatent.UserConfig) string {
+	if uc.BQ.Enabled && uc.PQ.Enabled {
+		return compressionNone
+	}
+
+	if uc.BQ.Enabled {
+		return compressionBQ
+	}
+
+	if uc.PQ.Enabled {
+		return compressionPQ
+	}
+
+	return compressionNone
+}
+
+func extractCompressionRescore(uc flatent.UserConfig) int64 {
+	compression := extractCompression(uc)
+	switch compression {
+	case compressionPQ:
+		return int64(uc.PQ.RescoreLimit)
+	case compressionBQ:
+		return int64(uc.BQ.RescoreLimit)
+	default:
+		return 0
+	}
+}
+
 func (index *flat) storeCompressedVector(id uint64, vector []byte) {
-	index.storeGenericVector(id, vector, helpers.VectorsFlatBQBucketLSM)
+	index.storeGenericVector(id, vector, helpers.VectorsCompressedBucketLSM)
 }
 
 func (index *flat) storeVector(id uint64, vector []byte) {
-	index.storeGenericVector(id, vector, helpers.VectorsFlatBucketLSM)
+	index.storeGenericVector(id, vector, helpers.VectorsBucketLSM)
 }
 
 func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
@@ -94,16 +144,28 @@ func (index *flat) storeGenericVector(id uint64, vector []byte, bucket string) {
 	index.store.Bucket(bucket).Put(idBytes, vector)
 }
 
+func (index *flat) isBQ() bool {
+	return index.compression == compressionBQ
+}
+
+func (index *flat) isBQCached() bool {
+	return index.bqCache != nil
+}
+
+func (index *flat) Compressed() bool {
+	return index.compression != compressionNone
+}
+
 func (index *flat) initBuckets(ctx context.Context) error {
-	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBucketLSM,
+	if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsBucketLSM,
 		lsmkv.WithForceCompation(true),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
-	if index.compression == flatent.CompressionBQ {
-		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsFlatBQBucketLSM,
+	if index.isBQ() {
+		if err := index.store.CreateOrLoadBucket(ctx, helpers.VectorsCompressedBucketLSM,
 			lsmkv.WithForceCompation(true),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
@@ -114,7 +176,10 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	return nil
 }
 
-func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
+func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
 	}
@@ -122,6 +187,9 @@ func (index *flat) AddBatch(ids []uint64, vectors [][]float32) error {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 	for i := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := index.Add(ids[i], vectors[i]); err != nil {
 			return err
 		}
@@ -160,8 +228,9 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
-		if index.compression == flatent.CompressionBQ {
-			index.bq = ssdhelpers.NewBinaryQuantizer()
+
+		if index.isBQ() {
+			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
 	if len(vector) != int(index.dims) {
@@ -171,10 +240,11 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	slice := make([]byte, len(vector)*4)
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
-	if index.compression == flatent.CompressionBQ {
-		vectorBQ, err := index.bq.Encode(vector)
-		if err != nil {
-			return err
+	if index.isBQ() {
+		vectorBQ := index.bq.Encode(vector)
+		if index.isBQCached() {
+			index.bqCache.Grow(id)
+			index.bqCache.Preload(id, vectorBQ)
 		}
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
@@ -184,15 +254,18 @@ func (index *flat) Add(id uint64, vector []float32) error {
 
 func (index *flat) Delete(ids ...uint64) error {
 	for i := range ids {
+		if index.isBQCached() {
+			index.bqCache.Delete(context.Background(), ids[i])
+		}
 		idBytes := make([]byte, 8)
 		binary.BigEndian.PutUint64(idBytes, ids[i])
 
-		if err := index.store.Bucket(helpers.VectorsFlatBucketLSM).Delete(idBytes); err != nil {
+		if err := index.store.Bucket(helpers.VectorsBucketLSM).Delete(idBytes); err != nil {
 			return err
 		}
 
-		if index.compression == flatent.CompressionBQ {
-			if err := index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Delete(idBytes); err != nil {
+		if index.isBQ() {
+			if err := index.store.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes); err != nil {
 				return err
 			}
 		}
@@ -200,21 +273,21 @@ func (index *flat) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (index *flat) searchTimeEF(k int) int {
+func (index *flat) searchTimeRescore(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
 	// can be so common that it would cause considerable overhead
-	if ef := int(atomic.LoadInt64(&index.ef)); ef > k {
-		return ef
+	if rescore := int(atomic.LoadInt64(&index.rescore)); rescore > k {
+		return rescore
 	}
 	return k
 }
 
 func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	switch index.compression {
-	case flatent.CompressionBQ:
+	case compressionBQ:
 		return index.searchByVectorBQ(vector, k, allow)
-	case flatent.CompressionPQ:
+	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
 	default:
@@ -229,7 +302,7 @@ func (index *flat) searchByVector(vector []float32, k int, allow helpers.AllowLi
 	vector = index.normalized(vector)
 
 	if err := index.findTopVectors(heap, allow, k,
-		index.store.Bucket(helpers.VectorsFlatBucketLSM).Cursor,
+		index.store.Bucket(helpers.VectorsBucketLSM).Cursor,
 		index.createDistanceCalc(vector),
 	); err != nil {
 		return nil, nil, err
@@ -251,21 +324,24 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 }
 
 func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	ef := index.searchTimeEF(k)
-	heap := index.pqResults.GetMax(ef)
+	rescore := index.searchTimeRescore(k)
+	heap := index.pqResults.GetMax(rescore)
 	defer index.pqResults.Put(heap)
 
 	vector = index.normalized(vector)
-	vectorBQ, err := index.bq.Encode(vector)
-	if err != nil {
-		return nil, nil, err
-	}
+	vectorBQ := index.bq.Encode(vector)
 
-	if err := index.findTopVectors(heap, allow, ef,
-		index.store.Bucket(helpers.VectorsFlatBQBucketLSM).Cursor,
-		index.createDistanceCalcBQ(vectorBQ),
-	); err != nil {
-		return nil, nil, err
+	if index.isBQCached() {
+		if err := index.findTopVectorsCached(heap, allow, rescore, vectorBQ); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if err := index.findTopVectors(heap, allow, rescore,
+			index.store.Bucket(helpers.VectorsCompressedBucketLSM).Cursor,
+			index.createDistanceCalcBQ(vectorBQ),
+		); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	distanceCalc := index.createDistanceCalc(vector)
@@ -306,13 +382,14 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
-	return index.store.Bucket(helpers.VectorsFlatBucketLSM).Get(idSlice.slice)
+	return index.store.Bucket(helpers.VectorsBucketLSM).Get(idSlice.slice)
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
-func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.AllowList, limit int,
-	cursorFn func() *lsmkv.CursorReplace, distanceCalc distanceCalc,
+func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
+	allow helpers.AllowList, limit int, cursorFn func() *lsmkv.CursorReplace,
+	distanceCalc distanceCalc,
 ) error {
 	var key []byte
 	var v []byte
@@ -353,7 +430,52 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue, allow helpers.Allow
 	return nil
 }
 
-func (index *flat) insertToHeap(heap *priorityqueue.Queue, limit int, id uint64, distance float32) {
+// populates given heap with smallest distances and corresponding ids calculated by
+// distanceCalc
+func (index *flat) findTopVectorsCached(heap *priorityqueue.Queue[any],
+	allow helpers.AllowList, limit int, vectorBQ []uint64,
+) error {
+	var id uint64
+	allowMax := uint64(0)
+
+	if allow != nil {
+		// nothing allowed, skip search
+		if allow.IsEmpty() {
+			return nil
+		}
+
+		allowMax = allow.Max()
+
+		id = allow.Min()
+	} else {
+		id = 0
+	}
+	all := index.bqCache.Len()
+
+	// since keys are sorted, once key/id get greater than max allowed one
+	// further search can be stopped
+	for ; id < uint64(all) && (allow == nil || id <= allowMax); id++ {
+		if allow == nil || allow.Contains(id) {
+			vec, err := index.bqCache.Get(context.Background(), id)
+			if err != nil {
+				return err
+			}
+			if len(vec) == 0 {
+				continue
+			}
+			distance, err := index.bq.DistanceBetweenCompressedVectors(vec, vectorBQ)
+			if err != nil {
+				return err
+			}
+			index.insertToHeap(heap, limit, id, distance)
+		}
+	}
+	return nil
+}
+
+func (index *flat) insertToHeap(heap *priorityqueue.Queue[any],
+	limit int, id uint64, distance float32,
+) {
 	if heap.Len() < limit {
 		heap.Insert(id, distance)
 	} else if heap.Top().Dist > distance {
@@ -362,7 +484,8 @@ func (index *flat) insertToHeap(heap *priorityqueue.Queue, limit int, id uint64,
 	}
 }
 
-func (index *flat) extractHeap(heap *priorityqueue.Queue) ([]uint64, []float32) {
+func (index *flat) extractHeap(heap *priorityqueue.Queue[any],
+) ([]uint64, []float32) {
 	len := heap.Len()
 
 	ids := make([]uint64, len)
@@ -455,7 +578,7 @@ func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback f
 
 	// Store automatically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
-	atomic.StoreInt64(&index.ef, int64(parsed.EF))
+	atomic.StoreInt64(&index.rescore, extractCompressionRescore(parsed))
 
 	callback()
 	return nil
@@ -485,7 +608,7 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	// nothing to do here
-	// Shard::listBackupFiles will take care of handling store's buckets
+	// Shard::ListBackupFiles will take care of handling store's buckets
 	return []string{}, nil
 }
 
@@ -494,6 +617,16 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) PostStartup() {
+	if !index.isBQCached() {
+		return
+	}
+	cursor := index.store.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
+	defer cursor.Close()
+
+	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		index.bqCache.Preload(id, uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)))
+	}
 }
 
 func (index *flat) Dump(labels ...string) {
@@ -560,12 +693,20 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
 		},
 		{
-			name:     "fullyOnDisk",
-			accessor: func(c flatent.UserConfig) interface{} { return c.FullyOnDisk },
+			name:     "bq.cache",
+			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Cache },
 		},
 		{
-			name:     "compression",
-			accessor: func(c flatent.UserConfig) interface{} { return c.Compression },
+			name:     "pq.cache",
+			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Cache },
+		},
+		{
+			name:     "pq",
+			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Enabled },
+		},
+		{
+			name:     "bq",
+			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Enabled },
 		},
 	}
 

@@ -31,15 +31,73 @@ import (
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
+type harmCategory string
+
+var (
+	// Category is unspecified.
+	HarmCategoryUnspecified harmCategory = "HARM_CATEGORY_UNSPECIFIED"
+	// Negative or harmful comments targeting identity and/or protected attribute.
+	HarmCategoryDerogatory harmCategory = "HARM_CATEGORY_DEROGATORY"
+	// Content that is rude, disrepspectful, or profane.
+	HarmCategoryToxicity harmCategory = "HARM_CATEGORY_TOXICITY"
+	// Describes scenarios depictng violence against an individual or group, or general descriptions of gore.
+	HarmCategoryViolence harmCategory = "HARM_CATEGORY_VIOLENCE"
+	// Contains references to sexual acts or other lewd content.
+	HarmCategorySexual harmCategory = "HARM_CATEGORY_SEXUAL"
+	// Promotes unchecked medical advice.
+	HarmCategoryMedical harmCategory = "HARM_CATEGORY_MEDICAL"
+	// Dangerous content that promotes, facilitates, or encourages harmful acts.
+	HarmCategoryDangerous harmCategory = "HARM_CATEGORY_DANGEROUS"
+	// Harassment content.
+	HarmCategoryHarassment harmCategory = "HARM_CATEGORY_HARASSMENT"
+	// Hate speech and content.
+	HarmCategoryHate_speech harmCategory = "HARM_CATEGORY_HATE_SPEECH"
+	// Sexually explicit content.
+	HarmCategorySexually_explicit harmCategory = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+	// Dangerous content.
+	HarmCategoryDangerous_content harmCategory = "HARM_CATEGORY_DANGEROUS_CONTENT"
+)
+
+type harmBlockThreshold string
+
+var (
+	// Threshold is unspecified.
+	HarmBlockThresholdUnspecified harmBlockThreshold = "HARM_BLOCK_THRESHOLD_UNSPECIFIED"
+	// Content with NEGLIGIBLE will be allowed.
+	BlockLowAndAbove harmBlockThreshold = "BLOCK_LOW_AND_ABOVE"
+	// Content with NEGLIGIBLE and LOW will be allowed.
+	BlockMediumAndAbove harmBlockThreshold = "BLOCK_MEDIUM_AND_ABOVE"
+	// Content with NEGLIGIBLE, LOW, and MEDIUM will be allowed.
+	BlockOnlyHigh harmBlockThreshold = "BLOCK_ONLY_HIGH"
+	// All content will be allowed.
+	BlockNone harmBlockThreshold = "BLOCK_NONE"
+)
+
+type harmProbability string
+
+var (
+	// Probability is unspecified.
+	HARM_PROBABILITY_UNSPECIFIED harmProbability = "HARM_PROBABILITY_UNSPECIFIED"
+	// Content has a negligible chance of being unsafe.
+	NEGLIGIBLE harmProbability = "NEGLIGIBLE"
+	// Content has a low chance of being unsafe.
+	LOW harmProbability = "LOW"
+	// Content has a medium chance of being unsafe.
+	MEDIUM harmProbability = "MEDIUM"
+	// Content has a high chance of being unsafe.
+	HIGH harmProbability = "HIGH"
+)
+
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 	if useGenerativeAI {
-		// Generative AI supports only 1 chat model: chat-bison-001. So for now
-		// in order to keep it simple we generate one variation of PaLM API url.
-		// For more context check out this link:
+		// Generative AI endpoints, for more context check out this link:
 		// https://developers.generativeai.google/models/language#model_variations
 		// https://developers.generativeai.google/api/rest/generativelanguage/models/generateMessage
+		if strings.HasPrefix(modelID, "gemini") {
+			return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", modelID)
+		}
 		return "https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generateMessage"
 	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
@@ -126,12 +184,15 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 	}
 
 	if useGenerativeAIEndpoint {
-		return v.parseGenerativeAIApiResponse(res.StatusCode, bodyBytes)
+		if strings.HasPrefix(modelID, "gemini") {
+			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
+		}
+		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes)
 	}
 	return v.parseResponse(res.StatusCode, bodyBytes)
 }
 
-func (v *palm) parseGenerativeAIApiResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
 	var resBody generateMessageResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -143,6 +204,25 @@ func (v *palm) parseGenerativeAIApiResponse(statusCode int, bodyBytes []byte) (*
 
 	if len(resBody.Candidates) > 0 {
 		return v.getGenerateResponse(resBody.Candidates[0].Content)
+	}
+
+	return &generativemodels.GenerateResponse{
+		Result: nil,
+	}, nil
+}
+
+func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+	var resBody generateContentResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return nil, errors.Wrap(err, "unmarshal response body")
+	}
+
+	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
+		return nil, err
+	}
+
+	if len(resBody.Candidates) > 0 && len(resBody.Candidates[0].Content.Parts) > 0 {
+		return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
 	}
 
 	return &generativemodels.GenerateResponse{
@@ -199,6 +279,45 @@ func (v *palm) useGenerativeAIEndpoint(apiEndpoint string) bool {
 
 func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
 	if useGenerativeAI {
+		if strings.HasPrefix(settings.ModelID(), "gemini") {
+			input := generateContentRequest{
+				Contents: []content{
+					{
+						Role: "user",
+						Parts: []part{
+							{
+								Text: prompt,
+							},
+						},
+					},
+				},
+				GenerationConfig: &generationConfig{
+					Temperature:    settings.Temperature(),
+					TopP:           settings.TopP(),
+					TopK:           settings.TopK(),
+					CandidateCount: 1,
+				},
+				SafetySettings: []safetySetting{
+					{
+						Category:  HarmCategoryHarassment,
+						Threshold: BlockMediumAndAbove,
+					},
+					{
+						Category:  HarmCategoryHate_speech,
+						Threshold: BlockMediumAndAbove,
+					},
+					{
+						Category:  HarmCategoryDangerous_content,
+						Threshold: BlockMediumAndAbove,
+					},
+					{
+						Category:  HarmCategoryDangerous_content,
+						Threshold: BlockMediumAndAbove,
+					},
+				},
+			}
+			return input
+		}
 		input := generateMessageRequest{
 			Prompt: &generateMessagePrompt{
 				Messages: []generateMessage{
@@ -259,22 +378,28 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
+	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
+		return apiKeyValue, nil
+	}
 	if len(v.apiKey) > 0 {
 		return v.apiKey, nil
-	}
-	key := "X-Palm-Api-Key"
-	apiKey := ctx.Value(key)
-	// try getting header from GRPC if not successful
-	if apiKey == nil {
-		apiKey = modulecomponents.GetValueFromGRPC(ctx, key)
-	}
-	if apiKeyHeader, ok := apiKey.([]string); ok &&
-		len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-		return apiKeyHeader[0], nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Palm-Api-Key " +
 		"nor in environment variable under PALM_APIKEY")
+}
+
+func (v *palm) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+	return ""
 }
 
 type generateInput struct {
@@ -382,4 +507,62 @@ type generateMessageResponse struct {
 type contentFilter struct {
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
+}
+
+type generateContentRequest struct {
+	Contents         []content         `json:"contents,omitempty"`
+	SafetySettings   []safetySetting   `json:"safetySettings,omitempty"`
+	GenerationConfig *generationConfig `json:"generationConfig,omitempty"`
+}
+
+type content struct {
+	Parts []part `json:"parts,omitempty"`
+	Role  string `json:"role,omitempty"`
+}
+
+type part struct {
+	Text       string `json:"text,omitempty"`
+	InlineData string `json:"inline_data,omitempty"`
+}
+
+type safetySetting struct {
+	Category  harmCategory       `json:"category,omitempty"`
+	Threshold harmBlockThreshold `json:"threshold,omitempty"`
+}
+
+type generationConfig struct {
+	StopSequences   []string `json:"stopSequences,omitempty"`
+	CandidateCount  int      `json:"candidateCount,omitempty"`
+	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
+	Temperature     float64  `json:"temperature,omitempty"`
+	TopP            float64  `json:"topP,omitempty"`
+	TopK            int      `json:"topK,omitempty"`
+}
+
+type generateContentResponse struct {
+	Candidates     []generateContentCandidate `json:"candidates,omitempty"`
+	PromptFeedback *promptFeedback            `json:"promptFeedback,omitempty"`
+	Error          *palmApiError              `json:"error,omitempty"`
+}
+
+type generateContentCandidate struct {
+	Content       contentResponse `json:"content,omitempty"`
+	FinishReason  string          `json:"finishReason,omitempty"`
+	Index         int             `json:"index,omitempty"`
+	SafetyRatings []safetyRating  `json:"safetyRatings,omitempty"`
+}
+
+type contentResponse struct {
+	Parts []part `json:"parts,omitempty"`
+	Role  string `json:"role,omitempty"`
+}
+
+type promptFeedback struct {
+	SafetyRatings []safetyRating `json:"safetyRatings,omitempty"`
+}
+
+type safetyRating struct {
+	Category    harmCategory    `json:"category,omitempty"`
+	Probability harmProbability `json:"probability,omitempty"`
+	Blocked     *bool           `json:"blocked,omitempty"`
 }

@@ -14,9 +14,10 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -58,21 +59,21 @@ func newCompactorReplace(w io.WriteSeeker,
 
 func (c *compactorReplace) do() error {
 	if err := c.init(); err != nil {
-		return errors.Wrap(err, "init")
+		return fmt.Errorf("init: %w", err)
 	}
 
 	kis, err := c.writeKeys()
 	if err != nil {
-		return errors.Wrap(err, "write keys")
+		return fmt.Errorf("write keys: %w", err)
 	}
 
 	if err := c.writeIndices(kis); err != nil {
-		return errors.Wrap(err, "write indices")
+		return fmt.Errorf("write indices: %w", err)
 	}
 
 	// flush buffered, so we can safely seek on underlying writer
 	if err := c.bufw.Flush(); err != nil {
-		return errors.Wrap(err, "flush buffered")
+		return fmt.Errorf("flush buffered: %w", err)
 	}
 
 	var dataEnd uint64 = segmentindex.HeaderSize
@@ -81,7 +82,7 @@ func (c *compactorReplace) do() error {
 	}
 
 	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount, dataEnd); err != nil {
-		return errors.Wrap(err, "write header")
+		return fmt.Errorf("write header: %w", err)
 	}
 
 	return nil
@@ -93,7 +94,7 @@ func (c *compactorReplace) init() error {
 	// end
 
 	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
-		return errors.Wrap(err, "write empty header")
+		return fmt.Errorf("write empty header: %w", err)
 	}
 
 	return nil
@@ -113,11 +114,11 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 			break
 		}
 		if bytes.Equal(res1.primaryKey, res2.primaryKey) {
-			if !(c.cleanupTombstones && err2 == lsmkv.Deleted) {
+			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-					res2.secondaryKeys, err2 == lsmkv.Deleted)
+					res2.secondaryKeys, errors.Is(err2, lsmkv.Deleted))
 				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
+					return nil, fmt.Errorf("write individual node (equal keys): %w", err)
 				}
 
 				offset = ki.ValueEnd
@@ -131,11 +132,11 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 
 		if (res1.primaryKey != nil && bytes.Compare(res1.primaryKey, res2.primaryKey) == -1) || res2.primaryKey == nil {
 			// key 1 is smaller
-			if !(c.cleanupTombstones && err1 == lsmkv.Deleted) {
+			if !(c.cleanupTombstones && errors.Is(err1, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(offset, res1.primaryKey, res1.value,
-					res1.secondaryKeys, err1 == lsmkv.Deleted)
+					res1.secondaryKeys, errors.Is(err1, lsmkv.Deleted))
 				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (res1.primaryKey smaller)")
+					return nil, fmt.Errorf("write individual node (res1.primaryKey smaller)")
 				}
 
 				offset = ki.ValueEnd
@@ -144,11 +145,11 @@ func (c *compactorReplace) writeKeys() ([]segmentindex.Key, error) {
 			res1, err1 = c.c1.nextWithAllKeys()
 		} else {
 			// key 2 is smaller
-			if !(c.cleanupTombstones && err2 == lsmkv.Deleted) {
+			if !(c.cleanupTombstones && errors.Is(err2, lsmkv.Deleted)) {
 				ki, err := c.writeIndividualNode(offset, res2.primaryKey, res2.value,
-					res2.secondaryKeys, err2 == lsmkv.Deleted)
+					res2.secondaryKeys, errors.Is(err2, lsmkv.Deleted))
 				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (res2.primaryKey smaller)")
+					return nil, fmt.Errorf("write individual node (res2.primaryKey smaller): %w", err)
 				}
 
 				offset = ki.ValueEnd
@@ -194,7 +195,7 @@ func (c *compactorReplace) writeHeader(level, version, secondaryIndices uint16,
 	startOfIndex uint64,
 ) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek to beginning to write header")
+		return fmt.Errorf("seek to beginning to write header: %w", err)
 	}
 
 	h := &segmentindex.Header{

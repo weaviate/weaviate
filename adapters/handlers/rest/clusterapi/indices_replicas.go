@@ -38,7 +38,7 @@ type replicator interface {
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
 		requestID string, uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
-		requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse
+		requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
 		requestID string, refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(indexName,
@@ -478,13 +478,13 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 		defer r.Body.Close()
 
-		docIDs, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		uuids, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, docIDs, dryRun)
+		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

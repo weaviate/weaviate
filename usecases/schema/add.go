@@ -114,7 +114,6 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, n
 	shardingState.SetLocalName(m.clusterState.LocalName())
 	m.schemaCache.addClass(class, &shardingState)
 
-	// payload.Shards
 	if err := m.repo.NewClass(ctx, payload); err != nil {
 		return err
 	}

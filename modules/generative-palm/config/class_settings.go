@@ -43,6 +43,11 @@ var (
 	DefaulGenerativeAIModelID     = "chat-bison-001"
 )
 
+var supportedGenerativeAIModels = []string{
+	DefaulGenerativeAIModelID,
+	"gemini-pro",
+}
+
 type ClassSettings interface {
 	Validate(class *models.Class) error
 	// Module settings
@@ -98,6 +103,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	topP := ic.TopP()
 	if topP < 0 || topP > 1 {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", topPProperty))
+	}
+	// Google MakerSuite
+	model := ic.ModelID()
+	if apiEndpoint == DefaulGenerativeAIApiEndpoint && !contains[string](supportedGenerativeAIModels, model) {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s is not supported available models are: %+v", model, supportedGenerativeAIModels))
 	}
 
 	if len(errorMessages) > 0 {
@@ -220,4 +230,13 @@ func (ic *classSettings) TopK() int {
 // 0.0 - 1.0
 func (ic *classSettings) TopP() float64 {
 	return ic.getFloatProperty(topPProperty, DefaultPaLMTopP)
+}
+
+func contains[T comparable](s []T, e T) bool {
+	for _, v := range s {
+		if v == e {
+			return true
+		}
+	}
+	return false
 }

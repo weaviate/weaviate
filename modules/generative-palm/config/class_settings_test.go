@@ -12,6 +12,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -159,6 +160,16 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTopK:        40,
 			wantTopP:        0.95,
 			wantErr:         nil,
+		},
+		{
+			name: "Generative AI with not supported model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "unsupported-model",
+				},
+			},
+			wantErr: fmt.Errorf("unsupported-model is not supported available models are: [chat-bison-001 gemini-pro]"),
 		},
 	}
 	for _, tt := range tests {

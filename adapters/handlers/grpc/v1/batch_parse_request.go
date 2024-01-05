@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -67,11 +68,20 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 			objectErrors[i] = err
 			continue
 		}
+
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(obj.VectorBytes) > 0 {
+			vector = byteops.Float32FromByteVector(obj.VectorBytes)
+		} else if len(obj.Vector) > 0 {
+			vector = obj.Vector
+		}
+
 		objOriginalIndex[insertCounter] = i
 		objs = append(objs, &models.Object{
 			Class:      obj.Collection,
 			Tenant:     obj.Tenant,
-			Vector:     obj.Vector,
+			Vector:     vector,
 			Properties: props,
 			ID:         strfmt.UUID(obj.Uuid),
 		})
@@ -136,7 +146,16 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 
 	if properties.NumberArrayProperties != nil {
 		for j := range properties.NumberArrayProperties {
-			props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(properties.NumberArrayProperties[j].Values)
+			inputValuesBytes := properties.NumberArrayProperties[j].ValuesBytes
+			var values []float64
+
+			if len(inputValuesBytes) > 0 {
+				values = byteops.Float64FromByteVector(inputValuesBytes)
+			} else {
+				values = properties.NumberArrayProperties[j].Values
+			}
+
+			props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(values)
 		}
 	}
 

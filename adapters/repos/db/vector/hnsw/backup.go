@@ -16,37 +16,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 )
-
-// BeginBackup prepares the hnsw index so a backup can be created
-func (h *hnsw) BeginBackup(ctx context.Context) error {
-	if err := h.SwitchCommitLogs(ctx); err != nil {
-		return err
-	}
-
-	if h.compressed.Load() {
-		if err := h.compressedStore.PauseCompaction(ctx); err != nil {
-			return fmt.Errorf("pause compressed store compaction: %w", err)
-		}
-		if err := h.compressedStore.FlushMemtables(ctx); err != nil {
-			return fmt.Errorf("flush compressed store memtables: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (h *hnsw) ResumeMaintenanceCycles(ctx context.Context) error {
-	if h.compressed.Load() {
-		if err := h.compressedStore.ResumeCompaction(ctx); err != nil {
-			return fmt.Errorf("resume compressed store compaction: %w", err)
-		}
-	}
-	return nil
-}
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
 // switched to a new one, thus making the existing file read-only.
@@ -64,23 +35,7 @@ func (h *hnsw) SwitchCommitLogs(ctx context.Context) error {
 // latest (writeable) log file is typically empty.
 // ListFiles errors if maintenance is not paused, as a stable state
 // cannot be guaranteed with maintenance going on in the background.
-func (h *hnsw) ListFiles(ctx context.Context, basePath string) (files []string, err error) {
-	files, err = h.listCommitLogFiles(ctx, basePath)
-	if err != nil {
-		return nil, err
-	}
-
-	if h.compressed.Load() {
-		compressed, err := h.listCompressedFiles(ctx, basePath)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, compressed...)
-	}
-	return
-}
-
-func (h *hnsw) listCommitLogFiles(ctx context.Context, basePath string) ([]string, error) {
+func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	var (
 		logRoot = filepath.Join(h.commitLog.RootPath(), fmt.Sprintf("%s.hnsw.commitlog.d", h.commitLog.ID()))
 		found   = make(map[string]struct{})
@@ -131,17 +86,5 @@ func (h *hnsw) listCommitLogFiles(ctx context.Context, basePath string) ([]strin
 		i++
 	}
 
-	return files, nil
-}
-
-func (h *hnsw) listCompressedFiles(ctx context.Context, basePath string) ([]string, error) {
-	files, err := h.compressedStore.ListFiles(ctx, basePath)
-	if err != nil {
-		return nil, fmt.Errorf("list compressed files: %w", err)
-	}
-	for i, file := range files {
-		withoutRoot := strings.Split(file, "/")
-		files[i] = path.Join(withoutRoot[1:]...)
-	}
 	return files, nil
 }

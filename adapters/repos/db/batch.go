@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -142,7 +143,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	for class, index := range indexByClass {
 		queue := refByClass[class]
-		errs := index.addReferencesBatch(ctx, queue, repl)
+		errs := index.AddReferencesBatch(ctx, queue, repl)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -167,12 +168,12 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenant)
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}
 	// prepare to be deleted list of DocIDs from all shards
-	toDelete := map[string][]uint64{}
+	toDelete := map[string][]strfmt.UUID{}
 	limit := db.config.QueryMaximumResults
 
 	matches := int64(0)

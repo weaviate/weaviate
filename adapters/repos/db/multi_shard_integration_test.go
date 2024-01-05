@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -296,7 +297,10 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 		} else {
 			shardState = multiShardState()
 		}
-		schemaGetter := &fakeSchemaGetter{shardState: shardState}
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: shardState,
+		}
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
@@ -641,7 +645,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 
 func testNodesAPI(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
-		nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
+		nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
 		require.Nil(t, err)
 		require.NotNil(t, nodeStatues)
 

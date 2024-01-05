@@ -36,7 +36,10 @@ func Test_Aggregations(t *testing.T) {
 
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -78,7 +81,10 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 
 	shardState := fixedMultiShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,

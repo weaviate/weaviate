@@ -13,19 +13,15 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-)
-
-const (
-	OutputMinimal = "minimal"
-	OutputVerbose = "verbose"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -124,15 +120,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		dryRunParam = *dryRun
 	}
 
-	outputParam := OutputMinimal
-	if output != nil {
-		switch *output {
-		case OutputMinimal, OutputVerbose:
-			outputParam = *output
-		default:
-			return nil, fmt.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,
-				*output, OutputMinimal, OutputVerbose)
-		}
+	outputParam, err := verbosity.ParseOutput(output)
+	if err != nil {
+		return nil, err
 	}
 
 	params := &BatchDeleteParams{

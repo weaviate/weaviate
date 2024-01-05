@@ -13,16 +13,17 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (s *segment) get(key []byte) ([]byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
+		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
 	before := time.Now()
@@ -34,7 +35,7 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 	node, err := s.index.Get(key)
 	if err != nil {
-		if err == lsmkv.NotFound {
+		if errors.Is(err, lsmkv.NotFound) {
 			if s.useBloomFilter {
 				s.bloomFilterMetrics.falsePositive(before)
 			}
@@ -71,11 +72,11 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace), nil
+		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace), nil
 	}
 
 	if pos > len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
-		return nil, errors.Errorf("no secondary index at pos %d", pos), nil
+		return nil, fmt.Errorf("no secondary index at pos %d", pos), nil
 	}
 
 	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {

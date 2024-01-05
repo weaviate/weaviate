@@ -13,6 +13,7 @@ package segmentindex
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -149,7 +150,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 			return left, nil
 		}
 
-		if err == lsmkv.NotFound {
+		if errors.Is(err, lsmkv.NotFound) {
 			return self, nil
 		}
 

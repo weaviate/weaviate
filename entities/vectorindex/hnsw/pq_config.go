@@ -73,6 +73,9 @@ func validEncoderDistribution(v string) error {
 }
 
 func ValidatePQConfig(cfg PQConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
 	err := validEncoder(cfg.Encoder.Type)
 	if err != nil {
 		return err
