@@ -13,17 +13,13 @@ package hashtree
 
 type MultiSegmentHashTreeDiffReader struct {
 	ht         *MultiSegmentHashTree
-	diffReader *CompactHashTreeDiffReader
+	diffReader AggregatedHashTreeDiffReader
 }
 
-func (ht *MultiSegmentHashTree) NewDiffReader(diffReader *CompactHashTreeDiffReader) *MultiSegmentHashTreeDiffReader {
-	if diffReader == nil {
-		panic("illegal diff reader")
-	}
-
+func (ht *MultiSegmentHashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
 	return &MultiSegmentHashTreeDiffReader{
 		ht:         ht,
-		diffReader: diffReader,
+		diffReader: ht.hashtree.NewDiffReader(discriminant),
 	}
 }
 

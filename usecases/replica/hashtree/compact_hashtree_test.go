@@ -96,17 +96,21 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	ht1 := NewCompactHashTree(capacity, maxHeight)
 	ht2 := NewCompactHashTree(capacity, maxHeight)
 
-	diffReader, err := CompactHashTreeDiff(ht1, ht2)
+	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
-	require.NotNil(t, diffReader)
+	require.NotNil(t, diff)
+
+	diffReader := ht1.NewDiffReader(diff)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
 	ht1.AggregateLeafWith(16, []byte("val1"))
 
-	diffReader, err = CompactHashTreeDiff(ht1, ht2)
+	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
+
+	diffReader = ht1.NewDiffReader(diff)
 
 	diff1, diff2, err := diffReader.Next()
 	require.NoError(t, err)
@@ -118,8 +122,10 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 
 	ht2.AggregateLeafWith(0, []byte("val1"))
 
-	diffReader, err = CompactHashTreeDiff(ht1, ht2)
+	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
+
+	diffReader = ht1.NewDiffReader(diff)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
@@ -135,12 +141,12 @@ func TestCompactHashTreeLeafMapping(t *testing.T) {
 	require.Equal(t, LeavesCount(ht.Height()), ht.leavesCount)
 	require.True(t, uint64(ht.leavesCount) <= capacity)
 
-	var prevMappedLeaf int
+	var prevMappedLeaf uint64
 
 	for l := uint64(0); l < capacity; l++ {
 		ml := ht.mapLeaf(l)
 		require.True(t, uint64(ml) <= l)
-		require.True(t, ml <= ht.leavesCount)
+		require.True(t, ml <= uint64(ht.leavesCount))
 
 		if l > 0 {
 			require.True(t, prevMappedLeaf <= ml)
@@ -187,9 +193,11 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	ht1 := NewCompactHashTree(uint64(capacity), maxHeight)
 	ht2 := NewCompactHashTree(uint64(capacity), maxHeight)
 
-	diffReader, err := CompactHashTreeDiff(ht1, ht2)
+	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
-	require.NotNil(t, diffReader)
+	require.NotNil(t, diff)
+
+	diffReader := ht1.NewDiffReader(diff)
 
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
@@ -214,8 +222,10 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 		conciliated[i] = struct{}{}
 
-		diffReader, err := CompactHashTreeDiff(ht1, ht2)
+		diff, err := ht1.Diff(ht2)
 		require.NoError(t, err)
+
+		diffReader := ht1.NewDiffReader(diff)
 
 		diffCount = 0
 
