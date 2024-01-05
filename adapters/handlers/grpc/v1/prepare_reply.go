@@ -38,10 +38,13 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 		GenerativeGroupedResult: new(string), // pointer to empty string
 	}
 
+	_, generativeSearchEnabled := searchParams.AdditionalProperties.ModuleParams["generate"]
+	_, rerankEnabled := searchParams.AdditionalProperties.ModuleParams["rerank"]
+
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesPropertiesMessage)
+			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesPropertiesMessage, generativeSearchEnabled, rerankEnabled)
 			if err != nil {
 				return nil, err
 			}
@@ -49,6 +52,9 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 				out.GenerativeGroupedResult = &generativeGroupResponse
 			}
 			out.GroupByResults[i] = group
+		}
+		if generativeSearchEnabled && *out.GenerativeGroupedResult == "" {
+			return nil, errors.New("No grouped results for generative search despite a search request. Is a generative module enabled?")
 		}
 	} else {
 		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesPropertiesMessage)
@@ -157,27 +163,24 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	if generativeSearchEnabled {
 		generate, ok := additionalPropertiesMap["generate"]
 		if !ok && firstObject {
-			return nil, "", errors.New("No results for generative search despite a search request. Is a the generative module enabled?")
+			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
+		}
+		generateFmt, ok := generate.(*models.GenerateResult)
+		if !ok {
+			return nil, "", errors.New("could not cast generative result additional prop")
+		}
+		if generateFmt.Error != nil {
+			return nil, "", generateFmt.Error
 		}
 
-		if ok { // does not always have content, for example with grouped results only the first object has an entry
-			generateFmt, ok := generate.(*models.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
-			if generateFmt.Error != nil {
-				return nil, "", generateFmt.Error
-			}
+		if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
+			metadata.Generative = *generateFmt.SingleResult
+			metadata.GenerativePresent = true
+		}
 
-			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
-				metadata.Generative = *generateFmt.SingleResult
-				metadata.GenerativePresent = true
-			}
-
-			// grouped results are only added to the first object for GQL reasons
-			if firstObject && generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
-				generativeGroupResults = *generateFmt.GroupedResult
-			}
+		// grouped results are only added to the first object for GQL reasons
+		if firstObject && generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
+			generativeGroupResults = *generateFmt.GroupedResult
 		}
 	}
 
@@ -292,10 +295,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	return metadata, generativeGroupResults, nil
 }
 
-func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.GroupByResult, string, error) {
-	_, generativeSearchEnabled := searchParams.AdditionalProperties.ModuleParams["generate"]
-	_, rerankEnabled := searchParams.AdditionalProperties.ModuleParams["rerank"]
-
+func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling, generativeSearchEnabled, rerankEnabled bool) (*pb.GroupByResult, string, error) {
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse result %v", raw)
@@ -328,7 +328,7 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	if generativeSearchEnabled {
 		generate, ok := addAsMap["generate"]
 		if !ok {
-			return nil, "", errors.New("No results for generative search despite a search request. Is a the generative module enabled?")
+			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
 		}
 
 		if ok {
