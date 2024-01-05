@@ -34,18 +34,27 @@ import (
 func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, usesPropertiesMessage bool) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
-		Took: float32(tookSeconds),
+		Took:                    float32(tookSeconds),
+		GenerativeGroupedResult: new(string), // pointer to empty string
 	}
+
+	_, generativeSearchEnabled := searchParams.AdditionalProperties.ModuleParams["generate"]
+	_, rerankEnabled := searchParams.AdditionalProperties.ModuleParams["rerank"]
 
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesPropertiesMessage)
+			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesPropertiesMessage, generativeSearchEnabled, rerankEnabled)
 			if err != nil {
 				return nil, err
 			}
-			out.GenerativeGroupedResult = &generativeGroupResponse
+			if generativeGroupResponse != "" {
+				out.GenerativeGroupedResult = &generativeGroupResponse
+			}
 			out.GroupByResults[i] = group
+		}
+		if generativeSearchEnabled && *out.GenerativeGroupedResult == "" {
+			return nil, errors.New("No grouped results for generative search despite a search request. Is a generative module enabled?")
 		}
 	} else {
 		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesPropertiesMessage)
@@ -85,7 +94,7 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 			return nil, "", err
 		}
 
-		if firstObject && generativeGroupResults != "" {
+		if generativeGroupResultsReturn == "" && generativeGroupResults != "" {
 			generativeGroupResultsReturn = generativeGroupResults
 		}
 
@@ -154,27 +163,24 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	if generativeSearchEnabled {
 		generate, ok := additionalPropertiesMap["generate"]
 		if !ok && firstObject {
-			return nil, "", errors.New("No results for generative search despite a search request. Is a the generative module enabled?")
+			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
+		}
+		generateFmt, ok := generate.(*models.GenerateResult)
+		if !ok {
+			return nil, "", errors.New("could not cast generative result additional prop")
+		}
+		if generateFmt.Error != nil {
+			return nil, "", generateFmt.Error
 		}
 
-		if ok { // does not always have content, for example with grouped results only the first object has an entry
-			generateFmt, ok := generate.(*models.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
-			if generateFmt.Error != nil {
-				return nil, "", generateFmt.Error
-			}
+		if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
+			metadata.Generative = *generateFmt.SingleResult
+			metadata.GenerativePresent = true
+		}
 
-			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
-				metadata.Generative = *generateFmt.SingleResult
-				metadata.GenerativePresent = true
-			}
-
-			// grouped results are only added to the first object for GQL reasons
-			if firstObject && generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
-				generativeGroupResults = *generateFmt.GroupedResult
-			}
+		// grouped results are only added to the first object for GQL reasons
+		if firstObject && generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
+			generativeGroupResults = *generateFmt.GroupedResult
 		}
 	}
 
@@ -289,7 +295,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	return metadata, generativeGroupResults, nil
 }
 
-func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.GroupByResult, string, error) {
+func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling, generativeSearchEnabled, rerankEnabled bool) (*pb.GroupByResult, string, error) {
 	asMap, ok := raw.(map[string]interface{})
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse result %v", raw)
@@ -311,6 +317,56 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 		return nil, "", fmt.Errorf("cannot parse _additional %v", groupRaw)
 	}
 
+	ret := &pb.GroupByResult{
+		Name:            group.GroupedBy.Value,
+		MaxDistance:     group.MaxDistance,
+		MinDistance:     group.MinDistance,
+		NumberOfObjects: int64(group.Count),
+	}
+
+	groupedGenerativeResults := ""
+	if generativeSearchEnabled {
+		generate, ok := addAsMap["generate"]
+		if !ok {
+			return nil, "", errors.New("No results for generative search despite a search request. Is a generative module enabled?")
+		}
+
+		if ok {
+			generateFmt, ok := generate.(*models.GenerateResult)
+			if !ok {
+				return nil, "", errors.New("could not cast generative result additional prop")
+			}
+			if generateFmt.Error != nil {
+				return nil, "", generateFmt.Error
+			}
+
+			if generateFmt.SingleResult != nil && *generateFmt.SingleResult != "" {
+				ret.Generative = &pb.GenerativeReply{Result: *generateFmt.SingleResult}
+			}
+
+			// grouped results are only added to the first object for GQL reasons
+			// however, reranking can result in a different order, so we need to check every object
+			// recording the result if it's present assuming that it is at least somewhere and will be caught
+			if generateFmt.GroupedResult != nil && *generateFmt.GroupedResult != "" {
+				groupedGenerativeResults = *generateFmt.GroupedResult
+			}
+		}
+	}
+
+	if rerankEnabled {
+		rerankRaw, ok := addAsMap["rerank"]
+		if !ok {
+			return nil, "", fmt.Errorf("rerank is not present %v", addAsMap)
+		}
+		rerank, ok := rerankRaw.([]*models.RankResult)
+		if !ok {
+			return nil, "", fmt.Errorf("cannot parse rerank %v", rerankRaw)
+		}
+		ret.Rerank = &pb.RerankReply{
+			Score: *rerank[0].Score,
+		}
+	}
+
 	// group results does not support more additional properties
 	searchParams.AdditionalProperties = additional.Properties{
 		ID:       searchParams.AdditionalProperties.ID,
@@ -327,12 +383,12 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, groupedGenerativeResults, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true, usesMarshalling)
+	objects, _, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true, usesMarshalling)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
 
-	ret := &pb.GroupByResult{Name: group.GroupedBy.Value, MaxDistance: group.MaxDistance, MinDistance: group.MinDistance, NumberOfObjects: int64(group.Count), Objects: objects}
+	ret.Objects = objects
 
 	return ret, groupedGenerativeResults, nil
 }
