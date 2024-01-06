@@ -234,6 +234,12 @@ func (fc finderClient) FullRead(ctx context.Context,
 	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional)
 }
 
+func (fc finderClient) HashTreeLevel(ctx context.Context,
+	host, index, shard string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	return fc.cl.HashTreeLevel(ctx, host, index, shard, level, discriminant)
+}
+
 // DigestReads reads digests of all specified objects
 func (fc finderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
