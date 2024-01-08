@@ -41,8 +41,8 @@ func (d *Digest) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("invalid Digest serialization")
 	}
 
-	d[0] = binary.LittleEndian.Uint64(b)
-	d[1] = binary.LittleEndian.Uint64(b[8:])
+	d[0] = binary.LittleEndian.Uint64(bs[:])
+	d[1] = binary.LittleEndian.Uint64(bs[8:])
 
 	return nil
 }
