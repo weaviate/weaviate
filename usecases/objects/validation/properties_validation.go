@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,11 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 	className := incomingObject.Class
 	isp := incomingObject.Properties
 	vectorWeights := incomingObject.VectorWeights
+	tenant := incomingObject.Tenant
+
+	if existingObject != nil && tenant != existingObject.Tenant {
+		return fmt.Errorf("tenant mismatch, expected %s but got %s", existingObject.Tenant, tenant)
+	}
 
 	if vectorWeights != nil {
 		res, err := v.validateVectorWeights(vectorWeights)
@@ -124,7 +129,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 			data, err = v.extractAndValidateNestedProperty(ctx, propertyKeyLowerCase, propertyValue, className,
 				dataType, property.NestedProperties)
 		} else {
-			data, err = v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType)
+			data, err = v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType, tenant)
 		}
 		if err != nil {
 			return err
@@ -199,7 +204,8 @@ func objectVal(ctx context.Context, v *Validator, val interface{}, propertyPrefi
 				className, nestedDataType, nestedProperty.NestedProperties)
 		} else {
 			data, err = v.extractAndValidateProperty(ctx, propertyName, nestedValue,
-				className, nestedDataType)
+				className, nestedDataType, "")
+			// tenant isn't relevant for nested properties since crossrefs are not allowed
 		}
 		if err != nil {
 			return nil, fmt.Errorf("property '%s': %w", propertyName, err)
@@ -230,7 +236,7 @@ func objectArrayVal(ctx context.Context, v *Validator, val interface{}, property
 }
 
 func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName string, pv interface{},
-	className string, dataType *schema.DataType,
+	className string, dataType *schema.DataType, tenant string,
 ) (interface{}, error) {
 	var (
 		data interface{}
@@ -239,7 +245,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 
 	switch *dataType {
 	case schema.DataTypeCRef:
-		data, err = v.cRef(ctx, propertyName, pv, className)
+		data, err = v.cRef(ctx, propertyName, pv, className, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cref: %s", err)
 		}
@@ -344,7 +350,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 }
 
 func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{},
-	className string,
+	className, tenant string,
 ) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
@@ -358,7 +364,7 @@ func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{
 					className, propertyName, ref)
 			}
 
-			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className)
+			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className, tenant)
 			if err != nil {
 				return nil, err
 			}
@@ -564,7 +570,7 @@ func blobVal(val interface{}) (string, error) {
 }
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
-	pvcr map[string]interface{}, className string,
+	pvcr map[string]interface{}, className, tenant string,
 ) (*models.SingleRef, error) {
 	delete(pvcr, "href")
 
@@ -596,7 +602,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, err
 	}
 
-	if err = v.ValidateExistence(ctx, ref, errVal, ""); err != nil {
+	if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
 		return nil, err
 	}
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	addModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -769,8 +770,12 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
-				ID:           true,
-				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+				ID: true,
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Prompt: &refClass1,
+					},
+				},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
@@ -806,7 +811,11 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
-				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Prompt: &refClass1,
+					},
+				},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
@@ -842,8 +851,12 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
-				ID:           true,
-				ModuleParams: map[string]interface{}{"generate": "must be present for extraction"},
+				ID: true,
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Task: &refClass1,
+					},
+				},
 			}},
 			outSearch: []*pb.SearchResult{
 				{
@@ -963,6 +976,101 @@ func TestGRPCReply(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "generate, group by, & rerank",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"id": UUID2,
+						"generate": &addModels.GenerateResult{
+							SingleResult:  &refClass1,
+							GroupedResult: &refClass2,
+						},
+						"rerank": []*addModels.RankResult{{Score: &someFloat64}},
+						"group": &additional.Group{
+							ID:          1,
+							MinDistance: 0.1,
+							MaxDistance: 0.2,
+							Count:       3,
+							GroupedBy:   &additional.GroupedBy{Value: "GroupByValue1", Path: []string{"some_prop"}},
+							Hits: []map[string]interface{}{
+								{
+									"word": "word",
+									"ref": []interface{}{
+										search.LocalRef{
+											Class: refClass1,
+											Fields: map[string]interface{}{
+												"something":   "other",
+												"_additional": map[string]interface{}{"vector": []float32{2}, "id": UUID1},
+											},
+										},
+									},
+									"_additional": &additional.GroupHitAdditional{Vector: []float32{3}, ID: UUID2},
+								},
+								{
+									"word":        "other",
+									"_additional": &additional.GroupHitAdditional{Vector: []float32{4}, ID: UUID1},
+								},
+							},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				AdditionalProperties: additional.Properties{
+					ID:     true,
+					Vector: true,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{
+							Prompt: &refClass1,
+							Task:   &refClass2,
+						},
+						"rerank": "must be present for extraction",
+					},
+				},
+				GroupBy: &searchparams.GroupBy{Groups: 3, ObjectsPerGroup: 4, Property: "name"},
+			},
+			outGroup: []*pb.GroupByResult{{
+				Name:            "GroupByValue1",
+				MaxDistance:     0.2,
+				MinDistance:     0.1,
+				NumberOfObjects: 3,
+				Generative:      &pb.GenerativeReply{Result: refClass1},
+				Rerank:          &pb.RerankReply{Score: someFloat64},
+				Objects: []*pb.SearchResult{
+					{
+						Properties: &pb.PropertiesResult{
+							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							RefProps: []*pb.RefPropertiesResult{
+								{
+									PropName: "other",
+									Properties: []*pb.PropertiesResult{
+										{
+											NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
+											Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
+										},
+									},
+								},
+							},
+						},
+						Metadata: &pb.MetadataResult{
+							Id:     string(UUID2),
+							Vector: []float32{3},
+						},
+					},
+					{
+						Properties: &pb.PropertiesResult{
+							NonRefProperties: newStruct(t, map[string]interface{}{"word": "other"}),
+						},
+						Metadata: &pb.MetadataResult{
+							Id:     string(UUID1),
+							Vector: []float32{4},
+						},
+					},
+				},
+			}},
+			outGenerative: refClass2,
+		},
 	}
 
 	for _, tt := range tests {
@@ -973,7 +1081,7 @@ func TestGRPCReply(t *testing.T) {
 				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
 				require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
 			}
-			require.Equal(t, *out.GenerativeGroupedResult, tt.outGenerative)
+			require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 		})
 	}
 }

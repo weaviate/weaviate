@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -451,7 +451,9 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 			}
 		}
 		if len(v1) == 0 {
-			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
+			// https://github.com/weaviate/weaviate/pull/3955
+			h.handleDeletedNode(a)
+			return 0, false, nil
 		}
 
 		v2, err := h.compressedVectorsCache.Get(context.Background(), b)
@@ -463,11 +465,13 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 			} else {
 				// not a typed error, we can recover from, return with err
 				return 0, false, errors.Wrapf(err,
-					"could not get vector of object at docID %d", a)
+					"could not get vector of object at docID %d", b)
 			}
 		}
 		if len(v2) == 0 {
-			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
+			// see https://github.com/weaviate/weaviate/pull/3955
+			h.handleDeletedNode(b)
+			return 0, false, nil
 		}
 
 		return h.pq.DistanceBetweenCompressedVectors(v1, v2), true, nil
@@ -526,7 +530,9 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool
 			}
 		}
 		if len(v1) == 0 {
-			return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", node)
+			// see https://github.com/weaviate/weaviate/pull/3955
+			h.handleDeletedNode(node)
+			return 0, false, nil
 		}
 
 		return h.pq.DistanceBetweenCompressedAndUncompressedVectors(vecB, v1), true, nil

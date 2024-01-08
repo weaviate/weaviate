@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -136,7 +136,22 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 		func() {
 			// cancel called in recover, regardless of panic occurred or not
 			defer c.recover(meta.customId, cancel)
-			executed := meta.cycleCallback(shouldAbort)
+			executed := meta.cycleCallback(func() bool {
+				if shouldAbort() {
+					return true
+				}
+
+				// abort if callback deactivated or being unregistered
+				c.Lock()
+				defer c.Unlock()
+
+				meta, ok := c.callbacks[callbackId]
+				if !ok || !meta.active || meta.unregisterRequested {
+					return true
+				}
+
+				return false
+			})
 			anyExecuted = executed || anyExecuted
 
 			if meta.intervals != nil {
@@ -269,6 +284,7 @@ func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint
 			c.Unlock()
 			return err
 		}
+		meta.unregisterRequested = true
 		runningCtx := meta.runningCtx
 		if runningCtx == nil || runningCtx.Err() != nil {
 			err := onFound(callbackId, meta)
@@ -356,6 +372,8 @@ type cycleCallbackMeta struct {
 	runningCtx context.Context
 	started    time.Time
 	intervals  CycleIntervals
+	// set to true if callback is being unregistered, but still running
+	unregisterRequested bool
 }
 
 type cycleCallbackGroupNoop struct{}
