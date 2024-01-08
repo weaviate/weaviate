@@ -53,7 +53,11 @@ func (s *Shard) hashBeat() error {
 	// Note: any consistency level could be used
 	replyCh, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, ht, replica.One, "")
 	if err != nil {
-		return fmt.Errorf("collecting differences: %w", err)
+		if errors.Is(err, hashtree.ErrNoMoreDifferences) {
+			return nil
+		}
+
+		return fmt.Errorf("collecting differences for shard %s: %w", s.name, err)
 	}
 
 	for r := range replyCh {
