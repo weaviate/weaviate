@@ -29,7 +29,7 @@ type AggregatedHashTreeDiffReader interface {
 	Next() (uint64, uint64, error)
 }
 
-func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
+func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) (levelDiffCount int) {
 	var offset int
 
 	if l > 0 {
@@ -49,6 +49,8 @@ func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
 			n++
 			discriminant.Unset(node)
 			continue
+		} else {
+			levelDiffCount++
 		}
 
 		n++
@@ -64,4 +66,6 @@ func LevelDiff(l int, discriminant *Bitset, digests1, digests2 []Digest) {
 		discriminant.Set(leftChild)
 		discriminant.Set(rightChild)
 	}
+
+	return levelDiffCount
 }
