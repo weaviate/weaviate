@@ -491,7 +491,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "delete from vector index")
 	}
 
-	if err = s.deleteObjectHashTree(idBytes); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
