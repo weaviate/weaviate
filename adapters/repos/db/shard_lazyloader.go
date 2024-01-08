@@ -91,8 +91,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	l.propLenTracker = nil
-
 	if l.loaded {
 		return nil
 	}
