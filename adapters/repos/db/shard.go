@@ -147,7 +147,7 @@ type ShardLike interface {
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
-	upsertObjectHashTree(object *storobj.Object, idBytes []byte) error
+	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
@@ -290,7 +290,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
 
-	s.initHashBeater()
+	if s.hashtree != nil {
+		s.initHashBeater()
+	}
 
 	return s, nil
 }
@@ -455,9 +457,11 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
-	err = s.initHashTree(ctx)
-	if err != nil {
-		return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+	if s.index.replicationEnabled() {
+		err = s.initHashTree(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+		}
 	}
 
 	counter, err := indexcounter.New(s.path())
@@ -559,11 +563,16 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) initHashTree(ctx context.Context) error {
+	// TODO (jeroiraz): create a MultiSegmentHashTree
 	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
 	return nil
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	if s.hashtree == nil {
+		return nil, fmt.Errorf("hashtree was not initialized")
+	}
+
 	// TODO (jeroiraz): reusable pool of digests slices
 	digests = make([]hashtree.Digest, hashtree.LeavesCount(level+1))
 
@@ -912,7 +921,9 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
-	s.stopHashBeater()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+	}
 
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
