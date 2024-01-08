@@ -193,7 +193,9 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	hashtree hashtree.AggregatedHashTree
+	hashtree             hashtree.AggregatedHashTree
+	hashBeaterCtx        context.Context
+	hashBeaterCancelFunc context.CancelFunc
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -320,61 +322,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
 
-	go func() {
-		// TODO (jeroiraz): hashbeater
-
-		for {
-			// Note: a copy of the hashtree could be used if a more stable comparison is desired s.hashtree.Clone()
-			// in such a case nodes may also need to have a stable copy of their corresponding hashtree.
-			ht := s.hashtree
-
-			// Note: any consistency level could be used
-			replyCh, err := s.index.replicator.CollectShardDifferences(context.Background(), s.name, ht, replica.One, "")
-			if err != nil {
-				s.index.logger.Printf("difference reading for shard %s: %v", s.name, err)
-
-				// TODO (jeroiraz) some exp backoff delay
-				time.Sleep(3 * time.Second)
-
-				continue
-			}
-
-			for r := range replyCh {
-				if r.Err != nil {
-					if !errors.Is(err, hashtree.ErrNoMoreDifferences) {
-						s.index.logger.Printf("difference reading for shard %s: %v", s.name, r.Err)
-					}
-					continue
-				}
-
-				shardDiffReader := r.Value
-				diffReader := shardDiffReader.DiffReader
-
-				for {
-					initialToken, finalToken, err := diffReader.Next()
-					if err != nil {
-						if !errors.Is(err, hashtree.ErrNoMoreDifferences) {
-							s.index.logger.Printf("difference reading for shard %s: %v", s.name, err)
-						}
-						break
-					}
-
-					_, err = s.index.replicator.StepTowardsShardConsistency(
-						context.Background(),
-						s.name,
-						shardDiffReader.Host,
-						initialToken,
-						finalToken,
-					)
-					if err != nil {
-						s.index.logger.Printf("difference reading for shard %s: %v", s.name, err)
-					}
-				}
-			}
-
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	s.initHashBeater()
 
 	return s, nil
 }
@@ -1104,6 +1052,8 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	).Unregister(ctx); err != nil {
 		return err
 	}
+
+	s.stopHashBeater()
 
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
