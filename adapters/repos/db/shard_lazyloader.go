@@ -590,9 +590,9 @@ func (l *LazyLoadShard) putObjectLSM(object *storobj.Object, idBytes []byte) (ob
 	return l.shard.putObjectLSM(object, idBytes)
 }
 
-func (l *LazyLoadShard) upsertObjectHashTree(object *storobj.Object, idBytes []byte) error {
+func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte) error {
 	l.mustLoad()
-	return l.shard.upsertObjectHashTree(object, idBytes)
+	return l.shard.mayUpsertObjectHashTree(object, idBytes)
 }
 
 func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
