@@ -155,7 +155,7 @@ func TestNewPrimitiveValue(t *testing.T) {
 			name: "phone number",
 			in:   &models.PhoneNumber{Input: "1234567890"},
 			tests: makeTestList(map[schema.DataType]*pb.Value{
-				schema.DataTypePhoneNumber: {Kind: &pb.Value_PhoneNumberValue{PhoneNumberValue: &pb.PhoneNumber{Input: "1234567890"}}},
+				schema.DataTypePhoneNumber: {Kind: &pb.Value_PhoneValue{PhoneValue: &pb.PhoneNumber{Input: "1234567890"}}},
 			}),
 		},
 	}
