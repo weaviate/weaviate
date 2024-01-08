@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,11 +20,16 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"testing"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 type DistanceFunction func([]float32, []float32) float32
@@ -246,4 +251,13 @@ func MatchesInLists(control []uint64, results []uint64) uint64 {
 	}
 
 	return matches
+}
+
+func NewDummyStore(t testing.TB) *lsmkv.Store {
+	logger, _ := test.NewNullLogger()
+	storeDir := t.TempDir()
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	return store
 }

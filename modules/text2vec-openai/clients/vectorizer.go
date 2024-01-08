@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,7 +54,12 @@ type openAIApiError struct {
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 	if isAzure {
-		host := "https://" + resourceName + ".openai.azure.com"
+		host := baseURL
+		if host == "" || host == "https://api.openai.com" {
+			// Fall back to old assumption
+			host = "https://" + resourceName + ".openai.azure.com"
+		}
+
 		path := "openai/deployments/" + deploymentID + "/embeddings"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil

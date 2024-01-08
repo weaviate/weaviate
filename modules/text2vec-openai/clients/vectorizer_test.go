@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,6 +56,21 @@ func TestBuildUrlFn(t *testing.T) {
 		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
+	})
+
+	t.Run("buildUrlFn returns Azure client with BaseUrl set", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "resourceID",
+			DeploymentID: "deploymentID",
+			BaseURL:      "https://foobar.some.proxy",
+			IsAzure:      true,
+		}
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://foobar.some.proxy/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
 	})
 
 	t.Run("buildUrlFn loads from BaseURL", func(t *testing.T) {
