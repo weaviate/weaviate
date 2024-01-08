@@ -21,7 +21,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -241,8 +240,13 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 ) (<-chan _Result[*ShardDifferenceReader], error) {
 	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName)
 
+	sourceHost, ok := f.resolver.NodeHostname(f.resolver.NodeName)
+	if !ok {
+		return nil, fmt.Errorf("getting host %s", f.resolver.NodeName)
+	}
+
 	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
-		if f.resolver.NodeName == host {
+		if sourceHost == host {
 			return nil, hashtree.ErrNoMoreDifferences
 		}
 
@@ -294,28 +298,32 @@ func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
 	coord := newReadCoordinator[[]*storobj.Object](f, shardName)
 
 	op := func(ctx context.Context, host string, fullRead bool) ([]*storobj.Object, error) {
-		ds, err := f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
-		if err != nil {
-			return nil, err
-		}
+		return nil, nil
+		/*
+			TODO (jeroiraz): complete WIP implementation
 
-		ret := make([]*storobj.Object, len(ds))
+				ds, err := f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
+				if err != nil {
+					return nil, err
+				}
 
-		for i, d := range ds {
-			ret[i] = &storobj.Object{
-				Object: models.Object{
-					ID:                 strfmt.UUID(d.ID),
-					LastUpdateTimeUnix: d.UpdateTime,
-				},
-				BelongsToShard: shardName,
-				BelongsToNode:  host,
-			}
-		}
+				ret := make([]*storobj.Object, len(ds))
 
-		return ret, nil
+				for i, d := range ds {
+					ret[i] = &storobj.Object{
+						Object: models.Object{
+							ID:                 strfmt.UUID(d.ID),
+							LastUpdateTimeUnix: d.UpdateTime,
+						},
+						BelongsToShard: shardName,
+						BelongsToNode:  host,
+					}
+				}
+
+				return ret, nil*/
 	}
 
-	replyCh, _, err := coord.Pull(ctx, l, op, directCandidate)
+	replyCh, _, err := coord.Pull(ctx, All, op, directCandidate)
 	if err != nil {
 		return 0, fmt.Errorf("pull shard: %w", errReplicas)
 	}
@@ -340,7 +348,7 @@ func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
 		}
 	}
 
-	err = f.CheckConsistency(ctx, l, retObjects)
+	err = f.CheckConsistency(ctx, All, retObjects)
 	if err != nil {
 		return 0, err
 	}
