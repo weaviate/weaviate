@@ -129,12 +129,11 @@ func TestNewPrimitiveValue(t *testing.T) {
 			name: "string",
 			in:   "a string",
 			tests: makeTestList(map[schema.DataType]*pb.Value{
-				schema.DataTypeDate:        {Kind: &pb.Value_DateValue{DateValue: "a string"}},
-				schema.DataTypeString:      {Kind: &pb.Value_StringValue{StringValue: "a string"}},
-				schema.DataTypeText:        {Kind: &pb.Value_StringValue{StringValue: "a string"}},
-				schema.DataTypeUUID:        {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
-				schema.DataTypeBlob:        {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
-				schema.DataTypePhoneNumber: {Kind: &pb.Value_PhoneNumberValue{PhoneNumberValue: "a string"}},
+				schema.DataTypeDate:   {Kind: &pb.Value_DateValue{DateValue: "a string"}},
+				schema.DataTypeString: {Kind: &pb.Value_StringValue{StringValue: "a string"}},
+				schema.DataTypeText:   {Kind: &pb.Value_StringValue{StringValue: "a string"}},
+				schema.DataTypeUUID:   {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+				schema.DataTypeBlob:   {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
 			}),
 		},
 		{
@@ -150,6 +149,13 @@ func TestNewPrimitiveValue(t *testing.T) {
 			in:   &models.GeoCoordinates{Longitude: &float_val, Latitude: &float_val},
 			tests: makeTestList(map[schema.DataType]*pb.Value{
 				schema.DataTypeGeoCoordinates: {Kind: &pb.Value_GeoValue{GeoValue: &pb.GeoCoordinate{Latitude: float_val, Longitude: float_val}}},
+			}),
+		},
+		{
+			name: "phone number",
+			in:   &models.PhoneNumber{Input: "1234567890"},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypePhoneNumber: {Kind: &pb.Value_PhoneNumberValue{PhoneNumberValue: &pb.PhoneNumber{Input: "1234567890"}}},
 			}),
 		},
 	}

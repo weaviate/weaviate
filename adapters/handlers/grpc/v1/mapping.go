@@ -113,9 +113,9 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 			}
 			return NewBlobValue(val), nil
 		case schema.DataTypePhoneNumber:
-			val, ok := v.(string)
+			val, ok := v.(*models.PhoneNumber)
 			if !ok {
-				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing phone number property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected *models.PhoneNumber when serializing phone number property", v)
 			}
 			return NewPhoneNumberValue(val), nil
 		default:
@@ -268,6 +268,17 @@ func NewBlobValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_BlobValue{BlobValue: v}}
 }
 
-func NewPhoneNumberValue(v string) *pb.Value {
-	return &pb.Value{Kind: &pb.Value_PhoneNumberValue{PhoneNumberValue: v}}
+// NewPhoneNumberValue constructs a new phone number Value.
+func NewPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_PhoneNumberValue{
+		PhoneNumberValue: &pb.PhoneNumber{
+			CountryCode:            v.CountryCode,
+			DefaultCountry:         v.DefaultCountry,
+			Input:                  v.Input,
+			InternationalFormatted: v.InternationalFormatted,
+			National:               v.National,
+			NationalFormatted:      v.NationalFormatted,
+			Valid:                  v.Valid,
+		},
+	}}
 }
