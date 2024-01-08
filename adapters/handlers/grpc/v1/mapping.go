@@ -270,8 +270,8 @@ func NewBlobValue(v string) *pb.Value {
 
 // NewPhoneNumberValue constructs a new phone number Value.
 func NewPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
-	return &pb.Value{Kind: &pb.Value_PhoneNumberValue{
-		PhoneNumberValue: &pb.PhoneNumber{
+	return &pb.Value{Kind: &pb.Value_PhoneValue{
+		PhoneValue: &pb.PhoneNumber{
 			CountryCode:            v.CountryCode,
 			DefaultCountry:         v.DefaultCountry,
 			Input:                  v.Input,
