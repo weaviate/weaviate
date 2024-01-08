@@ -19,13 +19,14 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+
+	"github.com/weaviate/weaviate/usecases/replication/hashtree"
 )
 
 var (
@@ -229,14 +230,71 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	return result.Value, result.Err
 }
 
+type ShardDifferenceReader struct {
+	Host       string
+	DiffReader hashtree.AggregatedHashTreeDiffReader
+}
+
+func (f *Finder) CollectShardDifferences(ctx context.Context,
+	shardName string, ht hashtree.AggregatedHashTree,
+	consistencyLevel ConsistencyLevel, directCandidate string,
+) (<-chan _Result[*ShardDifferenceReader], error) {
+	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName)
+
+	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
+		if f.resolver.NodeName == host {
+			return nil, hashtree.ErrNoMoreDifferences
+		}
+
+		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
+
+		// TODO (jeroiraz): slice may be fetch from a reusable pool
+		digests := make([]hashtree.Digest, hashtree.LeavesCount(ht.Height()))
+
+		diff.Set(0) // init comparison at root level
+
+		for l := 0; l < ht.Height(); l++ {
+			_, err := ht.Level(l, diff, digests)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", host, err)
+			}
+
+			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
+			if err != nil {
+				return nil, fmt.Errorf("%q: %w", host, err)
+			}
+
+			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
+			if levelDiffCount == 0 {
+				// no difference was found
+				// an error is returned to ensure some existent difference is found if another
+				// consistency level than All is used
+				return nil, hashtree.ErrNoMoreDifferences
+			}
+		}
+
+		return &ShardDifferenceReader{
+			Host:       host,
+			DiffReader: ht.NewDiffReader(diff),
+		}, nil
+	}
+
+	replyCh, _, err := coord.Pull(ctx, consistencyLevel, op, directCandidate)
+	if err != nil {
+		return nil, fmt.Errorf("pull shard: %w", errReplicas)
+	}
+
+	return replyCh, nil
+}
+
 func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
-	shardName string, l ConsistencyLevel, directCandidate string,
-	initialUUID, finalUUID uuid.UUID, limit int,
-) ([]*storobj.Object, error) {
+	shardName string, directCandidate string,
+	initialToken, finalToken uint64,
+) (n int, err error) {
 	coord := newReadCoordinator[[]*storobj.Object](f, shardName)
 
 	op := func(ctx context.Context, host string, fullRead bool) ([]*storobj.Object, error) {
-		ds, err := f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialUUID, finalUUID, limit)
+		ds, err := f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -259,7 +317,7 @@ func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
 
 	replyCh, _, err := coord.Pull(ctx, l, op, directCandidate)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", errReplicas)
+		return 0, fmt.Errorf("pull shard: %w", errReplicas)
 	}
 
 	var retObjects []*storobj.Object
@@ -284,8 +342,8 @@ func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
 
 	err = f.CheckConsistency(ctx, l, retObjects)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return retObjects, nil
+	return len(retObjects), nil
 }
