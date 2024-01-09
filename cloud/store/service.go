@@ -42,7 +42,7 @@ func NewService(store *Store, client client) *Service {
 }
 
 // / RAFT-TODO Documentation
-func (s *Service) Open(ctx context.Context, db DB) error {
+func (s *Service) Open(ctx context.Context, db Indexer) error {
 	s.store.SetDB(db)
 	return s.store.Open(ctx)
 }
