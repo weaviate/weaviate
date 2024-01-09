@@ -35,18 +35,20 @@ var (
 	ErrNotOpen        = errors.New("store not open")
 )
 
-type DB interface {
-	AddClass(pl cmd.AddClassRequest) error
-	UpdateClass(req cmd.UpdateClassRequest) error
+// Indexer interface updates both the collection and its indices in the filesystem.
+// This is distinct from updating metadata, which is handled through a different interface.
+type Indexer interface {
+	AddClass(cmd.AddClassRequest) error
+	UpdateClass(cmd.UpdateClassRequest) error
 	DeleteClass(string) error
-	AddProperty(string, cmd.AddPropertyRequest) error
+	AddProperty(class string, req cmd.AddPropertyRequest) error
 	AddTenants(class string, req *cmd.AddTenantsRequest) error
 	UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error
-	UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error
+	UpdateShardStatus(*cmd.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
-	Open(ctx context.Context) error
-	Close(ctx context.Context) error
+	Open(context.Context) error
+	Close(context.Context) error
 }
 
 type Parser interface {
@@ -66,7 +68,7 @@ type Config struct {
 	SnapshotInterval  time.Duration
 	SnapshotThreshold uint64
 
-	DB          DB
+	DB          Indexer
 	Parser      Parser
 	Logger      *slog.Logger
 	LogLevel    string
@@ -89,9 +91,7 @@ type Store struct {
 
 	nodeID   string
 	host     string
-	schema   *schema
-	db       DB
-	parser   Parser
+	db       localDB
 	log      *slog.Logger
 	logLevel string
 
@@ -122,9 +122,7 @@ func New(cfg Config) Store {
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
-		schema:            NewSchema(cfg.NodeID, cfg.DB),
-		db:                cfg.DB,
-		parser:            cfg.Parser,
+		db:                localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
 	}
@@ -155,10 +153,7 @@ func (st *Store) Close(ctx context.Context) (err error) {
 	return
 }
 
-func (f *Store) SetDB(db DB) {
-	f.db = db
-	f.schema.shardReader = db
-}
+func (f *Store) SetDB(db Indexer) { f.db.SetIndexer(db) }
 
 func (f *Store) Ready() bool {
 	return f.open.Load() && f.dbLoaded.Load()
@@ -179,7 +174,8 @@ func (st *Store) Execute(req *cmd.ApplyRequest) error {
 		}
 		return err
 	}
-	return nil
+	resp := fut.Response().(Response)
+	return resp.Error
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
@@ -208,7 +204,7 @@ func (st *Store) IsLeader() bool {
 }
 
 func (f *Store) SchemaReader() *schema {
-	return f.schema
+	return f.db.Schema
 }
 
 type Response struct {
