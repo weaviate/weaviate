@@ -246,7 +246,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	}
 
 	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
-		if sourceHost == host {
+		if host == sourceHost {
 			return nil, hashtree.ErrNoMoreDifferences
 		}
 
@@ -291,67 +291,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	return replyCh, nil
 }
 
-func (f *Finder) StepTowardsShardConsistency(ctx context.Context,
-	shardName string, directCandidate string,
-	initialToken, finalToken uint64,
-) (n int, err error) {
-	coord := newReadCoordinator[[]*storobj.Object](f, shardName)
-
-	op := func(ctx context.Context, host string, fullRead bool) ([]*storobj.Object, error) {
-		return nil, nil
-		/*
-			TODO (jeroiraz): complete WIP implementation
-
-				ds, err := f.client.DigestObjectsInRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
-				if err != nil {
-					return nil, err
-				}
-
-				ret := make([]*storobj.Object, len(ds))
-
-				for i, d := range ds {
-					ret[i] = &storobj.Object{
-						Object: models.Object{
-							ID:                 strfmt.UUID(d.ID),
-							LastUpdateTimeUnix: d.UpdateTime,
-						},
-						BelongsToShard: shardName,
-						BelongsToNode:  host,
-					}
-				}
-
-				return ret, nil*/
-	}
-
-	replyCh, _, err := coord.Pull(ctx, All, op, directCandidate)
-	if err != nil {
-		return 0, fmt.Errorf("pull shard: %w", errReplicas)
-	}
-
-	var retObjects []*storobj.Object
-	ret := make(map[strfmt.UUID]struct{})
-
-	for r := range replyCh { // len(ch) == st.Level
-		if r.Err != nil {
-			f.log.WithField("op", "read_batch.get").WithField("class", f.class).WithField("shard", shardName).Error(r.Err)
-			continue
-		}
-
-		for _, obj := range r.Value {
-			_, ok := ret[obj.ID()]
-			if ok {
-				continue
-			}
-
-			retObjects = append(retObjects, obj)
-			ret[obj.ID()] = struct{}{}
-		}
-	}
-
-	err = f.CheckConsistency(ctx, All, retObjects)
-	if err != nil {
-		return 0, err
-	}
-
-	return len(retObjects), nil
+func (f *Finder) DigestObjectsInTokenRange(ctx context.Context,
+	shardName string, host string, initialToken, finalToken uint64, limit int,
+) (ds []RepairResponse, lastTokenRead uint64, err error) {
+	return f.client.DigestObjectsInTokenRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
 }
