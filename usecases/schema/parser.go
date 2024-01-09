@@ -71,7 +71,7 @@ func (m *Parser) parseShardingConfig(class *models.Class) (err error) {
 		cfg, err = shardingConfig.ParseConfig(class.ShardingConfig,
 			m.clusterState.NodeCount())
 		if err != nil {
-			return fmt.Errorf("parse sharding config: %w", err)
+			return err
 		}
 
 	}
