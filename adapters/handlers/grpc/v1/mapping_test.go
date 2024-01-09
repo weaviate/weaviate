@@ -151,6 +151,13 @@ func TestNewPrimitiveValue(t *testing.T) {
 				schema.DataTypeGeoCoordinates: {Kind: &pb.Value_GeoValue{GeoValue: &pb.GeoCoordinate{Latitude: float_val, Longitude: float_val}}},
 			}),
 		},
+		{
+			name: "phone number",
+			in:   &models.PhoneNumber{Input: "1234567890"},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypePhoneNumber: {Kind: &pb.Value_PhoneValue{PhoneValue: &pb.PhoneNumber{Input: "1234567890"}}},
+			}),
+		},
 	}
 
 	for _, tt := range tests {
