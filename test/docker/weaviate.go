@@ -25,10 +25,9 @@ import (
 )
 
 const (
-	Weaviate1      = "weaviate"
-	Weaviate2      = "weaviate2"
-	Weaviate3      = "weaviate3"
-	SecondWeaviate = "second-weaviate"
+	Weaviate1 = "weaviate"
+	Weaviate2 = "weaviate2"
+	Weaviate3 = "weaviate3"
 )
 
 func startWeaviate(ctx context.Context,

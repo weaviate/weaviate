@@ -24,7 +24,6 @@ import (
 )
 
 func Test_NodeMappingBackupJourney(t *testing.T) {
-	t.Skip("TODO-RAFT: need to start a second 1 node cluster to work")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
@@ -57,7 +56,7 @@ func Test_NodeMappingBackupJourney(t *testing.T) {
 		t.Run("restore-azure", func(t *testing.T) {
 			journey.NodeMappingBackupJourneyTests_SingleNode_Restore(t, compose.GetSecondWeaviate().URI(),
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil, map[string]string{
-					docker.Weaviate1: docker.SecondWeaviate,
+					"1-node1": "2-node1",
 				})
 		})
 

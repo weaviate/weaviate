@@ -61,16 +61,16 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 				require.NotNil(t, nodes)
 				require.Len(t, nodes, 2)
 
-				assert.Equal(t, "node1", nodes[0].Name)
-				assert.Equal(t, "node2", nodes[1].Name)
+				assert.Equal(t, "1-node1", nodes[0].Name)
+				assert.Equal(t, "1-node2", nodes[1].Name)
 
 				for i, nodeStatus := range nodes {
 					require.NotNil(t, nodeStatus)
 					assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 					if i == 0 {
-						assert.Equal(t, "node1", nodeStatus.Name)
+						assert.Equal(t, "1-node1", nodeStatus.Name)
 					} else {
-						assert.Equal(t, "node2", nodeStatus.Name)
+						assert.Equal(t, "1-node2", nodeStatus.Name)
 					}
 					assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 					assert.Len(t, nodeStatus.Shards, 2)

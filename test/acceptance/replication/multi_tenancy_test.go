@@ -210,7 +210,7 @@ func multiTenancyEnabled(t *testing.T) {
 
 		t.Run("assert object is patched on node 1", func(t *testing.T) {
 			after, err := getTenantObjectFromNode(t, compose.ContainerURI(1),
-				"Article", articleIDs[0], "node1", tenantID.String())
+				"Article", articleIDs[0], "1-node1", tenantID.String())
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -234,7 +234,7 @@ func multiTenancyEnabled(t *testing.T) {
 
 		t.Run("assert object removed from node 2", func(t *testing.T) {
 			_, err := getTenantObjectFromNode(t, compose.ContainerURI(2),
-				"Article", articleIDs[0], "node2", tenantID.String())
+				"Article", articleIDs[0], "1-node2", tenantID.String())
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 

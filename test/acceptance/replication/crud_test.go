@@ -217,7 +217,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert object is patched on node 1", func(t *testing.T) {
-			after, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
+			after, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "1-node1")
 			require.Nil(t, err)
 
 			newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -240,7 +240,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("assert object removed from node 2", func(t *testing.T) {
-			_, err := getObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], "node2")
+			_, err := getObjectFromNode(t, compose.ContainerURI(2), "Article", articleIDs[0], "1-node2")
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
@@ -367,7 +367,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert object is patched on node 1", func(t *testing.T) {
-				after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
+				after, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "1-node1")
 				require.Nil(t, err)
 
 				newVal, ok := after.Properties.(map[string]interface{})["title"]
@@ -391,7 +391,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("assert object removed from node 2", func(t *testing.T) {
-				_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
+				_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "1-node2")
 				assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 			})
 
@@ -424,8 +424,8 @@ func eventualReplicaCRUD(t *testing.T) {
 }
 
 func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-	// since node1 is the gossip "leader", node 2 must be stopped and restarted
-	// after node1 to re-facilitate internode communication
+	// since 1-node1 is the gossip "leader", 1-node2 must be stopped and restarted
+	// after 1-node1 to re-facilitate internode communication
 	eg := errgroup.Group{}
 	eg.Go(func() error {
 		require.Nil(t, compose.StartAt(ctx, 1))

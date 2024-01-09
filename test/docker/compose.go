@@ -423,32 +423,29 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		containers = append(containers, container)
 	}
 	if d.withWeaviateCluster {
-		cs, err := d.startCluster(ctx, d.size, envSettings)
+		cs, err := d.startCluster(ctx, d.size, envSettings, 1)
+		if err != nil {
+			return nil, err
+		}
+
 		for _, c := range cs {
 			if c != nil {
 				containers = append(containers, c)
 			}
 		}
-		return &DockerCompose{network, containers}, err
 	}
 
 	if d.withSecondWeaviate {
-		image := os.Getenv(envTestWeaviateImage)
-		hostname := SecondWeaviate
-		secondWeaviateSettings := envSettings
-		// Ensure second weaviate doesn't get cluster settings from the first cluster if any.
-		delete(secondWeaviateSettings, "CLUSTER_HOSTNAME")
-		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
-		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
-		delete(secondWeaviateSettings, "CLUSTER_JOIN")
-		delete(secondWeaviateSettings, "RAFT_PORT")
-		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
-		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
+		cs, err := d.startCluster(ctx, d.size, envSettings, 2)
 		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", hostname)
+			return nil, err
 		}
-		containers = append(containers, container)
+
+		for _, c := range cs {
+			if c != nil {
+				containers = append(containers, c)
+			}
+		}
 	}
 
 	return &DockerCompose{network, containers}, nil
@@ -472,16 +469,16 @@ func (d *Compose) With3NodeCluster() *Compose {
 	return d
 }
 
-func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string) ([]*DockerContainer, error) {
+func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string, prefix int) ([]*DockerContainer, error) {
 	if size == 0 || size > 3 {
 		return nil, nil
 	}
 
-	raft_join := "node1,node2,node3"
+	raft_join := fmt.Sprintf("%d-node1,%d-node2,%d-node3", prefix, prefix, prefix)
 	if size == 1 {
-		raft_join = "node1"
+		raft_join = fmt.Sprintf("%d-node1", prefix)
 	} else if size == 2 {
-		raft_join = "node1,node2"
+		raft_join = fmt.Sprintf("%d-node1,%d-node2", prefix, prefix)
 	}
 
 	cs := make([]*DockerContainer, size)
@@ -500,55 +497,58 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 	}
-	settings["RAFT_PORT"] = "8300"
-	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
+	settings["RAFT_PORT"] = fmt.Sprintf("%d8300", prefix)
+	settings["RAFT_INTERNAL_RPC_PORT"] = fmt.Sprintf("%d8301", prefix)
 	settings["RAFT_JOIN"] = raft_join
 	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.size)
 
 	// first node
+	hostname := fmt.Sprintf("%d-%s", prefix, Weaviate1)
 	config1 := copySettings(settings)
-	config1["CLUSTER_HOSTNAME"] = "node1"
-	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
-	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
+	config1["CLUSTER_HOSTNAME"] = fmt.Sprintf("%d-node1", prefix)
+	config1["CLUSTER_GOSSIP_BIND_PORT"] = fmt.Sprintf("%d7100", prefix)
+	config1["CLUSTER_DATA_BIND_PORT"] = fmt.Sprintf("%d7101", prefix)
 	eg := errgroup.Group{}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort)
+			config1, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
-			return errors.Wrapf(err, "start %s", Weaviate1)
+			return errors.Wrapf(err, "start %s", hostname)
 		}
 		return nil
 	})
 
 	if size > 1 {
+		hostname := fmt.Sprintf("%d-%s", prefix, Weaviate2)
 		config2 := copySettings(settings)
-		config2["CLUSTER_HOSTNAME"] = "node2"
-		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
-		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
-		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		config2["CLUSTER_HOSTNAME"] = fmt.Sprintf("%d-node2", prefix)
+		config2["CLUSTER_GOSSIP_BIND_PORT"] = fmt.Sprintf("%d7102", prefix)
+		config2["CLUSTER_DATA_BIND_PORT"] = fmt.Sprintf("%d7103", prefix)
+		config2["CLUSTER_JOIN"] = fmt.Sprintf("%d-%s:%d7100", prefix, Weaviate1, prefix)
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort)
+				config2, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 			if err != nil {
-				return errors.Wrapf(err, "start %s", Weaviate2)
+				return errors.Wrapf(err, "start %s", hostname)
 			}
 			return nil
 		})
 	}
 
 	if size > 2 {
+		hostname := fmt.Sprintf("%d-%s", prefix, Weaviate3)
 		config3 := copySettings(settings)
-		config3["CLUSTER_HOSTNAME"] = "node3"
-		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
-		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
-		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		config3["CLUSTER_HOSTNAME"] = fmt.Sprintf("%d-node3", prefix)
+		config3["CLUSTER_GOSSIP_BIND_PORT"] = fmt.Sprintf("%d7104", prefix)
+		config3["CLUSTER_DATA_BIND_PORT"] = fmt.Sprintf("%d7105", prefix)
+		config3["CLUSTER_JOIN"] = fmt.Sprintf("%d-%s:%d7100", prefix, Weaviate1, prefix)
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort)
+				config3, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 			if err != nil {
-				return errors.Wrapf(err, "start %s", Weaviate3)
+				return errors.Wrapf(err, "start %s", hostname)
 			}
 			return nil
 		})

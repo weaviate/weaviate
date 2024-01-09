@@ -123,15 +123,15 @@ func (d *DockerCompose) GetAzurite() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
-	return d.getContainerByName(Weaviate1)
+	return d.getContainerByName("1-" + Weaviate1)
 }
 
 func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
-	return d.getContainerByName(SecondWeaviate)
+	return d.getContainerByName("2-" + Weaviate1)
 }
 
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
-	return d.getContainerByName(Weaviate2)
+	return d.getContainerByName("1-" + Weaviate2)
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
