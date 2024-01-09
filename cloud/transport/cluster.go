@@ -107,7 +107,7 @@ func (c *Cluster) serve() error {
 	c.grpcServer = grpc.NewServer()
 	cmd.RegisterClusterServiceServer(c.grpcServer, c)
 	if err := c.grpcServer.Serve(c.ln); err != nil {
-		c.log.Error("serving incoming requests", "error", err)
+		c.log.Error("serving incoming requests: " + err.Error())
 		panic("error accepting incoming requests")
 	}
 	return nil
