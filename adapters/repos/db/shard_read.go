@@ -92,24 +92,14 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
-func (s *Shard) MultiObjectByIDInRange(ctx context.Context, initialUUID, finalUUID uuid.UUID, limit int) ([]*storobj.Object, error) {
+func (s *Shard) MultiObjectByTokenRange(ctx context.Context,
+	initialToken, finalToken uint64, limit int) (
+	res []*storobj.Object, lastTokenRead uint64, err error,
+) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	cursor := bucket.Cursor()
 	defer cursor.Close()
-
-	// TODO (jeroiraz): deleted objects may need to be returned as well
-	// TODO (jeroiraz): cut key may be returned when limit is reached
-
-	initialUUIDBytes, err := initialUUID.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-
-	finalUUIDBytes, err := finalUUID.MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
 
 	n := 0
 
