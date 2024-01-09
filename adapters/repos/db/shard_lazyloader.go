@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -278,11 +277,13 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
-func (l *LazyLoadShard) MultiObjectByIDInRange(ctx context.Context, initialUUID, finalUUID uuid.UUID, limit int) ([]*storobj.Object, error) {
+func (l *LazyLoadShard) MultiObjectByTokenRange(ctx context.Context,
+	initialToken, finalToken uint64, limit int,
+) (objs []*storobj.Object, lastTokenRead uint64, err error) {
 	if err := l.Load(ctx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return l.shard.MultiObjectByIDInRange(ctx, initialUUID, finalUUID, limit)
+	return l.shard.MultiObjectByTokenRange(ctx, initialToken, finalToken, limit)
 }
 
 func (l *LazyLoadShard) ID() string {

@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -47,9 +46,9 @@ type RemoteIndexIncomingRepo interface {
 	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []RepairResponse, err error)
-	DigestObjectsInRange(ctx context.Context, class, shardName string,
-		initialUUID, finalUUID uuid.UUID, limit int) (result []RepairResponse, err error)
-	HashTreeLevel(ctx context.Context, indexName, shardName string,
+	DigestObjectsInTokenRange(ctx context.Context, shardName string,
+		initialToken, finalToken uint64, limit int) (result []RepairResponse, lastTokenRead uint64, err error)
+	HashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
@@ -206,14 +205,23 @@ func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, ind
 	return index, nil
 }
 
-func (rri *RemoteReplicaIncoming) DigestObjectsInRange(ctx context.Context,
-	indexName, shardName string, initialUUID, finalUUID uuid.UUID, limit int,
-) (result []RepairResponse, err error) {
-	return rri.repo.DigestObjectsInRange(ctx, indexName, shardName, initialUUID, finalUUID, limit)
+func (rri *RemoteReplicaIncoming) DigestObjectsInTokenRange(ctx context.Context,
+	indexName, shardName string, initialToken, finalToken uint64, limit int,
+) (result []RepairResponse, lastTokenRead uint64, err error) {
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
+	if simpleResp != nil {
+		return []RepairResponse{}, 0, simpleResp.Errors[0].Err
+	}
+	return index.DigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
 }
 
 func (rri *RemoteReplicaIncoming) HashTreeLevel(ctx context.Context,
 	indexName, shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	return rri.repo.HashTreeLevel(ctx, indexName, shardName, level, discriminant)
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
+	if simpleResp != nil {
+		return []hashtree.Digest{}, simpleResp.Errors[0].Err
+	}
+
+	return index.HashTreeLevel(ctx, shardName, level, discriminant)
 }

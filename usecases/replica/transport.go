@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -166,10 +165,15 @@ func fromReplicas(xs []objects.Replica) []*storobj.Object {
 	return rs
 }
 
-type ObjectRange struct {
-	InitialUUID strfmt.UUID `json:"initialUUID,omitempty"`
-	FinalUUID   strfmt.UUID `json:"finalUUID,omitempty"`
-	Limit       int         `json:"limit,omitempty"`
+type DigestObjectsInTokenRangeReq struct {
+	InitialToken uint64 `json:"initialToken,omitempty"`
+	FinalToken   uint64 `json:"finalToken,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+}
+
+type DigestObjectsInTokenRangeResp struct {
+	Digests       []RepairResponse `json:"digests,omitempty"`
+	LastTokenRead uint64           `json:"lastTokenRead,omitempty"`
 }
 
 // wClient is the client used to write to replicas
@@ -212,8 +216,8 @@ type rClient interface {
 	DigestObjects(ctx context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]RepairResponse, error)
 
-	DigestObjectsInRange(ctx context.Context, host, index, shard string,
-		initialUUID, finalUUID uuid.UUID, limit int) ([]RepairResponse, error)
+	DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
+		initialToken, finalToken uint64, limit int) ([]RepairResponse, uint64, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
@@ -253,11 +257,11 @@ func (fc finderClient) DigestReads(ctx context.Context,
 	return rs, err
 }
 
-func (fc finderClient) DigestObjectsInRange(ctx context.Context,
+func (fc finderClient) DigestObjectsInTokenRange(ctx context.Context,
 	host, index, shard string,
-	initialUUID, finalUUID uuid.UUID, limit int,
-) ([]RepairResponse, error) {
-	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
+	initialToken, finalToken uint64, limit int,
+) ([]RepairResponse, uint64, error) {
+	return fc.cl.DigestObjectsInTokenRange(ctx, host, index, shard, initialToken, finalToken, limit)
 }
 
 // FullReads read full objects
