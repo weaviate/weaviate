@@ -108,7 +108,7 @@ message Filters {
 
   Operator operator = 1;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated string on = 2;
+  repeated string on = 2  [deprecated = true];  // will be removed in the future, use path
   repeated Filters filters = 3;
   oneof test_value{
     string value_text = 4;
@@ -120,6 +120,26 @@ message Filters {
     BooleanArray value_boolean_array = 11;
     NumberArray value_number_array = 12;
     GeoCoordinatesFilter value_geo = 13;
+  };
+  FilterTarget target = 20; // leave space for more filter values
+}
+
+message FilterReferenceSingleTarget {
+  string on = 1;
+  FilterTarget target = 2;
+}
+
+message FilterReferenceMultiTarget {
+  string on = 1;
+  FilterTarget target = 2;
+  string string_target_collection = 3;
+}
+
+message FilterTarget {
+  oneof target{
+    string property = 1;
+    FilterReferenceSingleTarget single_target = 2;
+    FilterReferenceMultiTarget multi_target = 3;
   };
 }
 
