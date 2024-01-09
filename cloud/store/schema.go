@@ -161,6 +161,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 		p, ok := ps[u.Name]
 		if !ok {
 			missingShards = append(missingShards, u.Name)
+			req.Tenants[i] = nil
 			continue
 		}
 		if p.ActivityStatus() == u.Status {
