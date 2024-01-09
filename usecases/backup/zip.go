@@ -34,7 +34,6 @@ const (
 	DefaultCompression CompressionLevel = iota
 	BestSpeed
 	BestCompression
-	HuffmanOnly
 )
 
 type zip struct {
@@ -298,8 +297,6 @@ func zipLevel(level int) int {
 		return gzip.BestSpeed
 	case BestCompression:
 		return gzip.BestCompression
-	case HuffmanOnly:
-		return gzip.HuffmanOnly
 	default:
 		return gzip.DefaultCompression
 	}
@@ -311,19 +308,19 @@ type zipConfig struct {
 	ChunkSize  int
 }
 
-func newZipConfig(level, cpuPercentage, chunkSize int) zipConfig {
-	if chunkSize == 0 {
-		chunkSize = defaultChunkSize
+func newZipConfig(c Compression) zipConfig {
+	if c.ChunkSize == 0 {
+		c.ChunkSize = DefaultChunkSize
 	}
-	if chunkSize < minChunkSize {
-		chunkSize = minChunkSize
-	} else if chunkSize > maxChunkSize {
-		chunkSize = maxChunkSize
+	if c.ChunkSize < minChunkSize {
+		c.ChunkSize = minChunkSize
+	} else if c.ChunkSize > maxChunkSize {
+		c.ChunkSize = maxChunkSize
 	}
 
 	return zipConfig{
-		Level:      level,
-		GoPoolSize: routinePoolSize(cpuPercentage),
-		ChunkSize:  chunkSize,
+		Level:      int(c.Level),
+		GoPoolSize: routinePoolSize(c.CPUPercentage),
+		ChunkSize:  c.ChunkSize,
 	}
 }
