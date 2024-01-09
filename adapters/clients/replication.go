@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -77,29 +76,28 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	return resp, err
 }
 
-func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
-	host, index, shard string, initialUUID, finalUUID uuid.UUID, limit int,
-) (result []replica.RepairResponse, err error) {
-	var resp []replica.RepairResponse
-
-	body, err := json.Marshal(replica.ObjectRange{
-		InitialUUID: strfmt.UUID(initialUUID.String()),
-		FinalUUID:   strfmt.UUID(finalUUID.String()),
-		Limit:       limit,
+func (c *replicationClient) DigestObjectsInTokenRange(ctx context.Context,
+	host, index, shard string, initialToken, finalToken uint64, limit int,
+) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
+	body, err := json.Marshal(replica.DigestObjectsInTokenRangeReq{
+		InitialToken: initialToken,
+		FinalToken:   finalToken,
+		Limit:        limit,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshal digest objects in range input: %w", err)
+		return nil, 0, fmt.Errorf("marshal digest objects in range input: %w", err)
 	}
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodGet, host, index, shard,
-		"", "digestsInRange", bytes.NewReader(body))
+		"", "digestsInTokenRange", bytes.NewReader(body))
 	if err != nil {
-		return resp, fmt.Errorf("create http request: %w", err)
+		return nil, 0, fmt.Errorf("create http request: %w", err)
 	}
 
+	var resp replica.DigestObjectsInTokenRangeResp
 	err = c.do(c.timeoutUnit*20, req, body, &resp)
-	return resp, err
+	return resp.Digests, resp.LastTokenRead, err
 }
 
 func (c *replicationClient) HashTreeLevel(ctx context.Context,

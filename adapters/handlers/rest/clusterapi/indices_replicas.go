@@ -22,7 +22,6 @@ import (
 	"strconv"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -57,8 +56,8 @@ type replicator interface {
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
-	DigestObjectsInRange(ctx context.Context, class, shardName string,
-		initialUUID, finalUUID uuid.UUID, limit int) (result []replica.RepairResponse, err error)
+	DigestObjectsInTokenRange(ctx context.Context, class, shardName string,
+		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
 	HashTreeLevel(ctx context.Context, index, shard string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -81,8 +80,8 @@ var (
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
 	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_digest`)
-	regexObjectsDigestsInRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
+	regexObjectsDigestsInTokenRange = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/digestsInTokenRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -119,9 +118,9 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
-		case regexObjectsDigestsInRange.MatchString(path):
+		case regexObjectsDigestsInTokenRange.MatchString(path):
 			if r.Method == http.MethodGet {
-				i.getObjectsDigestsInRange().ServeHTTP(w, r)
+				i.getObjectsDigestsInTokenRange().ServeHTTP(w, r)
 				return
 			}
 
@@ -407,9 +406,9 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 	})
 }
 
-func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
+func (i *replicatedIndices) getObjectsDigestsInTokenRange() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := regexObjectsDigestsInRange.FindStringSubmatch(r.URL.Path)
+		args := regexObjectsDigestsInTokenRange.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
@@ -424,25 +423,25 @@ func (i *replicatedIndices) getObjectsDigestsInRange() http.Handler {
 			return
 		}
 
-		var objRange replica.ObjectRange
-		if err := json.Unmarshal(reqPayload, &objRange); err != nil {
-			http.Error(w, "unmarshal digest objects in range params from json: "+err.Error(),
+		var tokenRangeReq replica.DigestObjectsInTokenRangeReq
+		if err := json.Unmarshal(reqPayload, &tokenRangeReq); err != nil {
+			http.Error(w, "unmarshal digest objects in token range params from json: "+err.Error(),
 				http.StatusBadRequest)
 			return
 		}
 
-		initialUUID := uuid.MustParse(objRange.InitialUUID.String())
-		finalUUID := uuid.MustParse(objRange.FinalUUID.String())
-
-		results, err := i.shards.DigestObjectsInRange(r.Context(),
-			index, shard, initialUUID, finalUUID, objRange.Limit)
+		digests, lastTokenRead, err := i.shards.DigestObjectsInTokenRange(r.Context(),
+			index, shard, tokenRangeReq.InitialToken, tokenRangeReq.FinalToken, tokenRangeReq.Limit)
 		if err != nil {
 			http.Error(w, "digest objects in range: "+err.Error(),
 				http.StatusInternalServerError)
 			return
 		}
 
-		resBytes, err := json.Marshal(results)
+		resBytes, err := json.Marshal(replica.DigestObjectsInTokenRangeResp{
+			Digests:       digests,
+			LastTokenRead: lastTokenRead,
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
