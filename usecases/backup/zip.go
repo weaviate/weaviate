@@ -309,13 +309,15 @@ type zipConfig struct {
 }
 
 func newZipConfig(c Compression) zipConfig {
-	if c.ChunkSize == 0 {
+	// convert from MB to byte because input already
+	// in MB and validated against min:2 max:512
+	switch c.ChunkSize = c.ChunkSize * 1024 * 1024; {
+	case c.ChunkSize == 0:
 		c.ChunkSize = DefaultChunkSize
-	}
-	if c.ChunkSize < minChunkSize {
-		c.ChunkSize = minChunkSize
-	} else if c.ChunkSize > maxChunkSize {
+	case c.ChunkSize > maxChunkSize:
 		c.ChunkSize = maxChunkSize
+	case c.ChunkSize < minChunkSize:
+		c.ChunkSize = minChunkSize
 	}
 
 	return zipConfig{
