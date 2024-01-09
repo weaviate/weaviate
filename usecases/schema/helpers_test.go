@@ -30,7 +30,7 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db store.DB) (*Handler, *fakeMetaHandler) {
+func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler) {
 	cfg := config.Config{DefaultVectorizerModule: "hnsw"}
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
@@ -47,7 +47,7 @@ func newTestHandler(t *testing.T, db store.DB) (*Handler, *fakeMetaHandler) {
 	return &handler, metaHandler
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.DB, authorizer authorizer) (*Handler, *fakeMetaHandler) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
 	cfg := config.Config{}
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
