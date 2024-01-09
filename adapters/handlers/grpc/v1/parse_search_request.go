@@ -368,16 +368,11 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.Operands = clauses
 
 	} else {
-		if len(filterIn.On)%2 != 1 {
+		if filterIn.Target == nil && len(filterIn.On)%2 != 1 {
 			return filters.Clause{}, fmt.Errorf(
 				"paths needs to have a uneven number of components: property, class, property, ...., got %v", filterIn.On,
 			)
 		}
-		path, err := extractPath(scheme, className, filterIn.On)
-		if err != nil {
-			return filters.Clause{}, err
-		}
-		returnFilter.On = path
 
 		switch filterIn.Operator {
 		case pb.Filters_OPERATOR_EQUAL:
@@ -406,9 +401,25 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 			return filters.Clause{}, fmt.Errorf("unknown filter operator %v", filterIn.Operator)
 		}
 
-		dataType, err := extractDataType(scheme, returnFilter.Operator, className, filterIn.On)
-		if err != nil {
-			return filters.Clause{}, err
+		var dataType schema.DataType
+		if filterIn.Target == nil {
+			path, err := extractPath(scheme, className, filterIn.On)
+			if err != nil {
+				return filters.Clause{}, err
+			}
+			returnFilter.On = path
+
+			dataType, err = extractDataType(scheme, returnFilter.Operator, className, filterIn.On)
+			if err != nil {
+				return filters.Clause{}, err
+			}
+		} else {
+			path, dataType2, err := extractPathNew(scheme, className, filterIn.Target, returnFilter.Operator)
+			if err != nil {
+				return filters.Clause{}, err
+			}
+			dataType = dataType2
+			returnFilter.On = path
 		}
 
 		// datatype UUID is just a string
@@ -549,16 +560,53 @@ func extractDataType(scheme schema.Schema, operator filters.Operator, classname 
 }
 
 func extractPath(scheme schema.Schema, className string, on []string) (*filters.Path, error) {
-	var child *filters.Path = nil
 	if len(on) > 1 {
 		var err error
-		child, err = extractPath(scheme, on[1], on[2:])
+		child, err := extractPath(scheme, on[1], on[2:])
 		if err != nil {
 			return nil, err
 		}
+		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
 
 	}
-	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: child}, nil
+	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: nil}, nil
+}
+
+func extractPathNew(scheme schema.Schema, className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
+	class := scheme.GetClass(schema.ClassName(className))
+	switch target.Target.(type) {
+	case *pb.FilterTarget_Property:
+		dt, err := extractDataType(scheme, operator, className, []string{target.GetProperty()})
+		if err != nil {
+			return nil, "", err
+		}
+		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(target.GetProperty()), Child: nil}, dt, nil
+	case *pb.FilterTarget_SingleTarget:
+		singleTarget := target.GetSingleTarget()
+		normalizedRefPropName := schema.LowercaseFirstLetter(singleTarget.On)
+		refProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
+		if err != nil {
+			return nil, "", err
+		}
+		if len(refProp.DataType) != 1 {
+			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
+		}
+
+		child, property, err := extractPathNew(scheme, refProp.DataType[0], singleTarget.Target, operator)
+		if err != nil {
+			return nil, "", err
+		}
+		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
+	case *pb.FilterTarget_MultiTarget:
+		multiTarget := target.GetMultiTarget()
+		child, property, err := extractPathNew(scheme, multiTarget.StringTargetCollection, multiTarget.Target, operator)
+		if err != nil {
+			return nil, "", err
+		}
+		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(schema.LowercaseFirstLetter(multiTarget.On)), Child: child}, property, nil
+	default:
+		return nil, "", fmt.Errorf("unknown target type %v", target)
+	}
 }
 
 func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool) ([]search.SelectProperty, error) {
