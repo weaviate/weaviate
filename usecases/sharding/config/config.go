@@ -92,7 +92,7 @@ func ParseConfig(input interface{}, nodeCount int) (Config, error) {
 
 	asMap, ok := input.(map[string]interface{})
 	if !ok || asMap == nil {
-		return out, fmt.Errorf("input must be a non-nil map")
+		return out, fmt.Errorf("input %T-%v must be a non-nil", input, ok)
 	}
 
 	if err := optionalIntFromMap(asMap, "virtualPerPhysical", func(v int) {
