@@ -25,10 +25,16 @@ type snapshot struct {
 	Classes    map[string]*metaClass `json:"classes"`
 }
 
-func (s *schema) Restore(r io.Reader) error {
+func (s *schema) Restore(r io.Reader, parser Parser) error {
 	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %v", err)
+	}
+	for _, cls := range snap.Classes {
+		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
+			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
+		}
+		cls.Sharding.SetLocalName(s.nodeID)
 	}
 
 	s.Lock()
