@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -84,7 +85,7 @@ func (s *Shard) hashBeat() error {
 				return fmt.Errorf("difference reading: %w", err)
 			}
 
-			_, err = s.index.replicator.StepTowardsShardConsistency(
+			_, err = s.stepsTowardsShardConsistency(
 				s.hashBeaterCtx,
 				s.name,
 				shardDiffReader.Host,
@@ -99,6 +100,85 @@ func (s *Shard) hashBeat() error {
 	}
 
 	return nil
+}
+
+func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
+	shardName string, host string, initialToken, finalToken uint64,
+) (n int, err error) {
+	const limit = 100
+
+	localLastReadToken := initialToken
+
+	for {
+		localDigests, newLocalLastReadToken, err := s.index.digestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
+		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
+			return n, err
+		}
+
+		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
+
+		for _, d := range localDigests {
+			// deleted objects are not propagated
+			if !d.Deleted {
+				localDigestsByUUID[d.ID] = d
+			}
+		}
+
+		if len(localDigestsByUUID) == 0 {
+			// no more local objects need to be propagated
+			return n, nil
+		}
+
+		remoteLastTokenRead := localLastReadToken
+
+		// fetch digests from remote host in order to avoid sending unnecessary objects
+		for remoteLastTokenRead < newLocalLastReadToken {
+			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
+				shardName, host, remoteLastTokenRead, newLocalLastReadToken, limit)
+			if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
+				return n, err
+			}
+
+			if len(remoteDigests) == 0 {
+				// no more objects in remote host
+				break
+			}
+
+			for _, d := range remoteDigests {
+				if len(localDigestsByUUID) == 0 {
+					// no more local objects need to be propagated
+					return n, nil
+				}
+
+				if d.Deleted {
+					// object was deleted in remote host
+					delete(localDigestsByUUID, d.ID)
+					continue
+				}
+
+				localDigest, ok := localDigestsByUUID[d.ID]
+				if ok && localDigest.UpdateTime <= d.UpdateTime {
+					// older or up to date objects are not propagated
+					delete(localDigestsByUUID, d.ID)
+				}
+			}
+
+			remoteLastTokenRead = newRemoteLastTokenRead
+		}
+
+		localLastReadToken = newLocalLastReadToken
+
+		if len(localDigestsByUUID) == 0 {
+			// no more local objects need to be propagated
+			return n, nil
+		}
+
+		// TODO (jeroiraz)
+		// readFully localDigestsByUUID
+		// then overWrite
+
+		n += len(localDigestsByUUID)
+	}
 }
 
 func (s *Shard) stopHashBeater() {
