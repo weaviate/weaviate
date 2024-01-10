@@ -62,7 +62,7 @@ func clusterBackupJourneyTest(t *testing.T, backend, className,
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, clusterJourney,
-			checkClassAndDataPresence, tenantNames, pqEnabled)
+			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{})
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -100,7 +100,28 @@ func clusterBackupEmptyClassJourneyTest(t *testing.T, backend, className, backup
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, clusterJourney,
-			checkClassPresenceOnly, tenantNames, false)
+			checkClassPresenceOnly, tenantNames, false, map[string]string{})
+	})
+
+	t.Run("cleanup", func(t *testing.T) {
+		helper.DeleteClass(t, className)
+	})
+}
+
+func clusterNodeMappingBackupJourneyTest(t *testing.T, backend, className, backupID, coordinatorEndpoint string, nodeEndpoints ...string) {
+	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
+	helper.SetupClient(uploaderEndpoint)
+
+	t.Logf("uploader selected -> %s:%s", helper.ServerHost, helper.ServerPort)
+	t.Run(fmt.Sprintf("add test data to endpoint: %s", uploaderEndpoint), func(t *testing.T) {
+		addTestClass(t, className, !multiTenant)
+	})
+
+	// send backup requests to the chosen coordinator, with nodeMapping.
+	// for nodeMapping we simply reverse the node(s) around, where node1 is now node2 and node2 is now node1.
+	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
+		backupJourney(t, className, backend, backupID, clusterJourney, checkClassPresenceOnly, nil, false,
+			map[string]string{"node1": "node2", "node2": "node1"})
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
