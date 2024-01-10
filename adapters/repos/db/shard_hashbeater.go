@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -107,9 +109,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 ) (n int, err error) {
 	const limit = 100
 
-	localLastReadToken := initialToken
-
-	for {
+	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
 		localDigests, newLocalLastReadToken, err := s.index.digestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
 			return n, err
@@ -130,6 +130,8 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 		}
 
 		remoteLastTokenRead := localLastReadToken
+
+		remoteStaleUpdateTime := make(map[string]int64, len(localDigests))
 
 		// fetch digests from remote host in order to avoid sending unnecessary objects
 		for remoteLastTokenRead < newLocalLastReadToken {
@@ -157,28 +159,59 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 				}
 
 				localDigest, ok := localDigestsByUUID[d.ID]
-				if ok && localDigest.UpdateTime <= d.UpdateTime {
-					// older or up to date objects are not propagated
-					delete(localDigestsByUUID, d.ID)
+				if ok {
+					if localDigest.UpdateTime <= d.UpdateTime {
+						// older or up to date objects are not propagated
+						delete(localDigestsByUUID, d.ID)
+					} else {
+						// older object is subject to be overwriten
+						remoteStaleUpdateTime[d.ID] = d.UpdateTime
+					}
 				}
 			}
 
 			remoteLastTokenRead = newRemoteLastTokenRead
 		}
 
-		localLastReadToken = newLocalLastReadToken
-
 		if len(localDigestsByUUID) == 0 {
 			// no more local objects need to be propagated
 			return n, nil
 		}
 
-		// TODO (jeroiraz)
-		// readFully localDigestsByUUID
-		// then overWrite
+		uuids := make([]strfmt.UUID, len(localDigestsByUUID))
+		for uuid := range localDigestsByUUID {
+			uuids = append(uuids, strfmt.UUID(uuid))
+		}
 
-		n += len(localDigestsByUUID)
+		replicaObjs, err := s.index.fetchObjects(ctx, shardName, uuids)
+		if err != nil {
+			return n, fmt.Errorf("fetching objects from shard %s: %w", shardName, err)
+		}
+
+		mergeObjs := make([]*objects.VObject, len(replicaObjs))
+
+		for _, replicaObj := range replicaObjs {
+			obj := objects.VObject{
+				LatestObject:    &replicaObj.Object.Object,
+				Vector:          replicaObj.Object.Vector,
+				StaleUpdateTime: remoteStaleUpdateTime[replicaObj.ID.String()],
+			}
+			mergeObjs = append(mergeObjs, &obj)
+		}
+
+		rs, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
+		if err != nil {
+			return n, fmt.Errorf("overwriting objects in shard %s at host %s: %w", shardName, host, err)
+		}
+
+		n += len(rs)
+		localLastReadToken = newLocalLastReadToken
 	}
+
+	// Note: n == 0 means local shard is laying behind remote shard,
+	// the local shard may receive recent objects when remote shard propagates them
+
+	return n, nil
 }
 
 func (s *Shard) stopHashBeater() {
