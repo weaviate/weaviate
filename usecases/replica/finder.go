@@ -296,3 +296,10 @@ func (f *Finder) DigestObjectsInTokenRange(ctx context.Context,
 ) (ds []RepairResponse, lastTokenRead uint64, err error) {
 	return f.client.DigestObjectsInTokenRange(ctx, host, f.class, shardName, initialToken, finalToken, limit)
 }
+
+// Overwrite specified object with most recent contents
+func (f *Finder) Overwrite(ctx context.Context,
+	host, index, shard string, xs []*objects.VObject,
+) ([]RepairResponse, error) {
+	return f.client.Overwrite(ctx, host, index, shard, xs)
+}
