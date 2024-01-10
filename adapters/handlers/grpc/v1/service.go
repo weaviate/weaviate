@@ -59,6 +59,9 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 
 	params, err := batchDeleteParamsFromProto(req, scheme)
+	if err != nil {
+		return nil, err
+	}
 
 	tenant := ""
 	if req.Tenant != nil {
