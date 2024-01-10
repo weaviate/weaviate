@@ -11,7 +11,9 @@
 
 package nearText
 
-import "github.com/pkg/errors"
+import (
+	"github.com/pkg/errors"
+)
 
 type ObjectMove struct {
 	ID     string
@@ -68,4 +70,12 @@ func (n NearTextParams) Validate() error {
 	}
 
 	return nil
+}
+
+func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
+	text, ok := param.(*NearTextParams)
+	if !ok {
+		return errors.New("'nearText' invalid parameter")
+	}
+	return text.Validate()
 }

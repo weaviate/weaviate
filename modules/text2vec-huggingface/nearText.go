@@ -13,12 +13,12 @@ package modhuggingface
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/text2vec-huggingface/neartext"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 )
 
 func (m *HuggingFaceModule) initNearText() error {
-	m.searcher = neartext.NewSearcher(m.vectorizer)
-	m.graphqlProvider = neartext.New(m.nearTextTransformer)
+	m.searcher = nearText.NewSearcher(m.vectorizer)
+	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
 
