@@ -49,6 +49,36 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	}
 }
 
+func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+	before := time.Now()
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
+	scheme := s.schemaManager.GetSchemaSkipAuth()
+
+	params, err := batchDeleteParamsFromProto(req, scheme)
+
+	tenant := ""
+	if req.Tenant != nil {
+		tenant = *req.Tenant
+	}
+
+	response, err := s.batchManager.DeleteObjectsFromGRPC(ctx, principal, params, replicationProperties, tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := batchDeleteReplyFromObjects(response, req.Verbose)
+	if err != nil {
+		return nil, err
+	}
+	result.Took = float32(time.Since(before).Seconds())
+
+	return result, nil
+}
+
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
