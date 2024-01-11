@@ -334,13 +334,6 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 		return nil
 	}
 
-	if !t.WantFlush {
-		return nil
-	}
-
-	if t.closed {
-		return fmt.Errorf("cannot flush closed tracker")
-	}
 	if !flushBackup { // Write the backup file first
 		t.Flush(true)
 	}
@@ -348,6 +341,13 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	t.Lock()
 	defer t.Unlock()
 
+	if !t.WantFlush {
+		return nil
+	}
+
+	if t.closed {
+		return fmt.Errorf("cannot flush closed tracker")
+	}
 
 	bytes, err := json.Marshal(t.data)
 	if err != nil {
@@ -376,7 +376,9 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 		return err
 	}
 
-	t.WantFlush = false
+	if !flushBackup {
+		t.WantFlush = false
+	}
 	return nil
 }
 
