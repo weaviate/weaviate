@@ -58,7 +58,6 @@ var file_v1_weaviate_proto_goTypes = []interface{}{
 	(*BatchObjectsReply)(nil),   // 4: weaviate.v1.BatchObjectsReply
 	(*BatchDeleteReply)(nil),    // 5: weaviate.v1.BatchDeleteReply
 }
-
 var file_v1_weaviate_proto_depIdxs = []int32{
 	0, // 0: weaviate.v1.Weaviate.Search:input_type -> weaviate.v1.SearchRequest
 	1, // 1: weaviate.v1.Weaviate.BatchObjects:input_type -> weaviate.v1.BatchObjectsRequest

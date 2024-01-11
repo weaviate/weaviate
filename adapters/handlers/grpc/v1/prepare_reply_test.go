@@ -558,6 +558,54 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: false,
 		},
 		{
+			name: "primitive and ref properties with no references",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+				},
+				map[string]interface{}{
+					"word": "other",
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+						{
+							ClassName:            refClass1,
+							RefProperties:        search.SelectProperties{{Name: "something", IsPrimitive: true}},
+							AdditionalProperties: additional.Properties{Vector: true},
+						},
+					}},
+				},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProperties: newStruct(t, map[string]interface{}{
+							"word": "word",
+						}),
+						RefPropsPresent: true,
+						RefProps:        []*pb.RefPropertiesResult{},
+					},
+				},
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProperties: newStruct(t, map[string]interface{}{
+							"word": "other",
+						}),
+						RefPropsPresent: true,
+						RefProps:        []*pb.RefPropertiesResult{},
+					},
+				},
+			},
+		},
+		{
 			name: "primitive and ref properties",
 			res: []interface{}{
 				map[string]interface{}{
@@ -606,6 +654,7 @@ func TestGRPCReply(t *testing.T) {
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "word",
 						}),
+						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
 							Properties: []*pb.PropertiesResult{
@@ -625,6 +674,7 @@ func TestGRPCReply(t *testing.T) {
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "other",
 						}),
+						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
 							Properties: []*pb.PropertiesResult{
@@ -678,6 +728,7 @@ func TestGRPCReply(t *testing.T) {
 								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
 							},
 						},
+						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
 							Properties: []*pb.PropertiesResult{
@@ -734,6 +785,7 @@ func TestGRPCReply(t *testing.T) {
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "word",
 						}),
+						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
 							Properties: []*pb.PropertiesResult{
@@ -922,6 +974,7 @@ func TestGRPCReply(t *testing.T) {
 					{
 						Properties: &pb.PropertiesResult{
 							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							RefPropsPresent:  true,
 							RefProps: []*pb.RefPropertiesResult{
 								{
 									PropName: "other",
@@ -1041,6 +1094,7 @@ func TestGRPCReply(t *testing.T) {
 					{
 						Properties: &pb.PropertiesResult{
 							NonRefProperties: newStruct(t, map[string]interface{}{"word": "word"}),
+							RefPropsPresent:  true,
 							RefProps: []*pb.RefPropertiesResult{
 								{
 									PropName: "other",
