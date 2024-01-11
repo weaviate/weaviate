@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"sort"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -36,6 +37,48 @@ func (m *Memtable) newCursor() innerCursorReplace {
 	defer m.RUnlock()
 
 	data := m.key.flattenInOrder()
+
+	return &memtableCursor{
+		data:   data,
+		lock:   m.RLock,
+		unlock: m.RUnlock,
+	}
+}
+
+func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
+	// This cursor is a really primitive approach, it actually requires
+	// flattening the entire memtable - even if the cursor were to point to the
+	// very last element. However, given that the memtable will on average be
+	// only half it's max capacity and even that is relatively small, we might
+	// get away with the full-flattening and a linear search. Let's not optimize
+	// prematurely.
+
+	m.RLock()
+	defer m.RUnlock()
+
+	secondaryToPrimary := m.secondaryToPrimary[pos]
+
+	sortedSecondaryKeys := make([]string, len(secondaryToPrimary))
+
+	for skey := range secondaryToPrimary {
+		sortedSecondaryKeys = append(sortedSecondaryKeys, skey)
+	}
+
+	sort.Slice(sortedSecondaryKeys, func(i, j int) bool {
+		return sortedSecondaryKeys[i] <= sortedSecondaryKeys[j]
+	})
+
+	data := make([]*binarySearchNode, len(sortedSecondaryKeys))
+
+	var err error
+
+	for i, skey := range sortedSecondaryKeys {
+		key := secondaryToPrimary[skey]
+		data[i], err = m.key.getNode(key)
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	return &memtableCursor{
 		data:   data,
