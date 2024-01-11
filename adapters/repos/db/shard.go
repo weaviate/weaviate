@@ -251,6 +251,8 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		s.index.logger.Printf("Created property track and added to cycle manager")
 	}
 
+	s.propLenTracker.WantFlush=true
+	s.propLenTracker.Flush(false)
 
 	s.NotifyReady()
 
