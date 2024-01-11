@@ -18,6 +18,7 @@ import (
 
 type segmentCursorReplace struct {
 	segment      *segment
+	index        diskIndex
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
 	reusableBORW byteops.ReadWriter
@@ -26,6 +27,16 @@ type segmentCursorReplace struct {
 func (s *segment) newCursor() *segmentCursorReplace {
 	return &segmentCursorReplace{
 		segment:      s,
+		index:        s.index,
+		reusableNode: &segmentReplaceNode{},
+		reusableBORW: byteops.NewReadWriter(nil),
+	}
+}
+
+func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
+	return &segmentCursorReplace{
+		segment:      s,
+		index:        s.secondaryIndices[pos],
 		reusableNode: &segmentReplaceNode{},
 		reusableBORW: byteops.NewReadWriter(nil),
 	}
@@ -37,6 +48,17 @@ func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 
 	for i, segment := range sg.segments {
 		out[i] = segment.newCursor()
+	}
+
+	return out, sg.maintenanceLock.RUnlock
+}
+
+func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorReplace, func()) {
+	sg.maintenanceLock.RLock()
+	out := make([]innerCursorReplace, len(sg.segments))
+
+	for i, segment := range sg.segments {
+		out[i] = segment.newCursorWithSecondaryIndex(pos)
 	}
 
 	return out, sg.maintenanceLock.RUnlock
