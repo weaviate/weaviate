@@ -272,7 +272,7 @@ func extractPathNew(scheme schema.Schema, className string, target *pb.FilterTar
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
-		child, property, err := extractPathNew(scheme, multiTarget.StringTargetCollection, multiTarget.Target, operator)
+		child, property, err := extractPathNew(scheme, multiTarget.TargetCollection, multiTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
 		}

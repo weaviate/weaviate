@@ -60,7 +60,7 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 
 	params, err := batchDeleteParamsFromProto(req, scheme)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
 
 	tenant := ""
@@ -70,12 +70,12 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 
 	response, err := s.batchManager.DeleteObjectsFromGRPC(ctx, principal, params, replicationProperties, tenant)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("batch delete: %w", err)
 	}
 
 	result, err := batchDeleteReplyFromObjects(response, req.Verbose)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("batch delete reply: %w", err)
 	}
 	result.Took = float32(time.Since(before).Seconds())
 

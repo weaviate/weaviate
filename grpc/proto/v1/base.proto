@@ -116,7 +116,7 @@ message FilterReferenceSingleTarget {
 message FilterReferenceMultiTarget {
   string on = 1;
   FilterTarget target = 2;
-  string string_target_collection = 3;
+  string target_collection = 3;
 }
 
 message FilterTarget {

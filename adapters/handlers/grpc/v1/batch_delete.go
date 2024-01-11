@@ -61,9 +61,9 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, scheme schema.Schema
 func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool) (*pb.BatchDeleteReply, error) {
 	var successful, failed int64
 
-	var objs []*pb.Object
+	var objs []*pb.BatchDeleteObject
 	if verbose {
-		objs = make([]*pb.Object, 0, len(response.Objects))
+		objs = make([]*pb.BatchDeleteObject, 0, len(response.Objects))
 	}
 	for _, obj := range response.Objects {
 		if obj.Err == nil {
@@ -81,7 +81,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 				errorString = obj.Err.Error()
 			}
 
-			resultObj := &pb.Object{
+			resultObj := &pb.BatchDeleteObject{
 				Uuid:       hexInteger.Bytes(),
 				Successful: obj.Err == nil,
 				Error:      &errorString,

@@ -22,10 +22,10 @@ message BatchDeleteReply {
   int64 failed = 2;
   int64 matches = 3;
   int64 successful = 4;
-  repeated Object objects = 5;
+  repeated BatchDeleteObject objects = 5;
 }
 
-message Object {
+message BatchDeleteObject {
   bytes uuid = 1;
   bool successful = 2;
   optional string error = 3;  // empty string means no error

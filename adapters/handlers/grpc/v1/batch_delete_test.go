@@ -154,7 +154,7 @@ func TestBatchDeleteReply(t *testing.T) {
 			name:     "one error, one successful - with verbosity",
 			response: objects.BatchDeleteResult{Matches: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
 			verbose:  true,
-			out: &pb.BatchDeleteReply{Matches: 2, Successful: 1, Failed: 1, Objects: []*pb.Object{
+			out: &pb.BatchDeleteReply{Matches: 2, Successful: 1, Failed: 1, Objects: []*pb.BatchDeleteObject{
 				{Uuid: idByte(string(UUID1)), Successful: false, Error: &errorString},
 				{Uuid: idByte(string(UUID2)), Successful: true, Error: &noErrorString},
 			}},
