@@ -81,7 +81,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client)
 
-			settings := &fakeSettings{
+			settings := &fakeClassConfig{
 				poolingStrategy: test.poolingStrategy,
 			}
 			vec, err := v.Texts(context.Background(), test.input, settings)
