@@ -25,6 +25,11 @@ var (
 	DimensionsBucketLSM        = "dimensions"
 )
 
+const (
+	ObjectsBucketLSMDocIDSecondaryIndex int = iota
+	ObjectsBucketLSMTokenRangeSecondaryIndex
+)
+
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.

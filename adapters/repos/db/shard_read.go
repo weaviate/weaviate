@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -33,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
@@ -92,30 +94,63 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
-func (s *Shard) MultiObjectByTokenRange(ctx context.Context,
+func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 	initialToken, finalToken uint64, limit int) (
-	res []*storobj.Object, lastTokenRead uint64, err error,
+	res []replica.RepairResponse, lastTokenRead uint64, err error,
 ) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	if int(bucket.GetSecondaryIndices()) < helpers.ObjectsBucketLSMTokenRangeSecondaryIndex {
+		return nil, 0, fmt.Errorf("secondary index for token ranges not available")
+	}
+
+	cursor := bucket.CursorWithSecondaryIndex(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex)
 	defer cursor.Close()
 
 	n := 0
 
-	var objs []*storobj.Object
+	var objs []replica.RepairResponse
 
-	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
+	var initialTokenBytes, finalTokenBytes [8]byte
+
+	binary.LittleEndian.PutUint64(initialTokenBytes[:], initialToken)
+	binary.LittleEndian.PutUint64(finalTokenBytes[:], finalToken)
+
+	lastTokenRead = initialToken
+
+	for k, v := cursor.Seek(initialTokenBytes[:]); n < limit && k != nil && bytes.Compare(k, finalTokenBytes[:]) < 1; k, v = cursor.Next() {
 		obj, err := storobj.FromBinary(v)
 		if err != nil {
-			return nil, fmt.Errorf("cannot unmarshal object: %v", err)
+			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %v", err)
 		}
 
-		objs = append(objs, obj)
+		uuidBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+		if err != nil {
+			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %v", err)
+		}
+
+		replicaObj := replica.RepairResponse{
+			ID:         obj.ID().String(),
+			UpdateTime: obj.LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+
+		objs = append(objs, replicaObj)
+
+		h := murmur3.New64()
+		h.Write(uuidBytes)
+		token := h.Sum64()
+
+		var tokenBytes [8]byte
+		binary.BigEndian.PutUint64(tokenBytes[:], token)
+
+		lastTokenRead = binary.BigEndian.Uint64(tokenBytes[:])
+
 		n++
 	}
 
-	return objs, nil
+	return objs, lastTokenRead, nil
 }
 
 // TODO: This does an actual read which is not really needed, if we see this
