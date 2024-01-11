@@ -319,7 +319,7 @@ func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte
 	var objectDigest [16 + 8]byte
 
 	copy(objectDigest[:], uuidBytes)
-	binary.LittleEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 
 	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
@@ -414,7 +414,17 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	docIDBytes := keyBuf.Bytes()
 
-	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
+	h := murmur3.New64()
+	h.Write(id)
+	token := h.Sum64()
+
+	var tokenBytes [8]byte
+	binary.BigEndian.PutUint64(tokenBytes[:], token)
+
+	return bucket.Put(id, data,
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex, tokenBytes[:]),
+	)
 }
 
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
