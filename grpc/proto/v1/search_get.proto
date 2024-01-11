@@ -244,6 +244,7 @@ message PropertiesResult {
   repeated ObjectProperties object_properties = 9 [deprecated = true];
   repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
   Properties non_ref_props = 11;
+  bool ref_props_present = 12;
 }
 
 message RefPropertiesResult {
