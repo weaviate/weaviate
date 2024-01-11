@@ -585,9 +585,11 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "word",
-						}),
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+							},
+						},
 						RefPropsPresent: true,
 						RefProps:        []*pb.RefPropertiesResult{},
 					},
@@ -596,14 +598,17 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "other",
-						}),
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+							},
+						},
 						RefPropsPresent: true,
 						RefProps:        []*pb.RefPropertiesResult{},
 					},
 				},
 			},
+			usesWeaviateStruct: true,
 		},
 		{
 			name: "primitive and ref properties",
@@ -651,9 +656,11 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "word",
-						}),
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+							},
+						},
 						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
@@ -661,7 +668,11 @@ func TestGRPCReply(t *testing.T) {
 								{
 									TargetCollection: refClass1,
 									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
-									NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
+									NonRefProps: &pb.Properties{
+										Fields: map[string]*pb.Value{
+											"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+										},
+									},
 								},
 							},
 						}},
@@ -671,9 +682,11 @@ func TestGRPCReply(t *testing.T) {
 					Metadata: &pb.MetadataResult{},
 					Properties: &pb.PropertiesResult{
 						TargetCollection: className,
-						NonRefProperties: newStruct(t, map[string]interface{}{
-							"word": "other",
-						}),
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+							},
+						},
 						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
@@ -681,13 +694,18 @@ func TestGRPCReply(t *testing.T) {
 								{
 									TargetCollection: refClass1,
 									Metadata:         &pb.MetadataResult{Vector: []float32{4}, VectorBytes: byteVector([]float32{4})},
-									NonRefProperties: newStruct(t, map[string]interface{}{"something": "thing"}),
+									NonRefProps: &pb.Properties{
+										Fields: map[string]*pb.Value{
+											"something": {Kind: &pb.Value_StringValue{StringValue: "thing"}},
+										},
+									},
 								},
 							},
 						}},
 					},
 				},
 			},
+			usesWeaviateStruct: true,
 		},
 		{
 			name: "primitive and ref array properties",
@@ -785,7 +803,6 @@ func TestGRPCReply(t *testing.T) {
 						NonRefProperties: newStruct(t, map[string]interface{}{
 							"word": "word",
 						}),
-						RefPropsPresent: true,
 						RefProps: []*pb.RefPropertiesResult{{
 							PropName: "ref",
 							Properties: []*pb.PropertiesResult{

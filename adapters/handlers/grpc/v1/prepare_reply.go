@@ -529,7 +529,6 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		Fields: make(map[string]*pb.Value, 0),
 	}
 	refProps := make([]*pb.RefPropertiesResult, 0)
-	var refPropsPresent *bool
 	class := scheme.GetClass(schema.ClassName(className))
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
@@ -584,10 +583,6 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 
 		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
-
-		if refPropsPresent == nil {
-			refPropsPresent = new(bool)
-		}
 	}
 	props := pb.PropertiesResult{}
 	if len(nonRefProps.Fields) != 0 {
@@ -597,7 +592,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		props.RefProps = refProps
 	}
 	props.TargetCollection = className
-	props.RefPropsPresent = *refPropsPresent
+	props.RefPropsPresent = properties.HasRefs()
 	return &props, nil
 }
 
