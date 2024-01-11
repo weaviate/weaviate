@@ -688,6 +688,10 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
+	if s.hashtree != nil {
+		s.stopHashBeater()
+	}
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 
