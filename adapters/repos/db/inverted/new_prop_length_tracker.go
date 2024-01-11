@@ -13,12 +13,14 @@ package inverted
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 var MAX_BUCKETS = 64
@@ -36,6 +38,8 @@ type JsonShardMetaData struct {
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
+	closed           bool
+	WantFlush        bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -147,6 +151,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
+	t.WantFlush = true
 	return t, nil
 }
 
@@ -156,6 +161,7 @@ func (t *JsonShardMetaData) Clear() {
 	}
 	t.Lock()
 	defer t.Unlock()
+	t.WantFlush = true
 
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 }
@@ -165,6 +171,7 @@ func (t *JsonShardMetaData) FileName() string {
 	if t == nil {
 		return ""
 	}
+
 	return t.path
 }
 
@@ -172,8 +179,12 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	if t == nil {
 		return nil
 	}
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
 	t.Lock()
 	defer t.Unlock()
+	t.WantFlush = true
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
 	return nil
@@ -184,8 +195,12 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 	if t == nil {
 		return nil
 	}
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
 	t.Lock()
 	defer t.Unlock()
+	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
@@ -212,8 +227,12 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 	if t == nil {
 		return nil
 	}
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
 	t.Lock()
 	defer t.Unlock()
+	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
@@ -257,6 +276,9 @@ func (t *JsonShardMetaData) PropertyMean(propName string) (float32, error) {
 	if t == nil {
 		return 0, nil
 	}
+	if t.closed {
+		return 0, fmt.Errorf("tracker is closed")
+	}
 	t.Lock()
 	defer t.Unlock()
 
@@ -277,8 +299,12 @@ func (t *JsonShardMetaData) PropertyTally(propName string) (int, int, float64, e
 	if t == nil {
 		return 0, 0, 0, nil
 	}
+	if t.closed {
+		return 0, 0, 0, fmt.Errorf("tracker is closed")
+	}
 	t.Lock()
 	defer t.Unlock()
+
 	sum, ok := t.data.SumData[propName]
 	if !ok {
 		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
@@ -295,6 +321,7 @@ func (t *JsonShardMetaData) ObjectTally() int {
 	if t == nil {
 		return 0
 	}
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -306,12 +333,21 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	if t == nil {
 		return nil
 	}
+
+	if !t.WantFlush {
+		return nil
+	}
+
+	if t.closed {
+		return fmt.Errorf("cannot flush closed tracker")
+	}
 	if !flushBackup { // Write the backup file first
 		t.Flush(true)
 	}
 
 	t.Lock()
 	defer t.Unlock()
+
 
 	bytes, err := json.Marshal(t.data)
 	if err != nil {
@@ -321,6 +357,10 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	filename := t.path
 	if flushBackup {
 		filename = t.path + ".bak"
+	}
+
+	if t.logger != nil {
+		t.logger.Printf("Flushing prop len tracker to disk: %s", filename)
 	}
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
@@ -336,6 +376,7 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 		return err
 	}
 
+	t.WantFlush = false
 	return nil
 }
 
@@ -352,6 +393,7 @@ func (t *JsonShardMetaData) Close() error {
 	defer t.Unlock()
 
 	t.data.BucketedData = nil
+	t.closed = true
 
 	return nil
 }
@@ -376,4 +418,9 @@ func (t *JsonShardMetaData) Drop() error {
 	}
 
 	return nil
+}
+
+func (t *JsonShardMetaData) CycleFlush(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	err := t.Flush(false)
+	return err == nil
 }

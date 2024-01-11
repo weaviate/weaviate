@@ -13,6 +13,7 @@ package db
 
 import (
 	"strings"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -23,6 +24,9 @@ type shardCycleCallbacks struct {
 
 	flushCallbacks     cyclemanager.CycleCallbackGroup
 	flushCallbacksCtrl cyclemanager.CycleCallbackCtrl
+
+	propertyTrackerCallbacks     cyclemanager.CycleCallbackGroup
+	propertyTrackerCallbacksCtrl cyclemanager.CycleCallbackCtrl
 
 	vectorCommitLoggerCallbacks     cyclemanager.CycleCallbackGroup
 	vectorTombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup
@@ -50,6 +54,15 @@ func (s *Shard) initCycleCallbacks() {
 	flushCallbacksCtrl := s.index.cycleCallbacks.flushCallbacks.Register(
 		flushId, flushCallbacks.CycleCallback,
 		cyclemanager.WithIntervals(cyclemanager.MemtableFlushCycleIntervals()))
+
+	propertyTrackerId := id("property_tracker")
+	propertyTrackerCallbacks := cyclemanager.NewCallbackGroup(propertyTrackerId, s.index.logger, 1)
+	propertyTrackerCallbacksCtrl := s.index.cycleCallbacks.propertyTrackerCallbacks.Register(
+		propertyTrackerId, propertyTrackerCallbacks.CycleCallback,
+		cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
+
+
+
 
 	vectorCommitLoggerId := id("vector", "commit_logger")
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(vectorCommitLoggerId, s.index.logger, 1)
@@ -87,6 +100,9 @@ func (s *Shard) initCycleCallbacks() {
 
 		flushCallbacks:     flushCallbacks,
 		flushCallbacksCtrl: flushCallbacksCtrl,
+
+		propertyTrackerCallbacks:     propertyTrackerCallbacks,
+		propertyTrackerCallbacksCtrl: propertyTrackerCallbacksCtrl,
 
 		vectorCommitLoggerCallbacks:     vectorCommitLoggerCallbacks,
 		vectorTombstoneCleanupCallbacks: vectorTombstoneCleanupCallbacks,

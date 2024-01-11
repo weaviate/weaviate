@@ -40,6 +40,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"time"
 )
 
 type LazyLoadShard struct {
@@ -48,6 +50,7 @@ type LazyLoadShard struct {
 	shard          *Shard
 	loaded         bool
 	mutex          sync.Mutex
+	propertyTrackerCallbacksCtrl cyclemanager.CycleCallbackCtrl
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -55,7 +58,8 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) *LazyLoadShard {
 	promMetrics.NewUnloadedshard(class.Class)
-	return &LazyLoadShard{
+
+	tracker := &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics: promMetrics,
 
@@ -66,7 +70,16 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			indexCheckpoints: indexCheckpoints,
 		},
 	}
+	tracker.propertyTrackerCallbacksCtrl= index.cycleCallbacks.propertyTrackerCallbacks.Register(
+		shardName+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+			index.logger.Printf("Flush lazy property tracker")
+			return tracker.CycleFlush(shouldAbort)
+		},
+		cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
+	tracker.propertyTrackerCallbacksCtrl.Activate()
+	return tracker
 }
+
 
 type deferredShardOpts struct {
 	promMetrics      *monitoring.PrometheusMetrics
@@ -75,6 +88,14 @@ type deferredShardOpts struct {
 	class            *models.Class
 	jobQueueCh       chan job
 	indexCheckpoints *indexcheckpoint.Checkpoints
+}
+
+func (l *LazyLoadShard) CycleFlush(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	tracker := l.GetPropertyLengthTracker()
+	if tracker == nil {
+		return true
+	}
+	return tracker.CycleFlush(shouldAbort)
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -91,8 +112,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	l.propLenTracker = nil
-
 	if l.loaded {
 		return nil
 	}
@@ -101,8 +120,10 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
+
+	l.propertyTrackerCallbacksCtrl.Unregister(ctx)
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, l.propLenTracker)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, nil)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -190,6 +211,9 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	if err != nil {
 		panic(fmt.Sprintf("could not create property length tracker at %v: %v", plPath, err))
 	}
+
+
+
 
 	return l.propLenTracker
 }

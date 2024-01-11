@@ -269,6 +269,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	index.cycleCallbacks.compactionCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
+	index.cycleCallbacks.propertyTrackerCycle.Start()
 
 	return index, nil
 }
