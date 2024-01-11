@@ -290,22 +290,35 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
-	h.RLock()
-	size := len(h.nodes)
-	h.RUnlock()
+	h.pools.visitedListsLock.Lock()
+	visited := h.pools.visitedLists.Borrow()
+	defer h.pools.visitedLists.Return(visited)
+	h.pools.visitedListsLock.Unlock()
 
-	for n := 0; n < size; n++ {
-		if ok, err := h.reassignNeighbor(uint64(n), deleteList, breakCleanUpTombstonedNodes); err != nil {
-			return false, errors.Wrap(err, "reassign neighbor edges")
-		} else if !ok {
-			return false, nil
+	it := deleteList.Iterator()
+	for deletedID, ok := it.Next(); ok; deletedID, ok = it.Next() {
+		for _, neighbourID := range h.nodes[deletedID].connections[len(h.nodes[deletedID].connections)-1] {
+			if visited.Visited(neighbourID) {
+				continue
+			}
+			visited.Visit(neighbourID)
+			if ok, err := h.reassignNeighbor(neighbourID, deleteList, breakCleanUpTombstonedNodes, true); err != nil {
+				return false, errors.Wrap(err, "reassign neighbor edges")
+			} else if !ok {
+				return false, nil
+			}
 		}
 	}
 
 	return true, nil
 }
 
-func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
+func (h *hnsw) reassignNeighbor(
+	neighbor uint64,
+	deleteList helpers.AllowList,
+	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
+	afterCleanUpTombstonedNodes bool,
+) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
@@ -392,19 +405,28 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 
 	neighborNode.markAsMaintenance()
-	neighborNode.Lock()
-	// delete all existing connections before re-assigning
-	for level := range neighborNode.connections {
-		neighborNode.connections[level] = neighborNode.connections[level][:0]
-	}
-	neighborNode.Unlock()
-	if err := h.commitLog.ClearLinks(neighbor); err != nil {
-		return false, err
+	if !afterCleanUpTombstonedNodes {
+		neighborNode.Lock()
+		// delete all existing connections before re-assigning
+		for level := range neighborNode.connections {
+			neighborNode.connections[level] = neighborNode.connections[level][:0]
+		}
+		neighborNode.Unlock()
+		if err := h.commitLog.ClearLinks(neighbor); err != nil {
+			return false, err
+		}
 	}
 
-	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressorDistancer,
-		neighborLevel, currentMaximumLayer, deleteList); err != nil {
-		return false, errors.Wrap(err, "find and connect neighbors")
+	if afterCleanUpTombstonedNodes {
+		if err := h.findAndConnectNeighborsAfterCleanUpTombstonedNodes(neighborNode, entryPointID, neighborVec, compressorDistancer,
+			neighborLevel, currentMaximumLayer, deleteList); err != nil {
+			return false, errors.Wrap(err, "find and connect neighbors")
+		}
+	} else {
+		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressorDistancer,
+			neighborLevel, currentMaximumLayer, deleteList); err != nil {
+			return false, errors.Wrap(err, "find and connect neighbors")
+		}
 	}
 	neighborNode.unmarkAsMaintenance()
 

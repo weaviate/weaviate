@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -275,7 +275,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					h.handleDeletedNode(e.DocID)
+					h.reassignNeighbor(candidateNode.id, helpers.NewAllowList(neighborID), func() bool { return false }, false)
 				} else {
 					if err != nil {
 						return nil, errors.Wrap(err, "calculate distance between candidate and query")
@@ -441,14 +441,7 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
 ) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
-		}
+		return 0, false, err
 	}
 
 	dist, _, err := distancer.Distance(candidateVec)

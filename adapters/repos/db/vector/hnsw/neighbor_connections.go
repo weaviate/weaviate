@@ -26,7 +26,17 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	denyList helpers.AllowList,
 ) error {
 	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
-		currentMaxLevel, denyList)
+		currentMaxLevel, denyList, false)
+
+	return nfc.Do()
+}
+
+func (h *hnsw) findAndConnectNeighborsAfterCleanUpTombstonedNodes(node *vertex,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	denyList helpers.AllowList,
+) error {
+	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
+		currentMaxLevel, denyList, true)
 
 	return nfc.Do()
 }
@@ -42,21 +52,23 @@ type neighborFinderConnector struct {
 	currentMaxLevel int
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
+	afterCleanUpTombstonedNodes bool
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList,
+	denyList helpers.AllowList, afterCleanUpTombstonedNodes bool,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
-		graph:           graph,
-		node:            node,
-		entryPointID:    entryPointID,
-		nodeVec:         nodeVec,
-		distancer:       distancer,
-		targetLevel:     targetLevel,
-		currentMaxLevel: currentMaxLevel,
-		denyList:        denyList,
+		graph:                       graph,
+		node:                        node,
+		entryPointID:                entryPointID,
+		nodeVec:                     nodeVec,
+		distancer:                   distancer,
+		targetLevel:                 targetLevel,
+		currentMaxLevel:             currentMaxLevel,
+		denyList:                    denyList,
+		afterCleanUpTombstonedNodes: afterCleanUpTombstonedNodes,
 	}
 }
 
@@ -73,21 +85,51 @@ func (n *neighborFinderConnector) Do() error {
 
 func (n *neighborFinderConnector) doAtLevel(level int) error {
 	before := time.Now()
-	if err := n.pickEntrypoint(); err != nil {
-		return errors.Wrap(err, "pick entrypoint at level beginning")
+
+	var results *priorityqueue.Queue[any]
+	if n.afterCleanUpTombstonedNodes {
+		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
+		visited := make([]bool, len(n.graph.nodes))
+		for _, id := range n.retrieveCleanedConnectionsAtLevel(n.node.id, level, visited) {
+			var dist float32
+			var ok bool
+			var err error
+
+			if n.distancer == nil {
+				dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+			} else {
+				dist, ok, err = n.distancer.DistanceToNode(id)
+			}
+			if err != nil {
+				// not an error we could recover from - fail!
+				return errors.Wrapf(err,
+					"calculate distance between insert node and entrypoint")
+			}
+			if !ok {
+				return nil
+			}
+			results.Insert(id, dist)
+		}
+		if err := n.pickEntrypoint(); err != nil {
+			return errors.Wrap(err, "pick entrypoint at level beginning")
+		}
+	} else {
+		if err := n.pickEntrypoint(); err != nil {
+			return errors.Wrap(err, "pick entrypoint at level beginning")
+		}
+		eps := priorityqueue.NewMin[any](1)
+		eps.Insert(n.entryPointID, n.entryPointDist)
+		var err error
+
+		results, err = n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
+			level, nil, n.distancer)
+		if err != nil {
+			return errors.Wrapf(err, "search layer at level %d", level)
+		}
+
+		n.graph.insertMetrics.findAndConnectSearch(before)
+		before = time.Now()
 	}
-
-	eps := priorityqueue.NewMin[any](1)
-	eps.Insert(n.entryPointID, n.entryPointDist)
-
-	results, err := n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
-		level, nil, n.distancer)
-	if err != nil {
-		return errors.Wrapf(err, "search layer at level %d", level)
-	}
-
-	n.graph.insertMetrics.findAndConnectSearch(before)
-	before = time.Now()
 
 	// max := n.maximumConnections(level)
 	max := n.graph.maximumConnections
@@ -132,6 +174,21 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
 	return nil
+}
+
+func (n *neighborFinderConnector) retrieveCleanedConnectionsAtLevel(node uint64, level int, visited []bool) []uint64 {
+	results := make([]uint64, 0, len(n.graph.nodes[node].connections[level]))
+	for _, id := range n.graph.nodes[node].connections[level] {
+		if n.denyList.Contains(id) {
+			if !visited[id] {
+				visited[id] = true
+				results = append(results, n.retrieveCleanedConnectionsAtLevel(id, level, visited)...)
+			}
+			continue
+		}
+		results = append(results, id)
+	}
+	return results
 }
 
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
