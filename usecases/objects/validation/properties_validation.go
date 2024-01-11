@@ -118,7 +118,6 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 					}
 					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
 					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
-
 					propertyValue.([]interface{})[i].(map[string]interface{})["beacon"] = toBeacon
 				}
 			}
