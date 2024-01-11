@@ -33,6 +33,7 @@ func (g *GraphQLArgumentsProvider) getNearText() modulecapabilities.GraphQLArgum
 	return modulecapabilities.GraphQLArgument{
 		GetArgumentsFunction:       g.getNearTextArgumentFn,
 		AggregateArgumentsFunction: g.aggregateNearTextArgumentFn,
+		ExploreArgumentsFunction:   g.exploreNearTextArgumentFn,
 		ExtractFunction:            g.extractNearTextFn,
 		ValidateFunction:           g.validateNearTextFn,
 	}
