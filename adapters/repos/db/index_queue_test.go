@@ -711,6 +711,33 @@ func TestIndexQueue(t *testing.T) {
 
 		q.pushToWorkers(-1, true)
 	})
+
+	t.Run("release twice", func(t *testing.T) {
+		var idx mockBatchIndexer
+
+		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     10,
+			IndexInterval: time.Hour, // do not index automatically
+		})
+		require.NoError(t, err)
+
+		for i := uint64(0); i < 35; i++ {
+			pushVector(t, ctx, q, i+1, []float32{1, 2, 3})
+		}
+
+		chunks := q.queue.borrowChunks(10)
+		require.Equal(t, 3, len(chunks))
+
+		// release once
+		for _, chunk := range chunks {
+			q.queue.releaseChunk(chunk)
+		}
+
+		// release again
+		for _, chunk := range chunks {
+			q.queue.releaseChunk(chunk)
+		}
+	})
 }
 
 func BenchmarkPush(b *testing.B) {

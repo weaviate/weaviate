@@ -15,10 +15,12 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
-	settings ClassSettings,
+	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	vectors := make([][]float32, len(inputs))
 	for i := range inputs {
@@ -28,5 +30,5 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 		}
 		vectors[i] = res.Vector
 	}
-	return v.CombineVectors(vectors), nil
+	return libvectorizer.CombineVectors(vectors), nil
 }

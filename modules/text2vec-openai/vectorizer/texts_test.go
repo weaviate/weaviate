@@ -139,12 +139,14 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client)
 
-			settings := &fakeSettings{
-				openAIType:         test.openAIType,
-				openAIModel:        test.openAIModel,
-				openAIModelVersion: test.modelVersion,
+			cfg := &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"type":         test.openAIType,
+					"model":        test.openAIModel,
+					"modelVersion": test.modelVersion,
+				},
 			}
-			vec, err := v.Texts(context.Background(), test.input, settings)
+			vec, err := v.Texts(context.Background(), test.input, cfg)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
