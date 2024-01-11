@@ -175,10 +175,11 @@ func TestVectorizingObjects(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeIndexCheck{
-				excludedProperty:   test.excludedProperty,
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Car",
+			ic := &fakeClassConfig{
+				excludedProperty:      test.excludedProperty,
+				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Car",
+				vectorizePropertyName: true,
 			}
 
 			client := &fakeClient{}
@@ -333,7 +334,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeIndexCheck{
+			ic := &fakeClassConfig{
 				skippedProperty: test.skipped,
 			}
 
@@ -413,10 +414,11 @@ func TestVectorizingActions(t *testing.T) {
 			client := &fakeClient{}
 			v := New(client)
 
-			ic := &fakeIndexCheck{
-				excludedProperty:   test.excludedProperty,
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Flight",
+			ic := &fakeClassConfig{
+				excludedProperty:      test.excludedProperty,
+				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Flight",
+				vectorizePropertyName: true,
 			}
 			err := v.Object(context.Background(), test.input, nil, ic)
 
