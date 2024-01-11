@@ -46,6 +46,28 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	return b.deleteObjects(ctx, principal, match, dryRun, output, repl, tenant)
 }
 
+// DeleteObjectsFromGRPC deletes objects in batch based on the match filter
+func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *models.Principal,
+	params BatchDeleteParams,
+	repl *additional.ReplicationProperties, tenant string,
+) (BatchDeleteResult, error) {
+	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
+	if err != nil {
+		return BatchDeleteResult{}, err
+	}
+
+	unlock, err := b.locks.LockConnector()
+	if err != nil {
+		return BatchDeleteResult{}, NewErrInternal("could not acquire lock: %v", err)
+	}
+	defer unlock()
+
+	b.metrics.BatchDeleteInc()
+	defer b.metrics.BatchDeleteDec()
+
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant)
+}
+
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
