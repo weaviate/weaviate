@@ -425,7 +425,11 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
+
 	if !l.isLoaded() {
+		if l.propertyTrackerCallbacksCtrl != nil {
+			l.propertyTrackerCallbacksCtrl.Unregister(ctx)
+		}
 		return nil
 	}
 	return l.shard.Shutdown(ctx)

@@ -769,7 +769,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		s.stopMetrics <- struct{}{}
 	}
 
-	s.cycleCallbacks.propertyTrackerCallbacksCtrl.Unregister(ctx)
+
 
 	if err := s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
@@ -798,6 +798,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+		s.cycleCallbacks.propertyTrackerCallbacksCtrl,
 	).Unregister(ctx); err != nil {
 		return err
 	}

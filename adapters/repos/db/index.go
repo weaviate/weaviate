@@ -1775,6 +1775,9 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
 		return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
 	}
+	if err := i.cycleCallbacks.propertyTrackerCycle.StopAndWait(ctx); err != nil {
+		return fmt.Errorf("%s: stop property tracker cycle: %w", usecase, err)
+	}
 	return nil
 }
 
