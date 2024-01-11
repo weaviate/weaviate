@@ -25,15 +25,15 @@ import (
 	text2vecadditional "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional"
 	text2vecinterpretation "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/interpretation"
 	text2vecnn "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/nearestneighbors"
-	text2vecprojector "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/projector"
 	text2vecsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecclassification "github.com/weaviate/weaviate/modules/text2vec-contextionary/classification"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/concepts"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/extensions"
-	text2vecneartext "github.com/weaviate/weaviate/modules/text2vec-contextionary/neartext"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	text2vecprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
+	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 )
 
 // MinimumRequiredRemoteVersion describes the minimal semver version
@@ -212,14 +212,13 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
-	icheck := localvectorizer.NewIndexChecker(cfg)
-	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
+	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
 }
 
 func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Corpi(ctx, []string{input})
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 func (m *ContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
