@@ -65,7 +65,7 @@ func (s *Shard) hashBeat() error {
 
 	for r := range replyCh {
 		if r.Err != nil {
-			if !errors.Is(err, hashtree.ErrNoMoreDifferences) {
+			if !errors.Is(r.Err, hashtree.ErrNoMoreDifferences) {
 				s.index.logger.Printf("reading collected differences for shard %s: %v", s.name, r.Err)
 			}
 			continue
