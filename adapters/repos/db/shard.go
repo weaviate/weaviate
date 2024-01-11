@@ -87,7 +87,7 @@ type ShardLike interface {
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
-	MultiObjectByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []*storobj.Object, lastTokenRead uint64, err error)
+	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
 	drop() error
 	addIDProperty(ctx context.Context) error
@@ -457,9 +457,15 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	}
 
 	if s.index.replicationEnabled() {
-		err = s.initHashTree(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+		if bucket.GetSecondaryIndices() < 2 {
+			s.index.logger.Printf("secondary index for token ranges is not available in shard %q", s.ID())
+		} else {
+			err = s.initHashTree(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+			}
 		}
 	}
 
@@ -537,7 +543,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(1),
+		lsmkv.WithSecondaryIndices(2),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),

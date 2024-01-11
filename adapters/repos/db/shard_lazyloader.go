@@ -257,13 +257,13 @@ func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Ident
 	return l.shard.MultiObjectByID(ctx, query)
 }
 
-func (l *LazyLoadShard) MultiObjectByTokenRange(ctx context.Context,
+func (l *LazyLoadShard) ObjectDigestsByTokenRange(ctx context.Context,
 	initialToken, finalToken uint64, limit int,
-) (objs []*storobj.Object, lastTokenRead uint64, err error) {
+) (objs []replica.RepairResponse, lastTokenRead uint64, err error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, 0, err
 	}
-	return l.shard.MultiObjectByTokenRange(ctx, initialToken, finalToken, limit)
+	return l.shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
 }
 
 func (l *LazyLoadShard) ID() string {

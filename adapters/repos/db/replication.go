@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -444,23 +443,7 @@ func (i *Index) digestObjectsInTokenRange(ctx context.Context,
 		return nil, 0, fmt.Errorf("shard %q not found locally", shardName)
 	}
 
-	objs, lastTokenRead, err := s.MultiObjectByTokenRange(ctx, initialToken, finalToken, limit)
-	if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
-		return nil, 0, fmt.Errorf("shard objects digest in token range: %w", err)
-	}
-
-	result = make([]replica.RepairResponse, len(objs))
-
-	for j, obj := range objs {
-		result[j] = replica.RepairResponse{
-			ID:         obj.ID().String(),
-			UpdateTime: obj.LastUpdateTimeUnix(),
-			// TODO: use version when supported
-			Version: 0,
-		}
-	}
-
-	return result, lastTokenRead, err
+	return s.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
 }
 
 func (i *Index) IncomingDigestObjectsInTokenRange(ctx context.Context,
