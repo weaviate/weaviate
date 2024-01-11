@@ -94,7 +94,7 @@ message Filters {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated string on = 2  [deprecated = true];  // will be removed in the future, use path
   repeated Filters filters = 3;
-  oneof test_value{
+  oneof test_value {
     string value_text = 4;
     int64 value_int = 5;
     bool value_boolean = 6;
