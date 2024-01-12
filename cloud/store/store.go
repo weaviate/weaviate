@@ -166,6 +166,10 @@ func (st *Store) Execute(req *cmd.ApplyRequest) error {
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
 	}
+	if req.Type == cmd.ApplyRequest_TYPE_RESTORE_CLASS && st.SchemaReader().ClassInfo(req.Class).Exists {
+		st.log.Info("class already restored", "class", req.Class)
+		return nil
+	}
 
 	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
 	if err := fut.Error(); err != nil {
