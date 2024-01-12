@@ -61,9 +61,6 @@ func (s *Shard) initCycleCallbacks() {
 		propertyTrackerId, propertyTrackerCallbacks.CycleCallback,
 		cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
 
-
-
-
 	vectorCommitLoggerId := id("vector", "commit_logger")
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(vectorCommitLoggerId, s.index.logger, 1)
 	vectorCommitLoggerCallbacksCtrl := s.index.cycleCallbacks.vectorCommitLoggerCallbacks.Register(

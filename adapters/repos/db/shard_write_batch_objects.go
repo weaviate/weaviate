@@ -428,8 +428,6 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
-
-	
 }
 
 // returns the originalIndexIDs to be ignored

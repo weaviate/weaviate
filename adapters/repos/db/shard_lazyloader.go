@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -40,16 +42,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"golang.org/x/sync/errgroup"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"time"
 )
 
 type LazyLoadShard struct {
-	shardOpts      *deferredShardOpts
-	propLenTracker *inverted.JsonShardMetaData
-	shard          *Shard
-	loaded         bool
-	mutex          sync.Mutex
+	shardOpts                    *deferredShardOpts
+	propLenTracker               *inverted.JsonShardMetaData
+	shard                        *Shard
+	loaded                       bool
+	mutex                        sync.Mutex
 	propertyTrackerCallbacksCtrl cyclemanager.CycleCallbackCtrl
 }
 
@@ -70,7 +70,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			indexCheckpoints: indexCheckpoints,
 		},
 	}
-	tracker.propertyTrackerCallbacksCtrl= index.cycleCallbacks.propertyTrackerCallbacks.Register(
+	tracker.propertyTrackerCallbacksCtrl = index.cycleCallbacks.propertyTrackerCallbacks.Register(
 		shardName+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 			index.logger.Printf("Flush lazy property tracker")
 			return tracker.CycleFlush(shouldAbort)
@@ -79,7 +79,6 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	tracker.propertyTrackerCallbacksCtrl.Activate()
 	return tracker
 }
-
 
 type deferredShardOpts struct {
 	promMetrics      *monitoring.PrometheusMetrics
@@ -211,9 +210,6 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	if err != nil {
 		panic(fmt.Sprintf("could not create property length tracker at %v: %v", plPath, err))
 	}
-
-
-
 
 	return l.propLenTracker
 }
@@ -425,7 +421,6 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-
 	if !l.isLoaded() {
 		if l.propertyTrackerCallbacksCtrl != nil {
 			l.propertyTrackerCallbacksCtrl.Unregister(ctx)

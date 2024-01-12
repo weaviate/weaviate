@@ -68,7 +68,6 @@ func (index *Index) initCycleCallbacks() {
 		propertyTrackerCallbacks.CycleCallback)
 	propertyTrackerCycle.Start()
 
-
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, _NUMCPU*2)
 	// Previously we had an interval of 10s in here, which was changed to
 	// 0.5s as part of gh-1867. There's really no way to wait so long in

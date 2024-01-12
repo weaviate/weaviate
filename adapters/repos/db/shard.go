@@ -208,7 +208,6 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		return nil, err
 	}
 
-
 	if err := s.initNonVector(ctx, s.class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
@@ -232,7 +231,6 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		}()
 	}
 
-
 	if s.propLenTracker == nil {
 		plPath := path.Join(s.path(), "proplengths")
 		tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
@@ -251,7 +249,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		s.index.logger.Printf("Created property track and added to cycle manager")
 	}
 
-	s.propLenTracker.WantFlush=true
+	s.propLenTracker.WantFlush = true
 	s.propLenTracker.Flush(false)
 
 	s.NotifyReady()
@@ -261,7 +259,6 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
-
 
 	return s, nil
 }
@@ -770,8 +767,6 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
 	}
-
-
 
 	if err := s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
