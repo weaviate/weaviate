@@ -79,7 +79,7 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 		case schema.DataTypeInt:
 			val, ok := v.(float64)
 			if !ok { // integers are returned as float64 from search
-				return nil, protoimpl.X.NewError("invalid type: %T expected int64 when serializing int property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected float64 when serializing int property", v)
 			}
 			return NewIntValue(int64(val)), nil
 		case schema.DataTypeString:
