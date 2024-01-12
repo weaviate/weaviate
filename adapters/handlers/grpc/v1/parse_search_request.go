@@ -205,7 +205,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.ModuleParams["nearThermal"] = nearThermalOut
 	}
 
-	if ni := req.NearIMU; ni != nil {
+	if ni := req.NearImu; ni != nil {
 		nearIMUOut, err := parseNearIMU(ni)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -837,7 +837,7 @@ func parseNearThermal(n *pb.NearThermalSearch) (*nearthermal.NearThermalParams, 
 
 func parseNearIMU(n *pb.NearIMUSearch) (*nearimu.NearIMUParams, error) {
 	out := &nearimu.NearIMUParams{
-		IMU: n.IMU,
+		IMU: n.Imu,
 	}
 
 	// The following business logic should not sit in the API. However, it is

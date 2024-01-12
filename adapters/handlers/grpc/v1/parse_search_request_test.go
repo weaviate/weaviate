@@ -942,8 +942,8 @@ func TestGRPCRequest(t *testing.T) {
 			name: "near IMU search",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
-				NearIMU: &pb.NearIMUSearch{
-					IMU: "IMU file",
+				NearImu: &pb.NearIMUSearch{
+					Imu: "IMU file",
 				},
 			},
 			out: dto.GetParams{
