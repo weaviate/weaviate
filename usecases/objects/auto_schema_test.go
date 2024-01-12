@@ -1148,6 +1148,73 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "case more than 1 item in slice",
+			valProperties: map[string]interface{}{
+				"name": "someName",
+				"objectProperty": map[string]interface{}{
+					"nested_int":  json.Number("123"),
+					"nested_text": "some text",
+					"nested_objects": []interface{}{
+						map[string]interface{}{
+							"nested_bool_lvl2": false,
+							"nested_numbers_lvl2": []interface{}{
+								json.Number("11.11"),
+								float64(100),
+							},
+						},
+						map[string]interface{}{
+							"nested_bool_lvl3": false,
+							"nested_numbers_lvl3": []interface{}{
+								float64(100),
+							},
+						},
+					},
+				},
+			},
+			expectedProperties: []*models.Property{
+				{
+					Name:     "name",
+					DataType: schema.DataTypeText.PropString(),
+				},
+				{
+					Name:     "objectProperty",
+					DataType: schema.DataTypeObject.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "nested_int",
+							DataType: schema.DataTypeNumber.PropString(),
+						},
+						{
+							Name:     "nested_text",
+							DataType: schema.DataTypeText.PropString(),
+						},
+						{
+							Name:     "nested_objects",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "nested_bool_lvl2",
+									DataType: schema.DataTypeBoolean.PropString(),
+								},
+								{
+									Name:     "nested_numbers_lvl2",
+									DataType: schema.DataTypeNumberArray.PropString(),
+								},
+								{
+									Name:     "nested_bool_lvl3",
+									DataType: schema.DataTypeBoolean.PropString(),
+								},
+								{
+									Name:     "nested_numbers_lvl3",
+									DataType: schema.DataTypeNumberArray.PropString(),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	manager := &autoSchemaManager{

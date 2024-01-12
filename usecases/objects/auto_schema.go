@@ -52,15 +52,10 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, allowCreateClass bool,
 ) error {
-	if m.config.Enabled {
-		return m.performAutoSchema(ctx, principal, object, allowCreateClass)
+	if !m.config.Enabled {
+		return nil
 	}
-	return nil
-}
 
-func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, allowCreateClass bool,
-) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	if object == nil {
@@ -74,7 +69,7 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 
 	object.Class = schema.UppercaseClassName(object.Class)
 
-	schemaClass, err := m.getClass(principal, object)
+	schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class)
 	if err != nil {
 		return err
 	}
@@ -89,17 +84,6 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 		return m.createClass(ctx, principal, object.Class, properties)
 	}
 	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
-}
-
-func (m *autoSchemaManager) getClass(principal *models.Principal,
-	object *models.Object,
-) (*models.Class, error) {
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, err
-	}
-	schemaClass := s.GetClass(schema.ClassName(object.Class))
-	return schemaClass, nil
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
@@ -120,7 +104,7 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property, existingProperties []*models.Property,
 ) error {
-	existingPropertiesIndexMap := map[string]int{}
+	existingPropertiesIndexMap := make(map[string]int, len(existingProperties))
 	for index := range existingProperties {
 		existingPropertiesIndexMap[existingProperties[index].Name] = index
 	}
@@ -460,7 +444,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 		return nestedProperties, nil
 	}
 
-	nestedPropertiesIndexMap := map[string]int{}
+	nestedPropertiesIndexMap := make(map[string]int, len(nestedProperties))
 	for index := range nestedProperties {
 		nestedPropertiesIndexMap[nestedProperties[index].Name] = index
 	}
