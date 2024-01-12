@@ -59,7 +59,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 
 	secondaryToPrimary := m.secondaryToPrimary[pos]
 
-	sortedSecondaryKeys := make([]string, len(secondaryToPrimary))
+	sortedSecondaryKeys := make([]string, 0, len(secondaryToPrimary))
 
 	for skey := range secondaryToPrimary {
 		sortedSecondaryKeys = append(sortedSecondaryKeys, skey)
@@ -77,7 +77,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 		key := secondaryToPrimary[skey]
 		data[i], err = m.key.getNode(key)
 		if err != nil {
-			panic(fmt.Errorf("secondaryToPrimary[%s]: %w)", skey, err))
+			panic(fmt.Errorf("secondaryToPrimary[%s] unexpected: %w)", skey, err))
 		}
 	}
 
