@@ -335,7 +335,8 @@ func TestGRPCReply(t *testing.T) {
 							Fields: map[string]*pb.Value{
 								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
 								"age":  {Kind: &pb.Value_IntValue{IntValue: 21}},
-							}},
+							},
+						},
 						RefProps:      []*pb.RefPropertiesResult{},
 						RefProperties: nil,
 					},
