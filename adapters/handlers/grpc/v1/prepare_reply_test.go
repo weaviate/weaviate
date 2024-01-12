@@ -270,7 +270,7 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
-			name: "primitive properties",
+			name: "primitive properties deprecated",
 			res: []interface{}{
 				map[string]interface{}{
 					"word": "word",
@@ -294,6 +294,8 @@ func TestGRPCReply(t *testing.T) {
 							"word": "word",
 							"age":  21,
 						}),
+						RefProps:      []*pb.RefPropertiesResult{},
+						RefProperties: nil,
 					},
 				},
 				{
@@ -307,6 +309,53 @@ func TestGRPCReply(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "primitive properties",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+					"age":  float64(21),
+				},
+				map[string]interface{}{
+					"word": "other",
+					"age":  float64(26),
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName:  className,
+				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"age":  {Kind: &pb.Value_IntValue{IntValue: 21}},
+							}},
+						RefProps:      []*pb.RefPropertiesResult{},
+						RefProperties: nil,
+					},
+				},
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+								"age":  {Kind: &pb.Value_IntValue{IntValue: 26}},
+							},
+						},
+						RefProps:      []*pb.RefPropertiesResult{},
+						RefProperties: nil,
+					},
+				},
+			},
+			usesWeaviateStruct: true,
 		},
 		{
 			name: "array properties",
@@ -591,7 +640,7 @@ func TestGRPCReply(t *testing.T) {
 							},
 						},
 						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: nil,
+						RefProperties: &pb.RefProperties{},
 					},
 				},
 				{
@@ -604,7 +653,7 @@ func TestGRPCReply(t *testing.T) {
 							},
 						},
 						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: nil,
+						RefProperties: &pb.RefProperties{},
 					},
 				},
 			},
