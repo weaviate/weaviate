@@ -178,7 +178,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			return n, nil
 		}
 
-		uuids := make([]strfmt.UUID, len(localDigestsByUUID))
+		uuids := make([]strfmt.UUID, 0, len(localDigestsByUUID))
 		for uuid := range localDigestsByUUID {
 			uuids = append(uuids, strfmt.UUID(uuid))
 		}
@@ -190,13 +190,13 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		mergeObjs := make([]*objects.VObject, len(replicaObjs))
 
-		for _, replicaObj := range replicaObjs {
-			obj := objects.VObject{
+		for i, replicaObj := range replicaObjs {
+			obj := &objects.VObject{
 				LatestObject:    &replicaObj.Object.Object,
 				Vector:          replicaObj.Object.Vector,
 				StaleUpdateTime: remoteStaleUpdateTime[replicaObj.ID.String()],
 			}
-			mergeObjs = append(mergeObjs, &obj)
+			mergeObjs[i] = obj
 		}
 
 		rs, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
