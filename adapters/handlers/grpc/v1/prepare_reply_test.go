@@ -294,8 +294,8 @@ func TestGRPCReply(t *testing.T) {
 							"word": "word",
 							"age":  21,
 						}),
-						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: nil,
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
 					},
 				},
 				{
@@ -306,6 +306,8 @@ func TestGRPCReply(t *testing.T) {
 							"word": "other",
 							"age":  26,
 						}),
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
 					},
 				},
 			},
@@ -337,8 +339,8 @@ func TestGRPCReply(t *testing.T) {
 								"age":  {Kind: &pb.Value_IntValue{IntValue: 21}},
 							},
 						},
-						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: nil,
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
 					},
 				},
 				{
@@ -351,8 +353,8 @@ func TestGRPCReply(t *testing.T) {
 								"age":  {Kind: &pb.Value_IntValue{IntValue: 26}},
 							},
 						},
-						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: nil,
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
 					},
 				},
 			},
@@ -640,8 +642,8 @@ func TestGRPCReply(t *testing.T) {
 								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
 							},
 						},
-						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: &pb.RefProperties{},
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: true,
 					},
 				},
 				{
@@ -653,8 +655,8 @@ func TestGRPCReply(t *testing.T) {
 								"word": {Kind: &pb.Value_StringValue{StringValue: "other"}},
 							},
 						},
-						RefProps:      []*pb.RefPropertiesResult{},
-						RefProperties: &pb.RefProperties{},
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: true,
 					},
 				},
 			},
@@ -725,22 +727,7 @@ func TestGRPCReply(t *testing.T) {
 								},
 							},
 						}},
-						RefProperties: &pb.RefProperties{
-							Props: []*pb.RefPropertiesResult{{
-								PropName: "ref",
-								Properties: []*pb.PropertiesResult{
-									{
-										TargetCollection: refClass1,
-										Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
-										NonRefProps: &pb.Properties{
-											Fields: map[string]*pb.Value{
-												"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
-											},
-										},
-									},
-								},
-							}},
-						},
+						RefPropsRequested: true,
 					},
 				},
 				{
@@ -766,22 +753,7 @@ func TestGRPCReply(t *testing.T) {
 								},
 							},
 						}},
-						RefProperties: &pb.RefProperties{
-							Props: []*pb.RefPropertiesResult{{
-								PropName: "ref",
-								Properties: []*pb.PropertiesResult{
-									{
-										TargetCollection: refClass1,
-										Metadata:         &pb.MetadataResult{Vector: []float32{4}, VectorBytes: byteVector([]float32{4})},
-										NonRefProps: &pb.Properties{
-											Fields: map[string]*pb.Value{
-												"something": {Kind: &pb.Value_StringValue{StringValue: "thing"}},
-											},
-										},
-									},
-								},
-							}},
-						},
+						RefPropsRequested: true,
 					},
 				},
 			},
@@ -840,22 +812,7 @@ func TestGRPCReply(t *testing.T) {
 								},
 							},
 						}},
-						RefProperties: &pb.RefProperties{
-							Props: []*pb.RefPropertiesResult{{
-								PropName: "ref",
-								Properties: []*pb.PropertiesResult{
-									{
-										TargetCollection: refClass1,
-										Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
-										NonRefProps: &pb.Properties{
-											Fields: map[string]*pb.Value{
-												"nums": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]float64{1, 2, 3}, schema.DataTypeInt))}},
-											},
-										},
-									},
-								},
-							}},
-						},
+						RefPropsRequested: true,
 					},
 				},
 			},
@@ -1097,19 +1054,7 @@ func TestGRPCReply(t *testing.T) {
 									},
 								},
 							},
-							RefProperties: &pb.RefProperties{
-								Props: []*pb.RefPropertiesResult{
-									{
-										PropName: "other",
-										Properties: []*pb.PropertiesResult{
-											{
-												NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
-												Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
-											},
-										},
-									},
-								},
-							},
+							RefPropsRequested: true,
 						},
 						Metadata: &pb.MetadataResult{
 							Id:     string(UUID2),
@@ -1229,19 +1174,7 @@ func TestGRPCReply(t *testing.T) {
 									},
 								},
 							},
-							RefProperties: &pb.RefProperties{
-								Props: []*pb.RefPropertiesResult{
-									{
-										PropName: "other",
-										Properties: []*pb.PropertiesResult{
-											{
-												NonRefProperties: newStruct(t, map[string]interface{}{"something": "other"}),
-												Metadata:         &pb.MetadataResult{Vector: []float32{2}, Id: UUID1.String()},
-											},
-										},
-									},
-								},
-							},
+							RefPropsRequested: true,
 						},
 						Metadata: &pb.MetadataResult{
 							Id:     string(UUID2),
