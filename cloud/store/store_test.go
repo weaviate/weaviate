@@ -138,6 +138,26 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
+			name: "RestoreClass/Success",
+			req: raft.Log{Data: mustCommand("C1",
+				cmd.ApplyRequest_TYPE_RESTORE_CLASS,
+				cmd.AddClassRequest{Class: cls, State: ss},
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.indexer.On("Open", mock.Anything).Return(nil)
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.store.db.Schema.addClass(cls, ss)
+			},
+			doAfter: func(ms *MockStore) error {
+				_, ok := ms.store.db.Schema.Classes["C1"]
+				if !ok {
+					return fmt.Errorf("class is missing")
+				}
+				return nil
+			},
+		},
+		{
 			name: "UpdateClass/Unmarshal",
 			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_CLASS,
 				nil, &cmd.AddTenantsRequest{})},
