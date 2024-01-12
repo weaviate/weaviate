@@ -760,6 +760,159 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
+			name: "nested ref properties",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+					"ref": []interface{}{
+						search.LocalRef{
+							Class: refClass1,
+							Fields: map[string]interface{}{
+								"something": "other",
+								"ref2": []interface{}{
+									search.LocalRef{
+										Class: refClass2,
+										Fields: map[string]interface{}{
+											"else": "thing",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+						{
+							ClassName: refClass1,
+							RefProperties: search.SelectProperties{
+								{Name: "something", IsPrimitive: true},
+								{Name: "ref2", IsPrimitive: false, Refs: []search.SelectClass{{
+									ClassName:     refClass2,
+									RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}},
+								}},
+								},
+							},
+						}},
+					},
+				},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+							},
+						},
+						RefProps: []*pb.RefPropertiesResult{{
+							PropName: "ref",
+							Properties: []*pb.PropertiesResult{
+								{
+									TargetCollection: refClass1,
+									Metadata:         &pb.MetadataResult{},
+									NonRefProps: &pb.Properties{
+										Fields: map[string]*pb.Value{
+											"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+										},
+									},
+									RefProps: []*pb.RefPropertiesResult{{
+										PropName: "ref2",
+										Properties: []*pb.PropertiesResult{{
+											TargetCollection: refClass2,
+											Metadata:         &pb.MetadataResult{},
+											NonRefProps: &pb.Properties{
+												Fields: map[string]*pb.Value{
+													"else": {Kind: &pb.Value_StringValue{StringValue: "thing"}},
+												},
+											},
+											RefProps:          []*pb.RefPropertiesResult{},
+											RefPropsRequested: false,
+										}},
+									}},
+									RefPropsRequested: true,
+								},
+							},
+						}},
+						RefPropsRequested: true,
+					},
+				},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
+			name: "nested ref properties with no references",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+					"ref": []interface{}{
+						search.LocalRef{
+							Class: refClass1,
+							Fields: map[string]interface{}{
+								"something": "other",
+							},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: className,
+				Properties: search.SelectProperties{
+					{Name: "word", IsPrimitive: true},
+					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+						{
+							ClassName: refClass1,
+							RefProperties: search.SelectProperties{
+								{Name: "something", IsPrimitive: true},
+								{Name: "ref2", IsPrimitive: false, Refs: []search.SelectClass{{
+									ClassName:     refClass2,
+									RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}},
+								}},
+								},
+							},
+						}},
+					},
+				},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+							},
+						},
+						RefProps: []*pb.RefPropertiesResult{{
+							PropName: "ref",
+							Properties: []*pb.PropertiesResult{
+								{
+									TargetCollection: refClass1,
+									Metadata:         &pb.MetadataResult{},
+									NonRefProps: &pb.Properties{
+										Fields: map[string]*pb.Value{
+											"something": {Kind: &pb.Value_StringValue{StringValue: "other"}},
+										},
+									},
+									RefProps:          []*pb.RefPropertiesResult{},
+									RefPropsRequested: true,
+								},
+							},
+						}},
+						RefPropsRequested: true,
+					},
+				},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
 			name: "primitive and ref array properties",
 			res: []interface{}{
 				map[string]interface{}{
