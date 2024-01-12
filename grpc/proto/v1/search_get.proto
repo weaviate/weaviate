@@ -43,7 +43,7 @@ message SearchRequest {
   optional NearVideoSearch near_video = 48;
   optional NearDepthSearch near_depth = 49;
   optional NearThermalSearch near_thermal = 50;
-  optional NearIMUSearch nearIMU = 51;
+  optional NearIMUSearch near_imu = 51;
 
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
@@ -161,7 +161,7 @@ message NearThermalSearch {
 }
 
 message NearIMUSearch {
-  string IMU = 1;
+  string imu = 1;
   optional double certainty = 2;
   optional double distance = 3;
 }
