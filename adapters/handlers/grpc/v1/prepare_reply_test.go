@@ -786,18 +786,21 @@ func TestGRPCReply(t *testing.T) {
 				ClassName: className,
 				Properties: search.SelectProperties{
 					{Name: "word", IsPrimitive: true},
-					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
-						{
-							ClassName: refClass1,
-							RefProperties: search.SelectProperties{
-								{Name: "something", IsPrimitive: true},
-								{Name: "ref2", IsPrimitive: false, Refs: []search.SelectClass{{
-									ClassName:     refClass2,
-									RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}},
-								}},
+					{
+						Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+							{
+								ClassName: refClass1,
+								RefProperties: search.SelectProperties{
+									{Name: "something", IsPrimitive: true},
+									{
+										Name: "ref2", IsPrimitive: false, Refs: []search.SelectClass{{
+											ClassName:     refClass2,
+											RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}},
+										}},
+									},
 								},
 							},
-						}},
+						},
 					},
 				},
 			},
@@ -865,18 +868,21 @@ func TestGRPCReply(t *testing.T) {
 				ClassName: className,
 				Properties: search.SelectProperties{
 					{Name: "word", IsPrimitive: true},
-					{Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
-						{
-							ClassName: refClass1,
-							RefProperties: search.SelectProperties{
-								{Name: "something", IsPrimitive: true},
-								{Name: "ref2", IsPrimitive: false, Refs: []search.SelectClass{{
-									ClassName:     refClass2,
-									RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}},
-								}},
+					{
+						Name: "ref", IsPrimitive: false, Refs: []search.SelectClass{
+							{
+								ClassName: refClass1,
+								RefProperties: search.SelectProperties{
+									{Name: "something", IsPrimitive: true},
+									{
+										Name: "ref2", IsPrimitive: false, Refs: []search.SelectClass{{
+											ClassName:     refClass2,
+											RefProperties: search.SelectProperties{{Name: "else", IsPrimitive: true}},
+										}},
+									},
 								},
 							},
-						}},
+						},
 					},
 				},
 			},
