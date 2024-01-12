@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -64,7 +65,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 		sortedSecondaryKeys = append(sortedSecondaryKeys, skey)
 	}
 
-	sort.Slice(sortedSecondaryKeys, func(i, j int) bool {
+	sort.SliceStable(sortedSecondaryKeys, func(i, j int) bool {
 		return sortedSecondaryKeys[i] <= sortedSecondaryKeys[j]
 	})
 
@@ -76,7 +77,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 		key := secondaryToPrimary[skey]
 		data[i], err = m.key.getNode(key)
 		if err != nil {
-			panic(err)
+			panic(fmt.Errorf("secondaryToPrimary[%s]: %w)", skey, err))
 		}
 	}
 
