@@ -97,6 +97,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 
 	t.Run("delete class for restoration", func(t *testing.T) {
 		helper.DeleteClass(t, className)
+		time.Sleep(time.Second)
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
