@@ -588,11 +588,15 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 	if len(nonRefProps.Fields) != 0 {
 		props.NonRefProps = nonRefProps
 	}
-	if len(refProps) != 0 {
+	if len(refProps) > 0 {
 		props.RefProps = refProps
 	}
+	if properties.HasRefs() {
+		props.RefProperties = &pb.RefProperties{
+			Props: refProps,
+		}
+	}
 	props.TargetCollection = className
-	props.RefPropsPresent = properties.HasRefs()
 	return &props, nil
 }
 
