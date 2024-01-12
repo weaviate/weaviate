@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -83,6 +84,65 @@ func (n *neighborFinderConnector) Do() error {
 	return nil
 }
 
+func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
+	var dist float32
+	var ok bool
+	var err error
+
+	if n.distancer == nil {
+		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+	} else {
+		dist, ok, err = n.distancer.DistanceToNode(id)
+	}
+	if err != nil {
+		// not an error we could recover from - fail!
+		return math.MaxFloat32, errors.Wrapf(err,
+			"calculate distance between insert node and entrypoint")
+	}
+	if !ok {
+		return math.MaxFloat32, nil
+	}
+	return dist, nil
+}
+
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited []bool, level int) error {
+	var pending []uint64
+	for _, id := range n.graph.nodes[from].connections[level] {
+		if n.denyList.Contains(id) {
+			if !visited[id] {
+				visited[id] = true
+				pending = append(pending, id)
+			}
+			continue
+		}
+
+		dist, err := n.processNode(id)
+		if err != nil {
+			return err
+		}
+		if results.Len() >= n.graph.efConstruction && dist < results.Top().Dist {
+			results.Pop()
+		}
+		results.Insert(id, dist)
+	}
+	for _, id := range pending {
+		if results.Len() >= n.graph.efConstruction {
+			dist, err := n.processNode(id)
+			if err != nil {
+				return err
+			}
+			if dist > results.Top().Dist {
+				continue
+			}
+		}
+		err := n.processRecursively(id, results, visited, level)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (n *neighborFinderConnector) doAtLevel(level int) error {
 	before := time.Now()
 
@@ -90,25 +150,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if n.afterCleanUpTombstonedNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 		visited := make([]bool, len(n.graph.nodes))
-		for _, id := range n.retrieveCleanedConnectionsAtLevel(n.node.id, level, visited) {
-			var dist float32
-			var ok bool
-			var err error
-
-			if n.distancer == nil {
-				dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
-			} else {
-				dist, ok, err = n.distancer.DistanceToNode(id)
-			}
-			if err != nil {
-				// not an error we could recover from - fail!
-				return errors.Wrapf(err,
-					"calculate distance between insert node and entrypoint")
-			}
-			if !ok {
-				return nil
-			}
-			results.Insert(id, dist)
+		err := n.processRecursively(n.node.id, results, visited, level)
+		if err != nil {
+			return err
 		}
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
@@ -174,21 +218,6 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.insertMetrics.findAndConnectUpdateConnections(before)
 	return nil
-}
-
-func (n *neighborFinderConnector) retrieveCleanedConnectionsAtLevel(node uint64, level int, visited []bool) []uint64 {
-	results := make([]uint64, 0, len(n.graph.nodes[node].connections[level]))
-	for _, id := range n.graph.nodes[node].connections[level] {
-		if n.denyList.Contains(id) {
-			if !visited[id] {
-				visited[id] = true
-				results = append(results, n.retrieveCleanedConnectionsAtLevel(id, level, visited)...)
-			}
-			continue
-		}
-		results = append(results, id)
-	}
-	return results
 }
 
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,

@@ -275,6 +275,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
+					for level := range candidateNode.connections {
+						candidateNode.connections[level] = candidateNode.connections[level][:0]
+					}
 					h.reassignNeighbor(candidateNode.id, helpers.NewAllowList(neighborID), func() bool { return false }, false)
 				} else {
 					if err != nil {
