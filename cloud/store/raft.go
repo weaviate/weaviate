@@ -152,8 +152,15 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	switch cmd.Type {
 
-	case command.ApplyRequest_TYPE_ADD_CLASS, command.ApplyRequest_TYPE_RESTORE_CLASS:
+	case command.ApplyRequest_TYPE_ADD_CLASS:
 		ret.Error = st.db.AddClass(&cmd, st.nodeID, schemaOnly)
+
+	case command.ApplyRequest_TYPE_RESTORE_CLASS:
+		err := st.db.AddClass(&cmd, st.nodeID, schemaOnly)
+		if err == nil || !errors.Is(err, errClassExists) {
+			ret.Error = err
+		}
+		st.log.Info("class already restored", "class", cmd.Class, "op", "apply_restore")
 
 	case command.ApplyRequest_TYPE_UPDATE_CLASS:
 		ret.Error = st.db.UpdateClass(&cmd, st.nodeID, schemaOnly)
