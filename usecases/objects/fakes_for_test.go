@@ -74,6 +74,9 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { re
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
+	if f.GetSchemaResponse.Objects == nil {
+		return nil, f.GetschemaErr
+	}
 	classes := f.GetSchemaResponse.Objects.Classes
 	for _, class := range classes {
 		if class.Class == name {
