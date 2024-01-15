@@ -161,7 +161,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       VectorForID
-	shardedNodeLocks       *vector.ShardedLocks
+	shardedNodeLocks       *vector.ShardLocks
 }
 
 type CommitLogger interface {
@@ -270,7 +270,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     vector.NewDefaultShardedLocks(),
+		shardedNodeLocks:     vector.NewShardLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -599,8 +599,8 @@ func (h *hnsw) Stats() {
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(h.entryPointID)
-	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+	lock, _ := h.shardedNodeLocks.RLock(context.TODO(), h.entryPointID)
+	defer lock.Unlock()
 
 	return h.isEmptyUnlocked()
 }
@@ -620,8 +620,8 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		return nil
 	}
 
-	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	lock, _ := h.shardedNodeLocks.RLock(context.TODO(), id)
+	defer lock.Unlock()
 
 	return h.nodes[id]
 }
@@ -698,8 +698,8 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	lock, _ := h.shardedNodeLocks.RLock(context.TODO(), id)
+	defer lock.Unlock()
 
 	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }

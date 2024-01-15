@@ -117,9 +117,9 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	h.Lock()
-	h.shardedNodeLocks.LockAll()
+	lock, _ := h.shardedNodeLocks.LockAll(context.TODO())
 	h.nodes = state.Nodes
-	h.shardedNodeLocks.UnlockAll()
+	lock.Unlock()
 
 	h.currentMaximumLayer = int(state.Level)
 	h.entryPointID = state.Entrypoint

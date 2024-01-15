@@ -116,8 +116,8 @@ func TestCacheCleanup(t *testing.T) {
 }
 
 func countCached(c *shardedLockCache) int {
-	c.shardedLocks.LockAll()
-	defer c.shardedLocks.UnlockAll()
+	lock, _ := c.shardedLocks.LockAll(context.TODO())
+	defer lock.Unlock()
 
 	count := 0
 	for _, vec := range c.cache {

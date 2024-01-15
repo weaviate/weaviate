@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"context"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
@@ -37,9 +39,9 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			continue
 		}
 
-		h.shardedNodeLocks.RLock(candidate)
+		lock, _ := h.shardedNodeLocks.RLock(context.TODO(), candidate)
 		c := h.nodes[candidate]
-		h.shardedNodeLocks.RUnlock(candidate)
+		lock.Unlock()
 
 		if c == nil || h.hasTombstone(candidate) {
 			h.RUnlock()

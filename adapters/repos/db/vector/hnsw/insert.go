@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -152,9 +153,9 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 
 	nodeId := node.id
 
-	h.shardedNodeLocks.Lock(nodeId)
+	lock, _ := h.shardedNodeLocks.Lock(context.TODO(), nodeId)
 	h.nodes[nodeId] = node
-	h.shardedNodeLocks.Unlock(nodeId)
+	lock.Unlock()
 
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(vector)
@@ -237,9 +238,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 
-	h.shardedNodeLocks.Lock(node.id)
+	lock, _ := h.shardedNodeLocks.Lock(context.TODO(), node.id)
 	h.nodes[node.id] = node
-	h.shardedNodeLocks.Unlock(node.id)
+	lock.Unlock()
 
 	if h.compressed.Load() {
 		compressed := h.pq.Encode(nodeVec)

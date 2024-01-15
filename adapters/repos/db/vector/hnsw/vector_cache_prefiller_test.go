@@ -25,7 +25,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 	index := &hnsw{
 		nodes:               generateDummyVertices(100),
 		currentMaximumLayer: 3,
-		shardedNodeLocks:    vector.NewDefaultShardedLocks(),
+		shardedNodeLocks:    vector.NewShardLocks(),
 	}
 
 	logger, _ := test.NewNullLogger()

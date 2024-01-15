@@ -88,9 +88,9 @@ func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 			return false, err
 		}
 
-		pf.index.shardedNodeLocks.RLock(uint64(i))
+		lock, _ := pf.index.shardedNodeLocks.RLock(context.TODO(), uint64(i))
 		node := pf.index.nodes[i]
-		pf.index.shardedNodeLocks.RUnlock(uint64(i))
+		lock.Unlock()
 
 		if node == nil {
 			continue
