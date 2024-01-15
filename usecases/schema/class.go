@@ -41,12 +41,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	c := h.metaReader.ReadOnlyClass(name)
-	if c == nil {
-		return nil, fmt.Errorf("class %q: %w", name, ErrNotFound)
-	}
-
-	return c, nil
+	return h.metaReader.ReadOnlyClass(name), nil
 }
 
 // AddClass to the schema
