@@ -4233,7 +4233,8 @@ func init() {
             "lowercase",
             "whitespace",
             "field",
-            "trigram"
+            "trigram",
+            "gse"
           ]
         }
       }
@@ -9174,7 +9175,8 @@ func init() {
             "lowercase",
             "whitespace",
             "field",
-            "trigram"
+            "trigram",
+            "gse"
           ]
         }
       }

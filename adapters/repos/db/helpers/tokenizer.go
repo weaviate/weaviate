@@ -15,8 +15,11 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/go-ego/gse"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+var gseTokenizer *gse.Segmenter
 
 var Tokenizations []string = []string{
 	models.PropertyTokenizationWord,
@@ -24,6 +27,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationWhitespace,
 	models.PropertyTokenizationField,
 	models.PropertyTokenizationTrigram,
+	models.PropertyTokenizationGSE,
 }
 
 func Tokenize(tokenization string, in string) []string {
@@ -38,6 +42,8 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizeField(in)
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigram(in)
+	case models.PropertyTokenizationGSE:
+		return tokenizeGSE(in)
 	default:
 		return []string{}
 	}
@@ -55,6 +61,8 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizeField(in)
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigramWithWildcards(in)
+	case models.PropertyTokenizationGSE:
+		return tokenizeGSE(in)
 	default:
 		return []string{}
 	}
@@ -98,6 +106,24 @@ func tokenizetrigram(in string) []string {
 		trigrams = append(trigrams, inputString[i:i+3])
 	}
 	return trigrams
+}
+
+// tokenizeGSE uses the gse tokenizer to tokenise Chinese and Japanese
+func tokenizeGSE(in string) []string {
+	if gseTokenizer == nil {
+		seg, err := gse.New("ja,zh")
+		if err != nil {
+			return []string{}
+		}
+		seg.LoadDict()
+		gseTokenizer = &seg
+	}
+	segments := gseTokenizer.Segment([]byte(in))
+	var terms []string
+	for _, segment := range segments {
+		terms = append(terms, segment.Token().Text())
+	}
+	return terms
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
