@@ -188,7 +188,7 @@ func validateReferenceMultiTenancy(ctx context.Context,
 	}
 
 	sourceClass, targetClass, err := getReferenceClasses(
-		ctx, principal, schemaManager, source.Class.String(), target.Class)
+		ctx, principal, schemaManager, source.Class.String(), source.Property.String(), target.Class)
 	if err != nil {
 		return err
 	}
@@ -224,11 +224,11 @@ func validateReferenceMultiTenancy(ctx context.Context,
 
 func getReferenceClasses(ctx context.Context,
 	principal *models.Principal, schemaManager schemaManager,
-	classFrom, classTo string,
+	classFrom, fromProperty, classTo string,
 ) (sourceClass *models.Class, targetClass *models.Class, err error) {
-	if classFrom == "" || classTo == "" {
+	if classFrom == "" {
 		err = fmt.Errorf("references involving a multi-tenancy enabled class " +
-			"requires class name in the beacon url")
+			"requires class name in the source beacon url")
 		return
 	}
 
@@ -240,6 +240,20 @@ func getReferenceClasses(ctx context.Context,
 	if sourceClass == nil {
 		err = fmt.Errorf("source class %q not found in schema", classFrom)
 		return
+	}
+	// we can auto-detect the to class from the schema if it is a single target reference
+	if classTo == "" {
+		refProp, err2 := schema.GetPropertyByName(sourceClass, fromProperty)
+		if err2 != nil {
+			err = fmt.Errorf("get source refprop %q: %w", classFrom, err2)
+			return
+		}
+
+		if len(refProp.DataType) != 1 {
+			err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			return
+		}
+		classTo = refProp.DataType[0]
 	}
 
 	targetClass, err = schemaManager.GetClass(ctx, principal, classTo)
