@@ -45,11 +45,11 @@ type metaWriter interface {
 }
 
 type metaReader interface {
+	schema.Finder
 	ClassEqual(name string) string
 	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci store.ClassInfo)
-	ReadOnlyClass(class string) *models.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)

@@ -217,6 +217,9 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 	return s.FindPropertyDataTypeWithRefs(dataType, false, "")
 }
 
+// Deprecated: instead use schama.FindPropertyDataTypeWithRefs(...)
+// in order to pass the the finder and get the needed class only instead of getting
+// the whole schema.
 // Based on the schema, return a valid description of the defined datatype
 // If relaxCrossRefValidation is set, there is no check if the referenced class
 // exists in the schema. This can be helpful in scenarios, such as restoring
@@ -267,6 +270,68 @@ func (s *Schema) FindPropertyDataTypeWithRefs(
 
 		if beloningToClass != className && !relaxCrossRefValidation {
 			if s.FindClassByName(className) == nil {
+				return nil, ErrRefToNonexistentClass
+			}
+		}
+
+		classes = append(classes, className)
+	}
+
+	return &propertyDataType{
+		kind:    PropertyKindRef,
+		classes: classes,
+	}, nil
+}
+
+// FindPropertyDataTypeWithRefs Based on the schema, return a valid description of the defined datatype
+// If relaxCrossRefValidation is set, there is no check if the referenced class
+// exists in the schema. This can be helpful in scenarios, such as restoring
+// from a backup where we have no guarantee over the order of class creation.
+// If belongingToClass is set and equal to referenced class, check whether class
+// exists in the schema is skipped. This is done to allow creating class schema with
+// properties referencing to itself. Previously such properties had to be created separately
+// only after creation of class schema
+func FindPropertyDataTypeWithRefs(f Finder, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+	if len(dataType) < 1 {
+		return nil, errors.New("dataType must have at least one element")
+	}
+	if len(dataType) == 1 {
+		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
+			if dataType[0] == dt.String() {
+				return &propertyDataType{
+					kind:          PropertyKindPrimitive,
+					primitiveType: dt,
+				}, nil
+			}
+		}
+		for _, dt := range NestedDataTypes {
+			if dataType[0] == dt.String() {
+				return &propertyDataType{
+					kind:       PropertyKindNested,
+					nestedType: dt,
+				}, nil
+			}
+		}
+		if len(dataType[0]) == 0 {
+			return nil, fmt.Errorf("dataType cannot be an empty string")
+		}
+		firstLetter := rune(dataType[0][0])
+		if unicode.IsLower(firstLetter) {
+			return nil, fmt.Errorf("unknown primitive data type '%s'", dataType[0])
+		}
+	}
+
+	/* implies len(dataType) > 1, or first element is a class already */
+	var classes []ClassName
+
+	for _, someDataType := range dataType {
+		className, err := ValidateClassName(someDataType)
+		if err != nil {
+			return nil, err
+		}
+
+		if beloningToClass != className && !relaxCrossRefValidation {
+			if f.ReadOnlyClass(className.String()) == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}

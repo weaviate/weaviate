@@ -25,7 +25,8 @@ import (
 )
 
 type schemaManager interface {
-	GetSchema(principal *models.Principal) (schema.Schema, error)
+	schema.Finder
+
 	AddClass(ctx context.Context, principal *models.Principal,
 		class *models.Class) error
 	AddTenants(ctx context.Context, principal *models.Principal,
