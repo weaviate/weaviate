@@ -7,9 +7,17 @@ import (
 	"github.com/pkg/errors"
 )
 
-var pool = sync.Pool{
+var reqPool = sync.Pool{
 	New: func() any {
 		return &LockRequest{}
+	},
+}
+
+var headPool = sync.Pool{
+	New: func() any {
+		return &LockHeader{
+			PerID: make(map[uint64]*LockRequest),
+		}
 	},
 }
 
@@ -27,49 +35,23 @@ func New() *LockManager {
 	return &lm
 }
 
-func (lm *LockManager) HasLock(lockid uint64, obj *Object, mode LockMode) bool {
-	lm.mu.Lock()
-	head, ok := lm.locks[*obj]
-	if !ok {
-		lm.mu.Unlock()
-		return false
-	}
-	// A lock exists for this object.
-	// Lock the queue header and unlock the map.
-	head.mu.Lock()
-	lm.mu.Unlock()
-
-	for req := head.Queue; req != nil; req = req.Next {
-		if req.Lockid == lockid {
-			head.mu.Unlock()
-			return req.Mode == mode
-		}
-	}
-
-	head.mu.Unlock()
-	return false
-}
-
 func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mode LockMode) error {
 	lm.mu.Lock()
 	head, ok := lm.locks[*obj]
 	if !ok {
-		req := LockRequest{
-			Status: LockGranted,
-			Mode:   mode,
-			Count:  1,
-			Lockid: lockid,
-		}
+		req := reqPool.Get().(*LockRequest)
+		req.Status = LockGranted
+		req.Mode = mode
+		req.Lockid = lockid
+
 		// No lock exists for this object.
-		head = &LockHeader{
-			Object:    obj,
-			GroupMode: mode,
-			Queue:     &req,
-			Last:      &req,
-			PerID:     make(map[uint64]*LockRequest),
-		}
-		head.PerID[lockid] = &req
+		head := headPool.Get().(*LockHeader)
+		head.Object = obj
+		head.GroupMode = mode
+		head.Queue = req
+		head.Last = req
 		head.Queue.Head = head
+		head.PerID[lockid] = req
 		lm.locks[*obj] = head
 		lm.mu.Unlock()
 		return nil
@@ -81,10 +63,9 @@ func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mod
 	lm.mu.Unlock()
 
 	// Create a new request.
-	req := pool.Get().(*LockRequest)
+	req := reqPool.Get().(*LockRequest)
 	req.Head = head
 	req.Mode = mode
-	req.Count = 1
 	req.Lockid = lockid
 	head.PerID[lockid] = req
 
@@ -142,24 +123,17 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 		return
 	}
 
-	// if this request is held multiple times by the same transaction,
-	// decrement the count and return
-	if req.Count > 1 {
-		req.Count--
-		head.mu.Unlock()
-		lm.mu.Unlock()
-		return
-	}
-
 	// if this is the only request in the queue, remove the request
 	// and the queue header.
 	if head.Queue == req && req.Next == nil {
 		head.mu.Unlock()
 		delete(lm.locks, *obj)
+		head.Reset()
+		headPool.Put(head)
 		lm.mu.Unlock()
 
 		req.Reset()
-		pool.Put(req)
+		reqPool.Put(req)
 		return
 	}
 
@@ -184,42 +158,13 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 
 	delete(head.PerID, lockid)
 	req.Reset()
-	pool.Put(req)
+	reqPool.Put(req)
 
 	// wake up all compatible requests
 	for req = head.Queue; req != nil; req = req.Next {
 		// refresh the group mode with granted requests
 		if req.Status == LockGranted {
 			head.GroupMode = MaxMode(req.Mode, head.GroupMode)
-			continue
-		}
-
-		// deal with converting requests before waiting requests
-		if req.Status == LockConverting {
-			// if a lock is converting, only wake up the request if the
-			// new mode is compatible with every other member of the group.
-			compatible := true
-			for other := head.Queue; other != nil && other.Status == LockGranted; other = other.Next {
-				if other == req {
-					continue
-				}
-
-				if !other.Mode.IsCompatibleWith(req.ConvertMode) {
-					compatible = false
-					break
-				}
-			}
-			if compatible {
-				req.Status = LockGranted
-				req.Count++
-				head.GroupMode = MaxMode(req.Mode, head.GroupMode)
-				close(req.WakeUp)
-			} else {
-				// stop here
-				head.Waiting = true
-				break
-			}
-
 			continue
 		}
 

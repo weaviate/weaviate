@@ -46,6 +46,10 @@ func (l LockMode) IsCompatibleWith(other LockMode) bool {
 
 // MaxMode returns the maximum lock mode between two lock modes.
 func MaxMode(requested, granted LockMode) LockMode {
+	if requested == granted {
+		return requested
+	}
+
 	switch requested {
 	case IS:
 		switch granted {
@@ -118,9 +122,7 @@ type LockStatus int
 
 const (
 	LockGranted LockStatus = iota
-	LockConverting
 	LockWaiting
-	LockDenied
 )
 
 // A LockHeader holds the current state of a lock for a
@@ -136,18 +138,25 @@ type LockHeader struct {
 	PerID     map[uint64]*LockRequest
 }
 
+func (lh *LockHeader) Reset() {
+	lh.Object = nil
+	lh.Queue = nil
+	lh.Last = nil
+	lh.GroupMode = Free
+	lh.Waiting = false
+	clear(lh.PerID)
+}
+
 // A LockRequest holds the information about a lock request
 // make by a transaction.
 type LockRequest struct {
-	Next        *LockRequest  // Next request in the queue
-	Prev        *LockRequest  // Previous request in the queue
-	Head        *LockHeader   // Head of the queue
-	Status      LockStatus    // Status of the request
-	Mode        LockMode      // Mode requested / granted
-	ConvertMode LockMode      // Mode to convert to
-	WakeUp      chan struct{} // Channel to wake up the transaction
-	Count       int           // Number of times this lock was requested
-	Lockid      uint64        // ID of the lock request
+	Next   *LockRequest  // Next request in the queue
+	Prev   *LockRequest  // Previous request in the queue
+	Head   *LockHeader   // Head of the queue
+	Status LockStatus    // Status of the request
+	Mode   LockMode      // Mode requested / granted
+	WakeUp chan struct{} // Channel to wake up the transaction
+	Lockid uint64        // ID of the lock request
 }
 
 func (lr *LockRequest) Reset() {
@@ -156,9 +165,7 @@ func (lr *LockRequest) Reset() {
 	lr.Head = nil
 	lr.Status = LockGranted
 	lr.Mode = Free
-	lr.ConvertMode = Free
 	lr.WakeUp = nil
-	lr.Count = 0
 	lr.Lockid = 0
 }
 

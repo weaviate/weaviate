@@ -2,6 +2,7 @@ package lockmanager
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,18 +180,35 @@ func TestLockManagerUnlock(t *testing.T) {
 func BenchmarkLock(b *testing.B) {
 	m := New()
 
-	o := Object{1, 1}
+	o1 := Object{1, 1}
+	o2 := Object{2, 1}
 
 	ctx := context.Background()
 
-	for i := 0; i < 10_000; i++ {
-		m.Lock(ctx, uint64(i)+1, &o, S)
-	}
-
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		id := uint64(i) + 10_000
-		m.Lock(ctx, id, &o, S)
-		m.Unlock(id, &o)
+		b.StopTimer()
+		var wg sync.WaitGroup
+		wg.Add(10)
+		ch := make(chan uint64)
+		for i := 0; i < 10; i++ {
+			go func() {
+				defer wg.Done()
+
+				for id := range ch {
+					m.Lock(ctx, id, &o1, IX)
+					m.Lock(ctx, id, &o2, X)
+					m.Unlock(id, &o2)
+					m.Unlock(id, &o1)
+				}
+			}()
+		}
+		b.StartTimer()
+
+		for j := 0; j < 10; j++ {
+			ch <- uint64(j) + 1
+		}
+		close(ch)
+		wg.Wait()
 	}
 }
