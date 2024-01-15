@@ -45,6 +45,7 @@ type metaWriter interface {
 }
 
 type metaReader interface {
+	schema.Finder
 	ClassEqual(name string) string
 	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig
