@@ -216,9 +216,9 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		}
 
 		s.propLenTracker = tracker
-		s.cycleCallbacks.propertyTrackerCallbacks.Register(
+		s.cycleCallbacks.propertyTrackerCallbacksCtrl=s.cycleCallbacks.propertyTrackerCallbacks.Register(
 			s.name+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-				s.index.logger.Debugln("Flush property tracker")
+				s.index.logger.Debugln("Checking if "+s.name+"property tracker should flush")
 				return tracker.CycleFlush(shouldAbort)
 			},
 			cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
@@ -770,6 +770,8 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		s.stopMetrics <- struct{}{}
 	}
 
+
+
 	if err := s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
 	}
@@ -790,6 +792,8 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 	if err := s.VectorIndex().Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "shut down vector index")
 	}
+
+	s.cycleCallbacks.propertyTrackerCallbacksCtrl.Deactivate(ctx)
 
 	// unregister all callbacks at once, in parallel
 	if err := cyclemanager.NewCombinedCallbackCtrl(0,
