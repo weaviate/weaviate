@@ -158,6 +158,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 	missingShards := []string{}
 	ps := info.Sharding.Physical
 	for i, u := range req.Tenants {
+
 		p, ok := ps[u.Name]
 		if !ok {
 			missingShards = append(missingShards, u.Name)
@@ -170,7 +171,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 		}
 		copy := p.DeepCopy()
 		copy.Status = u.Status
-		if len(u.Nodes) >= 0 {
+		if u.Nodes != nil && len(u.Nodes) >= 0 {
 			copy.BelongsToNodes = u.Nodes
 		}
 		ps[u.Name] = copy
