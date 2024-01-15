@@ -66,7 +66,9 @@ func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mod
 			GroupMode: mode,
 			Queue:     &req,
 			Last:      &req,
+			PerID:     make(map[uint64]*LockRequest),
 		}
+		head.PerID[lockid] = &req
 		head.Queue.Head = head
 		lm.locks[*obj] = head
 		lm.mu.Unlock()
@@ -84,10 +86,12 @@ func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mod
 	req.Mode = mode
 	req.Count = 1
 	req.Lockid = lockid
+	head.PerID[lockid] = req
 
 	// Add the request to the queue.
 	if head.Last != nil {
 		head.Last.Next = req
+		req.Prev = head.Last
 	} else {
 		head.Queue = req
 	}
@@ -129,13 +133,8 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 	head.mu.Lock()
 
 	// get the lock owned by this transaction
-	var req, prev *LockRequest
-	for req = head.Queue; req != nil; req = req.Next {
-		if req.Lockid == lockid {
-			break
-		}
-		prev = req
-	}
+	req := head.PerID[lockid]
+
 	// if there is no lock owned by this transaction on the given object, return
 	if req == nil {
 		head.mu.Unlock()
@@ -165,20 +164,25 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 	}
 
 	// remove the request from the queue
-	if prev != nil {
-		prev.Next = req.Next
-	} else {
+	if req.Prev != nil {
+		req.Prev.Next = req.Next
+	}
+	if req.Next != nil {
+		req.Next.Prev = req.Prev
+	}
+	if head.Queue == req {
 		head.Queue = req.Next
 	}
 
 	// if this is the last request in the queue, update the last pointer
 	if req.Next == nil {
-		head.Last = prev
+		head.Last = req.Prev
 	}
 
 	head.Waiting = false
 	head.GroupMode = Free
 
+	delete(head.PerID, lockid)
 	req.Reset()
 	pool.Put(req)
 

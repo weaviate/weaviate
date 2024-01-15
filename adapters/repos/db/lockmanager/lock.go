@@ -133,12 +133,14 @@ type LockHeader struct {
 	Last      *LockRequest // The last request in the queue
 	GroupMode LockMode     // The current mode of the group
 	Waiting   bool         // Indicates if there are pending lock requests
+	PerID     map[uint64]*LockRequest
 }
 
 // A LockRequest holds the information about a lock request
 // make by a transaction.
 type LockRequest struct {
 	Next        *LockRequest  // Next request in the queue
+	Prev        *LockRequest  // Previous request in the queue
 	Head        *LockHeader   // Head of the queue
 	Status      LockStatus    // Status of the request
 	Mode        LockMode      // Mode requested / granted
@@ -150,6 +152,7 @@ type LockRequest struct {
 
 func (lr *LockRequest) Reset() {
 	lr.Next = nil
+	lr.Prev = nil
 	lr.Head = nil
 	lr.Status = LockGranted
 	lr.Mode = Free
