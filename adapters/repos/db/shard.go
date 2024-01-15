@@ -218,7 +218,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		s.propLenTracker = tracker
 		s.cycleCallbacks.propertyTrackerCallbacks.Register(
 			s.name+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-				s.index.logger.Printf("Flush property tracker")
+				s.index.logger.Debugln("Flush property tracker")
 				return tracker.CycleFlush(shouldAbort)
 			},
 			cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
