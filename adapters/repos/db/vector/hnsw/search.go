@@ -62,6 +62,11 @@ func (h *hnsw) autoEfFromK(k int) int {
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	for _, id := range h.pendingForReassign {
+		h.reassignNeighbor(id, helpers.NewAllowList(h.pendingForReassignDependencies...), func() bool { return false }, false)
+	}
+	h.pendingForReassign = nil
+	h.pendingForReassignDependencies = nil
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
@@ -278,7 +283,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					for level := range candidateNode.connections {
 						candidateNode.connections[level] = candidateNode.connections[level][:0]
 					}
-					h.reassignNeighbor(candidateNode.id, helpers.NewAllowList(neighborID), func() bool { return false }, false)
+					h.pendingForReassign = append(h.pendingForReassign, candidateNode.id)
+					h.pendingForReassignDependencies = append(h.pendingForReassignDependencies, neighborID)
+					continue
 				} else {
 					if err != nil {
 						return nil, errors.Wrap(err, "calculate distance between candidate and query")

@@ -157,12 +157,14 @@ type hnsw struct {
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
 
-	compressActionLock *sync.RWMutex
-	className          string
-	shardName          string
-	VectorForIDThunk   common.VectorForID[float32]
-	shardedNodeLocks   *common.ShardedLocks
-	store              *lsmkv.Store
+	compressActionLock             *sync.RWMutex
+	className                      string
+	shardName                      string
+	VectorForIDThunk               common.VectorForID[float32]
+	shardedNodeLocks               *common.ShardedLocks
+	store                          *lsmkv.Store
+	pendingForReassign             []uint64
+	pendingForReassignDependencies []uint64
 }
 
 type CommitLogger interface {
