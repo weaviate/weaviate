@@ -208,6 +208,27 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		return nil, err
 	}
 
+	if s.propLenTracker == nil {
+		plPath := path.Join(s.path(), "proplengths")
+		tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+		}
+
+		s.propLenTracker = tracker
+		s.cycleCallbacks.propertyTrackerCallbacks.Register(
+			s.name+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+				s.index.logger.Printf("Flush property tracker")
+				return tracker.CycleFlush(shouldAbort)
+			},
+			cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
+		s.cycleCallbacks.propertyTrackerCallbacksCtrl.Activate()
+		s.index.logger.Printf("Created property track and added to cycle manager")
+	}
+
+	s.propLenTracker.WantFlush = true
+	s.propLenTracker.Flush(false)
+
 	if err := s.initNonVector(ctx, s.class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
@@ -231,26 +252,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		}()
 	}
 
-	if s.propLenTracker == nil {
-		plPath := path.Join(s.path(), "proplengths")
-		tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
-		}
 
-		s.propLenTracker = tracker
-		s.cycleCallbacks.propertyTrackerCallbacks.Register(
-			s.name+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-				s.index.logger.Printf("Flush property tracker")
-				return tracker.CycleFlush(shouldAbort)
-			},
-			cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
-		s.cycleCallbacks.propertyTrackerCallbacksCtrl.Activate()
-		s.index.logger.Printf("Created property track and added to cycle manager")
-	}
-
-	s.propLenTracker.WantFlush = true
-	s.propLenTracker.Flush(false)
 
 	s.NotifyReady()
 
