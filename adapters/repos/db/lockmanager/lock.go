@@ -130,6 +130,7 @@ type LockHeader struct {
 
 	Object    *Object      // The object this lock is for.
 	Queue     *LockRequest // The queue of pending lock requests
+	Last      *LockRequest // The last request in the queue
 	GroupMode LockMode     // The current mode of the group
 	Waiting   bool         // Indicates if there are pending lock requests
 }
@@ -145,6 +146,17 @@ type LockRequest struct {
 	WakeUp      chan struct{} // Channel to wake up the transaction
 	Count       int           // Number of times this lock was requested
 	Lockid      uint64        // ID of the lock request
+}
+
+func (lr *LockRequest) Reset() {
+	lr.Next = nil
+	lr.Head = nil
+	lr.Status = LockGranted
+	lr.Mode = Free
+	lr.ConvertMode = Free
+	lr.WakeUp = nil
+	lr.Count = 0
+	lr.Lockid = 0
 }
 
 // An Object to be locked. It supports multiple

@@ -7,6 +7,12 @@ import (
 	"github.com/pkg/errors"
 )
 
+var pool = sync.Pool{
+	New: func() any {
+		return &LockRequest{}
+	},
+}
+
 // A LockManager is used to acquire locks on database objects.
 type LockManager struct {
 	mu sync.Mutex
@@ -48,16 +54,18 @@ func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mod
 	lm.mu.Lock()
 	head, ok := lm.locks[*obj]
 	if !ok {
+		req := LockRequest{
+			Status: LockGranted,
+			Mode:   mode,
+			Count:  1,
+			Lockid: lockid,
+		}
 		// No lock exists for this object.
 		head = &LockHeader{
 			Object:    obj,
 			GroupMode: mode,
-			Queue: &LockRequest{
-				Status: LockGranted,
-				Mode:   mode,
-				Count:  1,
-				Lockid: lockid,
-			},
+			Queue:     &req,
+			Last:      &req,
 		}
 		head.Queue.Head = head
 		lm.locks[*obj] = head
@@ -70,92 +78,45 @@ func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mod
 	head.mu.Lock()
 	lm.mu.Unlock()
 
-	// check if a lock request is already in the queue for this couple lockid / obj
-	var req, last *LockRequest
-	for req = head.Queue; req != nil; req = req.Next {
-		if req.Lockid == lockid {
-			// A lock request is already in the queue for this transaction.
-			break
-		}
-		last = req
-	}
-
-	if req == nil {
-		// No lock request is already in the queue for this couple txid / obj.
-		// Create a new request.
-		req = &LockRequest{
-			Head:   head,
-			Mode:   mode,
-			Count:  1,
-			Lockid: lockid,
-		}
-
-		// Add the request to the queue.
-		if last != nil {
-			last.Next = req
-		} else {
-			head.Queue = req
-		}
-
-		// Check if the lock is compatible with the current mode and if there
-		// are no other requests in the queue.
-		if !head.Waiting && head.GroupMode.IsCompatibleWith(mode) {
-			// No need to wait for a lock: update the group mode and return
-			// immediately.
-			head.GroupMode = MaxMode(mode, head.GroupMode)
-			req.Status = LockGranted
-			head.mu.Unlock()
-			return nil
-		}
-
-		// Wait for the lock.
-		head.Waiting = true
-		req.Status = LockWaiting
-		req.WakeUp = make(chan struct{})
-		head.mu.Unlock()
-
-		select {
-		case <-ctx.Done():
-			lm.Unlock(lockid, obj)
-			return errors.Wrap(ctx.Err(), "lock timeout")
-		case <-req.WakeUp:
-			return nil
-		}
-	}
-
-	// A lock request is already in the queue for this couple txid / obj.
-	// Check if the lock is compatible with all locks of the granted group.
-	compatible := true
-	for other := head.Queue; other != nil && other.Status == LockGranted; other = other.Next {
-		if other != req && !other.Mode.IsCompatibleWith(mode) {
-			compatible = false
-		}
-	}
-	if !compatible {
-		// Wait for the lock.
-		head.Waiting = true
-		req.Status = LockConverting
-		req.ConvertMode = mode
-		req.WakeUp = make(chan struct{})
-		head.mu.Unlock()
-
-		select {
-		case <-ctx.Done():
-			// if the context gets canceled, the transaction will rollback,
-			// and call unlock on all objects that were locked by this transaction
-			return errors.Wrap(ctx.Err(), "lock timeout")
-		case <-req.WakeUp:
-			return nil
-		}
-	}
-
-	// The lock is compatible with all locks of the granted group.
-	// Update the counter, the group mode and return.
-	req.Count++
+	// Create a new request.
+	req := pool.Get().(*LockRequest)
+	req.Head = head
 	req.Mode = mode
-	head.GroupMode = MaxMode(mode, head.GroupMode)
+	req.Count = 1
+	req.Lockid = lockid
+
+	// Add the request to the queue.
+	if head.Last != nil {
+		head.Last.Next = req
+	} else {
+		head.Queue = req
+	}
+	head.Last = req
+
+	// Check if the lock is compatible with the current mode and if there
+	// are no other requests in the queue.
+	if !head.Waiting && head.GroupMode.IsCompatibleWith(mode) {
+		// No need to wait for a lock: update the group mode and return
+		// immediately.
+		head.GroupMode = MaxMode(mode, head.GroupMode)
+		req.Status = LockGranted
+		head.mu.Unlock()
+		return nil
+	}
+
+	// Wait for the lock.
+	head.Waiting = true
+	req.Status = LockWaiting
+	req.WakeUp = make(chan struct{})
 	head.mu.Unlock()
-	return nil
+
+	select {
+	case <-ctx.Done():
+		lm.Unlock(lockid, obj)
+		return errors.Wrap(ctx.Err(), "lock timeout")
+	case <-req.WakeUp:
+		return nil
+	}
 }
 
 func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
@@ -197,6 +158,9 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 		head.mu.Unlock()
 		delete(lm.locks, *obj)
 		lm.mu.Unlock()
+
+		req.Reset()
+		pool.Put(req)
 		return
 	}
 
@@ -207,8 +171,16 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 		head.Queue = req.Next
 	}
 
+	// if this is the last request in the queue, update the last pointer
+	if req.Next == nil {
+		head.Last = prev
+	}
+
 	head.Waiting = false
 	head.GroupMode = Free
+
+	req.Reset()
+	pool.Put(req)
 
 	// wake up all compatible requests
 	for req = head.Queue; req != nil; req = req.Next {
@@ -266,6 +238,4 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 
 	head.mu.Unlock()
 	lm.mu.Unlock()
-
-	return
 }

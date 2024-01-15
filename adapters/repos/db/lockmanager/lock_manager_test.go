@@ -24,20 +24,6 @@ func queueLen(q *LockRequest) int {
 }
 
 func TestLockManagerLock(t *testing.T) {
-	t.Run("lock twice", func(t *testing.T) {
-		m := New()
-
-		o := Object{1, 1}
-
-		err := m.Lock(getCtx(t), 1, &o, S)
-		require.NoError(t, err)
-
-		err = m.Lock(getCtx(t), 1, &o, S)
-		require.NoError(t, err)
-
-		require.Equal(t, 2, m.locks[o].Queue.Count)
-	})
-
 	t.Run("same object: S", func(t *testing.T) {
 		m := New()
 
@@ -65,42 +51,6 @@ func TestLockManagerLock(t *testing.T) {
 		err = m.Lock(ctx, 2, &o, X)
 		require.Error(t, err)
 		require.Equal(t, 1, queueLen(m.locks[o].Queue))
-	})
-
-	t.Run("convert: single lock in queue", func(t *testing.T) {
-		m := New()
-
-		o := Object{1, 1}
-
-		err := m.Lock(getCtx(t), 1, &o, S)
-		require.NoError(t, err)
-
-		err = m.Lock(getCtx(t), 1, &o, X)
-		require.NoError(t, err)
-
-		require.Equal(t, 2, m.locks[o].Queue.Count)
-	})
-
-	t.Run("convert: multiple locks in queue, compatible", func(t *testing.T) {
-		m := New()
-
-		o := Object{1, 1}
-
-		err := m.Lock(getCtx(t), 1, &o, IS)
-		require.NoError(t, err)
-
-		err = m.Lock(getCtx(t), 2, &o, IS)
-		require.NoError(t, err)
-
-		err = m.Lock(getCtx(t), 3, &o, IX)
-		require.NoError(t, err)
-
-		// convert tx 1 to IX
-		err = m.Lock(getCtx(t), 1, &o, IX)
-		require.NoError(t, err)
-
-		require.Equal(t, 3, queueLen(m.locks[o].Queue))
-		require.Equal(t, IX, m.locks[o].GroupMode)
 	})
 
 	t.Run("convert: multiple locks in queue, incompatible", func(t *testing.T) {
@@ -224,4 +174,23 @@ func TestLockManagerUnlock(t *testing.T) {
 
 		<-ch2
 	})
+}
+
+func BenchmarkLock(b *testing.B) {
+	m := New()
+
+	o := Object{1, 1}
+
+	ctx := context.Background()
+
+	for i := 0; i < 10_000; i++ {
+		m.Lock(ctx, uint64(i)+1, &o, S)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		id := uint64(i) + 10_000
+		m.Lock(ctx, id, &o, S)
+		m.Unlock(id, &o)
+	}
 }
