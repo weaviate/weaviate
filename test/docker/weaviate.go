@@ -108,6 +108,7 @@ func startWeaviate(ctx context.Context,
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},
 		},
+		Name:         containerName,
 		ExposedPorts: exposedPorts,
 		Env:          env,
 		WaitingFor:   wait.ForAll(waitStrategies...).WithStartupTimeoutDefault(120 * time.Second),
