@@ -37,10 +37,10 @@ import (
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
-	err := h.Authorizer.Authorize(principal, "list", "schema/*")
-	if err != nil {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
+
 	return h.metaReader.ReadOnlyClass(name), nil
 }
 
@@ -440,10 +440,8 @@ func (h *Handler) validateProperty(
 	}
 
 	// Validate data type of property.
-	sch := h.getSchema()
-
-	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
-		relaxCrossRefValidation, schema.ClassName(class.Class))
+	propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
+		relaxCrossRefValidation, schema.ClassName(className))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
