@@ -44,7 +44,7 @@ func (s objectsSorter) Sort(objects []*storobj.Object,
 		return nil, nil, err
 	}
 
-	class := s.schema.GetClass(objects[0].Class())
+	class := s.schema.GetClass(objects[0].Class().String())
 	dataTypesHelper := newDataTypesHelper(class)
 	valueExtractor := newComparableValueExtractor(dataTypesHelper)
 	comparator := newComparator(dataTypesHelper, propNames, orders)

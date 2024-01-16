@@ -560,7 +560,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 		Fields: make(map[string]*pb.Value, 0),
 	}
 	refProps := make([]*pb.RefPropertiesResult, 0)
-	class := scheme.GetClass(schema.ClassName(className))
+	class := scheme.GetClass(className)
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
 
@@ -733,7 +733,7 @@ func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Sche
 func extractArrayTypesRoot(scheme schema.Schema, className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue) error {
 	dataTypes := make(map[string]*schema.DataType, 0)
 	for propName := range rawProps {
-		dataType, err := schema.GetPropertyDataType(scheme.GetClass(schema.ClassName(className)), propName)
+		dataType, err := schema.GetPropertyDataType(scheme.GetClass(className), propName)
 		if err != nil {
 			return err
 		}
