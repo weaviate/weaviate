@@ -76,7 +76,7 @@ func TestValidateIsNullOperator(t *testing.T) {
 					},
 				},
 			)
-			err := validateClause(f, newClauseWrapper(&cl))
+			err := validateClause(f.ReadOnlyClass, newClauseWrapper(&cl))
 			if tt.valid {
 				require.Nil(t, err)
 			} else {
@@ -148,7 +148,7 @@ func TestValidatePropertyLength(t *testing.T) {
 					},
 				},
 			)
-			err := validateClause(f, newClauseWrapper(&cl))
+			err := validateClause(f.ReadOnlyClass, newClauseWrapper(&cl))
 			if tt.valid {
 				require.Nil(t, err)
 			} else {
@@ -216,7 +216,7 @@ func TestValidateUUIDFilter(t *testing.T) {
 						},
 					},
 				)
-				err := validateClause(f, newClauseWrapper(&cl))
+				err := validateClause(f.ReadOnlyClass, newClauseWrapper(&cl))
 				if tt.valid {
 					require.Nil(t, err)
 				} else {

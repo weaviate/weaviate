@@ -164,7 +164,7 @@ func validateReferenceSchema(sm schemaManager, c *models.Class, property string)
 		return err
 	}
 
-	dt, err := schema.FindPropertyDataTypeWithRefs(sm, prop.DataType, false, "")
+	dt, err := schema.FindPropertyDataTypeWithRefs(sm.ReadOnlyClass, prop.DataType, false, "")
 	if err != nil {
 		return err
 	}

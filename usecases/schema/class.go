@@ -413,7 +413,7 @@ func (h *Handler) validateProperty(
 	}
 
 	// Validate data type of property.
-	propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader, property.DataType,
+	propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
 		relaxCrossRefValidation, schema.ClassName(className))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)

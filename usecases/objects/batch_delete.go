@@ -127,7 +127,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, fmt.Errorf("failed to parse where filter: %s", err)
 	}
 
-	err = filters.ValidateFilters(b.schemaManager, filter)
+	err = filters.ValidateFilters(b.schemaManager.ReadOnlyClass, filter)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %s", err)
 	}

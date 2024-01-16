@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type DataType string
@@ -214,7 +216,7 @@ func (p *propertyDataType) AsNested() DataType {
 // you don't want such validation, use [Schema.FindPropertyDataTypeRelaxedRefs]
 // instead and set relax to true
 func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, error) {
-	return FindPropertyDataTypeWithRefs(s, dataType, false, "")
+	return FindPropertyDataTypeWithRefs(s.ReadOnlyClass, dataType, false, "")
 }
 
 // FindPropertyDataTypeWithRefs Based on the schema, return a valid description of the defined datatype
@@ -225,7 +227,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 // exists in the schema is skipped. This is done to allow creating class schema with
 // properties referencing to itself. Previously such properties had to be created separately
 // only after creation of class schema
-func FindPropertyDataTypeWithRefs(f Finder, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
+func FindPropertyDataTypeWithRefs(fn func(string) *models.Class, dataType []string, relaxCrossRefValidation bool, beloningToClass ClassName) (PropertyDataType, error) {
 	if len(dataType) < 1 {
 		return nil, errors.New("dataType must have at least one element")
 	}
@@ -265,7 +267,7 @@ func FindPropertyDataTypeWithRefs(f Finder, dataType []string, relaxCrossRefVali
 		}
 
 		if beloningToClass != className && !relaxCrossRefValidation {
-			if f.ReadOnlyClass(className.String()) == nil {
+			if fn(className.String()) == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}
