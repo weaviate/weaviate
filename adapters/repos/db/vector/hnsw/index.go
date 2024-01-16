@@ -25,9 +25,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lockmanager"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -161,7 +161,7 @@ type hnsw struct {
 	className              string
 	shardName              string
 	VectorForIDThunk       VectorForID
-	shardedNodeLocks       *vector.ShardLocks
+	nodeLocks              *lockmanager.LockManager
 }
 
 type CommitLogger interface {
@@ -270,7 +270,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     vector.NewShardLocks(),
+		nodeLocks:            lockmanager.New(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -599,8 +599,8 @@ func (h *hnsw) Stats() {
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(h.entryPointID)
-	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
+	h.nodeLocks.RLock(h.entryPointID)
+	defer h.nodeLocks.RUnlock(h.entryPointID)
 
 	return h.isEmptyUnlocked()
 }
@@ -620,8 +620,8 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		return nil
 	}
 
-	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	h.nodeLocks.RLock(id)
+	defer h.nodeLocks.RUnlock(id)
 
 	return h.nodes[id]
 }
@@ -698,8 +698,8 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
 	defer h.RUnlock()
-	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	h.nodeLocks.RLock(id)
+	defer h.nodeLocks.RUnlock(id)
 
 	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }

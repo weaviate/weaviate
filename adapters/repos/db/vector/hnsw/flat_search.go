@@ -37,9 +37,9 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			continue
 		}
 
-		h.shardedNodeLocks.RLock(candidate)
+		h.nodeLocks.RLock(candidate)
 		c := h.nodes[candidate]
-		h.shardedNodeLocks.RUnlock(candidate)
+		h.nodeLocks.RUnlock(candidate)
 
 		if c == nil || h.hasTombstone(candidate) {
 			h.RUnlock()

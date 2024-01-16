@@ -349,6 +349,39 @@ func TestLockManager(t *testing.T) {
 
 		<-ch2
 	})
+
+	t.Run("Vaccum", func(t *testing.T) {
+		t.Parallel()
+		m := NewWith(2)
+
+		m.RLock(0)
+		m.Lock(1)
+		m.Lock(2)
+		require.Equal(t, 3, lockCount(m))
+
+		m.RUnlock(0)
+		m.Unlock(1)
+
+		require.Equal(t, 3, lockCount(m))
+
+		ch := make(chan struct{})
+		go func() {
+			defer close(ch)
+
+			time.Sleep(100 * time.Millisecond)
+			m.Unlock(2)
+		}()
+
+		m.Vaccum()
+
+		select {
+		case <-ch:
+		default:
+			require.Fail(t, "should be unlocked")
+		}
+
+		require.Equal(t, 0, lockCount(m))
+	})
 }
 
 func TestShardLocks_ParallelLocksAll(t *testing.T) {
