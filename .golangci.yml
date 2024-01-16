@@ -34,6 +34,10 @@ issues:
       text: "composites"
     - linters:
         - staticcheck
+      path: adapters/handlers/grpc/v1/filters.go
+      text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
+    - linters:
+        - staticcheck
       path: adapters/handlers/grpc/v1/prepare_reply.go
       text: 'SA1019' # TODO: remove this once deprecated gRPC fields are removed from API
     - linters:

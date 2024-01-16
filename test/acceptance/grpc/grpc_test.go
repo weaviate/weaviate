@@ -13,6 +13,8 @@ package test
 
 import (
 	"context"
+	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +25,11 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
+func idByte(id string) []byte {
+	hexInteger, _ := new(big.Int).SetString(strings.Replace(id, "-", "", -1), 16)
+	return hexInteger.Bytes()
+}
+
 func TestGRPC(t *testing.T) {
 	conn, err := helper.CreateGrpcConnectionClient(":50051")
 	require.NoError(t, err)
@@ -30,8 +37,9 @@ func TestGRPC(t *testing.T) {
 	grpcClient := helper.CreateGrpcWeaviateClient(conn)
 	require.NotNil(t, grpcClient)
 
-	// create Books class
+	// delete if exists and then re-create Books class
 	booksClass := books.ClassContextionaryVectorizer()
+	helper.DeleteClass(t, booksClass.Class)
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 
@@ -187,6 +195,21 @@ func TestGRPC(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Batch delete", func(t *testing.T) {
+		resp, err := grpcClient.BatchDelete(context.TODO(), &pb.BatchDeleteRequest{
+			Collection: "Books",
+			Filters:    &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "Dune"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}}},
+			DryRun:     true,
+			Verbose:    true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, resp.Matches, int64(1))
+		require.Equal(t, resp.Successful, int64(1))
+		require.Equal(t, resp.Failed, int64(0))
+		require.Equal(t, resp.Objects[0].Uuid, idByte(books.Dune.String()))
+	})
 
 	t.Run("gRPC Search removed", func(t *testing.T) {
 		_, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{})

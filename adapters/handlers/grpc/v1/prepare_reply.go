@@ -591,6 +591,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 	if len(refProps) != 0 {
 		props.RefProps = refProps
 	}
+	props.RefPropsRequested = properties.HasRefs()
 	props.TargetCollection = className
 	return &props, nil
 }
