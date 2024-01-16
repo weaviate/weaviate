@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 )
@@ -30,7 +29,7 @@ func (c *Classifier) classifyItemUsingZeroShot(item search.Result, itemIndex int
 	properties := params.ClassifyProperties
 
 	s := c.schemaGetter.GetSchemaSkipAuth()
-	class := s.GetClass(schema.ClassName(item.ClassName))
+	class := s.GetClass(item.ClassName)
 
 	classifyProp := []string{}
 	for _, prop := range properties {

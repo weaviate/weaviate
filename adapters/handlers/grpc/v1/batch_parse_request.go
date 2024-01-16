@@ -41,7 +41,7 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 
 	insertCounter := 0
 	for i, obj := range objectsBatch {
-		class := scheme.GetClass(schema.ClassName(obj.Collection))
+		class := scheme.GetClass(obj.Collection)
 		var props map[string]interface{}
 		if obj.Properties != nil {
 			props = extractPrimitiveProperties(&pb.ObjectPropertiesValue{
