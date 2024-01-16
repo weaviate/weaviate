@@ -120,7 +120,7 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	var (
 		s     = fa.getSchema.GetSchemaSkipAuth()
-		class = s.GetClass(fa.params.ClassName)
+		class = s.GetClass(fa.params.ClassName.String())
 		cfg   = inverted.ConfigFromModel(class.InvertedIndexConfig)
 	)
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
