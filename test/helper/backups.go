@@ -26,6 +26,7 @@ func DefaultBackupConfig() *models.BackupConfig {
 		ChunkSize:        128,
 	}
 }
+
 func DefaultRestoreConfig() *models.RestoreConfig {
 	return &models.RestoreConfig{
 		CPUPercentage: backup.DefaultCPUPercentage,
