@@ -250,7 +250,7 @@ func extractPath(scheme schema.Schema, className string, on []string) (*filters.
 }
 
 func extractPathNew(scheme schema.Schema, className string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
-	class := scheme.GetClass(schema.ClassName(className))
+	class := scheme.GetClass(className)
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
 		dt, err := extractDataType(scheme, operator, className, []string{target.GetProperty()})
