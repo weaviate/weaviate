@@ -77,13 +77,20 @@ func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Prin
 	if f.GetSchemaResponse.Objects == nil {
 		return nil, f.GetschemaErr
 	}
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, class := range classes {
+	for _, class := range f.GetSchemaResponse.Objects.Classes {
 		if class.Class == name {
 			return class, f.GetschemaErr
 		}
 	}
 	return nil, f.GetschemaErr
+}
+
+func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
+	c, err := f.GetClass(context.TODO(), nil, name)
+	if err != nil {
+		return nil
+	}
+	return c
 }
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,

@@ -25,7 +25,6 @@ import (
 )
 
 type schemaManager interface {
-	GetSchema(principal *models.Principal) (schema.Schema, error)
 	AddClass(ctx context.Context, principal *models.Principal,
 		class *models.Class) error
 	AddTenants(ctx context.Context, principal *models.Principal,
@@ -33,6 +32,8 @@ type schemaManager interface {
 	GetClass(ctx context.Context, principal *models.Principal,
 		name string,
 	) (*models.Class, error)
+	// ReadOnlyClass return class model.
+	ReadOnlyClass(name string) *models.Class
 	AddClassProperty(ctx context.Context, principal *models.Principal,
 		class string, property *models.Property) error
 	MergeClassObjectProperty(ctx context.Context, principal *models.Principal,

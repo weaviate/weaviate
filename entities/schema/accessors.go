@@ -24,6 +24,10 @@ func (s *Schema) GetClass(className ClassName) *models.Class {
 	return class
 }
 
+func (s *Schema) ReadOnlyClass(name string) *models.Class {
+	return s.GetClass(ClassName(name))
+}
+
 // FindClassByName will find either a Thing or Class by name.
 func (s *Schema) FindClassByName(className ClassName) *models.Class {
 	semSchemaClass, err := GetClassByName(s.Objects, string(className))

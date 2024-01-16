@@ -57,7 +57,6 @@ func Test_AddClass(t *testing.T) {
 			},
 			Vectorizer: "none",
 		}
-		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 
 		err := handler.AddClass(ctx, nil, &class)
@@ -159,6 +158,7 @@ func Test_AddClass(t *testing.T) {
 			dataType       []string
 			tokenization   string
 			expectedErrMsg string
+			callReadOnly   bool
 		}
 
 		propName := func(dataType schema.DataType, tokenization string) string {
@@ -170,17 +170,17 @@ func Test_AddClass(t *testing.T) {
 			return fmt.Sprintf("%s_%s", dtStr, tStr)
 		}
 
+		// These classes are necessary for tests using references
+		classes := map[string]models.Class{
+			"SomeClass":       {Class: "SomeClass", Vectorizer: "none"},
+			"SomeOtherClass":  {Class: "SomeOtherClass", Vectorizer: "none"},
+			"YetAnotherClass": {Class: "YetAnotherClass", Vectorizer: "none"},
+		}
+
 		runTestCases := func(t *testing.T, testCases []testCase) {
 			for i, tc := range testCases {
 				t.Run(tc.propName, func(t *testing.T) {
 					handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
-
-					// These classes are necessary for tests using references
-					classes := []models.Class{
-						{Class: "SomeClass", Vectorizer: "none"},
-						{Class: "SomeOtherClass", Vectorizer: "none"},
-						{Class: "YetAnotherClass", Vectorizer: "none"},
-					}
 
 					class := &models.Class{
 						Class: fmt.Sprintf("NewClass_%d", i),
@@ -193,12 +193,17 @@ func Test_AddClass(t *testing.T) {
 						},
 						Vectorizer: "none",
 					}
-					fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{
-						Classes: []*models.Class{
-							class, &classes[0], &classes[1], &classes[2],
-						},
-					})
+					classes[class.Class] = *class
 
+					if tc.callReadOnly {
+						call := fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(nil)
+						call.RunFn = func(a mock.Arguments) {
+							existedClass := classes[a.Get(0).(string)]
+							call.ReturnArguments = mock.Arguments{&existedClass}
+						}
+					}
+
+					// fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 					}
@@ -280,6 +285,7 @@ func Test_AddClass(t *testing.T) {
 					dataType:       dataType,
 					tokenization:   "",
 					expectedErrMsg: "",
+					callReadOnly:   true,
 				})
 
 				for _, tokenization := range append(helpers.Tokenizations, "non_existing") {
@@ -288,6 +294,7 @@ func Test_AddClass(t *testing.T) {
 						dataType:       dataType,
 						tokenization:   tokenization,
 						expectedErrMsg: "Tokenization is not allowed for reference data type",
+						callReadOnly:   true,
 					})
 				}
 			}
@@ -423,7 +430,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
+			fakeMetaHandler.On("ReadOnlyClass").Return(nil)
 
 			err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
@@ -590,7 +597,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 			err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeMetaHandler.AssertExpectations(t)
@@ -608,7 +614,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeMetaHandler.On("AddProperty", className, prop).Return(nil)
-					fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 					fakeMetaHandler.On("ReadOnlyClass", className).Return(&class)
 					err := handler.AddClassProperty(ctx, nil, className, prop)
 
@@ -873,7 +878,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-						fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 					}
 					err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -898,7 +902,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-						fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 					}
 					err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -926,7 +929,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-					fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 					err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -963,7 +965,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-						fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 					}
 					err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -1211,7 +1212,7 @@ func Test_UpdateClass(t *testing.T) {
 				fakeMetaHandler.On("AddClass", test.initial, mock.Anything).Return(nil)
 				fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
 				if len(test.initial.Properties) > 0 {
-					fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
+					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
 				}
 				assert.Nil(t, handler.AddClass(ctx, nil, test.initial))
 
@@ -1297,7 +1298,6 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 
 		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
 		fakeMetaHandler.On("RestoreClass", mock.Anything, mock.Anything).Return(nil)
-		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{})
 		assert.Nil(t, err, "class passes validation")
 		fakeMetaHandler.AssertExpectations(t)

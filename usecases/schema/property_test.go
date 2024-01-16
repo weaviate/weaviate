@@ -36,7 +36,6 @@ func TestHandler_AddProperty(t *testing.T) {
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		require.NoError(t, handler.AddClass(ctx, nil, &class))
-		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
 		dataTypes := []schema.DataType{
 			schema.DataTypeInt,
 			schema.DataTypeIntArray,
@@ -92,7 +91,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
+		fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
 		require.NoError(t, handler.AddClass(ctx, nil, &class))
 
 		existingNames := []string{
@@ -133,7 +132,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			Class:      "NewClass",
 			Vectorizer: "none",
 		}
-		fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
+		fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		require.NoError(t, handler.AddClass(ctx, nil, &class))
 		dataTypes := []schema.DataType{
@@ -180,7 +179,6 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 			// Set up schema independently for each test
 			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 			fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
-			fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class}})
 
 			strTokenization := "empty"
 			if tc.tokenization != "" {
@@ -410,9 +408,8 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 		Class:      "RefClass",
 		Vectorizer: "none",
 	}
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{&class, &refClass}})
-	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+	fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&refClass)
+	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
 	fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
 	require.NoError(t, handler.AddClass(ctx, nil, &class))
 	require.NoError(t, handler.AddClass(ctx, nil, &refClass))
