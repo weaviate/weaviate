@@ -59,7 +59,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	targetRef, err := input.validate(principal, validator, m.schemaManager)
+	targetRef, err := input.validate(ctx, principal, validator, m.schemaManager)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
@@ -142,6 +142,7 @@ type AddReferenceInput struct {
 }
 
 func (req *AddReferenceInput) validate(
+	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
 	sm schemaManager,
@@ -154,11 +155,11 @@ func (req *AddReferenceInput) validate(
 		return nil, err
 	}
 
-	schema, err := sm.GetSchema(principal)
+	class, err := sm.GetClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, err
 	}
-	return ref, validateReferenceSchema(req.Class, req.Property, schema)
+	return ref, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(

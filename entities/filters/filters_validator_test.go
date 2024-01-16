@@ -15,10 +15,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+type fakeFinder struct {
+	mock.Mock
+}
+
+func (f *fakeFinder) ReadOnlyClass(name string) *models.Class {
+	args := f.Called(name)
+	model := args.Get(0)
+	if model == nil {
+		return nil
+	}
+	return model.(*models.Class)
+}
 
 func TestValidateIsNullOperator(t *testing.T) {
 	tests := []struct {
@@ -45,24 +59,24 @@ func TestValidateIsNullOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sch := schema.Schema{Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "Car",
-						Properties: []*models.Property{
-							{Name: "modelName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
-							{Name: "manufacturerName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
-							{Name: "horsepower", DataType: []string{"int"}},
-						},
-					},
-				},
-			}}
 			cl := Clause{
 				Operator: OperatorIsNull,
 				Value:    &Value{Value: true, Type: tt.schemaType},
 				On:       &Path{Class: "Car", Property: "horsepower"},
 			}
-			err := validateClause(sch, newClauseWrapper(&cl))
+
+			f := &fakeFinder{}
+			f.On("ReadOnlyClass", mock.Anything).Return(
+				&models.Class{
+					Class: "Car",
+					Properties: []*models.Property{
+						{Name: "modelName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
+						{Name: "manufacturerName", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
+						{Name: "horsepower", DataType: []string{"int"}},
+					},
+				},
+			)
+			err := validateClause(f.ReadOnlyClass, newClauseWrapper(&cl))
 			if tt.valid {
 				require.Nil(t, err)
 			} else {
@@ -119,22 +133,22 @@ func TestValidatePropertyLength(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sch := schema.Schema{Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "Car",
-						Properties: []*models.Property{
-							{Name: "horsepower", DataType: []string{"int"}},
-						},
-					},
-				},
-			}}
 			cl := Clause{
 				Operator: OperatorEqual,
 				Value:    &Value{Value: tt.value, Type: tt.schemaType},
 				On:       &Path{Class: "Car", Property: "len(horsepower)"},
 			}
-			err := validateClause(sch, newClauseWrapper(&cl))
+
+			f := &fakeFinder{}
+			f.On("ReadOnlyClass", mock.Anything).Return(
+				&models.Class{
+					Class: "Car",
+					Properties: []*models.Property{
+						{Name: "horsepower", DataType: []string{"int"}},
+					},
+				},
+			)
+			err := validateClause(f.ReadOnlyClass, newClauseWrapper(&cl))
 			if tt.valid {
 				require.Nil(t, err)
 			} else {
@@ -185,24 +199,24 @@ func TestValidateUUIDFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sch := schema.Schema{Objects: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "Car",
-						Properties: []*models.Property{
-							{Name: "my_id", DataType: []string{string(schema.DataTypeUUID)}},
-							{Name: "my_idz", DataType: []string{string(schema.DataTypeUUIDArray)}},
-						},
-					},
-				},
-			}}
 			for _, prop := range []schema.PropertyName{"my_id", "my_idz"} {
 				cl := Clause{
 					Operator: tt.operator,
 					Value:    &Value{Value: tt.value, Type: tt.schemaType},
 					On:       &Path{Class: "Car", Property: prop},
 				}
-				err := validateClause(sch, newClauseWrapper(&cl))
+
+				f := &fakeFinder{}
+				f.On("ReadOnlyClass", mock.Anything).Return(
+					&models.Class{
+						Class: "Car",
+						Properties: []*models.Property{
+							{Name: "my_id", DataType: []string{string(schema.DataTypeUUID)}},
+							{Name: "my_idz", DataType: []string{string(schema.DataTypeUUIDArray)}},
+						},
+					},
+				)
+				err := validateClause(f.ReadOnlyClass, newClauseWrapper(&cl))
 				if tt.valid {
 					require.Nil(t, err)
 				} else {
