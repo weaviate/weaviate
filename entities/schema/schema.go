@@ -17,12 +17,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Finder direct access to get the class without quiring the whole schema.
-type Finder interface {
-	// ReadOnlyClass return class model.
-	ReadOnlyClass(name string) *models.Class
-}
-
 // Newtype to denote that this string is used as a Class name
 type ClassName string
 
