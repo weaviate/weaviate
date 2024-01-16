@@ -505,6 +505,7 @@ func (s *Shard) drop() error {
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+		s.cycleCallbacks.propertyTrackerCallbacksCtrl,
 	).Unregister(ctx); err != nil {
 		return err
 	}
@@ -805,6 +806,9 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 	).Unregister(ctx); err != nil {
 		return err
 	}
+
+	s.cycleCallbacks.propertyTrackerCallbacksCtrl = nil
+
 
 	if err := s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")

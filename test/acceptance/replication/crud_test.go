@@ -65,6 +65,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviateCluster().
 		WithText2VecContextionary().
+		WithWeaviateEnv("LOG_LEVEL","debug,trace").
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
