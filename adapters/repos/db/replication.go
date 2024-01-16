@@ -244,7 +244,7 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 
 func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
 	sch := i.getSchema.GetSchemaSkipAuth()
-	class := sch.GetClass(schema.ClassName(className))
+	class := sch.GetClass(schema.ClassName(className).String())
 	if err := i.addNewShard(ctx, class, shardName); err != nil {
 		return fmt.Errorf("incoming create shard: %w", err)
 	}
