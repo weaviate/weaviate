@@ -49,7 +49,8 @@ type metaReader interface {
 	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci store.ClassInfo)
-	ReadOnlyClass(class string) *models.Class
+	// ReadOnlyClass return class model.
+	ReadOnlyClass(name string) *models.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
