@@ -678,6 +678,33 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "count filter ref",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
+					On:        []string{"ref"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "length filter",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
