@@ -30,7 +30,7 @@ import (
 type BackupRestoreRequest struct {
 
 	// Custom configuration for the backup restoration process
-	Config *BackupConfig `json:"config,omitempty"`
+	Config *RestoreConfig `json:"config,omitempty"`
 
 	// List of classes to exclude from the backup restoration process
 	Exclude []string `json:"exclude"`

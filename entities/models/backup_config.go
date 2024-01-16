@@ -43,7 +43,7 @@ type BackupConfig struct {
 
 	// compression level used by compression algorithm
 	// Enum: [DefaultCompression BestSpeed BestCompression]
-	CompressionLevel *string `json:"CompressionLevel,omitempty"`
+	CompressionLevel string `json:"CompressionLevel,omitempty"`
 }
 
 // Validate validates this backup config
@@ -138,7 +138,7 @@ func (m *BackupConfig) validateCompressionLevel(formats strfmt.Registry) error {
 	}
 
 	// value enum
-	if err := m.validateCompressionLevelEnum("CompressionLevel", "body", *m.CompressionLevel); err != nil {
+	if err := m.validateCompressionLevelEnum("CompressionLevel", "body", m.CompressionLevel); err != nil {
 		return err
 	}
 
