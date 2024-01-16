@@ -79,7 +79,7 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 		case schema.DataTypeInt:
 			val, ok := v.(float64)
 			if !ok { // integers are returned as float64 from search
-				return nil, protoimpl.X.NewError("invalid type: %T expected int64 when serializing int property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected float64 when serializing int property", v)
 			}
 			return NewIntValue(int64(val)), nil
 		case schema.DataTypeString:
@@ -112,6 +112,12 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob property", v)
 			}
 			return NewBlobValue(val), nil
+		case schema.DataTypePhoneNumber:
+			val, ok := v.(*models.PhoneNumber)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected *models.PhoneNumber when serializing phone number property", v)
+			}
+			return NewPhoneNumberValue(val), nil
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
@@ -260,4 +266,19 @@ func NewListValue(v *pb.ListValue) *pb.Value {
 // NewBlobValue constructs a new blob Value.
 func NewBlobValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_BlobValue{BlobValue: v}}
+}
+
+// NewPhoneNumberValue constructs a new phone number Value.
+func NewPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_PhoneValue{
+		PhoneValue: &pb.PhoneNumber{
+			CountryCode:            v.CountryCode,
+			DefaultCountry:         v.DefaultCountry,
+			Input:                  v.Input,
+			InternationalFormatted: v.InternationalFormatted,
+			National:               v.National,
+			NationalFormatted:      v.NationalFormatted,
+			Valid:                  v.Valid,
+		},
+	}}
 }
