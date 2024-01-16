@@ -47,7 +47,7 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	var (
 		s     = a.getSchema.GetSchemaSkipAuth()
-		class = s.GetClass(a.params.ClassName)
+		class = s.GetClass(a.params.ClassName.String())
 		cfg   = inverted.ConfigFromModel(class.InvertedIndexConfig)
 	)
 

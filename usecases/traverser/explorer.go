@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 
 	"github.com/go-openapi/strfmt"
@@ -754,7 +753,7 @@ func (e *Explorer) checkCertaintyCompatibility(className string) error {
 	if s.Objects == nil {
 		return errors.Errorf("failed to get schema")
 	}
-	class := s.GetClass(schema.ClassName(className))
+	class := s.GetClass(className)
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", className)
 	}
@@ -774,7 +773,7 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 		return false, fmt.Errorf("schemaGetter not set")
 	}
 	sch := e.schemaGetter.GetSchemaSkipAuth()
-	cls := sch.GetClass(schema.ClassName(params.ClassName))
+	cls := sch.GetClass(params.ClassName)
 	if cls == nil {
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}

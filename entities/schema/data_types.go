@@ -216,7 +216,7 @@ func (p *propertyDataType) AsNested() DataType {
 // you don't want such validation, use [Schema.FindPropertyDataTypeRelaxedRefs]
 // instead and set relax to true
 func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, error) {
-	return FindPropertyDataTypeWithRefs(s.ReadOnlyClass, dataType, false, "")
+	return FindPropertyDataTypeWithRefs(s.GetClass, dataType, false, "")
 }
 
 // FindPropertyDataTypeWithRefs Based on the schema, return a valid description of the defined datatype
