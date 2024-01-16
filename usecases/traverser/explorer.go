@@ -714,7 +714,7 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 		return false, fmt.Errorf("schemaGetter not set")
 	}
 	sch := e.schemaGetter.GetSchemaSkipAuth()
-	cls := sch.GetClass(schema.ClassName(params.ClassName))
+	cls := sch.GetClass(params.ClassName)
 	if cls == nil {
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}

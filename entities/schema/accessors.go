@@ -15,17 +15,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (s *Schema) GetClass(className ClassName) *models.Class {
-	class, err := GetClassByName(s.Objects, string(className))
+func (s *Schema) GetClass(className string) *models.Class {
+	class, err := GetClassByName(s.Objects, className)
 	if err != nil {
 		return nil
 	}
 
 	return class
-}
-
-func (s *Schema) ReadOnlyClass(name string) *models.Class {
-	return s.GetClass(ClassName(name))
 }
 
 // FindClassByName will find either a Thing or Class by name.

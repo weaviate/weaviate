@@ -92,7 +92,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 
 	if params.Filters != nil {
 		sch := t.schemaGetter.GetSchemaSkipAuth()
-		if err := filters.ValidateFilters(sch.ReadOnlyClass, params.Filters); err != nil {
+		if err := filters.ValidateFilters(sch.GetClass, params.Filters); err != nil {
 			return nil, errors.Wrap(err, "invalid 'where' filter")
 		}
 	}
