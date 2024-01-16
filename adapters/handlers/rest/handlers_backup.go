@@ -31,6 +31,19 @@ type backupHandlers struct {
 // compressionFromCfg transforms model backup config to a backup compression config
 func compressionFromCfg(cfg *models.BackupConfig) ubak.Compression {
 	if cfg != nil {
+		if cfg.CPUPercentage == 0 {
+			cfg.CPUPercentage = ubak.DefaultCPUPercentage
+		}
+
+		if cfg.ChunkSize == 0 {
+			cfg.ChunkSize = ubak.DefaultChunkSize
+		}
+
+		if cfg.CompressionLevel == nil {
+			dc := models.BackupConfigCompressionLevelDefaultCompression
+			cfg.CompressionLevel = &dc
+		}
+
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
 			ChunkSize:     int(cfg.ChunkSize),

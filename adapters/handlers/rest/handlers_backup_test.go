@@ -43,6 +43,30 @@ func TestCompressionCfg(t *testing.T) {
 			expectedCPU:         25,
 			expectedChunkSize:   512,
 		},
+		"with partial config [CPU]": {
+			cfg: &models.BackupConfig{
+				CPUPercentage: 25,
+			},
+			expectedCompression: ubak.DefaultCompression,
+			expectedCPU:         25,
+			expectedChunkSize:   ubak.DefaultChunkSize,
+		},
+		"with partial config [ChunkSize]": {
+			cfg: &models.BackupConfig{
+				ChunkSize: 125,
+			},
+			expectedCompression: ubak.DefaultCompression,
+			expectedCPU:         ubak.DefaultCPUPercentage,
+			expectedChunkSize:   125,
+		},
+		"with partial config [Compression]": {
+			cfg: &models.BackupConfig{
+				CompressionLevel: &l,
+			},
+			expectedCompression: ubak.BestSpeed,
+			expectedCPU:         ubak.DefaultCPUPercentage,
+			expectedChunkSize:   ubak.DefaultChunkSize,
+		},
 	}
 
 	for n, tc := range tcs {
