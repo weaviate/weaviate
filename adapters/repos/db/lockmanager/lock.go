@@ -136,6 +136,7 @@ type LockHeader struct {
 	GroupMode LockMode     // The current mode of the group
 	Waiting   bool         // Indicates if there are pending lock requests
 	PerID     map[uint64]*LockRequest
+	Cond      *sync.Cond // Condition variable to wake up all waiting transactions
 }
 
 func (lh *LockHeader) Reset() {
@@ -150,13 +151,12 @@ func (lh *LockHeader) Reset() {
 // A LockRequest holds the information about a lock request
 // make by a transaction.
 type LockRequest struct {
-	Next   *LockRequest  // Next request in the queue
-	Prev   *LockRequest  // Previous request in the queue
-	Head   *LockHeader   // Head of the queue
-	Status LockStatus    // Status of the request
-	Mode   LockMode      // Mode requested / granted
-	WakeUp chan struct{} // Channel to wake up the transaction
-	Lockid uint64        // ID of the lock request
+	Next   *LockRequest // Next request in the queue
+	Prev   *LockRequest // Previous request in the queue
+	Head   *LockHeader  // Head of the queue
+	Status LockStatus   // Status of the request
+	Mode   LockMode     // Mode requested / granted
+	Lockid uint64       // ID of the lock request
 }
 
 func (lr *LockRequest) Reset() {
@@ -165,7 +165,6 @@ func (lr *LockRequest) Reset() {
 	lr.Head = nil
 	lr.Status = LockGranted
 	lr.Mode = Free
-	lr.WakeUp = nil
 	lr.Lockid = 0
 }
 

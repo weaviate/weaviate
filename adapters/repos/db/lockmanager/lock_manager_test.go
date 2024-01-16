@@ -47,34 +47,14 @@ func TestLockManagerLock(t *testing.T) {
 		err := m.Lock(getCtx(t), 1, &o, S)
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		err = m.Lock(ctx, 2, &o, X)
-		require.Error(t, err)
+		go func() {
+			time.Sleep(time.Millisecond)
+			m.Unlock(1, &o)
+		}()
+
+		err = m.Lock(context.TODO(), 2, &o, X)
+		require.NoError(t, err)
 		require.Equal(t, 1, queueLen(m.locks[o].Queue))
-	})
-
-	t.Run("convert: multiple locks in queue, incompatible", func(t *testing.T) {
-		m := New()
-
-		o := Object{1, 1}
-
-		err := m.Lock(getCtx(t), 1, &o, IS)
-		require.NoError(t, err)
-
-		err = m.Lock(getCtx(t), 2, &o, IS)
-		require.NoError(t, err)
-
-		err = m.Lock(getCtx(t), 3, &o, IX)
-		require.NoError(t, err)
-
-		// convert tx 1 to X
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		err = m.Lock(ctx, 1, &o, X)
-		require.Error(t, err)
-		require.Equal(t, 3, queueLen(m.locks[o].Queue))
-		require.Equal(t, IX, m.locks[o].GroupMode)
 	})
 }
 

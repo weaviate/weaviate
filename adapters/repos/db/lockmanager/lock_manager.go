@@ -3,8 +3,6 @@ package lockmanager
 import (
 	"context"
 	"sync"
-
-	"github.com/pkg/errors"
 )
 
 var reqPool = sync.Pool{
@@ -17,6 +15,7 @@ var headPool = sync.Pool{
 	New: func() any {
 		return &LockHeader{
 			PerID: make(map[uint64]*LockRequest),
+			Cond:  sync.NewCond(new(sync.Mutex)),
 		}
 	},
 }
@@ -92,16 +91,15 @@ func (lm *LockManager) Lock(ctx context.Context, lockid uint64, obj *Object, mod
 	// Wait for the lock.
 	head.Waiting = true
 	req.Status = LockWaiting
-	req.WakeUp = make(chan struct{})
 	head.mu.Unlock()
 
-	select {
-	case <-ctx.Done():
-		lm.Unlock(lockid, obj)
-		return errors.Wrap(ctx.Err(), "lock timeout")
-	case <-req.WakeUp:
-		return nil
+	head.Cond.L.Lock()
+	for req.Status == LockWaiting {
+		head.Cond.Wait()
 	}
+	head.Cond.L.Unlock()
+
+	return nil
 }
 
 func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
@@ -169,21 +167,20 @@ func (lm *LockManager) Unlock(lockid uint64, obj *Object) {
 		}
 
 		// deal with waiting requests
-		if req.Status == LockWaiting {
-			// if the lock is compatible with the current mode, grant it
-			if head.GroupMode.IsCompatibleWith(req.Mode) {
-				req.Status = LockGranted
-				head.GroupMode = MaxMode(req.Mode, head.GroupMode)
-				close(req.WakeUp)
-			} else {
-				// stop here
-				head.Waiting = true
-				break
-			}
-
-			continue
+		// if the lock is compatible with the current mode, grant it
+		if head.GroupMode.IsCompatibleWith(req.Mode) {
+			req.Status = LockGranted
+			head.GroupMode = MaxMode(req.Mode, head.GroupMode)
+		} else {
+			// stop here
+			head.Waiting = true
+			break
 		}
 	}
+
+	head.Cond.L.Lock()
+	head.Cond.Broadcast()
+	head.Cond.L.Unlock()
 
 	head.mu.Unlock()
 	lm.mu.Unlock()
