@@ -108,11 +108,12 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited []bool, level int) error {
 	var pending []uint64
 	for _, id := range n.graph.nodes[from].connections[level] {
+		if visited[id] {
+			continue
+		}
+		visited[id] = true
 		if n.denyList.Contains(id) {
-			if !visited[id] {
-				visited[id] = true
-				pending = append(pending, id)
-			}
+			pending = append(pending, id)
 			continue
 		}
 
