@@ -17,7 +17,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
@@ -99,7 +98,7 @@ func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType
 
 func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 	sch := t.schemaGetter.GetSchemaSkipAuth()
-	class := sch.GetClass(schema.ClassName(params.ClassName))
+	class := sch.GetClass(params.ClassName)
 	if class == nil {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
