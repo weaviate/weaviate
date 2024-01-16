@@ -298,7 +298,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(scheme, filter); err != nil {
+		if err := filters.ValidateFilters(scheme.ReadOnlyClass, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter
