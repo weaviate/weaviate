@@ -179,7 +179,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.Value = &value
 
 	}
-
 	return returnFilter, nil
 }
 
@@ -210,6 +209,11 @@ func extractDataTypeProperty(scheme schema.Schema, operator filters.Operator, cl
 		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(propToCheck))
 		if err != nil {
 			return dataType, err
+		}
+		if schema.IsRefDataType(prop.DataType) {
+			// This is a filter on a reference property without a path so is counting
+			// the number of references. Needs schema.DataTypeInt: entities/filters/filters_validator.go#L116-L127
+			return schema.DataTypeInt, nil
 		}
 		dataType = schema.DataType(prop.DataType[0])
 	}
