@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -27,25 +28,25 @@ var deprecatedDataTypeAliases map[schema.DataType]schema.DataType = map[schema.D
 	schema.DataTypeStringArray: schema.DataTypeTextArray,
 }
 
-func ValidateFilters(sch schema.Schema, filters *LocalFilter) error {
+func ValidateFilters(fn func(string) *models.Class, filters *LocalFilter) error {
 	if filters == nil {
 		return errors.New("empty where")
 	}
 	cw := newClauseWrapper(filters.Root)
-	if err := validateClause(sch, cw); err != nil {
+	if err := validateClause(fn, cw); err != nil {
 		return err
 	}
 	cw.updateClause()
 	return nil
 }
 
-func validateClause(sch schema.Schema, cw *clauseWrapper) error {
+func validateClause(fn func(string) *models.Class, cw *clauseWrapper) error {
 	// check if nested
 	if cw.getOperands() != nil {
 		var errs []error
 
 		for i, child := range cw.getOperands() {
-			if err := validateClause(sch, child); err != nil {
+			if err := validateClause(fn, child); err != nil {
 				errs = append(errs, errors.Wrapf(err, "child operand at position %d", i))
 			}
 		}
@@ -65,7 +66,7 @@ func validateClause(sch schema.Schema, cw *clauseWrapper) error {
 		return validateInternalPropertyClause(propName, cw)
 	}
 
-	class := sch.FindClassByName(className)
+	class := fn(className.String())
 	if class == nil {
 		return errors.Errorf("class %q does not exist in schema",
 			className)
@@ -77,7 +78,7 @@ func validateClause(sch schema.Schema, cw *clauseWrapper) error {
 		propName = schema.PropertyName(lengthPropName)
 	}
 
-	prop, err := sch.GetProperty(className, propName)
+	prop, err := schema.GetPropertyByName(class, propName.String())
 	if err != nil {
 		return err
 	}

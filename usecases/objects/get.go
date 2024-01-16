@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -102,23 +101,13 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.GetClass(schema.ClassName(res.ClassName)), nil
+	return m.schemaManager.GetClass(ctx, principal, res.ClassName)
 }
 
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.GetClass(schema.ClassName(className)), nil
+	return m.schemaManager.GetClass(ctx, principal, className)
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
