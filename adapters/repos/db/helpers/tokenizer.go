@@ -17,9 +17,11 @@ import (
 
 	"github.com/go-ego/gse"
 	"github.com/weaviate/weaviate/entities/models"
+	"sync"
 )
 
 var gseTokenizer *gse.Segmenter
+var gseTokenizerLock = &sync.Mutex{}
 
 var Tokenizations []string = []string{
 	models.PropertyTokenizationWord,
@@ -110,6 +112,8 @@ func tokenizetrigram(in string) []string {
 
 // tokenizeGSE uses the gse tokenizer to tokenise Chinese and Japanese
 func tokenizeGSE(in string) []string {
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
 	if gseTokenizer == nil {
 		seg, err := gse.New("ja,zh")
 		if err != nil {
