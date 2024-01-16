@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -782,7 +782,13 @@ func (q *vectorQueue) borrowChunks(max int) []*chunk {
 }
 
 func (q *vectorQueue) releaseChunk(c *chunk) {
-	close(c.indexed)
+	if c == nil {
+		return
+	}
+
+	if c.indexed != nil {
+		close(c.indexed)
+	}
 
 	q.fullChunks.Lock()
 	if c.elem != nil {
@@ -801,7 +807,9 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 
 	q.fullChunks.Unlock()
 
-	q.pool.Put(&data)
+	if len(data) == q.IndexQueue.BatchSize {
+		q.pool.Put(&data)
+	}
 }
 
 // persistCheckpoint update the on-disk checkpoint that tracks the last indexed id

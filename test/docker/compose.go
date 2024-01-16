@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -88,10 +88,11 @@ type Compose struct {
 	withCLIP                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
+	weaviateEnvs                  map[string]string
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}}
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
 }
 
 func (d *Compose) WithMinIO() *Compose {
@@ -296,6 +297,11 @@ func (d *Compose) WithWeaviateAuth() *Compose {
 	return d
 }
 
+func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
+	d.weaviateEnvs[name] = value
+	return d
+}
+
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	networkName := "weaviate-module-acceptance-tests"
 	network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
@@ -449,6 +455,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 			envSettings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 		}
+		for k, v := range d.weaviateEnvs {
+			envSettings[k] = v
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
@@ -463,6 +472,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
 		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
+		for k, v := range d.weaviateEnvs {
+			envSettings[k] = v
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
@@ -480,6 +492,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_JOIN")
+		for k, v := range d.weaviateEnvs {
+			envSettings[k] = v
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {

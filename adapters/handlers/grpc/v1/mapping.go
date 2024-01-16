@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,24 +35,6 @@ func parseArray[T float64 | bool | string](v interface{}, innerDt schema.DataTyp
 	return NewListValue(list), nil
 }
 
-// NewValue constructs a Value from a general-purpose Go interface.
-//
-//	╔════════════════════════╤════════════════════════════════════════════╗
-//	║ Go type                │ Conversion                                 ║
-//	╠════════════════════════╪════════════════════════════════════════════╣
-//	║ bool                   │ stored as BoolValue                        ║
-//	║ int, int32, int64      │ stored as NumberValue                      ║
-//	║ uint, uint32, uint64   │ stored as NumberValue                      ║
-//	║ float32, float64       │ stored as NumberValue                      ║
-//	║ geo coordinate         │ stored as GeoCoordinate                    ║
-//	║ string                 │ stored as StringValue; must be valid UTF-8 ║
-//	║ []byte                 │ stored as StringValue; base64-encoded      ║
-//	║ map[string]interface{} │ stored as StructValue                      ║
-//	║ []interface{}          │ stored as ListValue                        ║
-//	╚════════════════════════╧════════════════════════════════════════════╝
-//
-// When converting an int64 or uint64 to a NumberValue, numeric precision loss
-// is possible since they are stored as a float64.
 func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 	innerDt, ok := schema.IsArrayType(dt)
 	if ok {
@@ -97,7 +79,7 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 		case schema.DataTypeInt:
 			val, ok := v.(float64)
 			if !ok { // integers are returned as float64 from search
-				return nil, protoimpl.X.NewError("invalid type: %T expected int64 when serializing int property", v)
+				return nil, protoimpl.X.NewError("invalid type: %T expected float64 when serializing int property", v)
 			}
 			return NewIntValue(int64(val)), nil
 		case schema.DataTypeString:
@@ -124,6 +106,18 @@ func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 				return nil, protoimpl.X.NewError("invalid type: %T expected *models.GeoCoordinates when serializing geocoordinate property", v)
 			}
 			return NewGeoValue(val), nil
+		case schema.DataTypeBlob:
+			val, ok := v.(string)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing blob property", v)
+			}
+			return NewBlobValue(val), nil
+		case schema.DataTypePhoneNumber:
+			val, ok := v.(*models.PhoneNumber)
+			if !ok {
+				return nil, protoimpl.X.NewError("invalid type: %T expected *models.PhoneNumber when serializing phone number property", v)
+			}
+			return NewPhoneNumberValue(val), nil
 		default:
 			return nil, protoimpl.X.NewError("invalid type: %T", v)
 		}
@@ -267,4 +261,24 @@ func NewObjectValue(v *pb.Properties) *pb.Value {
 // NewListValue constructs a new list Value.
 func NewListValue(v *pb.ListValue) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: v}}
+}
+
+// NewBlobValue constructs a new blob Value.
+func NewBlobValue(v string) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_BlobValue{BlobValue: v}}
+}
+
+// NewPhoneNumberValue constructs a new phone number Value.
+func NewPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
+	return &pb.Value{Kind: &pb.Value_PhoneValue{
+		PhoneValue: &pb.PhoneNumber{
+			CountryCode:            v.CountryCode,
+			DefaultCountry:         v.DefaultCountry,
+			Input:                  v.Input,
+			InternationalFormatted: v.InternationalFormatted,
+			National:               v.National,
+			NationalFormatted:      v.NationalFormatted,
+			Valid:                  v.Valid,
+		},
+	}}
 }

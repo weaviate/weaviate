@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -153,6 +153,9 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 			"Please perform a regular non-batch import for network references, got peer %s",
 			target.PeerName))
 	}
+
+	// target id must be lowercase
+	target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
 
 	if len(validateErrors) == 0 {
 		err = nil

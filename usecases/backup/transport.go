@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,14 +46,8 @@ type Request struct {
 	// Duration
 	Duration time.Duration
 
-	// ChunkSize represents the desired size for chunks
-	// However, during compression, the chunk size might
-	// slightly deviate from this value, being either slightly below or above the specified size
-	ChunkSize int
-
-	CPUPercentage int
-
-	CompressionLevel int
+	// Compression is the compression configuration.
+	Compression
 }
 
 type CanCommitResponse struct {

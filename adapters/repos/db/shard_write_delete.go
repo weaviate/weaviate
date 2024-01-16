@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,6 +72,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+	}
+
+	if err = s.ChangeObjectCountBy(-1); err != nil {
+		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
 	return nil

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ var availableAnyscaleModels = []string{
 	"meta-llama/Llama-2-7b-chat-hf",
 	"codellama/CodeLlama-34b-Instruct-hf",
 	"mistralai/Mistral-7B-Instruct-v0.1",
+	"mistralai/Mixtral-8x7B-Instruct-v0.1",
 }
 
 // note we might want to separate the baseURL and completions URL in the future. Fine-tuned models also use this URL. 12/3/23

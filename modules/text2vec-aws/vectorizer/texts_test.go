@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,36 +36,43 @@ func TestVectorizingTexts(t *testing.T) {
 			name:               "single word",
 			input:              []string{"hello"},
 			expectedClientCall: "hello",
+			expectedService:    "bedrock",
 		},
 		{
 			name:               "multiple words",
 			input:              []string{"hello world, this is me!"},
 			expectedClientCall: "hello world, this is me!",
+			expectedService:    "bedrock",
 		},
 		{
 			name:               "multiple sentences (joined with a dot)",
 			input:              []string{"this is sentence 1", "and here's number 2"},
 			expectedClientCall: "and here's number 2",
+			expectedService:    "bedrock",
 		},
 		{
 			name:               "multiple sentences already containing a dot",
 			input:              []string{"this is sentence 1.", "and here's number 2"},
 			expectedClientCall: "and here's number 2",
+			expectedService:    "bedrock",
 		},
 		{
 			name:               "multiple sentences already containing a question mark",
 			input:              []string{"this is sentence 1?", "and here's number 2"},
 			expectedClientCall: "and here's number 2",
+			expectedService:    "bedrock",
 		},
 		{
 			name:               "multiple sentences already containing an exclamation mark",
 			input:              []string{"this is sentence 1!", "and here's number 2"},
 			expectedClientCall: "and here's number 2",
+			expectedService:    "bedrock",
 		},
 		{
 			name:               "multiple sentences already containing comma",
 			input:              []string{"this is sentence 1,", "and here's number 2"},
 			expectedClientCall: "and here's number 2",
+			expectedService:    "bedrock",
 		},
 	}
 
@@ -75,8 +82,8 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client)
 
-			settings := &fakeSettings{
-				service: "",
+			settings := &fakeClassConfig{
+				service: "bedrock",
 				region:  "",
 				model:   "",
 			}

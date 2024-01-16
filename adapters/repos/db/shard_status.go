@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,6 +64,12 @@ func (s *Shard) updateStatusUnlocked(in string) error {
 
 	s.status = targetStatus
 	s.updateStoreStatus(targetStatus)
+
+	s.index.logger.
+		WithField("action", "update shard status").
+		WithField("class", s.index.Config.ClassName).
+		WithField("shard", s.name).
+		WithField("status", in)
 
 	return nil
 }

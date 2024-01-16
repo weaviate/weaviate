@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,6 +50,9 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"dynamicEfMax":           float64(500),
 					"dynamicEfFactor":        float64(8),
 					"distance":               "cosine",
+					"bq": map[string]interface{}{
+						"enabled": false,
+					},
 					"pq": map[string]interface{}{
 						"bitCompression": false,
 						"centroids":      float64(256),

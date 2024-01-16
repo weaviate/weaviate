@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,13 +15,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func dumpIndex(index *hnsw, labels ...string) {
@@ -51,13 +45,4 @@ func dumpIndex(index *hnsw, labels ...string) {
 
 func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
-}
-
-func newDummyStore(t testing.TB) *lsmkv.Store {
-	logger, _ := test.NewNullLogger()
-	storeDir := t.TempDir()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
-	return store
 }

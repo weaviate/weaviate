@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,7 +38,7 @@ type Replicator interface {
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		docIDs []uint64, dryRun bool) replica.SimpleResponse
+		uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(shard,
@@ -92,14 +92,14 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
-	shard, requestID string, docIDs []uint64, dryRun bool,
+	shard, requestID string, uuids []strfmt.UUID, dryRun bool,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, docIDs, dryRun)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -197,12 +197,12 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
 	}
-	return localShard.prepareDeleteObjects(ctx, requestID, docIDs, dryRun)
+	return localShard.prepareDeleteObjects(ctx, requestID, uuids, dryRun)
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
@@ -282,19 +282,13 @@ func (s *Shard) filePutter(ctx context.Context,
 }
 
 func (s *Shard) reinit(ctx context.Context) error {
+	// This is a short term fix to deal with the problem that the shard is still running while we are changing its files on disk.  The shard needs to be shut down before we can safely change the files.  Otherwise the shutdown process will overwrite, or possibly even corrupt the changed files.
+	s.propLenTracker = nil
 	if err := s.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
-	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("reinit non-vector: %w", err)
-	}
-
-	if err := s.initVector(ctx); err != nil {
-		return fmt.Errorf("reinit vector: %w", err)
-	}
-
-	s.initCycleCallbacks()
+	s.initShard(ctx)
 
 	return nil
 }

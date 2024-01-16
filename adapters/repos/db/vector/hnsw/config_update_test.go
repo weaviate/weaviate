@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -92,6 +92,20 @@ func TestUserConfigUpdates(t *testing.T) {
 					DynamicEFMin:    101,
 					DynamicEFMax:    201,
 					DynamicEFFactor: 6,
+				},
+				expectedError: nil,
+			},
+			{
+				name: "setting bq compression on",
+				initial: ent.UserConfig{
+					BQ: ent.BQConfig{
+						Enabled: false,
+					},
+				},
+				update: ent.UserConfig{
+					BQ: ent.BQConfig{
+						Enabled: true,
+					},
 				},
 				expectedError: nil,
 			},
