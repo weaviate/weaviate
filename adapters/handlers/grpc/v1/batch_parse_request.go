@@ -138,58 +138,42 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 	}
 
 	// arrays cannot be part of a GRPC map, so we need to handle each type separately
-	if properties.BooleanArrayProperties != nil {
-		for j := range properties.BooleanArrayProperties {
-			props[properties.BooleanArrayProperties[j].PropName] = sliceToInterface(properties.BooleanArrayProperties[j].Values)
+	for j := range properties.BooleanArrayProperties {
+		props[properties.BooleanArrayProperties[j].PropName] = sliceToInterface(properties.BooleanArrayProperties[j].Values)
+	}
+
+	for j := range properties.NumberArrayProperties {
+		inputValuesBytes := properties.NumberArrayProperties[j].ValuesBytes
+		var values []float64
+
+		if len(inputValuesBytes) > 0 {
+			values = byteops.Float64FromByteVector(inputValuesBytes)
+		} else {
+			values = properties.NumberArrayProperties[j].Values
 		}
+
+		props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(values)
 	}
 
-	if properties.NumberArrayProperties != nil {
-		for j := range properties.NumberArrayProperties {
-			inputValuesBytes := properties.NumberArrayProperties[j].ValuesBytes
-			var values []float64
-
-			if len(inputValuesBytes) > 0 {
-				values = byteops.Float64FromByteVector(inputValuesBytes)
-			} else {
-				values = properties.NumberArrayProperties[j].Values
-			}
-
-			props[properties.NumberArrayProperties[j].PropName] = sliceToInterface(values)
-		}
+	for j := range properties.TextArrayProperties {
+		props[properties.TextArrayProperties[j].PropName] = sliceToInterface(properties.TextArrayProperties[j].Values)
 	}
 
-	if properties.TextArrayProperties != nil {
-		for j := range properties.TextArrayProperties {
-			props[properties.TextArrayProperties[j].PropName] = sliceToInterface(properties.TextArrayProperties[j].Values)
-		}
+	for j := range properties.IntArrayProperties {
+		props[properties.IntArrayProperties[j].PropName] = sliceToInterface(properties.IntArrayProperties[j].Values)
 	}
 
-	if properties.IntArrayProperties != nil {
-		for j := range properties.IntArrayProperties {
-			props[properties.IntArrayProperties[j].PropName] = sliceToInterface(properties.IntArrayProperties[j].Values)
-		}
+	for j := range properties.ObjectProperties {
+		props[properties.ObjectProperties[j].PropName] = extractPrimitiveProperties(properties.ObjectProperties[j].Value)
 	}
 
-	if properties.ObjectProperties != nil {
-		for j := range properties.ObjectProperties {
-			props[properties.ObjectProperties[j].PropName] = extractPrimitiveProperties(properties.ObjectProperties[j].Value)
-		}
-	}
-
-	if properties.ObjectArrayProperties != nil {
-		extractObjectArray(properties.ObjectArrayProperties, props)
-	}
-
-	return props
-}
-
-func extractObjectArray(propsArr []*pb.ObjectArrayProperties, props map[string]interface{}) {
-	for _, prop := range propsArr {
+	for _, prop := range properties.ObjectArrayProperties {
 		nested := make([]interface{}, len(prop.Values))
 		for k := range prop.Values {
 			nested[k] = extractPrimitiveProperties(prop.Values[k])
 		}
 		props[prop.PropName] = nested
 	}
+
+	return props
 }
