@@ -599,8 +599,8 @@ func (h *hnsw) Stats() {
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
-	lock, _ := h.shardedNodeLocks.RLock(context.TODO(), h.entryPointID)
-	defer lock.Unlock()
+	h.shardedNodeLocks.RLock(h.entryPointID)
+	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
 	return h.isEmptyUnlocked()
 }
@@ -620,8 +620,8 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		return nil
 	}
 
-	lock, _ := h.shardedNodeLocks.RLock(context.TODO(), id)
-	defer lock.Unlock()
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
 
 	return h.nodes[id]
 }
@@ -698,8 +698,8 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
 	defer h.RUnlock()
-	lock, _ := h.shardedNodeLocks.RLock(context.TODO(), id)
-	defer lock.Unlock()
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
 
 	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }

@@ -69,12 +69,9 @@ func (s *shardedLockCache) all() [][]float32 {
 }
 
 func (s *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error) {
-	lock, err := s.shardedLocks.RLock(ctx, id)
-	if err != nil {
-		return nil, err
-	}
+	s.shardedLocks.RLock(id)
 	vec := s.cache[id]
-	lock.Unlock()
+	s.shardedLocks.RUnlock(id)
 
 	if vec != nil {
 		return vec, nil
@@ -85,8 +82,8 @@ func (s *shardedLockCache) get(ctx context.Context, id uint64) ([]float32, error
 
 //nolint:unused
 func (s *shardedLockCache) delete(ctx context.Context, id uint64) {
-	lock, _ := s.shardedLocks.Lock(context.TODO(), id)
-	defer lock.Unlock()
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
 
 	if int(id) >= len(s.cache) || s.cache[id] == nil {
 		return
@@ -111,12 +108,9 @@ func (s *shardedLockCache) handleCacheMiss(ctx context.Context, id uint64) ([]fl
 	}
 
 	atomic.AddInt64(&s.count, 1)
-	lock, err := s.shardedLocks.Lock(ctx, id)
-	if err != nil {
-		return nil, err
-	}
+	s.shardedLocks.Lock(id)
 	s.cache[id] = vec
-	lock.Unlock()
+	s.shardedLocks.Unlock(id)
 
 	return vec, nil
 }
@@ -126,13 +120,9 @@ func (s *shardedLockCache) multiGet(ctx context.Context, ids []uint64) ([][]floa
 	errs := make([]error, len(ids))
 
 	for i, id := range ids {
-		lock, err := s.shardedLocks.RLock(ctx, id)
-		if err != nil {
-			errs[i] = err
-			continue
-		}
+		s.shardedLocks.RLock(id)
 		vec := s.cache[id]
-		lock.Unlock()
+		s.shardedLocks.RUnlock(id)
 
 		if vec == nil {
 			vecFromDisk, err := s.handleCacheMiss(ctx, id)
@@ -154,15 +144,15 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 
 //nolint:unused
 func (s *shardedLockCache) prefetch(id uint64) {
-	lock, _ := s.shardedLocks.RLock(context.TODO(), id)
-	defer lock.Unlock()
+	s.shardedLocks.RLock(id)
+	defer s.shardedLocks.RUnlock(id)
 
 	prefetchFunc(uintptr(unsafe.Pointer(&s.cache[id])))
 }
 
 func (s *shardedLockCache) preload(id uint64, vec []float32) {
-	lock, _ := s.shardedLocks.Lock(context.TODO(), id)
-	defer lock.Unlock()
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
 
 	atomic.AddInt64(&s.count, 1)
 	s.trackDimensionsOnce.Do(func() {
@@ -188,8 +178,8 @@ func (s *shardedLockCache) grow(node uint64) {
 		return
 	}
 
-	lock, _ := s.shardedLocks.LockAll(context.TODO())
-	defer lock.Unlock()
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 
 	newSize := node + minimumIndexGrowthDelta
 	newCache := make([][]float32, newSize)
@@ -214,8 +204,8 @@ func (s *shardedLockCache) drop() {
 }
 
 func (s *shardedLockCache) deleteAllVectors() {
-	lock, _ := s.shardedLocks.LockAll(context.TODO())
-	defer lock.Unlock()
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")

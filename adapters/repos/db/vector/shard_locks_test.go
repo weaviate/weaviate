@@ -12,11 +12,8 @@
 package vector
 
 import (
-	"context"
 	"sync"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestShardLocks_ParallelLocksAll(t *testing.T) {
@@ -31,10 +28,8 @@ func TestShardLocks_ParallelLocksAll(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			lock, err := sl.LockAll(context.TODO())
-			require.NoError(t, err)
-
-			lock.Unlock()
+			sl.LockAll()
+			sl.UnlockAll()
 		}()
 	}
 	wg.Wait()
@@ -51,10 +46,8 @@ func TestShardLocks_ParallelRLocksAll(t *testing.T) {
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
-			lock, err := sl.RLockAll(context.TODO())
-			require.NoError(t, err)
-
-			lock.Unlock()
+			sl.RLockAll()
+			sl.RUnlockAll()
 		}()
 	}
 	wg.Wait()
@@ -72,15 +65,11 @@ func TestShardLocks_ParallelLocksAllAndRLocksAll(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			if i%2 == 0 {
-				lock, err := sl.LockAll(context.TODO())
-				require.NoError(t, err)
-
-				lock.Unlock()
+				sl.LockAll()
+				sl.UnlockAll()
 			} else {
-				lock, err := sl.RLockAll(context.TODO())
-				require.NoError(t, err)
-
-				lock.Unlock()
+				sl.RLockAll()
+				sl.RUnlockAll()
 			}
 		}(i)
 	}
@@ -101,24 +90,19 @@ func TestShardLocks_MixedLocks(t *testing.T) {
 			id := uint64(i)
 			if i%5 == 0 {
 				if i%2 == 0 {
-					lock, err := sl.LockAll(context.TODO())
-					require.NoError(t, err)
-
-					lock.Unlock()
+					sl.LockAll()
+					sl.UnlockAll()
 				} else {
-					lock, err := sl.RLockAll(context.TODO())
-					require.NoError(t, err)
-					lock.Unlock()
+					sl.RLockAll()
+					sl.RUnlockAll()
 				}
 			} else {
 				if i%2 == 0 {
-					lock, err := sl.Lock(context.TODO(), id)
-					require.NoError(t, err)
-					lock.Unlock()
+					sl.Lock(id)
+					sl.Unlock(id)
 				} else {
-					lock, err := sl.RLock(context.TODO(), id)
-					require.NoError(t, err)
-					lock.Unlock()
+					sl.RLock(id)
+					sl.RUnlock(id)
 				}
 			}
 		}(i)

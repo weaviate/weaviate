@@ -12,7 +12,6 @@
 package hnsw
 
 import (
-	"context"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -45,8 +44,8 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	// lock h.nodes' individual elements to avoid race between writing to elements
 	// and copying entire slice in growIndexToAccomodateNode method
 	newIndex, err := func() ([]*vertex, error) {
-		lock, _ := h.shardedNodeLocks.RLockAll(context.TODO())
-		defer lock.Unlock()
+		h.shardedNodeLocks.RLockAll()
+		defer h.shardedNodeLocks.RUnlockAll()
 
 		newIndex, _, err := growIndexToAccomodateNode(h.nodes, id, logger)
 		return newIndex, err
@@ -69,9 +68,9 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	h.pools.visitedLists = visited.NewPool(1, len(newIndex)+512)
 	h.pools.visitedListsLock.Unlock()
 
-	lock, _ := h.shardedNodeLocks.LockAll(context.TODO())
+	h.shardedNodeLocks.LockAll()
 	h.nodes = newIndex
-	lock.Unlock()
+	h.shardedNodeLocks.UnlockAll()
 
 	return nil
 }
