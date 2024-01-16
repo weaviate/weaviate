@@ -4,7 +4,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/puzpuzpuz/xsync/v3"
 )
+
+var pool = sync.Pool{
+	New: func() any {
+		return new(atomic.Int32)
+	},
+}
 
 // A LockManager is used to acquire locks on individual database objects.
 // It provides granular locking per object and reduces contention
@@ -15,7 +23,7 @@ type LockManager struct {
 }
 
 type LockGroup struct {
-	m         sync.Map
+	m         *xsync.MapOf[uint64, *atomic.Int32]
 	cond      sync.Cond
 	readLock  sync.RWMutex
 	writeLock sync.RWMutex
@@ -33,6 +41,7 @@ func NewWith(size uint64) *LockManager {
 
 	for i := uint64(0); i < size; i++ {
 		l.locks[i].cond.L = new(sync.Mutex)
+		l.locks[i].m = xsync.NewMapOf[uint64, *atomic.Int32]()
 	}
 
 	go func() {
@@ -52,17 +61,20 @@ func (l *LockManager) groupForID(id uint64) *LockGroup {
 	return &l.locks[slot]
 }
 
-func (l *LockManager) lockForID(group *LockGroup, id uint64) *atomic.Int64 {
-	var lock *atomic.Int64
-	v, ok := group.m.Load(id)
+func (l *LockManager) lockForID(group *LockGroup, id uint64, create bool) *atomic.Int32 {
+	lock, ok := group.m.Load(id)
 	if ok {
-		return v.(*atomic.Int64)
+		return lock
+	}
+	if !create {
+		return nil
 	}
 
-	lock = new(atomic.Int64)
-	v, ok = group.m.LoadOrStore(id, lock)
+	lock = pool.Get().(*atomic.Int32)
+	ll, ok := group.m.LoadOrStore(id, lock)
 	if ok {
-		return v.(*atomic.Int64)
+		pool.Put(lock)
+		return ll
 	}
 
 	return lock
@@ -73,7 +85,7 @@ func (l *LockManager) Lock(id uint64) {
 
 	group.writeLock.RLock()
 
-	lock := l.lockForID(group, id)
+	lock := l.lockForID(group, id, true)
 
 	for {
 		if lock.CompareAndSwap(0, -1) {
@@ -85,12 +97,17 @@ func (l *LockManager) Lock(id uint64) {
 			group.cond.Wait()
 		}
 		group.cond.L.Unlock()
+
+		lock = l.lockForID(group, id, true)
 	}
 }
 
 func (l *LockManager) Unlock(id uint64) {
 	group := l.groupForID(id)
-	lock := l.lockForID(group, id)
+	lock := l.lockForID(group, id, false)
+	if lock == nil {
+		panic("unlocking unlocked lock")
+	}
 
 	if !lock.CompareAndSwap(-1, 0) {
 		panic("unlocking unlocked lock")
@@ -108,27 +125,35 @@ func (l *LockManager) RLock(id uint64) {
 
 	group.readLock.RLock()
 
-	lock := l.lockForID(group, id)
+	lock := l.lockForID(group, id, true)
 
 	for {
-		for v := lock.Load(); v >= 0; v = lock.Load() {
+		v := lock.Load()
+		for v >= 0 {
 			if lock.CompareAndSwap(v, v+1) {
 				return
 			}
+
+			v = lock.Load()
 		}
 
 		group.cond.L.Lock()
-		for lock.Load() != 0 {
+		for lock.Load() < 0 {
 			group.cond.Wait()
 		}
 		group.cond.L.Unlock()
+
+		lock = l.lockForID(group, id, true)
 	}
 }
 
 func (l *LockManager) RUnlock(id uint64) {
 	group := l.groupForID(id)
 
-	lock := l.lockForID(group, id)
+	lock := l.lockForID(group, id, false)
+	if lock == nil {
+		panic("unlocking unlocked rlock")
+	}
 
 	if res := lock.Add(-1); res < 0 {
 		panic("unlocking unlocked rlock")
@@ -168,17 +193,33 @@ func (l *LockManager) RUnlockAll() {
 }
 
 func (l *LockManager) Vaccum() {
+	var keys []uint64
+	var locks []*atomic.Int32
 	for i := 0; i < int(l.size); i++ {
 		group := &l.locks[i]
 		group.writeLock.Lock()
 		group.readLock.Lock()
 
-		group.m.Range(func(key, value interface{}) bool {
-			if value.(*atomic.Int64).Load() == 0 {
-				l.locks[i].m.Delete(key)
+		keys = keys[:0]
+		locks = locks[:0]
+
+		group.m.Range(func(key uint64, lock *atomic.Int32) bool {
+			if lock.Load() == 0 {
+				keys = append(keys, key)
+				locks = append(locks, lock)
 			}
 			return true
 		})
+
+		if len(keys) > 0 {
+			for _, key := range keys {
+				group.m.Delete(key)
+			}
+			for _, lock := range locks {
+				lock.Store(0)
+				pool.Put(lock)
+			}
+		}
 
 		group.readLock.Unlock()
 		group.writeLock.Unlock()

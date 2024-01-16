@@ -2,6 +2,7 @@ package lockmanager
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 func lockCount(m *LockManager) int {
 	var count int
 	for i := range m.locks {
-		m.locks[i].m.Range(func(key, value interface{}) bool {
+		m.locks[i].m.Range(func(key uint64, lock *atomic.Int32) bool {
 			count++
 			return true
 		})
@@ -545,6 +546,10 @@ func BenchmarkRLock(b *testing.B) {
 			for id := range ch {
 				m.RLock(id)
 				m.RUnlock(id)
+
+				if id%100 == 0 {
+					m.Vaccum()
+				}
 			}
 		}()
 	}
