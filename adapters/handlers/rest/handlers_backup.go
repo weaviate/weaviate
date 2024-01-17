@@ -29,7 +29,7 @@ type backupHandlers struct {
 }
 
 // compressionFromCfg transforms model backup config to a backup compression config
-func compressionFromCfg(cfg *models.BackupConfig) ubak.Compression {
+func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 	if cfg != nil {
 		if cfg.CPUPercentage == 0 {
 			cfg.CPUPercentage = ubak.DefaultCPUPercentage
@@ -39,15 +39,34 @@ func compressionFromCfg(cfg *models.BackupConfig) ubak.Compression {
 			cfg.ChunkSize = ubak.DefaultChunkSize
 		}
 
-		if cfg.CompressionLevel == nil {
-			dc := models.BackupConfigCompressionLevelDefaultCompression
-			cfg.CompressionLevel = &dc
+		if cfg.CompressionLevel == "" {
+			cfg.CompressionLevel = models.BackupConfigCompressionLevelDefaultCompression
 		}
 
 		return ubak.Compression{
 			CPUPercentage: int(cfg.CPUPercentage),
 			ChunkSize:     int(cfg.ChunkSize),
-			Level:         parseCompressionLevel(*cfg.CompressionLevel),
+			Level:         parseCompressionLevel(cfg.CompressionLevel),
+		}
+	}
+
+	return ubak.Compression{
+		Level:         ubak.DefaultCompression,
+		CPUPercentage: ubak.DefaultCPUPercentage,
+		ChunkSize:     ubak.DefaultChunkSize,
+	}
+}
+
+func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
+	if cfg != nil {
+		if cfg.CPUPercentage == 0 {
+			cfg.CPUPercentage = ubak.DefaultCPUPercentage
+		}
+
+		return ubak.Compression{
+			CPUPercentage: int(cfg.CPUPercentage),
+			Level:         ubak.DefaultCompression,
+			ChunkSize:     ubak.DefaultChunkSize,
 		}
 	}
 
@@ -77,7 +96,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Backend:     params.Backend,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
-		Compression: compressionFromCfg(params.Body.Config),
+		Compression: compressionFromBCfg(params.Body.Config),
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -141,7 +160,7 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		NodeMapping: params.Body.NodeMapping,
-		Compression: compressionFromCfg(params.Body.Config),
+		Compression: compressionFromRCfg(params.Body.Config),
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

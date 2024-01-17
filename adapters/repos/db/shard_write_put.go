@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -24,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -68,7 +67,9 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.VectorIndex().Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
-	}
+  }
+  
+  s.GetPropertyLengthTracker().WantFlush(true)
 
 	return nil
 }
@@ -79,6 +80,12 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 	status objectInsertStatus,
 ) error {
+	// vector was not changed, object was updated without changing docID
+	// https://github.com/weaviate/weaviate/issues/3948
+	if status.docIDPreserved {
+		return nil
+	}
+
 	// vector is now optional as of
 	// https://github.com/weaviate/weaviate/issues/1800
 	if len(vector) == 0 {
@@ -105,6 +112,12 @@ func (s *Shard) updateVectorIndex(vector []float32,
 		}
 	}
 
+	// vector was not changed, object was updated without changing docID
+	// https://github.com/weaviate/weaviate/issues/3948
+	if status.docIDPreserved {
+		return nil
+	}
+
 	// vector is now optional as of
 	// https://github.com/weaviate/weaviate/issues/1800
 	if len(vector) == 0 {
@@ -115,9 +128,14 @@ func (s *Shard) updateVectorIndex(vector []float32,
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
+	if err := s.VectorIndex().Flush(); err != nil {
+		return errors.Wrap(err, "flush all vector index buffered WALs")
+	}
+
 	return nil
 }
 
+// TODO AL_skip_vector_reindex: adjust to batch?
 func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
@@ -168,9 +186,10 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 }
 
 type objectInsertStatus struct {
-	docID        uint64
-	docIDChanged bool
-	oldDocID     uint64
+	docID          uint64
+	docIDChanged   bool
+	oldDocID       uint64
+	docIDPreserved bool // docID preserved (docID was not changed, although object did change)
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
@@ -195,6 +214,30 @@ func (s *Shard) determineInsertStatus(previous []byte,
 		return out, errors.Wrap(err, "get previous doc id from object binary")
 	}
 	out.oldDocID = docID
+
+	// if vector was not changed, replace object and update indexed properties
+	// without changing docID
+	// https://github.com/weaviate/weaviate/issues/3948
+	//
+	// Due to geo index does not support delete+insert of geo value for the same docID
+	// (as tombstones are used for hnsw geo index),
+	// preserving docID will not be supported for classes with geo properties for now.
+	// Feature can be improved in the future, by preserving docIDs for objects
+	// not updating values of geo properties.
+	if !s.hasGeoIndex() {
+		if l := len(next.Vector); l > 0 {
+			buffer := make([]float32, l)
+			prevVector, err := storobj.VectorFromBinary(previous, buffer)
+			if err != nil {
+				return out, fmt.Errorf("get previous vector from object binary: %w", err)
+			}
+			if common.VectorsEqual(prevVector, next.Vector) {
+				out.docID = docID
+				out.docIDPreserved = true
+				return out, nil
+			}
+		}
+	}
 
 	// with docIDs now being immutable (see
 	// https://github.com/weaviate/weaviate/issues/1282) there is no
@@ -256,19 +299,26 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
-	if status.docIDChanged {
-		oldObject, err := storobj.FromBinary(previous)
-		if err == nil {
+	var prevObject *storobj.Object
+	var prevProps []inverted.Property
+	var prevNilprops []inverted.NilProperty
 
-			oldProps, _, err := s.AnalyzeObject(oldObject)
-			if err != nil {
-				s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not analyse prop lengths")
-			}
+	if previous != nil {
+		prevObject, err = storobj.FromBinary(previous)
+		if err != nil {
+			return fmt.Errorf("unmarshal previous object: %w", err)
+		}
 
-			if err := s.subtractPropLengths(oldProps); err != nil {
-				s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
-			}
+		prevProps, prevNilprops, err = s.AnalyzeObject(prevObject)
+		if err != nil {
+			return fmt.Errorf("analyze previous object: %w", err)
+		}
+	}
 
+	// if object updated (with or without docID changed)
+	if status.docIDChanged || status.docIDPreserved {
+		if err := s.subtractPropLengths(prevProps); err != nil {
+			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
 		}
 	} else {
 		if err := s.ChangeObjectCountBy(1); err != nil {
@@ -276,103 +326,51 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		}
 	}
 
-	// TODO: metrics
-	if err := s.updateInvertedIndexCleanupOldLSM(status, previous); err != nil {
-		return errors.Wrap(err, "analyze and cleanup previous")
-	}
-
-	if s.index.invertedIndexConfig.IndexTimestamps {
-		// update the inverted timestamp indices as well
-		err = s.addIndexedTimestampsToProps(object, &props)
-		if err != nil {
-			return errors.Wrap(err, "add indexed timestamps to props")
-		}
-	}
-
-	before := time.Now()
-
-	err = s.extendInvertedIndicesLSM(props, nilprops, status.docID)
-	if err != nil {
-		return errors.Wrap(err, "put inverted indices props")
-	}
-	s.metrics.InvertedExtend(before, len(props))
-
 	if err := s.SetPropertyLengths(props); err != nil {
 		return errors.Wrap(err, "store field length values for props")
 	}
 
-	if s.index.Config.TrackVectorDimensions {
-		err = s.extendDimensionTrackerLSM(len(object.Vector), status.docID)
-		if err != nil {
-			return errors.Wrap(err, "track dimensions")
+	var propsToAdd []inverted.Property
+	var propsToDel []inverted.Property
+	var nilpropsToAdd []inverted.NilProperty
+	var nilpropsToDel []inverted.NilProperty
+
+	// determine only changed properties to avoid unnecessary updates of inverted indexes
+	if status.docIDPreserved {
+		delta := inverted.Delta(prevProps, props)
+		propsToAdd = delta.ToAdd
+		propsToDel = delta.ToDelete
+		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)
+		nilpropsToAdd = deltaNil.ToAdd
+		nilpropsToDel = deltaNil.ToDelete
+	} else {
+		propsToAdd = inverted.DedupItems(props)
+		propsToDel = inverted.DedupItems(prevProps)
+		nilpropsToAdd = nilprops
+		nilpropsToDel = prevNilprops
+	}
+
+	if previous != nil {
+		// TODO: metrics
+		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
+			return fmt.Errorf("delete inverted indices props: %w", err)
+		}
+		if s.index.Config.TrackVectorDimensions {
+			if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
+				return fmt.Errorf("track dimensions (delete): %w", err)
+			}
 		}
 	}
 
-	return nil
-}
-
-// addIndexedTimestampsToProps ensures that writes are indexed
-// by internal timestamps
-func (s *Shard) addIndexedTimestampsToProps(object *storobj.Object, props *[]inverted.Property) error {
-	createTime, err := json.Marshal(object.CreationTimeUnix())
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal _creationTimeUnix")
+	before := time.Now()
+	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+		return fmt.Errorf("put inverted indices props: %w", err)
 	}
-
-	updateTime, err := json.Marshal(object.LastUpdateTimeUnix())
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal _lastUpdateTimeUnix")
-	}
-
-	*props = append(*props,
-		inverted.Property{
-			Name:  filters.InternalPropCreationTimeUnix,
-			Items: []inverted.Countable{{Data: createTime}},
-		},
-		inverted.Property{
-			Name:  filters.InternalPropLastUpdateTimeUnix,
-			Items: []inverted.Countable{{Data: updateTime}},
-		},
-	)
-
-	return nil
-}
-
-func (s *Shard) updateInvertedIndexCleanupOldLSM(status objectInsertStatus,
-	previous []byte,
-) error {
-	if !status.docIDChanged {
-		// nothing to do
-		return nil
-	}
-
-	// The doc id changed, so we need to analyze the previous and delete all
-	// entries (immediately - since the async part is now handled inside the
-	// LSMKV store, as part of merging/compaction)
-	//
-	// NOTE: Since Doc IDs are immutable, there is no need to use a
-	// DeltaAnalyzer. docIDChanged==true, therefore the old docID is
-	// "worthless" and can be cleaned up in the inverted index fully.
-	previousObject, err := storobj.FromBinary(previous)
-	if err != nil {
-		return errors.Wrap(err, "unmarshal previous object")
-	}
-
-	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.AnalyzeObject(previousObject)
-	if err != nil {
-		return errors.Wrap(err, "analyze previous object")
-	}
-
-	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, status.oldDocID)
-	if err != nil {
-		return errors.Wrap(err, "put inverted indices props")
-	}
+	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
-		err = s.removeDimensionsLSM(len(previousObject.Vector), status.oldDocID)
-		if err != nil {
-			return errors.Wrap(err, "track dimensions (delete)")
+		if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
+			return fmt.Errorf("track dimensions: %w", err)
 		}
 	}
 

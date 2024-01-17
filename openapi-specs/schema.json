@@ -866,31 +866,49 @@
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
+      "type": "object",      
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
           "default": 50,
           "minimum": 1,
-          "maximum": 80
+          "maximum": 80,
+          "x-nullable": false
         },
         "ChunkSize": {
           "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
           "type": "integer",
           "default": 128,
           "minimum": 2,
-          "maximum": 512
+          "maximum": 512,
+          "x-nullable": false
         },
         "CompressionLevel": {
           "description": "compression level used by compression algorithm",
           "type": "string",
           "default": "DefaultCompression",
+          "x-nullable": false,
           "enum": [
             "DefaultCompression",
             "BestSpeed",
             "BestCompression"
           ]
         }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",      
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 80,
+          "x-nullable": false
+        }       
       }
     },
     "BackupCreateRequest": {
@@ -967,7 +985,7 @@
         "config": {
           "description": "Custom configuration for the backup restoration process",
           "type": "object",
-          "$ref": "#/definitions/BackupConfig"
+          "$ref": "#/definitions/RestoreConfig"
         },
         "include": {
           "description": "List of classes to include in the backup restoration process",

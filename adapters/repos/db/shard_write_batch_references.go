@@ -211,8 +211,7 @@ func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) 
 
 			for _, item := range prop.MergeItems {
 				for _, id := range item.DocIDs {
-					err := b.shard.deleteInvertedIndexItemLSM(bucket,
-						inverted.Countable{Data: item.Data}, id.DocID)
+					err := b.shard.deleteFromPropertySetBucket(bucket, id.DocID, item.Data)
 					if err != nil {
 						return err
 					}

@@ -380,7 +380,7 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 	return l.shard.SetPropertyLengths(props)
 }
 
-func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []nilProp, error) {
+func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
 }
@@ -524,16 +524,6 @@ func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen fl
 	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
 }
 
-func (l *LazyLoadShard) keyPropertyNull(isNull bool) ([]byte, error) {
-	l.mustLoad()
-	return l.shard.keyPropertyNull(isNull)
-}
-
-func (l *LazyLoadShard) keyPropertyLength(length int) ([]byte, error) {
-	l.mustLoad()
-	return l.shard.keyPropertyLength(length)
-}
-
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
 	l.mustLoad()
 	l.shard.setFallbackToSearchable(fallback)
@@ -566,9 +556,9 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idByt
 	return l.shard.mutableMergeObjectLSM(merge, idBytes)
 }
 
-func (l *LazyLoadShard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error {
+func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
-	return l.shard.deleteInvertedIndexItemLSM(bucket, item, docID)
+	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
