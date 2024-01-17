@@ -62,10 +62,6 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.VectorIndex().Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
-	}
-
 	return nil
 }
 

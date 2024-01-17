@@ -296,6 +296,10 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			}
 		}
 
+		if status.docIDPreserved {
+			continue
+		}
+
 		if len(object.Vector) == 0 {
 			continue
 		}

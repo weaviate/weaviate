@@ -53,9 +53,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 
 	t.Run("verify invalid compression config", func(t *testing.T) {
 		// unknown compression level
-		b := "some-weird-config"
 		resp, err := helper.CreateBackup(t, &models.BackupConfig{
-			CompressionLevel: &b,
+			CompressionLevel: "some-weird-config",
 		}, booksClass.Class, backend, backupID)
 
 		helper.AssertRequestFail(t, resp, err, func() {
@@ -83,7 +82,6 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 	})
 
 	t.Run("start backup process", func(t *testing.T) {
-		b := "BestCompression"
 		params := backups.NewBackupsCreateParams().
 			WithBackend(backend).
 			WithBody(&models.BackupCreateRequest{
@@ -92,7 +90,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 				Config: &models.BackupConfig{
 					CPUPercentage:    80,
 					ChunkSize:        512,
-					CompressionLevel: &b,
+					CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
 				},
 			})
 		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
@@ -145,7 +143,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 
 	// out of band cpu %
 	t.Run("invalid restore request", func(t *testing.T) {
-		resp, err := helper.RestoreBackup(t, &models.BackupConfig{
+		resp, err := helper.RestoreBackup(t, &models.RestoreConfig{
 			CPUPercentage: 180,
 		}, booksClass.Class, backend, backupID, map[string]string{})
 
