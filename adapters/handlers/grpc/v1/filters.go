@@ -179,7 +179,6 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		returnFilter.Value = &value
 
 	}
-
 	return returnFilter, nil
 }
 
@@ -210,6 +209,11 @@ func extractDataTypeProperty(scheme schema.Schema, operator filters.Operator, cl
 		prop, err := scheme.GetProperty(schema.ClassName(classname), schema.PropertyName(propToCheck))
 		if err != nil {
 			return dataType, err
+		}
+		if schema.IsRefDataType(prop.DataType) {
+			// This is a filter on a reference property without a path so is counting
+			// the number of references. Needs schema.DataTypeInt: entities/filters/filters_validator.go#L116-L127
+			return schema.DataTypeInt, nil
 		}
 		dataType = schema.DataType(prop.DataType[0])
 	}
@@ -264,7 +268,10 @@ func extractPathNew(scheme schema.Schema, className string, target *pb.FilterTar
 		if len(refProp.DataType) != 1 {
 			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
 		}
-
+		if singleTarget.Target == nil {
+			// This is a reference count filter request
+			return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: nil}, schema.DataTypeInt, nil
+		}
 		child, property, err := extractPathNew(scheme, refProp.DataType[0], singleTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
@@ -272,11 +279,16 @@ func extractPathNew(scheme schema.Schema, className string, target *pb.FilterTar
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
+		normalizedRefPropName := schema.LowercaseFirstLetter(multiTarget.On)
+		if multiTarget.Target == nil {
+			// This is a reference count filter request
+			return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: nil}, schema.DataTypeInt, nil
+		}
 		child, property, err := extractPathNew(scheme, multiTarget.TargetCollection, multiTarget.Target, operator)
 		if err != nil {
 			return nil, "", err
 		}
-		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(schema.LowercaseFirstLetter(multiTarget.On)), Child: child}, property, nil
+		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	default:
 		return nil, "", fmt.Errorf("unknown target type %v", target)
 	}
