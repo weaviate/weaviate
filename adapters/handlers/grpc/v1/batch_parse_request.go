@@ -52,7 +52,7 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 				IntArrayProperties:     obj.Properties.IntArrayProperties,
 				ObjectProperties:       obj.Properties.ObjectProperties,
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
-				EmptyListsUnknownType:  obj.Properties.EmptyListsUnknownType,
+				EmptyListProps:         obj.Properties.EmptyListProps,
 			})
 			if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
 				objectErrors[i] = err
@@ -176,7 +176,7 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 		props[prop.PropName] = nested
 	}
 
-	for _, propName := range properties.EmptyListsUnknownType {
+	for _, propName := range properties.EmptyListProps {
 		props[propName] = []interface{}{}
 	}
 

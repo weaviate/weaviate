@@ -27,7 +27,7 @@ message BatchObject {
     repeated ObjectArrayProperties object_array_properties = 9;
     // empty lists do not have a type in many languages and clients do not know which datatype the property has.
     // Weaviate can get the datatype from its schema
-    repeated string empty_lists_unknown_type = 10;
+    repeated string empty_list_props = 10;
   }
 
   message SingleTargetRefProps {
