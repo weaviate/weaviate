@@ -38,6 +38,9 @@ function main() {
               "--unit-and-integration-only | -ui"\
               "--integration-only | -i"\
               "--acceptance-only | -a"\
+              "--acceptance-only-fast | -aof"\
+              "--acceptance-only-graphql | -aog"\
+              "--acceptance-only-replication| -aor"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
