@@ -2986,20 +2986,23 @@ func init() {
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
           "default": 50,
           "maximum": 80,
-          "minimum": 1
+          "minimum": 1,
+          "x-nullable": false
         },
         "ChunkSize": {
           "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
           "type": "integer",
           "default": 128,
           "maximum": 512,
-          "minimum": 2
+          "minimum": 2,
+          "x-nullable": false
         },
         "CompressionLevel": {
           "description": "compression level used by compression algorithm",
@@ -3009,7 +3012,8 @@ func init() {
             "DefaultCompression",
             "BestSpeed",
             "BestCompression"
-          ]
+          ],
+          "x-nullable": false
         }
       }
     },
@@ -3120,7 +3124,7 @@ func init() {
         "config": {
           "description": "Custom configuration for the backup restoration process",
           "type": "object",
-          "$ref": "#/definitions/BackupConfig"
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -4503,6 +4507,20 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
         }
       }
     },
@@ -8048,20 +8066,23 @@ func init() {
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
           "default": 50,
           "maximum": 80,
-          "minimum": 1
+          "minimum": 1,
+          "x-nullable": false
         },
         "ChunkSize": {
           "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
           "type": "integer",
           "default": 128,
           "maximum": 512,
-          "minimum": 2
+          "minimum": 2,
+          "x-nullable": false
         },
         "CompressionLevel": {
           "description": "compression level used by compression algorithm",
@@ -8071,7 +8092,8 @@ func init() {
             "DefaultCompression",
             "BestSpeed",
             "BestCompression"
-          ]
+          ],
+          "x-nullable": false
         }
       }
     },
@@ -8182,7 +8204,7 @@ func init() {
         "config": {
           "description": "Custom configuration for the backup restoration process",
           "type": "object",
-          "$ref": "#/definitions/BackupConfig"
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -9742,6 +9764,20 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
         }
       }
     },

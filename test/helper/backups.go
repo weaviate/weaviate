@@ -20,11 +20,16 @@ import (
 )
 
 func DefaultBackupConfig() *models.BackupConfig {
-	d := "DefaultCompression"
 	return &models.BackupConfig{
-		CompressionLevel: &d,
+		CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
 		CPUPercentage:    backup.DefaultCPUPercentage,
 		ChunkSize:        128,
+	}
+}
+
+func DefaultRestoreConfig() *models.RestoreConfig {
+	return &models.RestoreConfig{
+		CPUPercentage: backup.DefaultCPUPercentage,
 	}
 }
 
@@ -46,7 +51,7 @@ func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.Backup
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
-func RestoreBackup(t *testing.T, cfg *models.BackupConfig, className, backend, backupID string, nodeMapping map[string]string) (*backups.BackupsRestoreOK, error) {
+func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, backupID string, nodeMapping map[string]string) (*backups.BackupsRestoreOK, error) {
 	params := backups.NewBackupsRestoreParams().
 		WithBackend(backend).
 		WithID(backupID).

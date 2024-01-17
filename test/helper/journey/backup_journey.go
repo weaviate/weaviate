@@ -54,7 +54,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, helper.DefaultBackupConfig(), className, backend, backupID, map[string]string{})
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -100,7 +100,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
-		_, err := helper.RestoreBackup(t, helper.DefaultBackupConfig(), className, backend, backupID, map[string]string{})
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success
@@ -193,7 +193,7 @@ func nodeMappingBackupJourney_Backup(t *testing.T, className, backend, backupID 
 
 func nodeMappingBackupJourney_Restore(t *testing.T, className, backend, backupID string, tenantNames []string, nodeMapping map[string]string) {
 	t.Run("restore backup", func(t *testing.T) {
-		_, err := helper.RestoreBackup(t, helper.DefaultBackupConfig(), className, backend, backupID, nodeMapping)
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success

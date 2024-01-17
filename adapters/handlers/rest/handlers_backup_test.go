@@ -19,8 +19,7 @@ import (
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
 
-func TestCompressionCfg(t *testing.T) {
-	l := "BestSpeed"
+func TestCompressionBackupCfg(t *testing.T) {
 	tcs := map[string]struct {
 		cfg                 *models.BackupConfig
 		expectedCompression ubak.CompressionLevel
@@ -37,7 +36,7 @@ func TestCompressionCfg(t *testing.T) {
 			cfg: &models.BackupConfig{
 				CPUPercentage:    25,
 				ChunkSize:        512,
-				CompressionLevel: &l,
+				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
 			expectedCompression: ubak.BestSpeed,
 			expectedCPU:         25,
@@ -61,7 +60,7 @@ func TestCompressionCfg(t *testing.T) {
 		},
 		"with partial config [Compression]": {
 			cfg: &models.BackupConfig{
-				CompressionLevel: &l,
+				CompressionLevel: models.BackupConfigCompressionLevelBestSpeed,
 			},
 			expectedCompression: ubak.BestSpeed,
 			expectedCPU:         ubak.DefaultCPUPercentage,
@@ -71,10 +70,39 @@ func TestCompressionCfg(t *testing.T) {
 
 	for n, tc := range tcs {
 		t.Run(n, func(t *testing.T) {
-			ccfg := compressionFromCfg(tc.cfg)
+			ccfg := compressionFromBCfg(tc.cfg)
 			assert.Equal(t, tc.expectedCompression, ccfg.Level)
 			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
 			assert.Equal(t, tc.expectedChunkSize, ccfg.ChunkSize)
+		})
+	}
+}
+
+func TestCompressionRestoreCfg(t *testing.T) {
+	tcs := map[string]struct {
+		cfg                 *models.RestoreConfig
+		expectedCompression ubak.CompressionLevel
+		expectedCPU         int
+		expectedChunkSize   int
+	}{
+		"without config": {
+			cfg:                 nil,
+			expectedCompression: ubak.DefaultCompression,
+			expectedCPU:         ubak.DefaultCPUPercentage,
+			expectedChunkSize:   ubak.DefaultChunkSize,
+		},
+		"with config": {
+			cfg: &models.RestoreConfig{
+				CPUPercentage: 25,
+			},
+			expectedCPU: 25,
+		},
+	}
+
+	for n, tc := range tcs {
+		t.Run(n, func(t *testing.T) {
+			ccfg := compressionFromRCfg(tc.cfg)
+			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
 		})
 	}
 }
