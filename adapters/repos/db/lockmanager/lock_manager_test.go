@@ -22,8 +22,8 @@ import (
 
 func lockCount(m *LockManager) int {
 	var count int
-	for i := range m.locks {
-		m.locks[i].m.Range(func(key uint64, lock *atomic.Int32) bool {
+	for i := range m.shards {
+		m.shards[i].m.Range(func(key uint64, lock *atomic.Int32) bool {
 			count++
 			return true
 		})

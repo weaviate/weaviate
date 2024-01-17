@@ -35,8 +35,8 @@ func (d *dummyLock) Unlock() {}
 // It provides granular locking per object and reduces contention
 // by sharding the locks.
 type LockManager struct {
-	locks []LockGroup
-	size  uint64
+	shards []Shard
+	size   uint64
 
 	vacuum      bool
 	shutdownCtx context.Context
@@ -44,7 +44,7 @@ type LockManager struct {
 	closed      chan struct{}
 }
 
-type LockGroup struct {
+type Shard struct {
 	m         *xsync.MapOf[uint64, *atomic.Int32]
 	cond      sync.Cond
 	readLock  sync.RWMutex
@@ -57,15 +57,15 @@ func New() *LockManager {
 
 func NewWith(size uint64, vacuum bool) *LockManager {
 	l := LockManager{
-		locks:  make([]LockGroup, size),
+		shards: make([]Shard, size),
 		size:   uint64(size),
 		vacuum: vacuum,
 	}
 
 	var dl dummyLock
 	for i := uint64(0); i < size; i++ {
-		l.locks[i].cond.L = &dl
-		l.locks[i].m = xsync.NewMapOf[uint64, *atomic.Int32]()
+		l.shards[i].cond.L = &dl
+		l.shards[i].m = xsync.NewMapOf[uint64, *atomic.Int32]()
 	}
 
 	if vacuum {
@@ -108,12 +108,12 @@ func (l *LockManager) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (l *LockManager) groupForID(id uint64) *LockGroup {
+func (l *LockManager) groupForID(id uint64) *Shard {
 	slot := id % l.size
-	return &l.locks[slot]
+	return &l.shards[slot]
 }
 
-func (l *LockManager) lockForID(group *LockGroup, id uint64, create bool) *atomic.Int32 {
+func (l *LockManager) lockForID(group *Shard, id uint64, create bool) *atomic.Int32 {
 	lock, ok := group.m.Load(id)
 	if ok {
 		return lock
@@ -204,27 +204,27 @@ func (l *LockManager) RUnlock(id uint64) {
 
 func (l *LockManager) LockAll() {
 	for i := 0; i < int(l.size); i++ {
-		l.locks[i].writeLock.Lock()
-		l.locks[i].readLock.Lock()
+		l.shards[i].writeLock.Lock()
+		l.shards[i].readLock.Lock()
 	}
 }
 
 func (l *LockManager) UnlockAll() {
 	for i := int(l.size) - 1; i >= 0; i-- {
-		l.locks[i].readLock.Unlock()
-		l.locks[i].writeLock.Unlock()
+		l.shards[i].readLock.Unlock()
+		l.shards[i].writeLock.Unlock()
 	}
 }
 
 func (l *LockManager) RLockAll() {
 	for i := uint64(0); i < l.size; i++ {
-		l.locks[i].writeLock.Lock()
+		l.shards[i].writeLock.Lock()
 	}
 }
 
 func (l *LockManager) RUnlockAll() {
 	for i := int(l.size) - 1; i >= 0; i-- {
-		l.locks[i].writeLock.Unlock()
+		l.shards[i].writeLock.Unlock()
 	}
 }
 
@@ -232,14 +232,14 @@ func (l *LockManager) Vacuum() {
 	var keys []uint64
 	var locks []*atomic.Int32
 	for i := 0; i < int(l.size); i++ {
-		group := &l.locks[i]
-		group.writeLock.Lock()
-		group.readLock.Lock()
+		shard := &l.shards[i]
+		shard.writeLock.Lock()
+		shard.readLock.Lock()
 
 		keys = keys[:0]
 		locks = locks[:0]
 
-		group.m.Range(func(key uint64, lock *atomic.Int32) bool {
+		shard.m.Range(func(key uint64, lock *atomic.Int32) bool {
 			if lock.Load() == 0 {
 				keys = append(keys, key)
 				locks = append(locks, lock)
@@ -249,7 +249,7 @@ func (l *LockManager) Vacuum() {
 
 		if len(keys) > 0 {
 			for _, key := range keys {
-				group.m.Delete(key)
+				shard.m.Delete(key)
 			}
 			for _, lock := range locks {
 				lock.Store(0)
@@ -257,7 +257,7 @@ func (l *LockManager) Vacuum() {
 			}
 		}
 
-		group.readLock.Unlock()
-		group.writeLock.Unlock()
+		shard.readLock.Unlock()
+		shard.writeLock.Unlock()
 	}
 }
