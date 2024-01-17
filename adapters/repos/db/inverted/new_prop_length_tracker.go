@@ -150,7 +150,8 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
-	t.WantFlush = true
+	t.SetWantFlush(true)
+	t.Flush(false)
 	return t, nil
 }
 
