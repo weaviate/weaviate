@@ -15,6 +15,9 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
@@ -1001,6 +1004,66 @@ func TestGRPCRequest(t *testing.T) {
 				ModuleParams: map[string]interface{}{
 					"nearImage": &nearImage.NearImageParams{
 						Image: "image file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near depth search",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearDepth: &pb.NearDepthSearch{
+					Depth: "depth file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ModuleParams: map[string]interface{}{
+					"nearDepth": &neardepth.NearDepthParams{
+						Depth: "depth file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near thermal search",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearThermal: &pb.NearThermalSearch{
+					Thermal: "thermal file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ModuleParams: map[string]interface{}{
+					"nearThermal": &nearthermal.NearThermalParams{
+						Thermal: "thermal file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near IMU search",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearImu: &pb.NearIMUSearch{
+					Imu: "IMU file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ModuleParams: map[string]interface{}{
+					"nearIMU": &nearimu.NearIMUParams{
+						IMU: "IMU file",
 					},
 				},
 			},
