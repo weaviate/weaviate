@@ -54,7 +54,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		locks:            lockmanager.New(),
+		locks:            lockmanager.NewWith(1024, true),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
@@ -200,6 +200,7 @@ func (s *shardedLockCache) countVectors() int64 {
 
 func (s *shardedLockCache) drop() {
 	s.deleteAllVectors()
+	s.locks.Shutdown(context.TODO())
 	s.cancel <- true
 }
 

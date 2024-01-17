@@ -270,7 +270,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		nodeLocks:            lockmanager.New(),
+		nodeLocks:            lockmanager.NewWith(1024, true /* vaccum */),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -675,6 +675,10 @@ func (h *hnsw) Shutdown(ctx context.Context) error {
 		}
 	} else {
 		h.cache.drop()
+	}
+
+	if err := h.nodeLocks.Shutdown(ctx); err != nil {
+		return errors.Wrap(err, "hnsw shutdown")
 	}
 
 	return nil

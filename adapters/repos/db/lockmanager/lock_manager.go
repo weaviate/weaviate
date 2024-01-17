@@ -1,6 +1,7 @@
 package lockmanager
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +21,11 @@ var pool = sync.Pool{
 type LockManager struct {
 	locks []LockGroup
 	size  uint64
+
+	vaccum      bool
+	shutdownCtx context.Context
+	shutdown    context.CancelFunc
+	closed      chan struct{}
 }
 
 type LockGroup struct {
@@ -30,13 +36,14 @@ type LockGroup struct {
 }
 
 func New() *LockManager {
-	return NewWith(1024)
+	return NewWith(1024, false)
 }
 
-func NewWith(size uint64) *LockManager {
+func NewWith(size uint64, vaccum bool) *LockManager {
 	l := LockManager{
-		locks: make([]LockGroup, size),
-		size:  uint64(size),
+		locks:  make([]LockGroup, size),
+		size:   uint64(size),
+		vaccum: vaccum,
 	}
 
 	for i := uint64(0); i < size; i++ {
@@ -44,16 +51,44 @@ func NewWith(size uint64) *LockManager {
 		l.locks[i].m = xsync.NewMapOf[uint64, *atomic.Int32]()
 	}
 
-	go func() {
-		t := time.NewTicker(5 * time.Second)
-		defer t.Stop()
+	if vaccum {
+		l.closed = make(chan struct{})
 
-		for range t.C {
-			l.Vaccum()
-		}
-	}()
+		l.shutdownCtx, l.shutdown = context.WithCancel(context.Background())
+
+		go func() {
+			defer close(l.closed)
+
+			t := time.NewTicker(10 * time.Second)
+			defer t.Stop()
+
+			for {
+				select {
+				case <-l.shutdownCtx.Done():
+					return
+				case <-t.C:
+					l.Vaccum()
+				}
+			}
+		}()
+	}
 
 	return &l
+}
+
+func (l *LockManager) Shutdown(ctx context.Context) error {
+	if !l.vaccum {
+		return nil
+	}
+
+	l.shutdown()
+
+	select {
+	case <-l.closed:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (l *LockManager) groupForID(id uint64) *LockGroup {

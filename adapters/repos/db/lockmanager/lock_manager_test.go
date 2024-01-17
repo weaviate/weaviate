@@ -321,7 +321,7 @@ func TestLockManager(t *testing.T) {
 
 	t.Run("unlock should wake up next waiting lock", func(t *testing.T) {
 		t.Parallel()
-		m := NewWith(1)
+		m := NewWith(1, false)
 
 		m.RLock(1)
 
@@ -353,7 +353,7 @@ func TestLockManager(t *testing.T) {
 
 	t.Run("Vaccum", func(t *testing.T) {
 		t.Parallel()
-		m := NewWith(2)
+		m := NewWith(2, false)
 
 		m.RLock(0)
 		m.Lock(1)
@@ -480,7 +480,7 @@ func TestShardLocks_MixedLocks(t *testing.T) {
 }
 
 func BenchmarkLock(b *testing.B) {
-	m := NewWith(1)
+	m := NewWith(1, false)
 
 	var wg sync.WaitGroup
 	wg.Add(10)
@@ -534,7 +534,7 @@ func BenchmarkSpeedOfLight(b *testing.B) {
 }
 
 func BenchmarkRLock(b *testing.B) {
-	m := NewWith(10)
+	m := NewWith(10, true)
 
 	var wg sync.WaitGroup
 	wg.Add(10)
