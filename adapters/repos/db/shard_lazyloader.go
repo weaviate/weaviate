@@ -116,7 +116,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, nil)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, l.propLenTracker)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -416,6 +416,7 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
+		l.GetPropertyLengthTracker().Close()
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
