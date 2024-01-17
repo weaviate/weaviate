@@ -103,9 +103,15 @@ func tokenizetrigram(in string) []string {
 	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	}), ""))
+	runes := []rune(inputString)
+	var trirunes [][]rune
+	for i := 0; i < len(runes)-2; i++ {
+		trirunes = append(trirunes, runes[i:i+3])
+	}
+
 	var trigrams []string
-	for i := 0; i < len(inputString)-2; i++ {
-		trigrams = append(trigrams, inputString[i:i+3])
+	for _, trirune := range trirunes {
+		trigrams = append(trigrams, string(trirune))
 	}
 	return trigrams
 }
@@ -126,6 +132,14 @@ func tokenizeGSE(in string) []string {
 	var terms []string
 	for _, segment := range segments {
 		terms = append(terms, segment.Token().Text())
+	}
+
+	//Remove empty strings from terms
+	for i := 0; i < len(terms); i++ {
+		if terms[i] == "" || terms[i] == " " {
+			terms = append(terms[:i], terms[i+1:]...)
+			i--
+		}
 	}
 	return terms
 }

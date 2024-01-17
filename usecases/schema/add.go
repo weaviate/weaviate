@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -271,7 +272,11 @@ func setPropertyDefaultTokenization(prop *models.Property) {
 		}
 	case schema.DataTypeText, schema.DataTypeTextArray:
 		if prop.Tokenization == "" {
-			prop.Tokenization = models.PropertyTokenizationWord
+			if os.Getenv("DEFAULT_TOKENIZATION") != "" {
+				prop.Tokenization = os.Getenv("DEFAULT_TOKENIZATION")
+			} else {
+				prop.Tokenization = models.PropertyTokenizationWord
+			}
 		}
 	default:
 		// tokenization not supported for other data types
