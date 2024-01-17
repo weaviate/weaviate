@@ -18,14 +18,18 @@ import (
 )
 
 const (
-	compactHashtreeVersion      = 1
-	compactHashtreeHeaderLength = 1 + 8 // version capacity
+	compactHashTreeMagicNumber  uint64 = 0xD2D2D2D2D2D2D2D2
+	compactHashtreeVersion             = 1
+	compactHashtreeHeaderLength        = 8 + 1 + 8 // magicnumber version capacity
 )
 
 func (ht *CompactHashTree) Serialize(w io.Writer) (n int64, err error) {
 	var hdr [compactHashtreeHeaderLength]byte
 
 	hdrOff := 0
+
+	binary.BigEndian.PutUint64(hdr[hdrOff:], compactHashTreeMagicNumber)
+	hdrOff += 8
 
 	hdr[hdrOff] = compactHashtreeVersion
 	hdrOff++
@@ -59,6 +63,12 @@ func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 	}
 
 	hdrOff := 0
+
+	magicNumber := binary.BigEndian.Uint64(hdr[hdrOff:])
+	if magicNumber != compactHashTreeMagicNumber {
+		return nil, fmt.Errorf("compact hashtree magic number mismatch")
+	}
+	hdrOff += 8
 
 	if hdr[hdrOff] != compactHashtreeVersion {
 		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], compactHashtreeVersion)

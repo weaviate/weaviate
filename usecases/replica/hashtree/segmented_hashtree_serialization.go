@@ -18,14 +18,18 @@ import (
 )
 
 const (
-	segmentedHashtreeVersion      = 1
-	segmentedHashTreeHeaderLength = 1 + 8 + 4 // version segmentSize segmentCount
+	segmentedHashTreeMagicNumber  uint64 = 0xD4D4D4D4D4D4D4D4
+	segmentedHashtreeVersion             = 1
+	segmentedHashTreeHeaderLength        = 8 + 1 + 8 + 4 // magicnumber version segmentSize segmentCount
 )
 
 func (ht *SegmentedHashTree) Serialize(w io.Writer) (n int64, err error) {
 	var hdr [segmentedHashTreeHeaderLength]byte
 
 	hdrOff := 0
+
+	binary.BigEndian.PutUint64(hdr[hdrOff:], segmentedHashTreeMagicNumber)
+	hdrOff += 8
 
 	hdr[hdrOff] = segmentedHashtreeVersion
 	hdrOff++
@@ -76,6 +80,12 @@ func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 	}
 
 	hdrOff := 0
+
+	magicNumber := binary.BigEndian.Uint64(hdr[hdrOff:])
+	if magicNumber != segmentedHashTreeMagicNumber {
+		return nil, fmt.Errorf("multi-segment hashtree magic number mismatch")
+	}
+	hdrOff += 8
 
 	if hdr[hdrOff] != segmentedHashtreeVersion {
 		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], segmentedHashtreeVersion)
