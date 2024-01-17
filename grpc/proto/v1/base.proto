@@ -43,7 +43,7 @@ message ObjectPropertiesValue {
   repeated BooleanArrayProperties boolean_array_properties = 5;
   repeated ObjectProperties object_properties = 6;
   repeated ObjectArrayProperties object_array_properties = 7;
-  repeated string empty_lists_unknown_type = 10;
+  repeated string empty_list_props = 10;
 }
 
 message ObjectArrayProperties {
