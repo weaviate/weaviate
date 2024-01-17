@@ -272,17 +272,21 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	go func() {
 		for {
-			index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
-				index.logger.WithField("shard", name).Debug("Checking for changed metadata")
-				shard.GetPropertyLengthTracker().CycleFlush()
-
-				return nil
-			})
-			time.Sleep( 3*time.Second)
+			index.Flush()
+			time.Sleep(3 * time.Second)
 		}
 	}()
 
 	return index, nil
+}
+
+func (i *Index) Flush() error {
+	return i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+		i.logger.WithField("shard", name).Debug("Checking for changed metadata")
+		shard.GetPropertyLengthTracker().CycleFlush()
+
+		return nil
+	})
 }
 
 func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
@@ -349,6 +353,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 			}
 		})
 	}()
+
+	i.Flush()
 
 	return nil
 }
@@ -487,6 +493,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
+	i.Flush()
 	return nil
 }
 
@@ -1871,7 +1878,9 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
 	if shard := i.localShard(shardName); shard != nil {
-		return shard.UpdateStatus(targetStatus)
+		ret := shard.UpdateStatus(targetStatus)
+		i.Flush()
+		return ret
 	}
 	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
 }
