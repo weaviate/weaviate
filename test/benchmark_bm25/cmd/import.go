@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -53,68 +54,79 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("parse dataset cfg file: %w", err)
 		}
 
-		c, err := lib.ParseCorpi(datasets.Datasets[0], MultiplyProperties)
-		if err != nil {
-			return err
-		}
-
 		if err := client.Schema().AllDeleter().Do(context.Background()); err != nil {
 			return fmt.Errorf("clear schema prior to import: %w", err)
 		}
 
-		if err := client.Schema().ClassCreator().
-			WithClass(lib.SchemaFromDataset(datasets.Datasets[0], Vectorizer)).
-			Do(context.Background()); err != nil {
-			return fmt.Errorf("create schema for %s: %w", datasets.Datasets[0], err)
-		}
+		for _, dataset := range datasets.Datasets {
 
-		batch := client.Batch().ObjectsBatcher()
-		for i, corp := range c {
-			id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
-			props := map[string]interface{}{
-				"modulo_10":   i % 10,
-				"modulo_100":  i % 100,
-				"modulo_1000": i % 1000,
+			c, err := lib.ParseCorpi(dataset, MultiplyProperties)
+			if err != nil {
+				return err
 			}
 
-			for key, value := range corp {
-				props[key] = value
+			if err := client.Schema().ClassCreator().
+				WithClass(lib.SchemaFromDataset(dataset, Vectorizer)).
+				Do(context.Background()); err != nil {
+				return fmt.Errorf("create schema for %s: %w", dataset, err)
 			}
 
-			batch.WithObjects(&models.Object{
-				ID:         strfmt.UUID(id),
-				Class:      lib.ClassNameFromDatasetID(datasets.Datasets[0].ID),
-				Properties: props,
-			})
-
-			if i != 0 && i%BatchSize == 0 {
-				br, err := batch.Do(context.Background())
-				if err != nil {
-					return fmt.Errorf("batch %d: %w", i, err)
+			start := time.Now()
+			startBatch := time.Now()
+			batch := client.Batch().ObjectsBatcher()
+			for i, corp := range c {
+				id := uuid.MustParse(fmt.Sprintf("%032x", i)).String()
+				props := map[string]interface{}{
+					"modulo_10":   i % 10,
+					"modulo_100":  i % 100,
+					"modulo_1000": i % 1000,
 				}
 
+				for key, value := range corp {
+					props[key] = value
+				}
+
+				batch.WithObjects(&models.Object{
+					ID:         strfmt.UUID(id),
+					Class:      lib.ClassNameFromDatasetID(dataset.ID),
+					Properties: props,
+				})
+
+				if i != 0 && i%BatchSize == 0 {
+					br, err := batch.Do(context.Background())
+					if err != nil {
+						return fmt.Errorf("batch %d: %w", i, err)
+					}
+
+					if err := lib.HandleBatchResponse(br); err != nil {
+						return err
+					}
+				}
+
+				if i != 0 && i%1000 == 0 {
+					totalTimeBatch := time.Since(startBatch).Seconds()
+					totalTime := time.Since(start).Seconds()
+					startBatch = time.Now()
+					log.Printf("imported %d/%d objects in %.3f, time per 1k objects: %.3f, objects per second: %.0f", i, len(c), totalTimeBatch, totalTime/float64(i)*1000, float64(i)/totalTime)
+				}
+			}
+
+			if len(c)&BatchSize != 0 {
+				// we need to send one final batch
+				br, err := batch.Do(context.Background())
+				if err != nil {
+					return fmt.Errorf("final batch: %w", err)
+				}
 				if err := lib.HandleBatchResponse(br); err != nil {
 					return err
 				}
+				log.Printf("imported %d/%d objects", len(c), len(c))
 			}
 
-			if i%1000 == 0 {
-				log.Printf("imported %d/%d objects", i, len(c))
-			}
+			totalTime := time.Since(start).Seconds()
+
+			log.Printf("finished importing; %d; objects in; %.3f; time per 1k objects; %.3f; objects per second; %.0f", len(c), totalTime, totalTime/float64(len(c))*1000, float64(len(c))/totalTime)
 		}
-
-		if len(c)&BatchSize != 0 {
-			// we need to send one final batch
-			br, err := batch.Do(context.Background())
-			if err != nil {
-				return fmt.Errorf("final batch: %w", err)
-			}
-			if err := lib.HandleBatchResponse(br); err != nil {
-				return err
-			}
-			log.Printf("imported %d/%d objects", len(c), len(c))
-		}
-
 		return nil
 	},
 }

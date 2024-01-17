@@ -216,14 +216,6 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		}
 
 		s.propLenTracker = tracker
-		s.cycleCallbacks.propertyTrackerCallbacksCtrl=s.cycleCallbacks.propertyTrackerCallbacks.Register(
-			s.name+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-				s.index.logger.Debugln("Checking if "+s.name+"property tracker should flush")
-				return tracker.CycleFlush(shouldAbort)
-			},
-			cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
-		s.cycleCallbacks.propertyTrackerCallbacksCtrl.Activate()
-		s.index.logger.Printf("Created property track and added to cycle manager")
 	}
 
 	s.propLenTracker.WantFlush = true
@@ -505,7 +497,6 @@ func (s *Shard) drop() error {
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-		s.cycleCallbacks.propertyTrackerCallbacksCtrl,
 	).Unregister(ctx); err != nil {
 		return err
 	}
@@ -765,16 +756,13 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.Vect
 }
 
 func (s *Shard) Shutdown(ctx context.Context) error {
+
+	s.Index().logger.WithField("action", "shutdown").Debugf("shard=%s is shutting down", s.name)
+
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
-	}
-
-
-
-	if err := s.GetPropertyLengthTracker().Close(); err != nil {
-		return errors.Wrap(err, "close prop length tracker")
 	}
 
 	if err := s.queue.Close(); err != nil {
@@ -794,20 +782,22 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "shut down vector index")
 	}
 
-	s.cycleCallbacks.propertyTrackerCallbacksCtrl.Deactivate(ctx)
-
 	// unregister all callbacks at once, in parallel
 	if err := cyclemanager.NewCombinedCallbackCtrl(0,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-		s.cycleCallbacks.propertyTrackerCallbacksCtrl,
 	).Unregister(ctx); err != nil {
 		return err
 	}
+	s.Index().logger.WithField("action", "shutdown").Debugf("shard=%s stopped cyclecallbacks", s.name)
 
-	s.cycleCallbacks.propertyTrackerCallbacksCtrl = nil
+	if err := s.GetPropertyLengthTracker().Close(); err != nil {
+		return errors.Wrap(err, "close prop length tracker")
+	}
+
+	s.propLenTracker = nil
 
 
 	if err := s.store.Shutdown(ctx); err != nil {

@@ -27,9 +27,6 @@ type indexCycleCallbacks struct {
 	flushCallbacks cyclemanager.CycleCallbackGroup
 	flushCycle     cyclemanager.CycleManager
 
-	propertyTrackerCallbacks cyclemanager.CycleCallbackGroup
-	propertyTrackerCycle     cyclemanager.CycleManager
-
 	vectorCommitLoggerCallbacks     cyclemanager.CycleCallbackGroup
 	vectorCommitLoggerCycle         cyclemanager.CycleManager
 	vectorTombstoneCleanupCallbacks cyclemanager.CycleCallbackGroup
@@ -61,12 +58,6 @@ func (index *Index) initCycleCallbacks() {
 	flushCycle := cyclemanager.NewManager(
 		cyclemanager.MemtableFlushCycleTicker(),
 		flushCallbacks.CycleCallback)
-
-	propertyTrackerCallbacks := cyclemanager.NewCallbackGroup(id("property_tracker"), index.logger, _NUMCPU*2)
-	propertyTrackerCycle := cyclemanager.NewManager(
-		cyclemanager.NewFixedTicker(1*time.Second),
-		propertyTrackerCallbacks.CycleCallback)
-	propertyTrackerCycle.Start()
 
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, _NUMCPU*2)
 	// Previously we had an interval of 10s in here, which was changed to
@@ -110,9 +101,6 @@ func (index *Index) initCycleCallbacks() {
 		flushCallbacks:      flushCallbacks,
 		flushCycle:          flushCycle,
 
-		propertyTrackerCallbacks: propertyTrackerCallbacks,
-		propertyTrackerCycle:     propertyTrackerCycle,
-
 		vectorCommitLoggerCallbacks:     vectorCommitLoggerCallbacks,
 		vectorCommitLoggerCycle:         vectorCommitLoggerCycle,
 		vectorTombstoneCleanupCallbacks: vectorTombstoneCleanupCallbacks,
@@ -131,9 +119,6 @@ func (index *Index) initCycleCallbacksNoop() {
 		compactionCycle:     cyclemanager.NewManagerNoop(),
 		flushCallbacks:      cyclemanager.NewCallbackGroupNoop(),
 		flushCycle:          cyclemanager.NewManagerNoop(),
-
-		propertyTrackerCallbacks: cyclemanager.NewCallbackGroupNoop(),
-		propertyTrackerCycle:     cyclemanager.NewManagerNoop(),
 
 		vectorCommitLoggerCallbacks:     cyclemanager.NewCallbackGroupNoop(),
 		vectorCommitLoggerCycle:         cyclemanager.NewManagerNoop(),

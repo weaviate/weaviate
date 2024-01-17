@@ -269,7 +269,18 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	index.cycleCallbacks.compactionCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
-	index.cycleCallbacks.propertyTrackerCycle.Start()
+
+	go func() {
+		for {
+			index.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+				index.logger.WithField("shard", name).Debug("Checking for changed metadata")
+				shard.GetPropertyLengthTracker().CycleFlush()
+
+				return nil
+			})
+			time.Sleep( 3*time.Second)
+		}
+	}()
 
 	return index, nil
 }
@@ -1774,9 +1785,6 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	}
 	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
 		return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.propertyTrackerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop property tracker cycle: %w", usecase, err)
 	}
 	return nil
 }

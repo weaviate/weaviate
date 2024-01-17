@@ -20,7 +20,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 var MAX_BUCKETS = 64
@@ -418,7 +417,7 @@ func (t *JsonShardMetaData) Drop() error {
 	return nil
 }
 
-func (t *JsonShardMetaData) CycleFlush(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+func (t *JsonShardMetaData) CycleFlush() bool {
 	err := t.Flush(false)
 	return err == nil
 }

@@ -19,7 +19,6 @@ import (
 	"os"
 	"path"
 	"sync"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -29,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -45,12 +43,11 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts                    *deferredShardOpts
-	propLenTracker               *inverted.JsonShardMetaData
-	shard                        *Shard
-	loaded                       bool
-	mutex                        sync.Mutex
-	propertyTrackerCallbacksCtrl cyclemanager.CycleCallbackCtrl
+	shardOpts      *deferredShardOpts
+	propLenTracker *inverted.JsonShardMetaData
+	shard          *Shard
+	loaded         bool
+	mutex          sync.Mutex
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -70,13 +67,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			indexCheckpoints: indexCheckpoints,
 		},
 	}
-	tracker.propertyTrackerCallbacksCtrl = index.cycleCallbacks.propertyTrackerCallbacks.Register(
-		shardName+"-property-tracker", func(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-			index.logger.Printf("Flush lazy property tracker")
-			return tracker.CycleFlush(shouldAbort)
-		},
-		cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(1*time.Second)))
-	tracker.propertyTrackerCallbacksCtrl.Activate()
+
 	return tracker
 }
 
@@ -89,12 +80,16 @@ type deferredShardOpts struct {
 	indexCheckpoints *indexcheckpoint.Checkpoints
 }
 
-func (l *LazyLoadShard) CycleFlush(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+func (l *LazyLoadShard) CycleFlush() bool {
 	tracker := l.GetPropertyLengthTracker()
 	if tracker == nil {
 		return true
 	}
-	return tracker.CycleFlush(shouldAbort)
+	if l.loaded {
+		return l.shard.GetPropertyLengthTracker().CycleFlush()
+	} else {
+		return tracker.CycleFlush()
+	}
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -120,7 +115,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
 
-	l.propertyTrackerCallbacksCtrl.Unregister(ctx)
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, nil)
 	if err != nil {
@@ -422,9 +416,6 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
-		if l.propertyTrackerCallbacksCtrl != nil {
-			l.propertyTrackerCallbacksCtrl.Unregister(ctx)
-		}
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
