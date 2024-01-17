@@ -178,6 +178,18 @@ func (ht *HashTree) sync() {
 	ht.syncState.Set(0) // no sync is required
 }
 
+func (ht *HashTree) Root() Digest {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
+	return ht.root()
+}
+
+func (ht *HashTree) root() Digest {
+	ht.sync()
+	return ht.nodes[0]
+}
+
 func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
