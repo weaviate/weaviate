@@ -381,6 +381,12 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	return nil
 }
 
+func (t *JsonShardMetaData) SetWantFlush(val bool)  {
+	t.Lock()
+	defer t.Unlock()
+	t.WantFlush = val
+}
+
 // Closes the tracker and removes the backup file
 func (t *JsonShardMetaData) Close() error {
 	if t == nil {

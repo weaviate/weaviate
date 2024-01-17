@@ -218,7 +218,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		s.propLenTracker = tracker
 	}
 
-	s.propLenTracker.WantFlush = true
+	s.propLenTracker.SetWantFlush(true)
 	s.propLenTracker.Flush(false)
 
 	if err := s.initNonVector(ctx, s.class); err != nil {
@@ -797,6 +797,8 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
+	s.propLenTracker.SetWantFlush(true)
+	s.propLenTracker.Flush(false)
 	s.propLenTracker = nil
 
 

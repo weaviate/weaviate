@@ -1890,7 +1890,9 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	if shard == nil {
 		return errShardNotFound
 	}
-	return shard.UpdateStatus(targetStatus)
+	ret :=  shard.UpdateStatus(targetStatus)
+	i.Flush()
+	return ret
 }
 
 func (i *Index) notifyReady() {
