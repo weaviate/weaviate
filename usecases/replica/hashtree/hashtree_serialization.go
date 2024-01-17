@@ -18,19 +18,19 @@ import (
 )
 
 const (
-	version      = 1
-	headerLength = 1 + 4 + DigestLength // version height root
+	hashTreeVersion      = 1
+	hashTreeHeaderLength = 1 + 4 + DigestLength // version height root
 )
 
 func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
-	var hdr [headerLength]byte
+	var hdr [hashTreeHeaderLength]byte
 
 	hdrOff := 0
 
-	hdr[hdrOff] = version
+	hdr[hdrOff] = hashTreeVersion
 	hdrOff++
 
 	binary.BigEndian.PutUint32(hdr[hdrOff:], uint32(ht.height))
@@ -69,7 +69,7 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 }
 
 func DeserializeHashTree(r io.Reader) (*HashTree, error) {
-	var hdr [headerLength]byte
+	var hdr [hashTreeHeaderLength]byte
 
 	_, err := r.Read(hdr[:])
 	if err != nil {
@@ -78,8 +78,8 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 
 	hdrOff := 0
 
-	if hdr[hdrOff] != version {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], version)
+	if hdr[hdrOff] != hashTreeVersion {
+		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], hashTreeVersion)
 	}
 	hdrOff++
 
@@ -100,7 +100,10 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 		}
 
 		leafPos := ht.innerNodesCount + i
-		ht.nodes[leafPos].UnmarshalBinary(leafBs[:])
+		err = ht.nodes[leafPos].UnmarshalBinary(leafBs[:])
+		if err != nil {
+			return nil, fmt.Errorf("unmarshalling leaf %d: %w", i, err)
+		}
 	}
 
 	if root != ht.Root() {

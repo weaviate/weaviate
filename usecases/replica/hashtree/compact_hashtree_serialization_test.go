@@ -14,14 +14,17 @@ package hashtree
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestHashTreeSerialization(t *testing.T) {
+func TestCompactHashTreeSerialization(t *testing.T) {
+	capacity := uint64(math.MaxUint64)
+
 	for h := 1; h < 10; h++ {
-		ht := NewHashTree(h)
+		ht := NewCompactHashTree(capacity, h)
 
 		require.Equal(t, h, ht.Height())
 
@@ -39,8 +42,9 @@ func TestHashTreeSerialization(t *testing.T) {
 
 		readBuf := bytes.NewBuffer(buf.Bytes())
 
-		ht1, err := DeserializeHashTree(readBuf)
+		ht1, err := DeserializeCompactHashTree(readBuf)
 		require.NoError(t, err)
+		require.Equal(t, ht.Capacity(), ht1.Capacity())
 		require.Equal(t, ht.Height(), ht1.Height())
 		require.Equal(t, ht.Root(), ht1.Root())
 	}
