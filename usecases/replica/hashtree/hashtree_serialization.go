@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	hashTreeVersion      = 1
-	hashTreeHeaderLength = 1 + 4 + DigestLength // version height root
+	hashTreeMagicNumber  uint64 = 0xD1D1D1D1D1D1D1D1
+	hashTreeVersion             = 1
+	hashTreeHeaderLength        = 8 + 1 + 4 + DigestLength // magicnumber version height root
 )
 
 func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
@@ -29,6 +30,9 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	var hdr [hashTreeHeaderLength]byte
 
 	hdrOff := 0
+
+	binary.BigEndian.PutUint64(hdr[hdrOff:], hashTreeMagicNumber)
+	hdrOff += 8
 
 	hdr[hdrOff] = hashTreeVersion
 	hdrOff++
@@ -77,6 +81,12 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	}
 
 	hdrOff := 0
+
+	magicNumber := binary.BigEndian.Uint64(hdr[hdrOff:])
+	if magicNumber != hashTreeMagicNumber {
+		return nil, fmt.Errorf("hashtree magic number mismatch")
+	}
+	hdrOff += 8
 
 	if hdr[hdrOff] != hashTreeVersion {
 		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], hashTreeVersion)
