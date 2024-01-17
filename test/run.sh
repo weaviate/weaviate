@@ -10,6 +10,8 @@ function main() {
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_module_tests=false
+  only_module=false
+  only_module_value=false
   run_unit_and_integration_tests=false
   run_unit_tests=false
   run_integration_tests=false
@@ -27,7 +29,7 @@ function main() {
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
-
+          --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
           --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
@@ -44,6 +46,7 @@ function main() {
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
+              "--only-module | om"
               "--benchmark-only | -b" \
               "--help | -h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -108,6 +111,17 @@ function main() {
     fi
   fi
 
+  if $only_module; then
+    mod=${only_module_value//--only-module-/}
+    echo_green "Running acceptance test for $mod"
+    for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
+      echo $pkg
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done    
+  fi
   if $run_module_tests; then
     local module_test_image=weaviate:module-tests
     echo_green "Running module acceptance tests..."
