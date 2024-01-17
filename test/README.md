@@ -6,7 +6,7 @@ we use shell to run our (unit/ acceptance / integration) tests
 ```shell
 ./test/run.sh ${command}
 ```
-run that command with any of the avaliable commands on the following available commands, make sure you're in the project root folder.
+run that command with any of the following available commands, make sure you're in the project root folder.
 
 ### available commands 
  - `--unit-only` | `-u`
