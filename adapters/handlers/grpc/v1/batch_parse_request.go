@@ -52,6 +52,7 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 				IntArrayProperties:     obj.Properties.IntArrayProperties,
 				ObjectProperties:       obj.Properties.ObjectProperties,
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
+				EmptyListsUnknownType:  obj.Properties.EmptyListsUnknownType,
 			})
 			if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
 				objectErrors[i] = err
@@ -121,8 +122,8 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 			return fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
 		}
 		beacons := make([]interface{}, len(refMulti.Uuids))
-		for j, uuid := range refMulti.Uuids {
-			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uuid}
+		for j, uid := range refMulti.Uuids {
+			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uid}
 		}
 		props[propName] = beacons
 	}
@@ -173,6 +174,10 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 			nested[k] = extractPrimitiveProperties(prop.Values[k])
 		}
 		props[prop.PropName] = nested
+	}
+
+	for _, propName := range properties.EmptyListsUnknownType {
+		props[propName] = []interface{}{}
 	}
 
 	return props
