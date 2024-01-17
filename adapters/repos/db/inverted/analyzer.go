@@ -35,6 +35,31 @@ type Property struct {
 	HasSearchableIndex bool // map index (with frequencies)
 }
 
+type NilProperty struct {
+	Name                string
+	AddToPropertyLength bool
+}
+
+func DedupItems(props []Property) []Property {
+	for i := range props {
+		seen := map[string]struct{}{}
+		items := props[i].Items
+
+		var key string
+		// reverse order to keep latest elements
+		for j := len(items) - 1; j >= 0; j-- {
+			key = string(items[j].Data)
+			if _, ok := seen[key]; ok {
+				// remove element already seen
+				items = append(items[:j], items[j+1:]...)
+			}
+			seen[key] = struct{}{}
+		}
+		props[i].Items = items
+	}
+	return props
+}
+
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
 }
