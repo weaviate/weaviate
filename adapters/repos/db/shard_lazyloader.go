@@ -56,7 +56,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 ) *LazyLoadShard {
 	promMetrics.NewUnloadedshard(class.Class)
 
-	tracker := &LazyLoadShard{
+	l := &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics: promMetrics,
 
@@ -68,7 +68,12 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 		},
 	}
 
-	return tracker
+	//If the shard directory does not exist, create the shard and init everything
+	if _, err := os.Stat(l.shardOpts.index.path()); os.IsNotExist(err) {
+		l.MustLoad()
+	}
+
+	return l
 }
 
 type deferredShardOpts struct {

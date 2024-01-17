@@ -275,7 +275,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	go func() {
 		for index.active{
 			index.flush_if_modified()
-			time.Sleep(3 * time.Second)
+			time.Sleep(5 * time.Second)
 		}
 	}()
 
@@ -510,7 +510,6 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 
 	i.invertedIndexConfig = updated
 
-	i.Flush()
 	return nil
 }
 
@@ -1897,7 +1896,6 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
 	if shard := i.localShard(shardName); shard != nil {
 		ret := shard.UpdateStatus(targetStatus)
-		i.Flush()
 		return ret
 	}
 	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
@@ -1909,7 +1907,6 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 		return errShardNotFound
 	}
 	ret :=  shard.UpdateStatus(targetStatus)
-	i.Flush()
 	return ret
 }
 

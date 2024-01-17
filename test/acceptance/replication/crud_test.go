@@ -333,6 +333,8 @@ func eventualReplicaCRUD(t *testing.T) {
 		helper.UpdateClass(t, pc)
 	})
 
+	time.Sleep(10 * time.Second) // wait for replication to complete
+
 	t.Run("stop node 1", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
 	})
