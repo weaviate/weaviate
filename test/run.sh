@@ -46,7 +46,7 @@ function main() {
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
-              "--only-module | om"
+              "--only-module-{moduleName} | om"
               "--benchmark-only | -b" \
               "--help | -h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
