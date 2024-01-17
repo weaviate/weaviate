@@ -105,8 +105,13 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited []bool, level int) error {
+func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited []bool, level int) error {
 	var pending []uint64
+	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
+		n.graph.pendingForReassign = append(n.graph.pendingForReassign, source)
+		n.graph.pendingForReassignDependencies = append(n.graph.pendingForReassignDependencies, from)
+		return nil
+	}
 	for _, id := range n.graph.nodes[from].connections[level] {
 		if visited[id] {
 			continue
@@ -138,7 +143,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 				continue
 			}
 		}
-		err := n.processRecursively(id, results, visited, level)
+		err := n.processRecursively(from, id, results, visited, level)
 		if err != nil {
 			return err
 		}
@@ -153,7 +158,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if n.afterCleanUpTombstonedNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 		visited := make([]bool, len(n.graph.nodes))
-		err := n.processRecursively(n.node.id, results, visited, level)
+		err := n.processRecursively(n.node.id, n.node.id, results, visited, level)
 		if err != nil {
 			return err
 		}
