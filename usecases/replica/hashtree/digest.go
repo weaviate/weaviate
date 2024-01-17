@@ -18,26 +18,21 @@ import (
 	"github.com/square/go-jose/json"
 )
 
+const DigestLength int = 16
+
 type Digest [2]uint64
 
-func (d *Digest) MarshalJSON() ([]byte, error) {
-	var b [16]byte
+func (d *Digest) MarshalBinary() ([]byte, error) {
+	var bs [DigestLength]byte
 
-	binary.LittleEndian.PutUint64(b[:], d[0])
-	binary.LittleEndian.PutUint64(b[8:], d[1])
+	binary.LittleEndian.PutUint64(bs[:], d[0])
+	binary.LittleEndian.PutUint64(bs[8:], d[1])
 
-	return json.Marshal(b)
+	return bs[:], nil
 }
 
-func (d *Digest) UnmarshalJSON(b []byte) error {
-	var bs [16]byte
-
-	err := json.Unmarshal(b, &bs)
-	if err != nil {
-		return err
-	}
-
-	if len(bs) != 16 {
+func (d *Digest) UnmarshalBinary(bs []byte) error {
+	if len(bs) != DigestLength {
 		return fmt.Errorf("invalid Digest serialization")
 	}
 
@@ -45,4 +40,24 @@ func (d *Digest) UnmarshalJSON(b []byte) error {
 	d[1] = binary.LittleEndian.Uint64(bs[8:])
 
 	return nil
+}
+
+func (d *Digest) MarshalJSON() ([]byte, error) {
+	b, err := d.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(b)
+}
+
+func (d *Digest) UnmarshalJSON(b []byte) error {
+	var bs [DigestLength]byte
+
+	err := json.Unmarshal(b, &bs)
+	if err != nil {
+		return err
+	}
+
+	return d.UnmarshalBinary(bs[:])
 }
