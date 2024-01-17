@@ -270,7 +270,7 @@ func New(cfg Config, uc ent.UserConfig,
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		nodeLocks:            lockmanager.NewWith(1024, true /* vacuum */),
+		nodeLocks:            lockmanager.NewWith(512, true /* vacuum */),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,

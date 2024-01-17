@@ -26,6 +26,11 @@ var pool = sync.Pool{
 	},
 }
 
+type dummyLock struct{}
+
+func (d *dummyLock) Lock()   {}
+func (d *dummyLock) Unlock() {}
+
 // A LockManager is used to acquire locks on individual database objects.
 // It provides granular locking per object and reduces contention
 // by sharding the locks.
@@ -47,7 +52,7 @@ type LockGroup struct {
 }
 
 func New() *LockManager {
-	return NewWith(1024, false)
+	return NewWith(512, false)
 }
 
 func NewWith(size uint64, vacuum bool) *LockManager {
@@ -57,8 +62,9 @@ func NewWith(size uint64, vacuum bool) *LockManager {
 		vacuum: vacuum,
 	}
 
+	var dl dummyLock
 	for i := uint64(0); i < size; i++ {
-		l.locks[i].cond.L = new(sync.Mutex)
+		l.locks[i].cond.L = &dl
 		l.locks[i].m = xsync.NewMapOf[uint64, *atomic.Int32]()
 	}
 
@@ -70,7 +76,7 @@ func NewWith(size uint64, vacuum bool) *LockManager {
 		go func() {
 			defer close(l.closed)
 
-			t := time.NewTicker(10 * time.Second)
+			t := time.NewTicker(30 * time.Second)
 			defer t.Stop()
 
 			for {
@@ -138,13 +144,7 @@ func (l *LockManager) Lock(id uint64) {
 			return
 		}
 
-		group.cond.L.Lock()
-		for lock.Load() != 0 {
-			group.cond.Wait()
-		}
-		group.cond.L.Unlock()
-
-		lock = l.lockForID(group, id, true)
+		group.cond.Wait()
 	}
 }
 
@@ -161,9 +161,7 @@ func (l *LockManager) Unlock(id uint64) {
 
 	group.writeLock.RUnlock()
 
-	group.cond.L.Lock()
 	group.cond.Broadcast()
-	group.cond.L.Unlock()
 }
 
 func (l *LockManager) RLock(id uint64) {
@@ -183,13 +181,7 @@ func (l *LockManager) RLock(id uint64) {
 			v = lock.Load()
 		}
 
-		group.cond.L.Lock()
-		for lock.Load() < 0 {
-			group.cond.Wait()
-		}
-		group.cond.L.Unlock()
-
-		lock = l.lockForID(group, id, true)
+		group.cond.Wait()
 	}
 }
 
@@ -207,9 +199,7 @@ func (l *LockManager) RUnlock(id uint64) {
 
 	group.readLock.RUnlock()
 
-	group.cond.L.Lock()
 	group.cond.Broadcast()
-	group.cond.L.Unlock()
 }
 
 func (l *LockManager) LockAll() {

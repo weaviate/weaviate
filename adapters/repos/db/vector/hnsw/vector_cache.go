@@ -54,7 +54,7 @@ func newShardedLockCache(vecForID VectorForID, maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		locks:            lockmanager.NewWith(1024, true /* vacuum */),
+		locks:            lockmanager.NewWith(512, true /* vacuum */),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
