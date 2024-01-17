@@ -25,8 +25,8 @@ type Digest [2]uint64
 func (d *Digest) MarshalBinary() ([]byte, error) {
 	var bs [DigestLength]byte
 
-	binary.LittleEndian.PutUint64(bs[:], d[0])
-	binary.LittleEndian.PutUint64(bs[8:], d[1])
+	binary.BigEndian.PutUint64(bs[:], d[0])
+	binary.BigEndian.PutUint64(bs[8:], d[1])
 
 	return bs[:], nil
 }
@@ -36,8 +36,8 @@ func (d *Digest) UnmarshalBinary(bs []byte) error {
 		return fmt.Errorf("invalid Digest serialization")
 	}
 
-	d[0] = binary.LittleEndian.Uint64(bs[:])
-	d[1] = binary.LittleEndian.Uint64(bs[8:])
+	d[0] = binary.BigEndian.Uint64(bs[:])
+	d[1] = binary.BigEndian.Uint64(bs[8:])
 
 	return nil
 }

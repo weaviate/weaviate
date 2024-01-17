@@ -11,9 +11,15 @@
 
 package hashtree
 
-import "math"
+import (
+	"encoding/binary"
+	"fmt"
+	"math"
+)
 
 var _ AggregatedHashTree = (*MultiSegmentHashTree)(nil)
+
+const SegmentLength = 16
 
 type Segment [2]uint64
 
@@ -29,19 +35,48 @@ func (s Segment) Size() uint64 {
 	return s[1]
 }
 
+func (s *Segment) MarshalBinary() ([]byte, error) {
+	var bs [SegmentLength]byte
+
+	binary.BigEndian.PutUint64(bs[:], s[0])
+	binary.BigEndian.PutUint64(bs[8:], s[1])
+
+	return bs[:], nil
+}
+
+func (s *Segment) UnmarshalBinary(bs []byte) error {
+	if len(bs) != SegmentLength {
+		return fmt.Errorf("invalid Segment serialization")
+	}
+
+	s[0] = binary.BigEndian.Uint64(bs[:])
+	s[1] = binary.BigEndian.Uint64(bs[8:])
+
+	return nil
+}
+
 type MultiSegmentHashTree struct {
 	segments []Segment
 	hashtree AggregatedHashTree
 }
 
 func NewMultiSegmentHashTree(segments []Segment, maxHeight int) *MultiSegmentHashTree {
+	var capacity uint64
+
+	for _, s := range segments {
+		capacity += s.Size()
+	}
+
+	return newMultiSegmentHashTree(segments, NewCompactHashTree(capacity, maxHeight))
+}
+
+func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHashTree) *MultiSegmentHashTree {
 	if len(segments) == 0 {
 		panic("illegal segments")
 	}
 
 	// validate segments are in increasing order and that there is enough space in between
 	var prevSegmentEnd uint64
-	var capacity uint64
 
 	for _, s := range segments {
 		segmentStart := s.Start()
@@ -60,7 +95,6 @@ func NewMultiSegmentHashTree(segments []Segment, maxHeight int) *MultiSegmentHas
 		}
 
 		prevSegmentEnd = segmentStart + segmentSize - 1
-		capacity += segmentSize
 	}
 
 	// prevent undesired effects if segment list is externally manipulated
@@ -69,8 +103,15 @@ func NewMultiSegmentHashTree(segments []Segment, maxHeight int) *MultiSegmentHas
 
 	return &MultiSegmentHashTree{
 		segments: ownSegments,
-		hashtree: NewCompactHashTree(capacity, maxHeight),
+		hashtree: underlyingHashTree,
 	}
+}
+
+func (ht *MultiSegmentHashTree) Segments() []Segment {
+	// prevent undesired effects if segment list is externally manipulated
+	segments := make([]Segment, len(ht.segments))
+	copy(segments, ht.segments)
+	return segments
 }
 
 func (ht *MultiSegmentHashTree) Height() int {
@@ -121,6 +162,10 @@ func (ht *MultiSegmentHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 func (ht *MultiSegmentHashTree) Sync() AggregatedHashTree {
 	ht.hashtree.Sync()
 	return ht
+}
+
+func (ht *MultiSegmentHashTree) Root() Digest {
+	return ht.hashtree.Root()
 }
 
 func (ht *MultiSegmentHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {
