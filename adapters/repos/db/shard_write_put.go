@@ -69,7 +69,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush all vector index buffered WALs")
   }
   
-  s.GetPropertyLengthTracker().WantFlush(true)
+  s.GetPropertyLengthTracker().SetWantFlush(true)
 
 	return nil
 }
