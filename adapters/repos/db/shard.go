@@ -140,6 +140,7 @@ type ShardLike interface {
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 	ChangeObjectCountBy(int) error
+	MustLoad()
 
 	Metrics() *Metrics
 }
@@ -185,6 +186,9 @@ type Shard struct {
 	fallbackToSearchable bool
 
 	cycleCallbacks *shardCycleCallbacks
+}
+
+func (s *Shard) MustLoad() {
 }
 
 func (s *Shard) initShard(ctx context.Context) (*Shard, error) {

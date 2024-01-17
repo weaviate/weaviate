@@ -161,6 +161,9 @@ func (t *JsonShardMetaData) Clear() {
 	}
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return
+	}
 	t.WantFlush = true
 
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
@@ -179,11 +182,12 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	if t == nil {
 		return nil
 	}
+
+	t.Lock()
+	defer t.Unlock()
 	if t.closed {
 		return fmt.Errorf("tracker is closed")
 	}
-	t.Lock()
-	defer t.Unlock()
 	t.WantFlush = true
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
@@ -195,11 +199,12 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 	if t == nil {
 		return nil
 	}
+
+	t.Lock()
+	defer t.Unlock()
 	if t.closed {
 		return fmt.Errorf("tracker is closed")
 	}
-	t.Lock()
-	defer t.Unlock()
 	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
@@ -227,11 +232,12 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 	if t == nil {
 		return nil
 	}
+
+	t.Lock()
+	defer t.Unlock()
 	if t.closed {
 		return fmt.Errorf("tracker is closed")
 	}
-	t.Lock()
-	defer t.Unlock()
 	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
@@ -276,11 +282,12 @@ func (t *JsonShardMetaData) PropertyMean(propName string) (float32, error) {
 	if t == nil {
 		return 0, nil
 	}
+
+	t.Lock()
+	defer t.Unlock()
 	if t.closed {
 		return 0, fmt.Errorf("tracker is closed")
 	}
-	t.Lock()
-	defer t.Unlock()
 
 	sum, ok := t.data.SumData[propName]
 	if !ok {
@@ -299,11 +306,12 @@ func (t *JsonShardMetaData) PropertyTally(propName string) (int, int, float64, e
 	if t == nil {
 		return 0, 0, 0, nil
 	}
+
+	t.Lock()
+	defer t.Unlock()
 	if t.closed {
 		return 0, 0, 0, fmt.Errorf("tracker is closed")
 	}
-	t.Lock()
-	defer t.Unlock()
 
 	sum, ok := t.data.SumData[propName]
 	if !ok {
@@ -385,6 +393,9 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 func (t *JsonShardMetaData) SetWantFlush(val bool)  {
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return
+	}
 	t.WantFlush = val
 }
 
