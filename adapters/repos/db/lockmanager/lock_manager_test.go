@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lockmanager
 
 import (
@@ -351,7 +362,7 @@ func TestLockManager(t *testing.T) {
 		<-ch2
 	})
 
-	t.Run("Vaccum", func(t *testing.T) {
+	t.Run("Vacuum", func(t *testing.T) {
 		t.Parallel()
 		m := NewWith(2, false)
 
@@ -373,7 +384,7 @@ func TestLockManager(t *testing.T) {
 			m.Unlock(2)
 		}()
 
-		m.Vaccum()
+		m.Vacuum()
 
 		select {
 		case <-ch:
@@ -506,33 +517,6 @@ func BenchmarkLock(b *testing.B) {
 	wg.Wait()
 }
 
-func BenchmarkSpeedOfLight(b *testing.B) {
-	ms := make([]sync.Mutex, 10000)
-
-	var wg sync.WaitGroup
-	wg.Add(10)
-	ch := make(chan uint64)
-	for i := 0; i < 10; i++ {
-		go func() {
-			defer wg.Done()
-
-			for id := range ch {
-				ms[id].Lock()
-				ms[id].Unlock()
-			}
-		}()
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for j := 0; j < 10000; j++ {
-			ch <- uint64(j)
-		}
-	}
-	close(ch)
-	wg.Wait()
-}
-
 func BenchmarkRLock(b *testing.B) {
 	m := NewWith(10, true)
 
@@ -548,7 +532,7 @@ func BenchmarkRLock(b *testing.B) {
 				m.RUnlock(id)
 
 				if id%100 == 0 {
-					m.Vaccum()
+					m.Vacuum()
 				}
 			}
 		}()
@@ -558,33 +542,6 @@ func BenchmarkRLock(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 10000; j++ {
 			ch <- uint64(j) + 1
-		}
-	}
-	close(ch)
-	wg.Wait()
-}
-
-func BenchmarkRSpeedOfLight(b *testing.B) {
-	ms := make([]sync.RWMutex, 10000)
-
-	var wg sync.WaitGroup
-	wg.Add(10)
-	ch := make(chan uint64)
-	for i := 0; i < 10; i++ {
-		go func() {
-			defer wg.Done()
-
-			for id := range ch {
-				ms[id].RLock()
-				ms[id].RUnlock()
-			}
-		}()
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for j := 0; j < 10000; j++ {
-			ch <- uint64(j)
 		}
 	}
 	close(ch)

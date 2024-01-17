@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package lockmanager
 
 import (
@@ -22,7 +33,7 @@ type LockManager struct {
 	locks []LockGroup
 	size  uint64
 
-	vaccum      bool
+	vacuum      bool
 	shutdownCtx context.Context
 	shutdown    context.CancelFunc
 	closed      chan struct{}
@@ -39,11 +50,11 @@ func New() *LockManager {
 	return NewWith(1024, false)
 }
 
-func NewWith(size uint64, vaccum bool) *LockManager {
+func NewWith(size uint64, vacuum bool) *LockManager {
 	l := LockManager{
 		locks:  make([]LockGroup, size),
 		size:   uint64(size),
-		vaccum: vaccum,
+		vacuum: vacuum,
 	}
 
 	for i := uint64(0); i < size; i++ {
@@ -51,7 +62,7 @@ func NewWith(size uint64, vaccum bool) *LockManager {
 		l.locks[i].m = xsync.NewMapOf[uint64, *atomic.Int32]()
 	}
 
-	if vaccum {
+	if vacuum {
 		l.closed = make(chan struct{})
 
 		l.shutdownCtx, l.shutdown = context.WithCancel(context.Background())
@@ -67,7 +78,7 @@ func NewWith(size uint64, vaccum bool) *LockManager {
 				case <-l.shutdownCtx.Done():
 					return
 				case <-t.C:
-					l.Vaccum()
+					l.Vacuum()
 				}
 			}
 		}()
@@ -77,7 +88,7 @@ func NewWith(size uint64, vaccum bool) *LockManager {
 }
 
 func (l *LockManager) Shutdown(ctx context.Context) error {
-	if !l.vaccum {
+	if !l.vacuum {
 		return nil
 	}
 
@@ -227,7 +238,7 @@ func (l *LockManager) RUnlockAll() {
 	}
 }
 
-func (l *LockManager) Vaccum() {
+func (l *LockManager) Vacuum() {
 	var keys []uint64
 	var locks []*atomic.Int32
 	for i := 0; i < int(l.size); i++ {
