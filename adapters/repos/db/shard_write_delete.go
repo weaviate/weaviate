@@ -140,17 +140,16 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
 
-	if err = s.subtractPropLengths(previousInvertProps); err != nil {
+	if err = s.subtractPropLengths(previousProps); err != nil {
 		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
-	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
+	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
