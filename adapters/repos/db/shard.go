@@ -791,10 +791,6 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 	}
 	s.Index().logger.WithField("action", "shutdown").Debugf("shard=%s stopped cyclecallbacks", s.name)
 
-	if err := s.GetPropertyLengthTracker().Close(); err != nil {
-		return errors.Wrap(err, "close prop length tracker")
-	}
-
 	s.propLenTracker.SetWantFlush(true)
 	s.propLenTracker.Flush(false)
 	s.propLenTracker = nil
