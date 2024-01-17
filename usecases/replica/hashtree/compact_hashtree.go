@@ -27,21 +27,30 @@ type CompactHashTree struct {
 }
 
 func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
-	if capacity < 1 {
-		panic("illegal capacity")
-	}
-
-	if maxHeight < 1 {
-		panic("illegal max height")
-	}
-
 	height := requiredHeight(capacity)
 
 	if height > maxHeight {
 		height = maxHeight
 	}
 
-	leavesCount := LeavesCount(height)
+	return newCompactHashTree(capacity, NewHashTree(height))
+}
+
+func newCompactHashTree(capacity uint64, underlyingHashTree AggregatedHashTree) *CompactHashTree {
+	if capacity < 1 {
+		panic("illegal capacity")
+	}
+
+	if underlyingHashTree == nil {
+		panic("illegal underlying hashtree")
+	}
+
+	requiredHeight := requiredHeight(capacity)
+	if requiredHeight < underlyingHashTree.Height() {
+		panic("underlying hashtree height is bigger than required")
+	}
+
+	leavesCount := LeavesCount(underlyingHashTree.Height())
 	groupSize := capacity / uint64(leavesCount)
 	extendedGroupSize := groupSize + 1
 	extendedGroupsCount := int(capacity % uint64(leavesCount))
@@ -49,7 +58,7 @@ func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
 
 	return &CompactHashTree{
 		capacity: capacity,
-		hashtree: NewHashTree(height),
+		hashtree: underlyingHashTree,
 
 		leavesCount:                 leavesCount,
 		groupSize:                   groupSize,
@@ -57,6 +66,10 @@ func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
 		extendedGroupsCount:         extendedGroupsCount,
 		leavesCountInExtendedGroups: leavesCountInExtendedGroups,
 	}
+}
+
+func (ht *CompactHashTree) Capacity() uint64 {
+	return ht.capacity
 }
 
 func (ht *CompactHashTree) Height() int {
@@ -94,6 +107,10 @@ func (ht *CompactHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 func (ht *CompactHashTree) Sync() AggregatedHashTree {
 	ht.hashtree.Sync()
 	return ht
+}
+
+func (ht *CompactHashTree) Root() Digest {
+	return ht.hashtree.Root()
 }
 
 func (ht *CompactHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {

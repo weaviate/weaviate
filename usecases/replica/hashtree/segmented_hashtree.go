@@ -22,6 +22,11 @@ type SegmentedHashTree struct {
 }
 
 func NewSegmentedHashTree(segmentSize uint64, segments []uint64, maxHeight int) *SegmentedHashTree {
+	capacity := uint64(len(segments)) * segmentSize
+	return newSegmentedHashTree(segmentSize, segments, NewCompactHashTree(capacity, maxHeight))
+}
+
+func newSegmentedHashTree(segmentSize uint64, segments []uint64, underlyingHashtree AggregatedHashTree) *SegmentedHashTree {
 	if len(segments) == 0 {
 		panic("illegal segments")
 	}
@@ -49,13 +54,22 @@ func NewSegmentedHashTree(segmentSize uint64, segments []uint64, maxHeight int) 
 	ownSegments := make([]uint64, len(segments))
 	copy(ownSegments, segments)
 
-	capacity := uint64(len(segments)) * segmentSize
-
 	return &SegmentedHashTree{
 		segmentSize: segmentSize,
 		segments:    ownSegments,
-		hashtree:    NewCompactHashTree(capacity, maxHeight),
+		hashtree:    underlyingHashtree,
 	}
+}
+
+func (ht *SegmentedHashTree) SegmentSize() uint64 {
+	return ht.segmentSize
+}
+
+func (ht *SegmentedHashTree) Segments() []uint64 {
+	// prevent undesired effects if segment list is externally manipulated
+	segments := make([]uint64, len(ht.segments))
+	copy(segments, ht.segments)
+	return segments
 }
 
 func (ht *SegmentedHashTree) Height() int {
@@ -88,6 +102,10 @@ func (ht *SegmentedHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 func (ht *SegmentedHashTree) Sync() AggregatedHashTree {
 	ht.hashtree.Sync()
 	return ht
+}
+
+func (ht *SegmentedHashTree) Root() Digest {
+	return ht.hashtree.Root()
 }
 
 func (ht *SegmentedHashTree) Level(level int, discriminant *Bitset, digests []Digest) (n int, err error) {

@@ -11,10 +11,13 @@
 
 package hashtree
 
+import "io"
+
 type AggregatedHashTree interface {
 	Height() int
 	AggregateLeafWith(i uint64, val []byte) AggregatedHashTree
 	Sync() AggregatedHashTree
+	Root() Digest
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
 	Reset() AggregatedHashTree
 	Clone() AggregatedHashTree
@@ -23,6 +26,8 @@ type AggregatedHashTree interface {
 	DiffUsing(ht AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error
 
 	NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader
+
+	Serialize(w io.Writer) (n int64, err error)
 }
 
 type AggregatedHashTreeDiffReader interface {
