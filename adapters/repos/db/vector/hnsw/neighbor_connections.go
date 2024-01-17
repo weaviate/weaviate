@@ -123,8 +123,10 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		}
 		if results.Len() >= n.graph.efConstruction && dist < results.Top().Dist {
 			results.Pop()
+			results.Insert(id, dist)
+		} else if results.Len() < n.graph.efConstruction {
+			results.Insert(id, dist)
 		}
-		results.Insert(id, dist)
 	}
 	for _, id := range pending {
 		if results.Len() >= n.graph.efConstruction {
