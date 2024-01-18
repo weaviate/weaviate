@@ -307,7 +307,6 @@ func (t *JsonShardMetaData) Flush() error {
 		return nil
 	}
 
-
 	t.Lock()
 	defer t.Unlock()
 
@@ -317,7 +316,6 @@ func (t *JsonShardMetaData) Flush() error {
 	}
 
 	filename := t.path
-
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
