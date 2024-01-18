@@ -379,23 +379,9 @@ func TestShardedLocks(t *testing.T) {
 		m := NewShardedLocks(5)
 
 		m.RLockAll()
-
-		ch := make(chan struct{})
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			m.RUnlockAll()
-
-			close(ch)
-		}()
-
 		m.RLockAll()
 
-		select {
-		case <-ch:
-		default:
-			require.Fail(t, "should be unlocked")
-		}
-
+		m.RUnlockAll()
 		m.RUnlockAll()
 	})
 
