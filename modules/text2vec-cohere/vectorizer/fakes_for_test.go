@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,35 +46,51 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-type fakeSettings struct {
-	skippedProperty    string
-	vectorizeClassName bool
-	excludedProperty   string
-	cohereModel        string
-	truncateType       string
-	baseURL            string
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizeClassName    bool
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+	// module specific settings
+	cohereModel  string
+	truncateType string
+	baseURL      string
 }
 
-func (f *fakeSettings) PropertyIndexed(propName string) bool {
-	return f.skippedProperty != propName
+func (f fakeClassConfig) Class() map[string]interface{} {
+	classSettings := map[string]interface{}{
+		"vectorizeClassName": f.vectorizeClassName,
+		"model":              f.cohereModel,
+		"truncate":           f.truncateType,
+		"baseURL":            f.baseURL,
+	}
+	return classSettings
 }
 
-func (f *fakeSettings) VectorizePropertyName(propName string) bool {
-	return f.excludedProperty != propName
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
 }
 
-func (f *fakeSettings) VectorizeClassName() bool {
-	return f.vectorizeClassName
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
 }
 
-func (f *fakeSettings) Model() string {
-	return f.cohereModel
-}
-
-func (f *fakeSettings) Truncate() string {
-	return f.truncateType
-}
-
-func (f *fakeSettings) BaseURL() string {
-	return f.baseURL
+func (f fakeClassConfig) Tenant() string {
+	return ""
 }

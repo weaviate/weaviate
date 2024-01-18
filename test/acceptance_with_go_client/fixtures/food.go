@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package fixtures
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,7 @@ const (
 	PIZZA_DOENER_ID           = "5b6a08ba-1d46-43aa-89cc-8b070790c6f2"
 	SOUP_CHICKENSOUP_ID       = "8c156d37-81aa-4ce9-a811-621e2702b825"
 	SOUP_BEAUTIFUL_ID         = "27351361-2898-4d1a-aad7-1ca48253eb0b"
+	SOUP_TRIPE_ID             = "a0b0c0d0-2898-4d1a-aad7-1ca48253eb0b"
 	RISOTTO_RISI_E_BISI_ID    = "da751a25-f573-4715-a893-e607b2de0ba4"
 	RISOTTO_ALLA_PILOTA_ID    = "10c2ee44-7d58-42be-9d64-5766883ca8cb"
 	RISOTTO_AL_NERO_DI_SEPPIA = "696bf381-7f98-40a4-bcad-841780e00e0e"
@@ -51,6 +53,24 @@ var IdsByClass = map[string][]string{
 	},
 }
 
+var BeaconsByClass = map[string][]map[string]string{
+	"Pizza": {
+		{"beacon": makeBeacon("Pizza", PIZZA_QUATTRO_FORMAGGI_ID)},
+		{"beacon": makeBeacon("Pizza", PIZZA_FRUTTI_DI_MARE_ID)},
+		{"beacon": makeBeacon("Pizza", PIZZA_HAWAII_ID)},
+		{"beacon": makeBeacon("Pizza", PIZZA_DOENER_ID)},
+	},
+	"Soup": {
+		{"beacon": makeBeacon("Soup", SOUP_CHICKENSOUP_ID)},
+		{"beacon": makeBeacon("Soup", SOUP_BEAUTIFUL_ID)},
+	},
+	"Risotto": {
+		{"beacon": makeBeacon("Risotto", RISOTTO_RISI_E_BISI_ID)},
+		{"beacon": makeBeacon("Risotto", RISOTTO_ALLA_PILOTA_ID)},
+		{"beacon": makeBeacon("Risotto", RISOTTO_AL_NERO_DI_SEPPIA)},
+	},
+}
+
 var AllIds = []string{
 	PIZZA_QUATTRO_FORMAGGI_ID,
 	PIZZA_FRUTTI_DI_MARE_ID,
@@ -63,6 +83,10 @@ var AllIds = []string{
 	RISOTTO_RISI_E_BISI_ID,
 	RISOTTO_ALLA_PILOTA_ID,
 	RISOTTO_AL_NERO_DI_SEPPIA,
+}
+
+func makeBeacon(class, id string) string {
+	return fmt.Sprintf("weaviate://localhost/%s/%s", class, id)
 }
 
 // ##### SCHEMA #####

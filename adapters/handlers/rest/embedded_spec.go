@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.23.0"
+    "version": "1.23.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -2984,12 +2984,46 @@ func init() {
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "maximum": 512,
+          "minimum": 2,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ],
+          "x-nullable": false
+        }
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup creation process",
@@ -3089,7 +3123,8 @@ func init() {
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -4475,6 +4510,20 @@ func init() {
         }
       }
     },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
@@ -4957,7 +5006,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.23.0"
+    "version": "1.23.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -8015,12 +8064,46 @@ func init() {
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "maximum": 512,
+          "minimum": 2,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ],
+          "x-nullable": false
+        }
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup creation process",
@@ -8120,7 +8203,8 @@ func init() {
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -9680,6 +9764,20 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
         }
       }
     },

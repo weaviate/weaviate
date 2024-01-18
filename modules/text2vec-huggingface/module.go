@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,10 +22,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-huggingface/additional"
-	"github.com/weaviate/weaviate/modules/text2vec-huggingface/additional/projector"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-huggingface"
@@ -46,13 +45,9 @@ type HuggingFaceModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
+		cfg moduletools.ClassConfig) error
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -114,8 +109,7 @@ func (m *HuggingFaceModule) initVectorizer(ctx context.Context, timeout time.Dur
 }
 
 func (m *HuggingFaceModule) initAdditionalPropertiesProvider() error {
-	projector := projector.New()
-	m.additionalPropertiesProvider = additional.New(projector)
+	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
@@ -127,8 +121,7 @@ func (m *HuggingFaceModule) RootHandler() http.Handler {
 func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
+	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
 }
 
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {
@@ -142,7 +135,7 @@ func (m *HuggingFaceModule) AdditionalProperties() map[string]modulecapabilities
 func (m *HuggingFaceModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface

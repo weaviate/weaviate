@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -182,21 +182,24 @@ func TestVectorizingObjects(t *testing.T) {
 
 			v := New(client)
 
-			ic := &fakeSettings{
-				excludedProperty:   test.excludedProperty,
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Car",
-				openAIType:         test.openAIType,
-				openAIModel:        test.openAIModel,
-				openAIModelVersion: test.openAIModelVersion,
+			cfg := &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"vectorizeClassName": test.excludedClass != "Car",
+					"type":               test.openAIType,
+					"model":              test.openAIModel,
+					"modelVersion":       test.openAIModelVersion,
+				},
+				vectorizePropertyName: true,
+				skippedProperty:       test.noindex,
+				excludedProperty:      test.excludedProperty,
 			}
-			err := v.Object(context.Background(), test.input, nil, ic)
+			err := v.Object(context.Background(), test.input, nil, cfg)
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
 			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
-			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
-			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
+			assert.Equal(t, test.expectedOpenAIType, client.lastConfig.Type)
+			assert.Equal(t, test.expectedOpenAIModel, client.lastConfig.Model)
 		})
 	}
 }
@@ -367,14 +370,14 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeSettings{
+			cfg := &fakeClassConfig{
 				skippedProperty: test.skipped,
 			}
 
 			client := &fakeClient{}
 			v := New(client)
 
-			err := v.Object(context.Background(), test.input, test.diff, ic)
+			err := v.Object(context.Background(), test.input, test.diff, cfg)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {

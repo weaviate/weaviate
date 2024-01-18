@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,18 +35,20 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
-	// defaultChunkSize if size is not specified
-	defaultChunkSize = 1 << 27 // 128MB
+	// DefaultChunkSize if size is not specified
+	DefaultChunkSize = 1 << 27 // 128MB
 
 	// maxChunkSize is the upper bound on the chunk size
 	maxChunkSize = 1 << 29 // 512MB
 
-	//
+	// minChunkSize is the lower bound on the chunk size
 	minChunkSize = 1 << 21 // 2MB
 
-	// goPoolPercentage specifies maximal number of go routines which can be allocated
-	goPoolMaxPercentage     = 80
-	goPoolDefaultPercentage = 50
+	// maxCPUPercentage max CPU percentage can be consumed by the file writer
+	maxCPUPercentage = 80
+
+	// DefaultCPUPercentage default CPU percentage can be consumed by the file writer
+	DefaultCPUPercentage = 50
 )
 
 const (
@@ -182,7 +184,11 @@ func newUploader(sourcer Sourcer, backend nodeStore,
 	return &uploader{
 		sourcer, backend,
 		backupID,
-		newZipConfig(0, 50, defaultChunkSize),
+		newZipConfig(Compression{
+			Level:         DefaultCompression,
+			CPUPercentage: DefaultCPUPercentage,
+			ChunkSize:     DefaultChunkSize,
+		}),
 		setstatus,
 		l,
 	}
@@ -537,9 +543,9 @@ func chunkKey(class string, id int32) string {
 
 func routinePoolSize(percentage int) int {
 	if percentage == 0 { // default value
-		percentage = goPoolDefaultPercentage
-	} else if percentage > goPoolMaxPercentage {
-		percentage = goPoolMaxPercentage
+		percentage = DefaultCPUPercentage
+	} else if percentage > maxCPUPercentage {
+		percentage = maxCPUPercentage
 	}
 	if x := (_NUMCPU * percentage) / 100; x > 0 {
 		return x

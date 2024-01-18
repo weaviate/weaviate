@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,10 +22,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/additional"
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/additional/projector"
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-jinaai"
@@ -46,14 +45,9 @@ type JinaAIModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
+		cfg moduletools.ClassConfig) error
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	// TODO all of these should be moved out of here, gh-1470
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -116,8 +110,7 @@ func (m *JinaAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 }
 
 func (m *JinaAIModule) initAdditionalPropertiesProvider() error {
-	projector := projector.New()
-	m.additionalPropertiesProvider = additional.New(projector)
+	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
@@ -129,8 +122,7 @@ func (m *JinaAIModule) RootHandler() http.Handler {
 func (m *JinaAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
+	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
 }
 
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
@@ -144,8 +136,7 @@ func (m *JinaAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 func (m *JinaAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Texts(ctx, []string{input}, icheck)
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface

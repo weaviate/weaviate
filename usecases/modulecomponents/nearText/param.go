@@ -4,14 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package nearText
 
-import "github.com/pkg/errors"
+import (
+	"github.com/pkg/errors"
+)
 
 type ObjectMove struct {
 	ID     string
@@ -68,4 +70,12 @@ func (n NearTextParams) Validate() error {
 	}
 
 	return nil
+}
+
+func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
+	text, ok := param.(*NearTextParams)
+	if !ok {
+		return errors.New("'nearText' invalid parameter")
+	}
+	return text.Validate()
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,7 +26,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"gopkg.in/yaml.v2"
 )
 
@@ -102,12 +102,12 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 						for _, op := range step.Operations {
 							switch op.Operation {
 							case "insert":
-								ssdhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
+								compressionhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
 									err := index.Add(uint64(op.Start+int(i)), vectors[op.Start+int(i)])
 									require.NoError(b, err)
 								})
 							case "delete":
-								ssdhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
+								compressionhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
 									err := index.Delete(uint64(op.Start + int(i)))
 									require.NoError(b, err)
 								})
@@ -121,7 +121,7 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 									queryVectors = readBigAnnDataset(b, file, 0)
 								}
 
-								ssdhelpers.Concurrently(uint64(len(queryVectors)), func(i uint64) {
+								compressionhelpers.Concurrently(uint64(len(queryVectors)), func(i uint64) {
 									_, _, err := index.SearchByVector(queryVectors[i], 0, nil)
 									require.NoError(b, err)
 								})

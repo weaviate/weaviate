@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,8 +28,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/schema"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -50,7 +50,7 @@ type flat struct {
 	distancerProvider   distancer.Provider
 	trackDimensionsOnce sync.Once
 	rescore             int64
-	bq                  ssdhelpers.BinaryQuantizer
+	bq                  compressionhelpers.BinaryQuantizer
 
 	pqResults *common.PqMaxPool
 	pool      *pools
@@ -228,8 +228,9 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
 		atomic.StoreInt32(&index.dims, int32(len(vector)))
+
 		if index.isBQ() {
-			index.bq = ssdhelpers.NewBinaryQuantizer()
+			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
 		}
 	})
 	if len(vector) != int(index.dims) {
@@ -240,10 +241,7 @@ func (index *flat) Add(id uint64, vector []float32) error {
 	index.storeVector(id, byteSliceFromFloat32Slice(vector, slice))
 
 	if index.isBQ() {
-		vectorBQ, err := index.bq.Encode(vector)
-		if err != nil {
-			return err
-		}
+		vectorBQ := index.bq.Encode(vector)
 		if index.isBQCached() {
 			index.bqCache.Grow(id)
 			index.bqCache.Preload(id, vectorBQ)
@@ -331,10 +329,7 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	defer index.pqResults.Put(heap)
 
 	vector = index.normalized(vector)
-	vectorBQ, err := index.bq.Encode(vector)
-	if err != nil {
-		return nil, nil, err
-	}
+	vectorBQ := index.bq.Encode(vector)
 
 	if index.isBQCached() {
 		if err := index.findTopVectorsCached(heap, allow, rescore, vectorBQ); err != nil {

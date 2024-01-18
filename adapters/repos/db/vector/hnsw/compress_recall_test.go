@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,11 +23,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -63,7 +64,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 
 	for _, distancer := range distancers {
 		truths := make([][]uint64, queries_size)
-		ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+		compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 			truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
 		})
 		fmt.Printf("generating data took %s\n", time.Since(before))
@@ -82,6 +83,9 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			ShardName:             "shardRecallBenchmark",
 			DistanceProvider:      distancer,
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "out of range")
+				}
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
@@ -89,9 +93,9 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 				return container.Slice, nil
 			},
 		}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		init := time.Now()
-		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+		compressionhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
 			index.Add(id, vectors[id])
 		})
 		before = time.Now()
@@ -113,7 +117,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			var retrieved int
 
 			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+			compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 				before = time.Now()
 				results, _, _ := index.SearchByVector(queries[i], k, nil)
 				querying += time.Since(before)

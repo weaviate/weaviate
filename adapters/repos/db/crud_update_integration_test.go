@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -377,7 +377,7 @@ func extractPropValues(in search.Results, propName string) []interface{} {
 	return out
 }
 
-func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker {
+func getTracker(repo *DB, className string) *inverted.JsonShardMetaData {
 	index := repo.GetIndex("UpdateTestClass")
 	var shard ShardLike
 	index.ForEachShard(func(name string, shardv ShardLike) error {

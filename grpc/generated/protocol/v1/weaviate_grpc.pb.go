@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion7
 type WeaviateClient interface {
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error)
 	BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error)
+	BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error)
 }
 
 type weaviateClient struct {
@@ -49,12 +50,22 @@ func (c *weaviateClient) BatchObjects(ctx context.Context, in *BatchObjectsReque
 	return out, nil
 }
 
+func (c *weaviateClient) BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error) {
+	out := new(BatchDeleteReply)
+	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/BatchDelete", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility
 type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
+	BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
 
@@ -67,6 +78,9 @@ func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*Sea
 }
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
+}
+func (UnimplementedWeaviateServer) BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchDelete not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 
@@ -117,6 +131,24 @@ func _Weaviate_BatchObjects_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_BatchDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchDeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).BatchDelete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/weaviate.v1.Weaviate/BatchDelete",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).BatchDelete(ctx, req.(*BatchDeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -131,6 +163,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchObjects",
 			Handler:    _Weaviate_BatchObjects_Handler,
+		},
+		{
+			MethodName: "BatchDelete",
+			Handler:    _Weaviate_BatchDelete_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

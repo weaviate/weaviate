@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
@@ -450,6 +451,26 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "filter simple (new type)",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "name"}}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On:       &filters.Path{Class: schema.ClassName(classname), Property: "name"},
+						Operator: filters.OperatorEqual,
+						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "filter uuid",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -507,6 +528,30 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
 				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_LESS_THAN, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"ref", refClass1, "something"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+							Child:    &filters.Path{Class: schema.ClassName(refClass1), Property: "something"},
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "filter reference (new filters)",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_LESS_THAN, TestValue: &pb.Filters_ValueText{ValueText: "test"}, Target: &pb.FilterTarget{Target: &pb.FilterTarget_SingleTarget{SingleTarget: &pb.FilterReferenceSingleTarget{On: "ref", Target: &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "something"}}}}}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1039,6 +1084,38 @@ func TestGRPCRequest(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Rerank without query",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Rerank:     &pb.Rerank{Property: someString1},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps:      false,
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Rerank with query",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Rerank:     &pb.Rerank{Property: someString1, Query: &someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps:      false,
+					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
 				},
 			},
 			error: false,
