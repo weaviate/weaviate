@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,13 +13,13 @@ package hnsw
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func (h *hnsw) flatSearch(queryVector []float32, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	results := priorityqueue.NewMax(limit)
+	results := priorityqueue.NewMax[any](limit)
 
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
@@ -33,7 +33,14 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			h.RUnlock()
 			continue
 		}
+		if len(h.nodes) <= int(candidate) { // if index hasn't grown yet for a newly inserted node
+			continue
+		}
+
+		h.shardedNodeLocks.RLock(candidate)
 		c := h.nodes[candidate]
+		h.shardedNodeLocks.RUnlock(candidate)
+
 		if c == nil || h.hasTombstone(candidate) {
 			h.RUnlock()
 			continue

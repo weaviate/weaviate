@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/usecases/byte_operations"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // BulkBuilder is a low-alloc tool to build many beacon strings (as []byte). It
@@ -27,7 +27,7 @@ import (
 // based on expected input params. If those requirements get exceeded, it will
 // still be safe to use, but will fallback to allocating dynamically.
 type BulkBuilder struct {
-	byte_operations.ByteOperations
+	byteops.ReadWriter
 	prefix []byte
 }
 
@@ -40,11 +40,8 @@ func NewBulkBuilderWithEstimates(expectedCount int, exampleClassName string,
 	predictedSize := expectedCount * (len(prefix) + 1 + lenOfTypicalClassName + 36)
 
 	bb := &BulkBuilder{
-		prefix: prefix,
-		ByteOperations: byte_operations.ByteOperations{
-			Buffer:   make([]byte, predictedSize),
-			Position: 0,
-		},
+		prefix:     prefix,
+		ReadWriter: byteops.NewReadWriter(make([]byte, predictedSize)),
 	}
 
 	return bb

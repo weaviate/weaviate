@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,8 +13,9 @@ package roaringset
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -77,16 +78,15 @@ func (c *CombinedCursor) runAll(cursorRun cursorRun) []innerCursorState {
 }
 
 func (c *CombinedCursor) createState(key []byte, layer BitmapLayer, err error) innerCursorState {
-	if err == lsmkv.NotFound {
+	if errors.Is(err, lsmkv.NotFound) {
 		return innerCursorState{err: err}
 	}
 	if err != nil {
-		panic(errors.Wrap(err, "unexpected error")) // TODO necessary?
+		panic(fmt.Errorf("unexpected error: %w", err)) // TODO necessary?
 	}
 	state := innerCursorState{key: key}
-	if !c.keyOnly {
-		state.layer = layer
-	}
+	state.layer = layer
+
 	return state
 }
 
@@ -101,14 +101,28 @@ func (c *CombinedCursor) getResultFromStates(states []innerCursorState) ([]byte,
 	}
 	layers := BitmapLayers{}
 	for _, id := range ids {
-		if !c.keyOnly {
-			layers = append(layers, c.states[id].layer)
-		}
+		layers = append(layers, c.states[id].layer)
 		// forward cursors used in final result
 		c.states[id] = c.createState(c.cursors[id].Next())
 	}
+
+	if key == nil && c.keyOnly {
+		return nil, nil
+	}
+
+	bm := layers.Flatten()
+	if key == nil {
+		return nil, bm
+	}
+
+	if bm.IsEmpty() {
+		// all values deleted, skip key
+		return c.Next()
+	}
+
+	// TODO remove keyOnly option, not used anyway
 	if !c.keyOnly {
-		return key, layers.Flatten()
+		return key, bm
 	}
 	return key, nil
 }
@@ -119,7 +133,7 @@ func (c *CombinedCursor) getCursorIdsWithLowestKey(states []innerCursorState) ([
 	allNotFound := true
 
 	for id, state := range states {
-		if state.err == lsmkv.NotFound {
+		if errors.Is(state.err, lsmkv.NotFound) {
 			continue
 		}
 		allNotFound = false

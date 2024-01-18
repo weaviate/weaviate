@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,11 +13,12 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -26,13 +27,13 @@ import (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	if Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
 
-		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+		if Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
 			// The variable was renamed with v1.20. Prior to v1.20 the recommended
 			// way to do MT was using classes. This lead to a lot of metrics which
 			// could be grouped with this variable. With v1.20 we introduced native
@@ -44,46 +45,50 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+	if Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
 
-	if enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+	if Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
 	}
 
+	if Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+		config.DisableLazyLoadShards = true
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
-	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+	if Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
 	}
 
-	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+	if Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
-	if enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+	if Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse PROMETHEUS_MONITORING_PORT as int")
+			return fmt.Errorf("parse PROMETHEUS_MONITORING_PORT as int: %w", err)
 		}
 
 		config.Monitoring.Port = asInt
 	}
 
-	if enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
 
-	if enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
+	if Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 
-		if enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
+		if Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			config.Authentication.OIDC.SkipClientIDCheck = true
 		}
 
@@ -108,7 +113,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+	if Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
 		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
@@ -122,7 +127,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+	if Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
 		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
@@ -134,6 +139,20 @@ func FromEnv(config *Config) error {
 		if ok {
 			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
 		}
+
+		groupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_GROUPS")
+		if ok {
+			config.Authorization.AdminList.Groups = strings.Split(groupsString, ",")
+		}
+
+		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
+		if ok {
+			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
+	}
+
+	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
+		config.AvoidMmap = true
 	}
 
 	clusterCfg, err := parseClusterConfig()
@@ -150,6 +169,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseCORSConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -161,7 +184,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse QUERY_DEFAULTS_LIMIT as int")
+			return fmt.Errorf("parse QUERY_DEFAULTS_LIMIT as int: %w", err)
 		}
 
 		config.QueryDefaults.Limit = int64(asInt)
@@ -170,7 +193,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse QUERY_MAXIMUM_RESULTS as int")
+			return fmt.Errorf("parse QUERY_MAXIMUM_RESULTS as int: %w", err)
 		}
 
 		config.QueryMaximumResults = int64(asInt)
@@ -178,12 +201,24 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
+	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
+		limit, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_NESTED_CROSS_REFERENCE_LIMIT as int: %w", err)
+		} else if limit <= 0 {
+			limit = math.MaxInt
+		}
+		config.QueryNestedCrossReferenceLimit = limit
+	} else {
+		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
+	}
+
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
 		asFloat, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return errors.Wrapf(err, "parse MAX_IMPORT_GOROUTINES_FACTOR as float")
+			return fmt.Errorf("parse MAX_IMPORT_GOROUTINES_FACTOR as float: %w", err)
 		} else if asFloat <= 0 {
-			return errors.New("negative MAX_IMPORT_GOROUTINES_FACTOR factor")
+			return fmt.Errorf("negative MAX_IMPORT_GOROUTINES_FACTOR factor")
 		}
 
 		config.MaxImportGoroutinesFactor = asFloat
@@ -199,6 +234,16 @@ func FromEnv(config *Config) error {
 		if config.DefaultVectorizerModule == "" {
 			config.DefaultVectorizerModule = VectorizerModuleNone
 		}
+	}
+
+	if v := os.Getenv("MODULES_CLIENT_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse MODULES_CLIENT_TIMEOUT as time.Duration: %w", err)
+		}
+		config.ModuleHttpClientTimeout = timeout
+	} else {
+		config.ModuleHttpClientTimeout = 50 * time.Second
 	}
 
 	if v := os.Getenv("DEFAULT_VECTOR_DISTANCE_METRIC"); v != "" {
@@ -235,7 +280,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GO_BLOCK_PROFILE_RATE"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse GO_BLOCK_PROFILE_RATE as int")
+			return fmt.Errorf("parse GO_BLOCK_PROFILE_RATE as int: %w", err)
 		}
 
 		config.Profiling.BlockProfileRate = asInt
@@ -244,7 +289,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("GO_MUTEX_PROFILE_FRACTION"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return errors.Wrapf(err, "parse GO_MUTEX_PROFILE_FRACTION as int")
+			return fmt.Errorf("parse GO_MUTEX_PROFILE_FRACTION as int: %w", err)
 		}
 
 		config.Profiling.MutexProfileFraction = asInt
@@ -253,7 +298,7 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("MAXIMUM_CONCURRENT_GET_REQUESTS"); v != "" {
 		asInt, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return errors.Wrapf(err, "parse MAXIMUM_CONCURRENT_GET_REQUESTS as int")
+			return fmt.Errorf("parse MAXIMUM_CONCURRENT_GET_REQUESTS as int: %w", err)
 		}
 		config.MaximumConcurrentGetRequests = int(asInt)
 	} else {
@@ -267,8 +312,46 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+	config.GRPC.CertFile = ""
+	if v := os.Getenv("GRPC_CERT_FILE"); v != "" {
+		config.GRPC.CertFile = v
+	}
+	config.GRPC.KeyFile = ""
+	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
+		config.GRPC.KeyFile = v
+	}
 
-	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	if err := parsePositiveInt(
+		"REPLICATION_MINIMUM_FACTOR",
+		func(val int) { config.Replication.MinimumFactor = val },
+		DefaultMinimumReplicationFactor,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) parseCORSConfig() error {
+	if v := os.Getenv("CORS_ALLOW_ORIGIN"); v != "" {
+		c.CORS.AllowOrigin = v
+	} else {
+		c.CORS.AllowOrigin = DefaultCORSAllowOrigin
+	}
+
+	if v := os.Getenv("CORS_ALLOW_METHODS"); v != "" {
+		c.CORS.AllowMethods = v
+	} else {
+		c.CORS.AllowMethods = DefaultCORSAllowMethods
+	}
+
+	if v := os.Getenv("CORS_ALLOW_HEADERS"); v != "" {
+		c.CORS.AllowHeaders = v
+	} else {
+		c.CORS.AllowHeaders = DefaultCORSAllowHeaders
+	}
+
 	return nil
 }
 
@@ -335,7 +418,10 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 	return nil
 }
 
-const DefaultQueryMaximumResults = int64(10000)
+const (
+	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+)
 
 const (
 	DefaultPersistenceFlushIdleMemtablesAfter = 60
@@ -344,6 +430,7 @@ const (
 	DefaultPersistenceMemtablesMaxDuration    = 45
 	DefaultMaxConcurrentGetRequests           = 0
 	DefaultGRPCPort                           = 50051
+	DefaultMinimumReplicationFactor           = 1
 )
 
 const VectorizerModuleNone = "none"
@@ -355,7 +442,7 @@ const DefaultGossipBindPort = 7946
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
-func enabled(value string) bool {
+func Enabled(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -376,7 +463,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("DISK_USE_WARNING_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse DISK_USE_WARNING_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse DISK_USE_WARNING_PERCENTAGE as uint: %w", err)
 		}
 		ru.DiskUse.WarningPercentage = asUint
 	} else {
@@ -386,7 +473,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("DISK_USE_READONLY_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse DISK_USE_READONLY_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse DISK_USE_READONLY_PERCENTAGE as uint: %w", err)
 		}
 		ru.DiskUse.ReadOnlyPercentage = asUint
 	} else {
@@ -396,7 +483,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("MEMORY_WARNING_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse MEMORY_WARNING_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse MEMORY_WARNING_PERCENTAGE as uint: %w", err)
 		}
 		ru.MemUse.WarningPercentage = asUint
 	} else {
@@ -406,7 +493,7 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	if v := os.Getenv("MEMORY_READONLY_PERCENTAGE"); v != "" {
 		asUint, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ru, errors.Wrapf(err, "parse MEMORY_READONLY_PERCENTAGE as uint")
+			return ru, fmt.Errorf("parse MEMORY_READONLY_PERCENTAGE as uint: %w", err)
 		}
 		ru.MemUse.ReadOnlyPercentage = asUint
 	} else {
@@ -452,8 +539,20 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
-	cfg.IgnoreStartupSchemaSync = enabled(
+	cfg.IgnoreStartupSchemaSync = Enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
+	cfg.SkipSchemaSyncRepair = Enabled(
+		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
+
+	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")
+	basicAuthPassword := os.Getenv("CLUSTER_BASIC_AUTH_PASSWORD")
+
+	cfg.AuthConfig = cluster.AuthConfig{
+		BasicAuth: cluster.BasicAuth{
+			Username: basicAuthUsername,
+			Password: basicAuthPassword,
+		},
+	}
 
 	return cfg, nil
 }

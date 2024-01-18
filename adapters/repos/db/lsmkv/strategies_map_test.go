@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -206,7 +206,7 @@ func TestDecoderRemoveTombstones(t *testing.T) {
 		assert.Equal(t, expected, actual)
 	})
 
-	t.Run("single entry, single tombstone, then readded", func(t *testing.T) {
+	t.Run("single entry, single tombstone, then read", func(t *testing.T) {
 		m := newMapDecoder()
 		input := mustEncode([]MapPair{
 			{

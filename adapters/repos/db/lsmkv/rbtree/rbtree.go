@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,7 +29,7 @@ type Node interface {
 // Deletions are currently not supported as this is done through the tombstone flag and from the POV of the RB-tree
 // tombstone-nodes are just normal nodes that get rebalanced the normal way.
 //
-// Throughout ths file the following relationships between nodes are used:
+// Throughout this file the following relationships between nodes are used:
 // GP = grandparent, P = parent, U = uncle, S = sibling, N = node that was just added
 //
 //	   GP

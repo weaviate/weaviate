@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -62,6 +63,10 @@ import (
 type Compactor struct {
 	left, right  *SegmentCursor
 	currentLevel uint16
+	// Tells if deletions or keys without corresponding values
+	// can be removed from merged segment.
+	// (left segment is root (1st) one, keepTombstones is off for bucket)
+	cleanupDeletions bool
 
 	w    io.WriteSeeker
 	bufw *bufio.Writer
@@ -74,7 +79,7 @@ type Compactor struct {
 // requirements are the way they are.
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
-	scratchSpacePath string,
+	scratchSpacePath string, cleanupDeletions bool,
 ) *Compactor {
 	return &Compactor{
 		left:             left,
@@ -82,6 +87,7 @@ func NewCompactor(w io.WriteSeeker,
 		w:                w,
 		bufw:             bufio.NewWriterSize(w, 256*1024),
 		currentLevel:     level,
+		cleanupDeletions: cleanupDeletions,
 		scratchSpacePath: scratchSpacePath,
 	}
 }
@@ -106,9 +112,12 @@ func (c *Compactor) Do() error {
 		return fmt.Errorf("flush buffered: %w", err)
 	}
 
-	dataEnd := uint64(kis[len(kis)-1].ValueEnd)
+	var dataEnd uint64 = segmentindex.HeaderSize
+	if len(kis) > 0 {
+		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
+	}
 
-	if err := c.writeHeader(c.currentLevel+1, 0, 0,
+	if err := c.writeHeader(c.currentLevel, 0, 0,
 		dataEnd); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
@@ -137,13 +146,18 @@ type nodeCompactor struct {
 	output                []segmentindex.Key
 	offset                int
 	bufw                  *bufio.Writer
+
+	cleanupDeletions bool
+	emptyBitmap      *sroar.Bitmap
 }
 
 func (c *Compactor) writeNodes() ([]segmentindex.Key, error) {
 	nc := &nodeCompactor{
-		left:  c.left,
-		right: c.right,
-		bufw:  c.bufw,
+		left:             c.left,
+		right:            c.right,
+		bufw:             c.bufw,
+		cleanupDeletions: c.cleanupDeletions,
+		emptyBitmap:      sroar.NewBitmap(),
 	}
 
 	nc.init()
@@ -203,18 +217,20 @@ func (c *nodeCompactor) mergeIdenticalKeys() error {
 		return fmt.Errorf("merge bitmap layers for identical keys: %w", err)
 	}
 
-	sn, err := NewSegmentNode(c.keyRight, merged.Additions, merged.Deletions)
-	if err != nil {
-		return fmt.Errorf("new segment node for merged key: %w", err)
-	}
+	if additions, deletions, skip := c.cleanupValues(merged.Additions, merged.Deletions); !skip {
+		sn, err := NewSegmentNode(c.keyRight, additions, deletions)
+		if err != nil {
+			return fmt.Errorf("new segment node for merged key: %w", err)
+		}
 
-	ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
-	if err != nil {
-		return fmt.Errorf("write individual node (merged key): %w", err)
-	}
+		ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
+		if err != nil {
+			return fmt.Errorf("write individual node (merged key): %w", err)
+		}
 
-	c.offset = ki.ValueEnd
-	c.output = append(c.output, ki)
+		c.offset = ki.ValueEnd
+		c.output = append(c.output, ki)
+	}
 
 	// advance both!
 	c.keyLeft, c.valueLeft, _ = c.left.Next()
@@ -223,37 +239,54 @@ func (c *nodeCompactor) mergeIdenticalKeys() error {
 }
 
 func (c *nodeCompactor) takeLeftKey() error {
-	sn, err := NewSegmentNode(c.keyLeft, c.valueLeft.Additions, c.valueLeft.Deletions)
-	if err != nil {
-		return fmt.Errorf("new segment node for left key: %w", err)
+	if additions, deletions, skip := c.cleanupValues(c.valueLeft.Additions, c.valueLeft.Deletions); !skip {
+		sn, err := NewSegmentNode(c.keyLeft, additions, deletions)
+		if err != nil {
+			return fmt.Errorf("new segment node for left key: %w", err)
+		}
+
+		ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
+		if err != nil {
+			return fmt.Errorf("write individual node (left key): %w", err)
+		}
+
+		c.offset = ki.ValueEnd
+		c.output = append(c.output, ki)
 	}
 
-	ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
-	if err != nil {
-		return fmt.Errorf("write individual node (left key): %w", err)
-	}
-
-	c.offset = ki.ValueEnd
-	c.output = append(c.output, ki)
 	c.keyLeft, c.valueLeft, _ = c.left.Next()
 	return nil
 }
 
 func (c *nodeCompactor) takeRightKey() error {
-	sn, err := NewSegmentNode(c.keyRight, c.valueRight.Additions, c.valueRight.Deletions)
-	if err != nil {
-		return fmt.Errorf("new segment node for right key: %w", err)
+	if additions, deletions, skip := c.cleanupValues(c.valueRight.Additions, c.valueRight.Deletions); !skip {
+		sn, err := NewSegmentNode(c.keyRight, additions, deletions)
+		if err != nil {
+			return fmt.Errorf("new segment node for right key: %w", err)
+		}
+
+		ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
+		if err != nil {
+			return fmt.Errorf("write individual node (right key): %w", err)
+		}
+
+		c.offset = ki.ValueEnd
+		c.output = append(c.output, ki)
 	}
 
-	ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
-	if err != nil {
-		return fmt.Errorf("write individual node (right key): %w", err)
-	}
-
-	c.offset = ki.ValueEnd
-	c.output = append(c.output, ki)
 	c.keyRight, c.valueRight, _ = c.right.Next()
 	return nil
+}
+
+func (c *nodeCompactor) cleanupValues(additions, deletions *sroar.Bitmap,
+) (add, del *sroar.Bitmap, skip bool) {
+	if !c.cleanupDeletions {
+		return additions, deletions, false
+	}
+	if !additions.IsEmpty() {
+		return additions, c.emptyBitmap, false
+	}
+	return nil, nil, true
 }
 
 func (c *Compactor) writeIndexes(keys []segmentindex.Key) error {

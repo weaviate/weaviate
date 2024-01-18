@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,6 +82,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	var (
 		found   [][]*Result
 		weights []float64
+		names   []string
 	)
 
 	if params.Query != "" {
@@ -95,6 +96,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 			found = append(found, res)
 			weights = append(weights, 1-alpha)
+			names = append(names, "keyword")
 		}
 
 		if alpha > 0 {
@@ -105,6 +107,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 			found = append(found, res)
 			weights = append(weights, alpha)
+			names = append(names, "vector")
 		}
 	} else {
 		ss := params.SubSearches
@@ -116,7 +119,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules)
+			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -127,6 +130,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 			found = append(found, res)
 			weights = append(weights, weight)
+			names = append(names, name)
 		}
 	}
 	if len(weights) != len(found) {
@@ -135,9 +139,9 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 	var fused []*Result
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
-		fused = FusionRanked(weights, found)
+		fused = FusionRanked(weights, found, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, found)
+		fused = FusionRelativeScore(weights, found, names)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
@@ -201,7 +205,7 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 	return out, nil
 }
 
-func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
+func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*Result, string, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
@@ -212,73 +216,68 @@ func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearch
 	case "nearVector":
 		return nearVectorSubSearch(subsearch, denseSearch)
 	default:
-		return nil, 0, fmt.Errorf("unknown hybrid search type %q", subsearch.Type)
+		return nil, "unknown", 0, fmt.Errorf("unknown hybrid search type %q", subsearch.Type)
 	}
 }
 
-func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*Result, float64, error) {
+func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.KeywordRanking)
 	params.Keyword = &sp
 
 	res, dists, err := sparseSearch()
 	if err != nil {
-		return nil, 0, fmt.Errorf("sparse subsearch: %w", err)
+		return nil, "", 0, fmt.Errorf("sparse subsearch: %w", err)
 	}
 
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		sr.ExplainScore = "(bm25)" + sr.ExplainScore
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return out, subsearch.Weight, nil
+	return out, "bm25f", subsearch.Weight, nil
 }
 
-func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
 	if modules == nil {
-		return nil, 0, nil
+		return nil, "", 0, nil
 	}
 
 	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], modules)
 	if err != nil {
-		return nil, 0, err
+		return nil, "", 0, err
 	}
 
 	res, dists, err := denseSearch(vector)
 	if err != nil {
-		return nil, 0, err
+		return nil, "", 0, err
 	}
 
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		sr.ExplainScore = fmt.Sprintf("(vector) %v %v ",
-			truncateVectorString(10, vector), res[i].ExplainScore())
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return out, subsearch.Weight, nil
+	return out, "vector,nearText", subsearch.Weight, nil
 }
 
-func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*Result, float64, error) {
+func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearVector)
 
 	res, dists, err := denseSearch(sp.Vector)
 	if err != nil {
-		return nil, 0, err
+		return nil, "", 0, err
 	}
 
 	out := make([]*Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		sr.ExplainScore = fmt.Sprintf("(vector) %v %v ",
-			truncateVectorString(10, sp.Vector), res[i].ExplainScore())
 		out[i] = &Result{obj.DocID(), &sr}
 	}
 
-	return out, subsearch.Weight, nil
+	return out, "vector,nearVector", subsearch.Weight, nil
 }
 
 func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {

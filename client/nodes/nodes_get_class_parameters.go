@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -75,6 +75,14 @@ type NodesGetClassParams struct {
 	// ClassName.
 	ClassName string
 
+	/* Output.
+
+	   Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+
+	   Default: "minimal"
+	*/
+	Output *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -92,7 +100,18 @@ func (o *NodesGetClassParams) WithDefaults() *NodesGetClassParams {
 //
 // All values with no default are reset to their zero value.
 func (o *NodesGetClassParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		outputDefault = string("minimal")
+	)
+
+	val := NodesGetClassParams{
+		Output: &outputDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the nodes get class params
@@ -139,6 +158,17 @@ func (o *NodesGetClassParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithOutput adds the output to the nodes get class params
+func (o *NodesGetClassParams) WithOutput(output *string) *NodesGetClassParams {
+	o.SetOutput(output)
+	return o
+}
+
+// SetOutput adds the output to the nodes get class params
+func (o *NodesGetClassParams) SetOutput(output *string) {
+	o.Output = output
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *NodesGetClassParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -150,6 +180,23 @@ func (o *NodesGetClassParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.Output != nil {
+
+		// query param output
+		var qrOutput string
+
+		if o.Output != nil {
+			qrOutput = *o.Output
+		}
+		qOutput := qrOutput
+		if qOutput != "" {
+
+			if err := r.SetQueryParam("output", qOutput); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

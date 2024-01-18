@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,15 +17,13 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-//nolint:all
-func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -39,7 +37,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get([]byte(idBytes))
 	if err != nil {
-		return errors.Wrap(err, "unexpected error on previous lookup")
+		return fmt.Errorf("unexpected error on previous lookup: %w", err)
 	}
 
 	if existing == nil {
@@ -51,33 +49,33 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	// pointing to this object
 	docID, err = storobj.DocIDFromBinary(existing)
 	if err != nil {
-		return errors.Wrap(err, "get existing doc id from object binary")
+		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
 
 	err = bucket.Delete(idBytes)
 	if err != nil {
-		return errors.Wrap(err, "delete object from bucket")
+		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
-		return errors.Wrap(err, "delete object from bucket")
+		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
-	if err := s.vectorIndex.Delete(docID); err != nil {
-		return errors.Wrap(err, "delete from vector index")
+	if err = s.queue.Delete(docID); err != nil {
+		return fmt.Errorf("delete from vector index: %w", err)
 	}
 
-	if err := s.store.WriteWALs(); err != nil {
-		return errors.Wrap(err, "flush all buffered WALs")
+	if err = s.store.WriteWALs(); err != nil {
+		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err := s.vectorIndex.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
+	if err = s.VectorIndex().Flush(); err != nil {
+		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+	}
+
+	if err = s.ChangeObjectCountBy(-1); err != nil {
+		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
 	return nil
@@ -121,19 +119,15 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
-	if err := s.vectorIndex.Delete(docID); err != nil {
+	if err = s.queue.Delete(docID); err != nil {
 		return fmt.Errorf("delete from vector index: %w", err)
 	}
 
-	if err := s.store.WriteWALs(); err != nil {
+	if err = s.store.WriteWALs(); err != nil {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err := s.vectorIndex.Flush(); err != nil {
+	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
@@ -143,26 +137,27 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
 	previousObject, err := storobj.FromBinary(previous)
 	if err != nil {
-		return errors.Wrap(err, "unmarshal previous object")
+		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.analyzeObject(previousObject)
+	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
-		return errors.Wrap(err, "analyze previous object")
+		return fmt.Errorf("analyze previous object: %w", err)
 	}
 
-	s.subtractPropLengths(previousInvertProps)
+	if err = s.subtractPropLengths(previousProps); err != nil {
+		return fmt.Errorf("subtract prop lengths: %w", err)
+	}
 
-	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
+	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
-		return errors.Wrap(err, "put inverted indices props")
+		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 
 	if s.index.Config.TrackVectorDimensions {
 		err = s.removeDimensionsLSM(len(previousObject.Vector), docID)
 		if err != nil {
-			return errors.Wrap(err, "track dimensions (delete)")
+			return fmt.Errorf("track dimensions (delete): %w", err)
 		}
 	}
 

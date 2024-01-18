@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -103,7 +103,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	meta, err := store.Meta(ctx, req.ID, false)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
-		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+		return reqStat{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
 	}
 	if err != nil || meta.Error != "" {
 		return reqStat{}, errors.New(meta.Error)
@@ -150,7 +150,9 @@ func (b *backupper) backup(ctx context.Context,
 			return
 
 		}
-		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set, b.logger)
+		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set, b.logger).
+			withCompression(newZipConfig(req.Compression))
+
 		result := backup.BackupDescriptor{
 			StartedAt:     time.Now().UTC(),
 			ID:            id,

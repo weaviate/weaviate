@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -67,9 +67,16 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
+	// if this is reference search and tenant is given (as origin class is MT)
+	// but searched class is non-MT, then skip tenant to pass validation
+	tenant := params.Tenant
+	if !idx.partitioningEnabled && params.IsRefOrigin {
+		tenant = ""
+	}
+
 	res, dist, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.Pagination.Autocut)
+		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
@@ -329,7 +336,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	}
 
 	if groupBy != nil {
-		res, err := refcache.NewResolverWithGroup(refcache.NewCacherWithGroup(db, db.logger)).
+		res, err := refcache.NewResolverWithGroup(refcache.NewCacherWithGroup(db, db.logger, tenant)).
 			Do(ctx, objs, props, addl)
 		if err != nil {
 			return nil, fmt.Errorf("resolve cross-refs: %w", err)

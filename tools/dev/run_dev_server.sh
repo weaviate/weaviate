@@ -45,7 +45,6 @@ case $CONFIG in
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      LOG_LEVEL="trace" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -212,6 +211,19 @@ case $CONFIG in
       DEFAULT_VECTORIZER_MODULE=multi2vec-clip \
       CLIP_INFERENCE_API="http://localhost:8005" \
       ENABLE_MODULES="multi2vec-clip" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+  local-bind)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=multi2vec-bind \
+      BIND_INFERENCE_API="http://localhost:8011" \
+      ENABLE_MODULES="multi2vec-bind" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -445,6 +457,52 @@ case $CONFIG in
         --write-timeout=600s
       ;;
 
+    local-gcs-2)
+        PERSISTENCE_DATA_PATH="./data-node2" \
+        CONTEXTIONARY_URL=localhost:9999 \
+        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+        GOOGLE_CLOUD_PROJECT=project-id \
+        STORAGE_EMULATOR_HOST=localhost:9090 \
+        BACKUP_GCS_ENDPOINT=localhost:9090 \
+        BACKUP_GCS_BUCKET=weaviate-backups \
+        ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+        CLUSTER_HOSTNAME="node2" \
+        CLUSTER_GOSSIP_BIND_PORT="7102" \
+        CLUSTER_DATA_BIND_PORT="7103" \
+        CLUSTER_JOIN="localhost:7100" \
+        GRPC_PORT=50052 \
+        go_run ./cmd/weaviate-server \
+          --scheme http \
+          --host "127.0.0.1" \
+          --port 8081 \
+          --read-timeout=600s \
+          --write-timeout=600s
+        ;;
+
+    local-gcs-3)
+        PERSISTENCE_DATA_PATH="./data-node3" \
+        CONTEXTIONARY_URL=localhost:9999 \
+        AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+        GOOGLE_CLOUD_PROJECT=project-id \
+        STORAGE_EMULATOR_HOST=localhost:9090 \
+        BACKUP_GCS_ENDPOINT=localhost:9090 \
+        BACKUP_GCS_BUCKET=weaviate-backups \
+        ENABLE_MODULES="text2vec-contextionary,backup-gcs" \
+        CLUSTER_HOSTNAME="node3" \
+        CLUSTER_GOSSIP_BIND_PORT="7104" \
+        CLUSTER_DATA_BIND_PORT="7105" \
+        CLUSTER_JOIN="localhost:7100" \
+        GRPC_PORT=50053 \
+        go_run ./cmd/weaviate-server \
+          --scheme http \
+          --host "127.0.0.1" \
+          --port 8082 \
+          --read-timeout=600s \
+          --write-timeout=600s
+        ;;
+
   local-azure)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -490,8 +548,21 @@ case $CONFIG in
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      RERANKER_INFERENCE_API="http://localhost:8008" \
+      RERANKER_INFERENCE_API="http://localhost:8009" \
       ENABLE_MODULES="text2vec-contextionary,reranker-transformers" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-gpt4all)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
+      GPT4ALL_INFERENCE_API="http://localhost:8010" \
+      ENABLE_MODULES="text2vec-gpt4all" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

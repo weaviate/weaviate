@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -108,6 +108,17 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 	}
 
 	return s.GetClass(schema.ClassName(res.ClassName)), nil
+}
+
+func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
+	className string,
+) (*models.Class, error) {
+	s, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetClass(schema.ClassName(className)), nil
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,15 +12,12 @@
 package docker
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/docker/go-connections/nat"
-	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -28,63 +25,41 @@ import (
 const GCS = "gcp-storage-emulator"
 
 func startGCS(ctx context.Context, networkName string) (*DockerContainer, error) {
-	dockerFile := "FROM python:3.9-slim-buster\nRUN pip3 install gcp-storage-emulator"
-	fromDockerfile, err := dockerFileFromString(dockerFile)
-	if err != nil {
-		return nil, errors.Wrap(err, "create dockerfile")
-	}
+	port := nat.Port("9090/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			FromDockerfile: fromDockerfile,
-			ExposedPorts:   []string{"9090/tcp"},
-			Name:           GCS,
-			Hostname:       GCS,
-			AutoRemove:     true,
-			Networks:       []string{networkName},
+			Image:        "oittaa/gcp-storage-emulator",
+			ExposedPorts: []string{"9090/tcp"},
+			Name:         GCS,
+			Hostname:     GCS,
+			AutoRemove:   true,
+			Networks:     []string{networkName},
 			NetworkAliases: map[string][]string{
 				networkName: {GCS},
 			},
-			Entrypoint: []string{"gcp-storage-emulator"},
-			Cmd:        []string{"start", "--host", "0.0.0.0", "--port", "9090"},
-			WaitingFor: wait.
-				ForHTTP("/").
-				WithPort(nat.Port("9090")).
-				WithStartupTimeout(60 * time.Second),
+			Env: map[string]string{
+				"PORT": port.Port(),
+			},
+			WaitingFor: wait.ForAll(
+				wait.ForListeningPort(port),
+				wait.ForHTTP("/").WithPort(port),
+			).WithStartupTimeoutDefault(60 * time.Second),
 		},
 		Started: true,
 	})
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := container.Endpoint(ctx, "")
+	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
 		return nil, err
 	}
 	envSettings := make(map[string]string)
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
-	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, "9090")
+	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, port.Port())
 	envSettings["BACKUP_GCS_USE_AUTH"] = "false"
-	return &DockerContainer{GCS, endpoint, container, envSettings}, nil
-}
-
-func dockerFileFromString(dockerFile string) (testcontainers.FromDockerfile, error) {
-	dockerFileBytes := []byte(dockerFile)
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	header := &tar.Header{Name: "Dockerfile", Mode: 600, Size: int64(len(dockerFileBytes))}
-	if err := tw.WriteHeader(header); err != nil {
-		return testcontainers.FromDockerfile{}, errors.Wrap(err, "write header")
-	}
-	if _, err := tw.Write(dockerFileBytes); err != nil {
-		return testcontainers.FromDockerfile{}, errors.Wrap(err, "write file contents")
-	}
-	if err := tw.Close(); err != nil {
-		return testcontainers.FromDockerfile{}, errors.Wrap(err, "close tar file")
-	}
-	reader := bytes.NewReader(buf.Bytes())
-	fromDockerfile := testcontainers.FromDockerfile{
-		ContextArchive: reader,
-	}
-	return fromDockerfile, nil
+	endpoints := make(map[EndpointName]endpoint)
+	endpoints[HTTP] = endpoint{port, uri}
+	return &DockerContainer{GCS, endpoints, container, envSettings}, nil
 }

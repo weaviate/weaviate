@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,7 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		config ent.VectorizationConfig, titlePropertyValue string) (*ent.VectorizationResult, error)
 	VectorizeQuery(ctx context.Context, input []string,
 		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
@@ -48,6 +48,7 @@ type ClassSettings interface {
 	ApiEndpoint() string
 	ProjectID() string
 	ModelID() string
+	TitleProperty() string
 }
 
 func sortStringKeys(schema_map map[string]interface{}) []string {
@@ -88,11 +89,21 @@ func appendPropIfText(icheck ClassSettings, list *[]string, propName string,
 	return false
 }
 
+func appendTitlePropIfText(icheck ClassSettings, list *[]string, propName string,
+	value interface{},
+) bool {
+	if icheck.TitleProperty() == propName {
+		return appendPropIfText(icheck, list, propName, value)
+	}
+	return false
+}
+
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, objDiff *moduletools.ObjectDiff, icheck ClassSettings,
 ) ([]float32, error) {
 	vectorize := objDiff == nil || objDiff.GetVec() == nil
 
+	var titlePropertyValue []string
 	var corpi []string
 	if icheck.VectorizeClassName() {
 		corpi = append(corpi, camelCaseToLower(className))
@@ -109,13 +120,16 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 			case []string:
 				for _, elem := range val {
 					appended = appendPropIfText(icheck, &corpi, prop, elem) || appended
+					appendTitlePropIfText(icheck, &titlePropertyValue, prop, elem)
 				}
 			case []interface{}:
 				for _, elem := range val {
 					appended = appendPropIfText(icheck, &corpi, prop, elem) || appended
+					appendTitlePropIfText(icheck, &titlePropertyValue, prop, elem)
 				}
 			default:
 				appended = appendPropIfText(icheck, &corpi, prop, val)
+				appendTitlePropIfText(icheck, &titlePropertyValue, prop, val)
 			}
 
 			vectorize = vectorize || (appended && objDiff != nil && objDiff.IsChangedProp(prop))
@@ -132,16 +146,23 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	text := []string{strings.Join(corpi, " ")}
+	titleProperty := strings.Join(titlePropertyValue, " ")
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
 		Model:       icheck.ModelID(),
-	})
+	}, titleProperty)
 	if err != nil {
 		return nil, err
 	}
+	if len(res.Vectors) == 0 {
+		return nil, fmt.Errorf("no vectors generated")
+	}
 
-	return res.Vector, nil
+	if len(res.Vectors) > 1 {
+		return v.CombineVectors(res.Vectors), nil
+	}
+	return res.Vectors[0], nil
 }
 
 func camelCaseToLower(in string) string {

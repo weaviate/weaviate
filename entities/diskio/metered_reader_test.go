@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,7 +73,7 @@ func TestMeteredReader(t *testing.T) {
 
 		assert.Equal(t, io.EOF, err)
 
-		// callabck should not have been called in error cases, so we expect to
+		// callback should not have been called in error cases, so we expect to
 		// read initial values
 		assert.Equal(t, int64(0), read)
 		assert.Equal(t, int64(0), took)

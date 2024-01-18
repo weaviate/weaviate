@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,10 +39,10 @@ type client struct {
 	logger       logrus.FieldLogger
 }
 
-func New(origin string, logger logrus.FieldLogger) *client {
+func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		origin:       origin,
-		httpClient:   &http.Client{},
+		httpClient:   &http.Client{Timeout: timeout},
 		maxDocuments: 32,
 		logger:       logger,
 	}

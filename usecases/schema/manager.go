@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -41,17 +42,23 @@ type Manager struct {
 	moduleConfig            ModuleConfig
 	cluster                 *cluster.TxManager
 	clusterState            clusterState
-	hnswConfigParser        VectorConfigParser
+	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
 	scaleOut                scaleOut
 	RestoreStatus           sync.Map
 	RestoreError            sync.Map
 	sync.RWMutex
 
+	// As outlined in [*cluster.TxManager.TryResumeDanglingTxs] the current
+	// implementation isn't perfect. It does not actually know if a tx was meant
+	// to be committed or not. Instead we do a simple workaround. We check if the
+	// schema is out of sync and only then do we try to resume transactions.
+	shouldTryToResumeTx bool
+
 	schemaCache
 }
 
-type VectorConfigParser func(in interface{}) (schema.VectorIndexConfig, error)
+type VectorConfigParser func(in interface{}, vectorIndexType string) (schema.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
@@ -64,8 +71,9 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantShard(class, tenant string) string
+	TenantShard(class, tenant string) (string, string)
 	ShardFromUUID(class string, uuid []byte) string
+	ShardReplicas(class, shard string) ([]string, error)
 }
 
 type VectorizerValidator interface {
@@ -98,6 +106,10 @@ type SchemaStore interface {
 
 	// NewShards creates new shards of an existing class
 	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
+
+	// UpdateShards updates (replaces) shards of on existing class
+	// Error is returned if class or shard does not exist
+	UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error
 
 	// DeleteShards deletes shards from a class
 	// If the class or a shard does not exist then nothing is done and a nil error is returned
@@ -135,6 +147,7 @@ type clusterState interface {
 	ClusterHealthScore() int
 
 	SchemaSyncIgnored() bool
+	SkipSchemaRepair() bool
 }
 
 type scaleOut interface {
@@ -146,10 +159,11 @@ type scaleOut interface {
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
-	hnswConfigParser VectorConfigParser, vectorizerValidator VectorizerValidator,
+	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client, scaleoutManager scaleOut,
+	txClient cluster.Client, txPersistence cluster.Persistence,
+	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
 	m := &Manager{
@@ -159,11 +173,11 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 		schemaCache:             schemaCache{State: State{}},
 		logger:                  logger,
 		Authorizer:              authorizer,
-		hnswConfigParser:        hnswConfigParser,
+		configParser:            configParser,
 		vectorizerValidator:     vectorizerValidator,
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
-		cluster:                 cluster.NewTxManager(txBroadcaster, logger),
+		cluster:                 cluster.NewTxManager(txBroadcaster, txPersistence, logger),
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
 	}
@@ -172,6 +186,7 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 
 	m.cluster.SetCommitFn(m.handleCommit)
 	m.cluster.SetResponseFn(m.handleTxResponse)
+	m.cluster.SetAllowUnready(allowUnreadyTxs)
 	txBroadcaster.SetConsensusFunction(newReadConsensus(m.parseConfigs, m.logger))
 
 	err := m.loadOrInitializeSchema(context.Background())
@@ -180,6 +195,21 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 	}
 
 	return m, nil
+}
+
+func (m *Manager) Shutdown(ctx context.Context) error {
+	allCommitsDone := make(chan struct{})
+	go func() {
+		m.cluster.Shutdown()
+		allCommitsDone <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for transactions to commit: %w", ctx.Err())
+	case <-allCommitsDone:
+		return nil
+	}
 }
 
 func (m *Manager) TxManager() *cluster.TxManager {
@@ -204,7 +234,7 @@ func (m *Manager) saveSchema(ctx context.Context, st State) error {
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
 // type update callback. The callbacks will be called any time we persist a
-// schema upadate
+// schema update
 func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.Schema)) {
 	m.callbacks = append(m.callbacks, callback)
 }
@@ -260,6 +290,73 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 	return nil
 }
 
+// StartServing indicates that the schema manager is ready to accept incoming
+// connections in cluster mode, i.e. it will accept opening transactions.
+//
+// Some transactions are exempt, such as ReadSchema which is required for nodes
+// to start up.
+//
+// This method should be called when all backends, primarily the DB, are ready
+// to serve.
+func (m *Manager) StartServing(ctx context.Context) error {
+	if err := m.resumeDanglingTransactions(ctx); err != nil {
+		return err
+	}
+
+	// only start accepting incoming connections when dangling txs have been
+	// resumed, otherwise there is potential for conflict
+	m.cluster.StartAcceptIncoming()
+
+	return nil
+}
+
+// resumeDanglingTransactions iterates over any transaction that may have been left
+// dangling after a restart and retries to commit them if appropriate.
+//
+// This can only be called when all areas responding to side effects of
+// committing a transaction are ready. In practice this means, the DB must be
+// ready to try and call this method.
+func (m *Manager) resumeDanglingTransactions(ctx context.Context) error {
+	var shouldResume bool
+	m.RLockGuard(func() error {
+		shouldResume = m.shouldTryToResumeTx
+		return nil
+	})
+
+	if !shouldResume {
+		// nothing to do for us
+		return nil
+	}
+
+	ok, err := m.cluster.TryResumeDanglingTxs(ctx, resumableTxs)
+	if err != nil {
+		return fmt.Errorf("try resuming dangling transactions: %w", err)
+	}
+
+	if !ok {
+		// no tx was applied, we are done
+		return nil
+	}
+
+	// a tx was applied which means the previous schema check was skipped, we
+	// now need to check the schema again
+	err = m.validateSchemaCorruption(ctx)
+	if err == nil {
+		// all is fine, continue as normal
+		return nil
+	}
+
+	if m.clusterState.SchemaSyncIgnored() {
+		m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+			Warning("schema out of sync, but ignored because " +
+				"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+		return nil
+	}
+
+	return fmt.Errorf(
+		"applied dangling tx, but schema still out of sync: %w", err)
+}
+
 func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
 	// introduced when Weaviate started supporting multi-shards per class in v1.8
 	if err := m.checkSingleShardMigration(ctx, localSchema); err != nil {
@@ -297,7 +394,7 @@ func (m *Manager) checkSingleShardMigration(ctx context.Context, localSchema *St
 			return err
 		}
 
-		if err := replica.ValidateConfig(c); err != nil {
+		if err := replica.ValidateConfig(c, m.config.Replication); err != nil {
 			return fmt.Errorf("validate replication config: %w", err)
 		}
 		shardState, err := sharding.InitState(c.Class,
@@ -349,7 +446,13 @@ func (m *Manager) parseConfigs(ctx context.Context, schema *State) error {
 			return errors.Wrapf(err, "class %s: sharding config", class.Class)
 		}
 
-		if err := replica.ValidateConfig(class); err != nil {
+		// Pass dummy replication config with minimum factor 1. Otherwise the
+		// setting is not backward-compatible. The user may have created a class
+		// with factor=1 before the change was introduced. Now their setup would no
+		// longer start up if the required minimum is now higher than 1. We want
+		// the required minimum to only apply to newly created classes - not block
+		// loading existing ones.
+		if err := replica.ValidateConfig(class, replication.GlobalConfig{MinimumFactor: 1}); err != nil {
 			return fmt.Errorf("replication config: %w", err)
 		}
 	}

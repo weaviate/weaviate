@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -128,7 +128,7 @@ func TestVectorizer_Object(t *testing.T) {
 					crossRefs[i] = crossRef
 					modelRefs[i] = crossRef.SingleRef()
 
-					repo.On("Object", ctx, crossRef.Class, crossRef.TargetID).
+					repo.On("Object", ctx, crossRef.Class, crossRef.TargetID, "").
 						Return(res.res, res.err)
 				}
 
@@ -166,4 +166,29 @@ func TestVectorizer_Object(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Nil(t, obj.Vector)
 	})
+}
+
+func TestVectorizer_Tenant(t *testing.T) {
+	objectSearchResults := search.Result{Vector: []float32{}}
+	ctx := context.Background()
+	repo := &fakeObjectsRepo{}
+	refProps := []interface{}{"toRef"}
+	cfg := fakeClassConfig{"method": "mean", "referenceProperties": refProps}
+	tenant := "randomTenant"
+
+	crossRef := crossref.New("localhost", "SomeClass",
+		strfmt.UUID(uuid.NewString()))
+	modelRefs := models.MultipleRef{crossRef.SingleRef()}
+
+	repo.On("Object", ctx, crossRef.Class, crossRef.TargetID, tenant).
+		Return(&objectSearchResults, nil)
+
+	obj := &models.Object{
+		Properties: map[string]interface{}{"toRef": modelRefs},
+		Tenant:     tenant,
+	}
+
+	err := New(cfg, repo.Object).Object(ctx, obj)
+	assert.Nil(t, err)
+	assert.Nil(t, obj.Vector)
 }

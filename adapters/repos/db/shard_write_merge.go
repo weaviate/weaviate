@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,14 +23,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
+func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
 
 	if merge.Vector != nil {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+		err := s.VectorIndex().ValidateBeforeInsert(merge.Vector)
 		if err != nil {
 			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
 		}
@@ -60,10 +60,6 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
-	}
-
-	if err := s.vectorIndex.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
 	return nil

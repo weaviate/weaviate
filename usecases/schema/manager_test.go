@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,8 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -43,7 +45,11 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
-func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (n *NilMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -55,7 +61,11 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
+func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+	return func(bool) {}, nil
+}
+
+func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
 	return func(bool) {}, nil
 }
 
@@ -514,6 +524,7 @@ func TestSchema(t *testing.T) {
 			// to reduce boilerplate in each separate test.
 			t.Run(testCase.name, func(t *testing.T) {
 				sm := newSchemaManager()
+				sm.StartServing(context.Background()) // will also mark tx manager as ready
 				testCase.fn(t, sm)
 			})
 		}
@@ -534,11 +545,13 @@ func newSchemaManager() *Manager {
 		dummyConfig, dummyParseVectorConfig, // only option for now
 		vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
-		&fakeTxClient{}, &fakeScaleOutManager{},
+		&fakeTxClient{}, &fakeTxPersistence{}, &fakeScaleOutManager{},
 	)
 	if err != nil {
 		panic(err.Error())
 	}
+
+	sm.StartServing(context.Background()) // will also mark tx manager as ready
 
 	return sm
 }
@@ -582,7 +595,7 @@ func Test_ParseVectorConfigOnDiskLoad(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
-		&fakeTxClient{}, &fakeScaleOutManager{},
+		&fakeTxClient{}, &fakeTxPersistence{}, &fakeScaleOutManager{},
 	)
 	require.Nil(t, err)
 
@@ -615,7 +628,7 @@ func Test_ExtendSchemaWithExistingPropName(t *testing.T) {
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, &fakeClusterState{hosts: []string{"node1"}},
-		&fakeTxClient{}, &fakeScaleOutManager{},
+		&fakeTxClient{}, &fakeTxPersistence{}, &fakeScaleOutManager{},
 	)
 	require.Nil(t, err)
 
@@ -647,4 +660,51 @@ func (f *fakeScaleOutManager) Scale(ctx context.Context,
 }
 
 func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
+}
+
+// does nothing as these do not involve crashes
+type fakeTxPersistence struct{}
+
+func (f *fakeTxPersistence) StoreTx(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return nil
+}
+
+func (f *fakeTxPersistence) DeleteTx(ctx context.Context,
+	txID string,
+) error {
+	return nil
+}
+
+func (f *fakeTxPersistence) IterateAll(ctx context.Context,
+	cb func(tx *cluster.Transaction),
+) error {
+	return nil
+}
+
+type fakeBroadcaster struct {
+	openErr       error
+	commitErr     error
+	abortErr      error
+	abortCalledId string
+}
+
+func (f *fakeBroadcaster) BroadcastTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return f.openErr
+}
+
+func (f *fakeBroadcaster) BroadcastAbortTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	f.abortCalledId = tx.ID
+	return f.abortErr
+}
+
+func (f *fakeBroadcaster) BroadcastCommitTransaction(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	return f.commitErr
 }

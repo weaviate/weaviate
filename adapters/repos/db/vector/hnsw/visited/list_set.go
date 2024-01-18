@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,11 +12,11 @@
 package visited
 
 // ListSet is a reusable list with very efficient resets. Inspired by the C++
-// implementation in hnswlib it can be reset with zero memrory writes in the
+// implementation in hnswlib it can be reset with zero memory writes in the
 // array by moving the match target instead of altering the list. Only after a
 // version overflow do we need to actually reset
 //
-// The new implemtation uses a slice where the first element is reserved for the marker.
+// The new implementation uses a slice where the first element is reserved for the marker.
 // This allow us to use ListSet as a value (i.e. no pointer is required)
 // The marker (i.e. set[0]) allows for reusing the same list without having to zero all elements on each list reset.
 // Resetting the list takes place once the marker (i.e. set[0]) overflows
@@ -68,7 +68,7 @@ const threshold = 2048
 
 // growth calculates the amount a list should grow in a smooth way.
 //
-// Insipired by the go standard implementation
+// Inspired by the go standard implementation
 func growth(oldsize, size int) int {
 	doublesize := oldsize << 1
 	if size > doublesize {

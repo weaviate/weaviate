@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,10 +18,10 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func FusionRanked(weights []float64, results [][]*Result) []*Result {
-	mapResults := map[strfmt.UUID]*Result{}
-	for resultSetIndex, result := range results {
-		for i, res := range result {
+func FusionRanked(weights []float64, resultSets [][]*Result, setNames []string) []*Result {
+	combinedResults := map[strfmt.UUID]*Result{}
+	for resultSetIndex, resultSet := range resultSets {
+		for i, res := range resultSet {
 			tempResult := res
 			docId := tempResult.ID
 			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
@@ -31,31 +31,31 @@ func FusionRanked(weights []float64, results [][]*Result) []*Result {
 			}
 
 			// Get previous results from the map, if any
-			previousResult, ok := mapResults[docId]
+			previousResult, ok := combinedResults[docId]
 			if ok {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
-					"%v\n(hybrid) Document %v contributed %v to the score",
-					previousResult.AdditionalProperties["explainScore"], tempResult.ID, score)
+					"%v\n(Result Set %v) Document %v contributed %v to the score",
+					previousResult.AdditionalProperties["explainScore"], setNames[resultSetIndex], tempResult.ID, score)
 				score += float64(previousResult.Score)
 			} else {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
-					"%v\n(hybrid) Document %v contributed %v to the score",
-					tempResult.ExplainScore, tempResult.ID, score)
+					"%v\n(Result Set %v) Document %v contributed %v to the score",
+					tempResult.ExplainScore, setNames[resultSetIndex], tempResult.ID, score)
 			}
 			tempResult.AdditionalProperties["rank_score"] = score
 			tempResult.AdditionalProperties["score"] = score
 
 			tempResult.Score = float32(score)
-			mapResults[docId] = tempResult
+			combinedResults[docId] = tempResult
 		}
 	}
 
 	// Sort the results
 	var (
-		concat = make([]*Result, len(mapResults))
+		concat = make([]*Result, len(combinedResults))
 		i      = 0
 	)
-	for _, res := range mapResults {
+	for _, res := range combinedResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
 		concat[i] = res
 		i++
@@ -80,23 +80,23 @@ func FusionRanked(weights []float64, results [][]*Result) []*Result {
 //	Input score = [1, 8, 6, 11] => [0, 0.7, 0.5, 1]
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
-func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
-	if len(results[0]) == 0 && (len(results) == 1 || len(results[1]) == 0) {
+func FusionRelativeScore(weights []float64, resultSets [][]*Result, names []string) []*Result {
+	if len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
 		return []*Result{}
 	}
 
 	var maximum []float32
 	var minimum []float32
 
-	for i := range results {
-		if len(results[i]) > 0 {
-			maximum = append(maximum, results[i][0].SecondarySortValue)
-			minimum = append(minimum, results[i][0].SecondarySortValue)
+	for i := range resultSets {
+		if len(resultSets[i]) > 0 {
+			maximum = append(maximum, resultSets[i][0].SecondarySortValue)
+			minimum = append(minimum, resultSets[i][0].SecondarySortValue)
 		} else { // dummy values so the indices match
 			maximum = append(maximum, 0)
 			minimum = append(minimum, 0)
 		}
-		for _, res := range results[i] {
+		for _, res := range resultSets[i] {
 			if res.SecondarySortValue > maximum[i] {
 				maximum[i] = res.SecondarySortValue
 			}
@@ -110,14 +110,14 @@ func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
 	// normalize scores between 0 and 1 and sum uo the normalized scores from different sources
 	// pre-allocate map, at this stage we do not know how many total, combined results there are, but it is at least the
 	// length of the longer input list
-	numResults := len(results[0])
-	if len(results) > 1 && len(results[1]) > numResults {
-		numResults = len(results[1])
+	numResults := len(resultSets[0])
+	if len(resultSets) > 1 && len(resultSets[1]) > numResults {
+		numResults = len(resultSets[1])
 	}
 	mapResults := make(map[strfmt.UUID]*Result, numResults)
-	for i := range results {
+	for i := range resultSets {
 		weight := float32(weights[i])
-		for _, res := range results[i] {
+		for _, res := range resultSets[i] {
 			// If all scores are identical min and max are the same => just set score to the weight.
 			score := weight
 			if maximum[i] != minimum[i] {
@@ -125,7 +125,7 @@ func FusionRelativeScore(weights []float64, results [][]*Result) []*Result {
 			}
 
 			previousResult, ok := mapResults[res.ID]
-			explainScore := res.ExplainScore + fmt.Sprintf(": original score %v, normalized score: %v", res.SecondarySortValue, score)
+			explainScore := fmt.Sprintf("(Result Set '%v') Document %v: original score %v, normalized score: %v", names[i], res.ID, res.SecondarySortValue, score)
 			if ok {
 				score += previousResult.Score
 				explainScore += " - " + previousResult.ExplainScore

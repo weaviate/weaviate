@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -245,8 +245,7 @@ func TestBatchAddTenantReferences(t *testing.T) {
 		require.NotNil(t, resp[0].Result.Errors)
 		require.Len(t, resp[0].Result.Errors.Error, 1)
 		require.NotNil(t, resp[0].Result.Errors.Error[0])
-		expectedMsg := fmt.Sprintf(`target: object %s/%s not found for tenant %q`,
-			className2, mtObject2DiffTenant.ID, tenantName1)
+		expectedMsg := fmt.Sprintf(`target: object %s/%s not found for tenant %q`, className2, mtObject2DiffTenant.ID, tenantName1)
 		assert.Equal(t, expectedMsg, resp[0].Result.Errors.Error[0].Message)
 	})
 
@@ -338,7 +337,7 @@ func TestAddMultipleTenantsForBatch(t *testing.T) {
 
 	for _, class := range classes[1:] {
 		for k := range tenants {
-			helper.CreateTenants(t, class.Class, []*models.Tenant{{tenants[k]}})
+			helper.CreateTenants(t, class.Class, []*models.Tenant{{Name: tenants[k]}})
 		}
 	}
 

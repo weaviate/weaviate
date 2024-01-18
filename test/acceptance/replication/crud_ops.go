@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -264,8 +265,9 @@ func countTenantObjects(t *testing.T, host, class string,
 
 func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
 	helper.SetupClient(host)
-
-	resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+	verbose := verbosity.OutputVerbose
+	params := nodes.NewNodesGetParams().WithOutput(&verbose)
+	resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
 }

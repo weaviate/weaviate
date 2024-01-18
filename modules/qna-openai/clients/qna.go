@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -28,33 +31,36 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
-func buildUrl(resourceName, deploymentID string) (string, error) {
+func buildUrl(baseURL, resourceName, deploymentID string) (string, error) {
+	///X update with base url
 	if resourceName != "" && deploymentID != "" {
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/completions"
 		queryParam := "api-version=2022-12-01"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
-	host := "https://api.openai.com"
+	host := baseURL
 	path := "/v1/completions"
 	return url.JoinPath(host, path)
 }
 
 type qna struct {
-	openAIApiKey string
-	azureApiKey  string
-	buildUrlFn   func(resourceName, deploymentID string) (string, error)
-	httpClient   *http.Client
-	logger       logrus.FieldLogger
+	openAIApiKey       string
+	openAIOrganization string
+	azureApiKey        string
+	buildUrlFn         func(baseURL, resourceName, deploymentID string) (string, error)
+	httpClient         *http.Client
+	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, azureApiKey string, logger logrus.FieldLogger) *qna {
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *qna {
 	return &qna{
-		openAIApiKey: openAIApiKey,
-		azureApiKey:  azureApiKey,
-		httpClient:   &http.Client{},
-		buildUrlFn:   buildUrl,
-		logger:       logger,
+		openAIApiKey:       openAIApiKey,
+		openAIOrganization: openAIOrganization,
+		azureApiKey:        azureApiKey,
+		httpClient:         &http.Client{Timeout: timeout},
+		buildUrlFn:         buildUrl,
+		logger:             logger,
 	}
 }
 
@@ -77,11 +83,11 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	oaiUrl, err := v.buildUrlFn(settings.ResourceName(), settings.DeploymentID())
+	oaiUrl, err := v.buildOpenAIUrl(ctx, settings.BaseURL(), settings.ResourceName(), settings.DeploymentID())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
-
+	fmt.Printf("using the OpenAI URL: %v\n", oaiUrl)
 	req, err := http.NewRequestWithContext(ctx, "POST", oaiUrl,
 		bytes.NewReader(body))
 	if err != nil {
@@ -92,6 +98,9 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
+	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
+		req.Header.Add("OpenAI-Organization", openAIOrganization)
+	}
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -126,6 +135,14 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		Question: question,
 		Answer:   nil,
 	}, nil
+}
+
+func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string) (string, error) {
+	passedBaseURL := baseURL
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+		passedBaseURL = headerBaseURL
+	}
+	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID)
 }
 
 func (v *qna) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
@@ -177,12 +194,30 @@ func (v *qna) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 }
 
 func (v *qna) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiValue := ctx.Value(apiKey); apiValue != nil {
-		if apiKeyHeader, ok := apiValue.([]string); ok && len(apiKeyHeader) > 0 && len(apiKeyHeader[0]) > 0 {
-			return apiKeyHeader[0], nil
-		}
+	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+		return apiKeyValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+}
+
+func (v *qna) getValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	// try getting header from GRPC if not successful
+	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
+		return apiKey[0]
+	}
+	return ""
+}
+
+func (v *qna) getOpenAIOrganization(ctx context.Context) string {
+	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+		return value
+	}
+	return v.openAIOrganization
 }
 
 type answersInput struct {
@@ -209,8 +244,8 @@ type choice struct {
 }
 
 type openAIApiError struct {
-	Message string `json:"message"`
-	Type    string `json:"type"`
-	Param   string `json:"param"`
-	Code    string `json:"code"`
+	Message string      `json:"message"`
+	Type    string      `json:"type"`
+	Param   string      `json:"param"`
+	Code    json.Number `json:"code"`
 }

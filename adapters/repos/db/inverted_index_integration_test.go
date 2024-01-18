@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -114,11 +114,11 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 
 	t.Run("check for additional buckets", func(t *testing.T) {
 		for _, idx := range migrator.db.indices {
-			idx.ForEachShard(func(_ string, shd *Shard) error {
-				createBucket := shd.store.Bucket("property__creationTimeUnix")
+			idx.ForEachShard(func(_ string, shd ShardLike) error {
+				createBucket := shd.Store().Bucket("property__creationTimeUnix")
 				assert.NotNil(t, createBucket)
 
-				updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
+				updateBucket := shd.Store().Bucket("property__lastUpdateTimeUnix")
 				assert.NotNil(t, updateBucket)
 
 				cases := []struct {
@@ -133,8 +133,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 					{prop: "updateWithoutII", compareFunc: assert.Nil},
 				}
 				for _, tt := range cases {
-					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
-					tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
+					tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalNullIndex))
+					tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalPropertyLength))
 				}
 				return nil
 			})
@@ -171,10 +171,10 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	t.Run("delete class", func(t *testing.T) {
 		require.Nil(t, migrator.DropClass(context.Background(), class.Class))
 		for _, idx := range migrator.db.indices {
-			idx.ForEachShard(func(name string, shd *Shard) error {
-				require.Nil(t, shd.store.Bucket("property__creationTimeUnix"))
-				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalNullIndex))
-				require.Nil(t, shd.store.Bucket("property_name"+filters.InternalPropertyLength))
+			idx.ForEachShard(func(name string, shd ShardLike) error {
+				require.Nil(t, shd.Store().Bucket("property__creationTimeUnix"))
+				require.Nil(t, shd.Store().Bucket("property_name"+filters.InternalNullIndex))
+				require.Nil(t, shd.Store().Bucket("property_name"+filters.InternalPropertyLength))
 				return nil
 			})
 		}
@@ -218,7 +218,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			Class:             "TestClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexNullState: true,
+				IndexNullState:      true,
+				IndexTimestamps:     true,
+				IndexPropertyLength: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -230,9 +232,12 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 
 		refClass := &models.Class{
-			Class:               "RefClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			Class:             "RefClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps:     true,
+				IndexPropertyLength: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -304,8 +309,8 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	t.Run("check buckets exist", func(t *testing.T) {
 		index := repo.indices["testclass"]
 		n := 0
-		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketNull := shard.store.Bucket(helpers.BucketFromPropNameNullLSM("name"))
+		index.ForEachShard(func(_ string, shard ShardLike) error {
+			bucketNull := shard.Store().Bucket(helpers.BucketFromPropNameNullLSM("name"))
 			require.NotNil(t, bucketNull)
 			n++
 			return nil
@@ -480,6 +485,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
 				IndexPropertyLength: true,
+				IndexTimestamps:     true,
 			},
 			Properties: []*models.Property{
 				{
@@ -495,9 +501,11 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 
 		refClass := &models.Class{
-			Class:               "RefClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			Class:             "RefClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -571,10 +579,10 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 	t.Run("check buckets exist", func(t *testing.T) {
 		index := repo.indices["testclass"]
 		n := 0
-		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropNameLengthLSM("name"))
+		index.ForEachShard(func(_ string, shard ShardLike) error {
+			bucketPropLengthName := shard.Store().Bucket(helpers.BucketFromPropNameLengthLSM("name"))
 			require.NotNil(t, bucketPropLengthName)
-			bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropNameLengthLSM("int_array"))
+			bucketPropLengthIntArray := shard.Store().Bucket(helpers.BucketFromPropNameLengthLSM("int_array"))
 			require.NotNil(t, bucketPropLengthIntArray)
 			n++
 			return nil
@@ -829,7 +837,8 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			Class:             "TestClass",
 			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
 			InvertedIndexConfig: &models.InvertedIndexConfig{
-				IndexTimestamps: true,
+				IndexTimestamps:     true,
+				IndexPropertyLength: true,
 			},
 			Properties: []*models.Property{
 				{
@@ -841,9 +850,12 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 
 		refClass := &models.Class{
-			Class:               "RefClass",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: &models.InvertedIndexConfig{},
+			Class:             "RefClass",
+			VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps:     true,
+				IndexPropertyLength: true,
+			},
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -919,10 +931,10 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	t.Run("check buckets exist", func(t *testing.T) {
 		index := repo.indices["testclass"]
 		n := 0
-		index.ForEachShard(func(_ string, shard *Shard) error {
-			bucketCreated := shard.store.Bucket("property_" + filters.InternalPropCreationTimeUnix)
+		index.ForEachShard(func(_ string, shard ShardLike) error {
+			bucketCreated := shard.Store().Bucket("property_" + filters.InternalPropCreationTimeUnix)
 			require.NotNil(t, bucketCreated)
-			bucketUpdated := shard.store.Bucket("property_" + filters.InternalPropLastUpdateTimeUnix)
+			bucketUpdated := shard.Store().Bucket("property_" + filters.InternalPropLastUpdateTimeUnix)
 			require.NotNil(t, bucketUpdated)
 			n++
 			return nil

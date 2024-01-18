@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -26,8 +27,8 @@ type Config struct {
 	RootPath              string
 	ID                    string
 	MakeCommitLoggerThunk MakeCommitLogger
-	VectorForIDThunk      VectorForID
-	TempVectorForIDThunk  TempVectorForID
+	VectorForIDThunk      common.VectorForID[float32]
+	TempVectorForIDThunk  common.TempVectorForID
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics

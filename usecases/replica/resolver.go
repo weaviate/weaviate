@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -69,7 +69,7 @@ func (r *resolver) State(shardName string, cl ConsistencyLevel, directCandidate 
 	res.Hosts = make([]string, 0, n)
 
 	// We must hold the data if candidate is specified hence it must exist
-	// if specified the direct candidate is alway at index 0
+	// if specified the direct candidate is always at index 0
 	if directCandidate == "" {
 		directCandidate = r.NodeName
 	}

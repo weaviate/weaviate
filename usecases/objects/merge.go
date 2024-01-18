@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,6 +62,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 	if obj == nil {
 		return &Error{"not found", StatusNotFound, err}
+	}
+
+	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
+	if err != nil {
+		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 
 	var propertiesToDelete []string

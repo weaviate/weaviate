@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,16 +24,23 @@ func TestAllowList(t *testing.T) {
 
 		assert.Equal(t, 0, al.Len())
 		assert.True(t, al.IsEmpty())
+
+		assert.Equal(t, uint64(0), al.Min())
+		assert.Equal(t, uint64(0), al.Max())
 	})
 
 	t.Run("allowlist created with initial values", func(t *testing.T) {
 		al := NewAllowList(1, 2, 3)
 
 		assert.Equal(t, 3, al.Len())
+		assert.False(t, al.IsEmpty())
+
 		assert.True(t, al.Contains(1))
 		assert.True(t, al.Contains(2))
 		assert.True(t, al.Contains(3))
-		assert.False(t, al.IsEmpty())
+
+		assert.Equal(t, uint64(1), al.Min())
+		assert.Equal(t, uint64(3), al.Max())
 	})
 
 	t.Run("allowlist with inserted values", func(t *testing.T) {
@@ -41,11 +48,16 @@ func TestAllowList(t *testing.T) {
 		al.Insert(4, 5)
 
 		assert.Equal(t, 5, al.Len())
+		assert.False(t, al.IsEmpty())
+
 		assert.True(t, al.Contains(1))
 		assert.True(t, al.Contains(2))
 		assert.True(t, al.Contains(3))
 		assert.True(t, al.Contains(4))
 		assert.True(t, al.Contains(5))
+
+		assert.Equal(t, uint64(1), al.Min())
+		assert.Equal(t, uint64(5), al.Max())
 	})
 
 	t.Run("allowlist exported to slice", func(t *testing.T) {
@@ -61,10 +73,26 @@ func TestAllowList(t *testing.T) {
 		al.Insert(4, 5)
 
 		assert.Equal(t, 5, al.Len())
+		assert.False(t, al.IsEmpty())
+
+		assert.True(t, al.Contains(1))
+		assert.True(t, al.Contains(2))
+		assert.True(t, al.Contains(3))
+		assert.True(t, al.Contains(4))
+		assert.True(t, al.Contains(5))
+
+		assert.Equal(t, uint64(1), al.Min())
+		assert.Equal(t, uint64(5), al.Max())
+
 		assert.Equal(t, 3, copy.Len())
+		assert.False(t, copy.IsEmpty())
+
 		assert.True(t, copy.Contains(1))
 		assert.True(t, copy.Contains(2))
 		assert.True(t, copy.Contains(3))
+
+		assert.Equal(t, uint64(1), copy.Min())
+		assert.Equal(t, uint64(3), copy.Max())
 	})
 
 	t.Run("allowlist created from bitmap", func(t *testing.T) {
@@ -74,6 +102,16 @@ func TestAllowList(t *testing.T) {
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 5, al.Len())
+		assert.False(t, al.IsEmpty())
+
+		assert.True(t, al.Contains(1))
+		assert.True(t, al.Contains(2))
+		assert.True(t, al.Contains(3))
+		assert.True(t, al.Contains(4))
+		assert.True(t, al.Contains(5))
+
+		assert.Equal(t, uint64(1), al.Min())
+		assert.Equal(t, uint64(5), al.Max())
 	})
 
 	t.Run("allowlist created from bitmap deepcopy", func(t *testing.T) {
@@ -83,6 +121,14 @@ func TestAllowList(t *testing.T) {
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 3, al.Len())
+		assert.False(t, al.IsEmpty())
+
+		assert.True(t, al.Contains(1))
+		assert.True(t, al.Contains(2))
+		assert.True(t, al.Contains(3))
+
+		assert.Equal(t, uint64(1), al.Min())
+		assert.Equal(t, uint64(3), al.Max())
 	})
 }
 

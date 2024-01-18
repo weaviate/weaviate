@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -179,9 +180,13 @@ type jobFunc func(context.Context, *Bucket) (interface{}, error)
 
 type rollbackFunc func(context.Context, *Bucket) error
 
-func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
+func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return b.ListFiles(ctx)
+		basePath, err := filepath.Rel(basePath, b.dir)
+		if err != nil {
+			return nil, fmt.Errorf("bucket relative path: %w", err)
+		}
+		return b.ListFiles(ctx, basePath)
 	}
 
 	result, err := s.runJobOnBuckets(ctx, listFiles, nil)

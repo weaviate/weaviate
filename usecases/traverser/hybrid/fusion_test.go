@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,7 +51,7 @@ func TestFusionRelativeScore(t *testing.T) {
 				}
 				results = append(results, result)
 			}
-			fused := FusionRelativeScore(tt.weights, results)
+			fused := FusionRelativeScore(tt.weights, results, []string{"set1", "set2"})
 			fusedScores := []float32{} // don't use nil slice declaration, should be explicitly empty
 			fusedOrder := []uint64{}
 
@@ -76,7 +76,7 @@ func TestFusionRelativeScoreExplain(t *testing.T) {
 		{uint64(1), &search.Result{SecondarySortValue: 1, ID: strfmt.UUID(fmt.Sprint(2)), ExplainScore: "vector"}},
 	}
 	results := [][]*Result{result1, result2}
-	fused := FusionRelativeScore([]float64{0.5, 0.5}, results)
-	require.Contains(t, fused[0].ExplainScore, "keyword: original score 0.5, normalized score: 0.5")
-	require.Contains(t, fused[0].ExplainScore, "vector: original score 2, normalized score: 0.5 - keyword: original score 0.5, normalized score: 0.5")
+	fused := FusionRelativeScore([]float64{0.5, 0.5}, results, []string{"keyword", "vector"})
+	require.Contains(t, fused[0].ExplainScore, "(Result Set 'keyword') Document 1: original score 0.5, normalized score: 0.5")
+	require.Contains(t, fused[0].ExplainScore, "(Result Set 'vector') Document 1: original score 2, normalized score: 0.5")
 }

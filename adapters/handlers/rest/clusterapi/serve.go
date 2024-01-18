@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,17 +21,18 @@ import (
 
 func Serve(appState *state.State) {
 	port := appState.ServerConfig.Config.Cluster.DataBindPort
+	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
 
 	appState.Logger.WithField("port", port).
 		WithField("action", "cluster_api_startup").
 		Debugf("serving cluster api on port %d", port)
 
-	schema := NewSchema(appState.SchemaManager.TxManager())
-	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB)
-	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler)
-	classifications := NewClassifications(appState.ClassificationRepo.TxManager())
-	nodes := NewNodes(appState.RemoteNodeIncoming)
-	backups := NewBackups(appState.BackupManager)
+	schema := NewSchema(appState.SchemaManager.TxManager(), auth)
+	indices := NewIndices(appState.RemoteIndexIncoming, appState.DB, auth)
+	replicatedIndices := NewReplicatedIndices(appState.RemoteReplicaIncoming, appState.Scaler, auth)
+	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
+	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
+	backups := NewBackups(appState.BackupManager, auth)
 
 	mux := http.NewServeMux()
 	mux.Handle("/schema/transactions/",

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -491,20 +491,20 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	require.Nil(t, err)
 	defer uncondensed.Shutdown(ctx)
 
-	encoders := []ssdhelpers.PQEncoder{
-		ssdhelpers.NewKMeansWithCenters(
+	encoders := []compressionhelpers.PQEncoder{
+		compressionhelpers.NewKMeansWithCenters(
 			4,
 			2,
 			0,
 			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
 		),
-		ssdhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansWithCenters(
 			4,
 			2,
 			1,
 			[][]float32{{8, 7}, {6, 5}, {4, 3}, {2, 1}},
 		),
-		ssdhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansWithCenters(
 			4,
 			2,
 			2,
@@ -513,11 +513,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	}
 
 	t.Run("add pq info", func(t *testing.T) {
-		uncondensed.AddPQ(ssdhelpers.PQData{
+		uncondensed.AddPQ(compressionhelpers.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
-			EncoderType:         ssdhelpers.UseKMeansEncoder,
+			EncoderType:         compressionhelpers.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
 			Encoders:            encoders,
 			UseBitsEncoding:     false,
@@ -551,11 +551,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		assert.True(t, res.Compressed)
-		expected := ssdhelpers.PQData{
+		expected := compressionhelpers.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
-			EncoderType:         ssdhelpers.UseKMeansEncoder,
+			EncoderType:         compressionhelpers.UseKMeansEncoder,
 			EncoderDistribution: uint8(0),
 			Encoders:            encoders,
 			UseBitsEncoding:     false,

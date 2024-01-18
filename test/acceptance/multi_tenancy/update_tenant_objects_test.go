@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -165,7 +165,7 @@ func TestUpdateTenantObjects_UpdateTenant(t *testing.T) {
 
 	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
 		helper.CreateClass(t, &testClass)
-		helper.CreateTenants(t, className, []*models.Tenant{{tenantName}})
+		helper.CreateTenants(t, className, []*models.Tenant{{Name: tenantName}})
 	})
 
 	t.Run("add tenant object", func(t *testing.T) {

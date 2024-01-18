@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -97,13 +97,8 @@ func autoSchemaObjects(t *testing.T) {
 							"longitude": json.Number("1.01"),
 						},
 						"testPhoneNumber": map[string]interface{}{
-							"input":                  "020 1234567",
-							"internationalFormatted": "+31 20 1234567",
-							"defaultCountry":         "nl",
-							"countryCode":            31,
-							"national":               201234567,
-							"nationalFormatted":      "020 1234567",
-							"valid":                  true,
+							"input":          "020 1234567",
+							"defaultCountry": "nl",
 						},
 						"textArray":   []string{"a", "b", "c"},
 						"intArray":    []int{1, 2, 3},

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,6 +59,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
+	}
+
+	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
 	m.logger.

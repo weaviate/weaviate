@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,12 +19,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/sync/errgroup"
 )
@@ -37,7 +39,7 @@ type Migrator struct {
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	shardState *sharding.State,
 ) error {
-	if err := replica.ValidateConfig(class); err != nil {
+	if err := replica.ValidateConfig(class, m.db.config.Replication); err != nil {
 		return fmt.Errorf("replication config: %w", err)
 	}
 
@@ -47,12 +49,15 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			RootPath:                  m.db.config.RootPath,
 			ResourceUsage:             m.db.config.ResourceUsage,
 			QueryMaximumResults:       m.db.config.QueryMaximumResults,
+			QueryNestedRefLimit:       m.db.config.QueryNestedRefLimit,
 			MemtablesFlushIdleAfter:   m.db.config.MemtablesFlushIdleAfter,
 			MemtablesInitialSizeMB:    m.db.config.MemtablesInitialSizeMB,
 			MemtablesMaxSizeMB:        m.db.config.MemtablesMaxSizeMB,
 			MemtablesMinActiveSeconds: m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
+			AvoidMMap:                 m.db.config.AvoidMMap,
+			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
 			ReplicationFactor:         class.ReplicationConfig.Factor,
 		},
 		shardState,
@@ -61,7 +66,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh)
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -127,13 +132,22 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propNam
 	return nil
 }
 
-func (m *Migrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
 	}
 
-	return idx.getShardsStatus(ctx)
+	return idx.getShardsQueueSize(ctx, tenant)
+}
+
+func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, errors.Errorf("cannot get shards status for a non-existing index for %s", className)
+	}
+
+	return idx.getShardsStatus(ctx, tenant)
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
@@ -147,13 +161,13 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions and returns a commit func
 // that can be used to either commit or rollback the partitions
-func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
+func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	shards := make(map[string]*Shard, len(tenants))
+	shards := make(map[string]ShardLike, len(creates))
 	rollback := func() {
 		for name, shard := range shards {
 			if err := shard.drop(); err != nil {
@@ -178,16 +192,149 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, tenants 
 		}
 	}()
 
-	for _, name := range tenants {
-		if shard := idx.shards.Load(name); shard != nil {
+	for _, pl := range creates {
+		if shard := idx.shards.Load(pl.Name); shard != nil {
 			continue
 		}
-		shard, err := NewShard(ctx, m.db.promMetrics, name, idx, class, idx.centralJobQueue)
-		if err != nil {
-			return nil, fmt.Errorf("cannot create partition %q: %w", name, err)
+		if pl.Status != models.TenantActivityStatusHOT {
+			continue // skip creating inactive shards
 		}
 
-		shards[name] = shard
+		shard, err := idx.initShard(ctx, pl.Name, class, m.db.promMetrics)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create partition %q: %w", pl, err)
+		}
+		shards[pl.Name] = shard
+	}
+
+	return commit, nil
+}
+
+// UpdateTenans activates or deactivates tenant partitions and returns a commit func
+// that can be used to either commit or rollback the changes
+func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	if idx == nil {
+		return nil, fmt.Errorf("cannot find index for %q", class.Class)
+	}
+
+	shardsToHot := make([]string, 0, len(updates))
+	shardsToCold := make([]string, 0, len(updates))
+	shardsHotted := make(map[string]ShardLike)
+	shardsColded := make(map[string]ShardLike)
+
+	rollbackHotted := func() {
+		eg := new(errgroup.Group)
+		eg.SetLimit(2 * _NUMCPU)
+		for name, shard := range shardsHotted {
+			name, shard := name, shard
+			eg.Go(func() error {
+				if err := shard.Shutdown(ctx); err != nil {
+					idx.logger.WithField("action", "rollback_shutdown_shard").
+						WithField("shard", shard.ID()).
+						Errorf("cannot shutdown self activated shard %q: %s", name, err)
+				}
+				return nil
+			})
+		}
+		eg.Wait()
+	}
+	rollbackColded := func() {
+		for name, shard := range shardsColded {
+			idx.shards.CompareAndSwap(name, nil, shard)
+		}
+	}
+	rollback := func() {
+		rollbackHotted()
+		rollbackColded()
+	}
+
+	commitHotted := func() {
+		for name, shard := range shardsHotted {
+			idx.shards.Store(name, shard)
+		}
+	}
+	commitColded := func() {
+		for name := range shardsColded {
+			idx.shards.LoadAndDelete(name)
+		}
+
+		eg := new(errgroup.Group)
+		eg.SetLimit(_NUMCPU * 2)
+		for name, shard := range shardsColded {
+			name, shard := name, shard
+			eg.Go(func() error {
+				if err := shard.Shutdown(ctx); err != nil {
+					idx.logger.WithField("action", "shutdown_shard").
+						WithField("shard", shard.ID()).
+						Errorf("cannot shutdown shard %q: %s", name, err)
+				}
+				return nil
+			})
+		}
+		eg.Wait()
+	}
+	commit = func(success bool) {
+		if !success {
+			rollback()
+			return
+		}
+		commitHotted()
+		commitColded()
+	}
+
+	applyHot := func() error {
+		for _, name := range shardsToHot {
+			// shard already hot
+			if shard := idx.shards.Load(name); shard != nil {
+				continue
+			}
+
+			shard, err := idx.initShard(ctx, name, class, m.db.promMetrics)
+			if err != nil {
+				return fmt.Errorf("cannot activate shard '%s': %w", name, err)
+			}
+			shardsHotted[name] = shard
+		}
+		return nil
+	}
+	applyCold := func() error {
+		idx.backupMutex.RLock()
+		defer idx.backupMutex.RUnlock()
+
+		for _, name := range shardsToCold {
+			shard, ok := idx.shards.Swap(name, nil) // mark as deactivated
+			if !ok {                                // shard doesn't exit (already cold)
+				idx.shards.LoadAndDelete(name) // rollback nil value created by swap()
+				continue
+			}
+			if shard != nil {
+				shardsColded[name] = shard
+			}
+		}
+		return nil
+	}
+
+	for _, tu := range updates {
+		switch tu.Status {
+		case models.TenantActivityStatusHOT:
+			shardsToHot = append(shardsToHot, tu.Name)
+		case models.TenantActivityStatusCOLD:
+			shardsToCold = append(shardsToCold, tu.Name)
+		}
+	}
+
+	defer func() {
+		if err != nil {
+			rollback()
+		}
+	}()
+
+	if err := applyHot(); err != nil {
+		return nil, err
+	}
+	if err := applyCold(); err != nil {
+		return nil, err
 	}
 
 	return commit, nil
@@ -224,7 +371,13 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	// hnsw is the only supported vector index type at the moment, so no need
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
-	return hnsw.ValidateUserConfigUpdate(old, updated)
+	switch old.IndexType() {
+	case "hnsw":
+		return hnsw.ValidateUserConfigUpdate(old, updated)
+	case "flat":
+		return flat.ValidateUserConfigUpdate(old, updated)
+	}
+	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
@@ -255,7 +408,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// Iterate over all indexes
 	for _, index := range m.db.indices {
 		// Iterate over all shards
-		if err := index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
 			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID())
 			return err
@@ -287,33 +440,33 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 	for _, index := range m.db.indices {
 
 		// Clear the shards before counting
-		index.IterateShards(ctx, func(index *Index, shard *Shard) error {
-			shard.propLengths.Clear()
+		index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
+			shard.GetPropertyLengthTracker().Clear()
 			return nil
 		})
 
 		// Iterate over all shards
-		index.IterateObjects(ctx, func(index *Index, shard *Shard, object *storobj.Object) error {
+		index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			props, _, err := shard.analyzeObject(object)
+			props, _, err := shard.AnalyzeObject(object)
 			if err != nil {
 				m.logger.WithField("error", err).Error("could not analyze object")
 				return nil
 			}
 
-			if err := shard.addPropLengths(props); err != nil {
+			if err := shard.SetPropertyLengths(props); err != nil {
 				m.logger.WithField("error", err).Error("could not add prop lengths")
 				return nil
 			}
 
-			shard.propLengths.Flush(false)
+			shard.GetPropertyLengthTracker().Flush(false)
 
 			return nil
 		})
 
-		// Flush the propLengths to disk
-		err := index.IterateShards(ctx, func(index *Index, shard *Shard) error {
-			return shard.propLengths.Flush(false)
+		// Flush the GetPropertyLengthTracker() to disk
+		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
+			return shard.GetPropertyLengthTracker().Flush(false)
 		})
 		if err != nil {
 			m.logger.WithField("error", err).Error("could not flush prop lengths")
@@ -360,7 +513,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
-		index.ForEachShard(func(name string, shard *Shard) error {
+		index.ForEachShard(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
 				reindexer := NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
@@ -423,7 +576,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 		eg.Go(func() error {
 			errgrpShards := &errgroup.Group{}
-			index.ForEachShard(func(_ string, shard *Shard) error {
+			index.ForEachShard(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
@@ -481,9 +634,9 @@ func (m *Migrator) logInvertedReindex() *logrus.Entry {
 	return m.logger.WithField("action", "inverted_reindex")
 }
 
-func (m *Migrator) logInvertedReindexShard(shard *Shard) *logrus.Entry {
+func (m *Migrator) logInvertedReindexShard(shard ShardLike) *logrus.Entry {
 	return m.logInvertedReindex().
-		WithField("index", shard.index.ID()).
+		WithField("index", shard.Index().ID()).
 		WithField("shard", shard.ID())
 }
 
@@ -495,14 +648,14 @@ func (m *Migrator) logMissingFilterableIndex(index *Index) *logrus.Entry {
 	return m.logMissingFilterable().WithField("index", index.ID())
 }
 
-func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
-	return m.logMissingFilterableIndex(shard.index).WithField("shard", shard.ID())
+func (m *Migrator) logMissingFilterableShard(shard ShardLike) *logrus.Entry {
+	return m.logMissingFilterableIndex(shard.Index()).WithField("shard", shard.ID())
 }
 
 // As of v1.19 property's IndexInverted setting is replaced with IndexFilterable
 // and IndexSearchable
 // Filterable buckets use roaring set strategy and searchable ones use map strategy
-// (therefore are applicabe just for text/text[])
+// (therefore are applicable just for text/text[])
 // Since both type of buckets can coexist for text/text[] props they need to be
 // distinguished by their name: searchable bucket has "searchable" suffix.
 // Up until v1.19 default text/text[]/string/string[] (string/string[] deprecated since v1.19)
@@ -515,7 +668,7 @@ func (m *Migrator) logMissingFilterableShard(shard *Shard) *logrus.Entry {
 // Though IndexFilterable setting is enabled filterable index does not exists,
 // therefore shards are switched into fallback mode, to use searchable buckets instead of
 // filterable ones whenever filtered are expected.
-// Fallback mode efectivelly sets IndexFilterable to false, although it stays enabled according
+// Fallback mode effectively sets IndexFilterable to false, although it stays enabled according
 // to schema.
 //
 // If filterable indexes will be created (that is up to user to decide whether missing indexes

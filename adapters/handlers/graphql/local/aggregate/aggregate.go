@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -239,6 +239,9 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 		return makePropertyField(class, property, datePropertyFields)
 	case schema.DataTypeUUID, schema.DataTypeUUIDArray:
 		// not aggregatable
+		return nil, nil
+	case schema.DataTypeObject, schema.DataTypeObjectArray:
+		// TODO: check if it's aggregable, skip for now
 		return nil, nil
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)

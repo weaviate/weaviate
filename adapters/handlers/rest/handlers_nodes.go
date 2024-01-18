@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	nodesUC "github.com/weaviate/weaviate/usecases/nodes"
@@ -33,36 +34,46 @@ type nodesHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 }
 
-func (s *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
-	nodeStatuses, err := s.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "")
+func (n *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
+	output, err := verbosity.ParseOutput(params.Output)
 	if err != nil {
-		return s.handleGetNodesError(err)
+		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "", output)
+	if err != nil {
+		return n.handleGetNodesError(err)
 	}
 
 	status := &models.NodesStatusResponse{
 		Nodes: nodeStatuses,
 	}
 
-	s.metricRequestsTotal.logOk("")
+	n.metricRequestsTotal.logOk("")
 	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
-func (s *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
-	nodeStatuses, err := s.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, principal *models.Principal) middleware.Responder {
+	output, err := verbosity.ParseOutput(params.Output)
 	if err != nil {
-		return s.handleGetNodesError(err)
+		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName, output)
+	if err != nil {
+		return n.handleGetNodesError(err)
 	}
 
 	status := &models.NodesStatusResponse{
 		Nodes: nodeStatuses,
 	}
 
-	s.metricRequestsTotal.logOk("")
+	n.metricRequestsTotal.logOk("")
 	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
-func (s *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
-	s.metricRequestsTotal.logError("", err)
+func (n *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
+	n.metricRequestsTotal.logError("", err)
 	if errors.As(err, &enterrors.ErrNotFound{}) {
 		return nodes.NewNodesGetClassNotFound().
 			WithPayload(errPayloadFromSingleErr(err))

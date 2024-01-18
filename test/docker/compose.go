@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,11 +22,16 @@ import (
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
+	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
+	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 )
@@ -55,33 +60,39 @@ const (
 )
 
 type Compose struct {
-	enableModules             []string
-	defaultVectorizerModule   string
-	withMinIO                 bool
-	withGCS                   bool
-	withAzurite               bool
-	withBackendFilesystem     bool
-	withBackendS3             bool
-	withBackendS3Bucket       string
-	withBackendGCS            bool
-	withBackendGCSBucket      string
-	withBackendAzure          bool
-	withBackendAzureContainer string
-	withTransformers          bool
-	withContextionary         bool
-	withQnATransformers       bool
-	withWeaviate              bool
-	withWeaviateAuth          bool
-	withWeaviateCluster       bool
-	withSUMTransformers       bool
-	withCentroid              bool
-	withCLIP                  bool
-	withImg2Vec               bool
-	withRerankerTransformers  bool
+	enableModules                 []string
+	defaultVectorizerModule       string
+	withMinIO                     bool
+	withGCS                       bool
+	withAzurite                   bool
+	withBackendFilesystem         bool
+	withBackendS3                 bool
+	withBackendS3Bucket           string
+	withBackendGCS                bool
+	withBackendGCSBucket          string
+	withBackendAzure              bool
+	withBackendAzureContainer     string
+	withTransformers              bool
+	withContextionary             bool
+	withQnATransformers           bool
+	withWeaviate                  bool
+	withWeaviateExposeGRPCPort    bool
+	withSecondWeaviate            bool
+	withWeaviateAuth              bool
+	withWeaviateBasicAuth         bool
+	withWeaviateBasicAuthUsername string
+	withWeaviateBasicAuthPassword string
+	withWeaviateCluster           bool
+	withSUMTransformers           bool
+	withCentroid                  bool
+	withCLIP                      bool
+	withImg2Vec                   bool
+	withRerankerTransformers      bool
+	weaviateEnvs                  map[string]string
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}}
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
 }
 
 func (d *Compose) WithMinIO() *Compose {
@@ -191,8 +202,23 @@ func (d *Compose) WithText2VecPaLM() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecAWS() *Compose {
+	d.enableModules = append(d.enableModules, modaws.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecHuggingFace() *Compose {
+	d.enableModules = append(d.enableModules, modhuggingface.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeAWS() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeaws.Name)
 	return d
 }
 
@@ -206,8 +232,18 @@ func (d *Compose) WithGenerativePaLM() *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeAnyscale() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeanyscale.Name)
+	return d
+}
+
 func (d *Compose) WithQnAOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modqnaopenai.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerCohere() *Compose {
+	d.enableModules = append(d.enableModules, modrerankercohere.Name)
 	return d
 }
 
@@ -222,15 +258,47 @@ func (d *Compose) WithWeaviate() *Compose {
 	return d
 }
 
+func (d *Compose) WithWeaviateWithGRPC() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
+func (d *Compose) WithSecondWeaviate() *Compose {
+	d.withSecondWeaviate = true
+	return d
+}
+
 func (d *Compose) WithWeaviateCluster() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateCluster = true
 	return d
 }
 
+func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
+	d.withWeaviate = true
+	d.withWeaviateCluster = true
+	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
+func (d *Compose) WithWeaviateClusterWithBasicAuth(username, password string) *Compose {
+	d.withWeaviate = true
+	d.withWeaviateCluster = true
+	d.withWeaviateBasicAuth = true
+	d.withWeaviateBasicAuthUsername = username
+	d.withWeaviateBasicAuthPassword = password
+	return d
+}
+
 func (d *Compose) WithWeaviateAuth() *Compose {
 	d.withWeaviate = true
 	d.withWeaviateAuth = true
+	return d
+}
+
+func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
+	d.weaviateEnvs[name] = value
 	return d
 }
 
@@ -374,6 +442,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
 		}
+		if d.withWeaviateBasicAuth {
+			envSettings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
+			envSettings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
+		}
 		if d.withWeaviateAuth {
 			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"
 			envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
@@ -383,8 +455,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
 			envSettings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
 		}
+		for k, v := range d.weaviateEnvs {
+			envSettings[k] = v
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname)
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -397,8 +472,31 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
 		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
+		for k, v := range d.weaviateEnvs {
+			envSettings[k] = v
+		}
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			envSettings, networkName, image, hostname)
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", hostname)
+		}
+		containers = append(containers, container)
+	}
+
+	if d.withSecondWeaviate {
+		image := os.Getenv(envTestWeaviateImage)
+		hostname := SecondWeaviate
+		secondWeaviateSettings := envSettings
+		// Ensure second weaviate doesn't get cluster settings from the first cluster if any.
+		delete(secondWeaviateSettings, "CLUSTER_HOSTNAME")
+		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
+		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
+		delete(secondWeaviateSettings, "CLUSTER_JOIN")
+		for k, v := range d.weaviateEnvs {
+			envSettings[k] = v
+		}
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+			envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}

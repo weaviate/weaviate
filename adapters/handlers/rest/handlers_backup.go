@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,16 +28,76 @@ type backupHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 }
 
+// compressionFromCfg transforms model backup config to a backup compression config
+func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
+	if cfg != nil {
+		if cfg.CPUPercentage == 0 {
+			cfg.CPUPercentage = ubak.DefaultCPUPercentage
+		}
+
+		if cfg.ChunkSize == 0 {
+			cfg.ChunkSize = ubak.DefaultChunkSize
+		}
+
+		if cfg.CompressionLevel == "" {
+			cfg.CompressionLevel = models.BackupConfigCompressionLevelDefaultCompression
+		}
+
+		return ubak.Compression{
+			CPUPercentage: int(cfg.CPUPercentage),
+			ChunkSize:     int(cfg.ChunkSize),
+			Level:         parseCompressionLevel(cfg.CompressionLevel),
+		}
+	}
+
+	return ubak.Compression{
+		Level:         ubak.DefaultCompression,
+		CPUPercentage: ubak.DefaultCPUPercentage,
+		ChunkSize:     ubak.DefaultChunkSize,
+	}
+}
+
+func compressionFromRCfg(cfg *models.RestoreConfig) ubak.Compression {
+	if cfg != nil {
+		if cfg.CPUPercentage == 0 {
+			cfg.CPUPercentage = ubak.DefaultCPUPercentage
+		}
+
+		return ubak.Compression{
+			CPUPercentage: int(cfg.CPUPercentage),
+			Level:         ubak.DefaultCompression,
+			ChunkSize:     ubak.DefaultChunkSize,
+		}
+	}
+
+	return ubak.Compression{
+		Level:         ubak.DefaultCompression,
+		CPUPercentage: ubak.DefaultCPUPercentage,
+		ChunkSize:     ubak.DefaultChunkSize,
+	}
+}
+
+func parseCompressionLevel(l string) ubak.CompressionLevel {
+	switch {
+	case l == models.BackupConfigCompressionLevelBestSpeed:
+		return ubak.BestSpeed
+	case l == models.BackupConfigCompressionLevelBestCompression:
+		return ubak.BestCompression
+	default:
+		return ubak.DefaultCompression
+	}
+}
+
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	req := ubak.BackupRequest{
-		ID:      params.Body.ID,
-		Backend: params.Backend,
-		Include: params.Body.Include,
-		Exclude: params.Body.Exclude,
-	}
-	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &req)
+	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
+		ID:          params.Body.ID,
+		Backend:     params.Backend,
+		Include:     params.Body.Include,
+		Exclude:     params.Body.Exclude,
+		Compression: compressionFromBCfg(params.Body.Config),
+	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -94,13 +154,14 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	req := ubak.BackupRequest{
-		ID:      params.ID,
-		Backend: params.Backend,
-		Include: params.Body.Include,
-		Exclude: params.Body.Exclude,
-	}
-	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &req)
+	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
+		ID:          params.ID,
+		Backend:     params.Backend,
+		Include:     params.Body.Include,
+		Exclude:     params.Body.Exclude,
+		NodeMapping: params.Body.NodeMapping,
+		Compression: compressionFromRCfg(params.Body.Config),
+	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {

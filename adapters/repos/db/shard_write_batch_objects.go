@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,9 @@ package db
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -21,10 +24,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *Shard) putObjectBatch(ctx context.Context,
+func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if s.isReadOnly() {
@@ -34,12 +38,21 @@ func (s *Shard) putObjectBatch(ctx context.Context,
 	return s.putBatch(ctx, objects)
 }
 
+// asyncEnabled is a quick and dirty way to create a feature flag for async
+// indexing.
+func asyncEnabled() bool {
+	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
+}
+
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
 func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	if asyncEnabled() {
+		return s.putBatchAsync(ctx, objects)
+	}
 	// Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit
@@ -53,12 +66,27 @@ func (s *Shard) putBatch(ctx context.Context,
 	return err
 }
 
+func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []error {
+	beforeBatch := time.Now()
+	defer s.metrics.BatchObject(beforeBatch, len(objects))
+
+	batcher := newObjectsBatcher(s)
+
+	batcher.init(objects)
+	batcher.storeInObjectStore(ctx)
+	batcher.markDeletedInVectorStorage(ctx)
+	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
+	batcher.flushWALs(ctx)
+
+	return batcher.errs
+}
+
 // objectsBatcher is a helper type wrapping around an underlying shard that can
 // execute objects batch operations on a shard (as opposed to references batch
 // operations)
 type objectsBatcher struct {
 	sync.Mutex
-	shard          *Shard
+	shard          ShardLike
 	statuses       map[strfmt.UUID]objectInsertStatus
 	errs           []error
 	duplicates     map[int]struct{}
@@ -67,7 +95,7 @@ type objectsBatcher struct {
 	batchStartTime time.Time
 }
 
-func newObjectsBatcher(s *Shard) *objectsBatcher {
+func newObjectsBatcher(s ShardLike) *objectsBatcher {
 	return &objectsBatcher{shard: s}
 }
 
@@ -76,7 +104,7 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	beforeBatch := time.Now()
-	defer ob.shard.metrics.BatchObject(beforeBatch, len(objects))
+	defer ob.shard.Metrics().BatchObject(beforeBatch, len(objects))
 
 	ob.init(objects)
 	ob.storeInObjectStore(ctx)
@@ -106,7 +134,7 @@ func (ob *objectsBatcher) storeInObjectStore(ctx context.Context) {
 		}
 	}
 
-	ob.shard.metrics.ObjectStore(beforeObjectStore)
+	ob.shard.Metrics().ObjectStore(beforeObjectStore)
 }
 
 func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
@@ -124,10 +152,23 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	}
 
 	wg := &sync.WaitGroup{}
+	concurrencyLimit := make(chan struct{}, _NUMCPU)
+
 	for j, object := range batch {
 		wg.Add(1)
 		go func(index int, object *storobj.Object) {
 			defer wg.Done()
+
+			// Acquire a semaphore to control the concurrency. Otherwise we would
+			// spawn one routine per object here. With very large batch sizes (e.g.
+			// 1000 or 10000+), this isn't helpuful and just leads to more lock
+			// contention down the line – especially when there's lots of text to be
+			// indexed in the inverted index.
+			concurrencyLimit <- struct{}{}
+			defer func() {
+				// Release the semaphore when the goroutine is done.
+				<-concurrencyLimit
+			}()
 
 			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
 				errLock.Lock()
@@ -193,7 +234,7 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 		return
 	}
 
-	if err := ob.shard.vectorIndex.Delete(docIDsToDelete...); err != nil {
+	if err := ob.shard.Queue().Delete(docIDsToDelete...); err != nil {
 		for _, pos := range positions {
 			ob.setErrorAtIndex(err, pos)
 		}
@@ -219,13 +260,61 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 
 		ob.wg.Add(1)
 		status := ob.statuses[object.ID()]
-		ob.shard.centralJobQueue <- job{
+		ob.shard.addJobToQueue(job{
 			object:  object,
 			status:  status,
 			index:   i,
 			ctx:     ctx,
 			batcher: ob,
+		})
+	}
+}
+
+func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Context) {
+	if ok := ob.checkContext(ctx); !ok {
+		// if the context is no longer OK, there's no point in continuing - abort
+		// early
+		return
+	}
+
+	ob.batchStartTime = time.Now()
+
+	shouldGeoIndex := ob.shard.hasGeoIndex()
+	vectors := make([]vectorDescriptor, 0, len(ob.objects))
+	for i := range ob.objects {
+		object := ob.objects[i]
+		if ob.shouldSkipInAdditionalStorage(i) {
+			continue
 		}
+
+		status := ob.statuses[object.ID()]
+
+		if shouldGeoIndex {
+			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
+				continue
+			}
+		}
+
+		if status.docIDPreserved {
+			continue
+		}
+
+		if len(object.Vector) == 0 {
+			continue
+		}
+
+		desc := vectorDescriptor{
+			id:     status.docID,
+			vector: object.Vector,
+		}
+
+		vectors = append(vectors, desc)
+	}
+
+	err := ob.shard.Queue().Push(ctx, vectors...)
+	if err != nil {
+		ob.setErrorAtIndex(err, 0)
 	}
 }
 
@@ -248,6 +337,15 @@ func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
 func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Context,
 	object *storobj.Object, status objectInsertStatus, index int,
 ) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			ob.setErrorAtIndex(fmt.Errorf("an unexpected error occurred: %s", err), index)
+			fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+			debug.PrintStack()
+		}
+	}()
+
 	if err := ctx.Err(); err != nil {
 		ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
 		return
@@ -323,19 +421,19 @@ func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
 }
 
 func (ob *objectsBatcher) flushWALs(ctx context.Context) {
-	if err := ob.shard.store.WriteWALs(); err != nil {
+	if err := ob.shard.Store().WriteWALs(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := ob.shard.vectorIndex.Flush(); err != nil {
+	if err := ob.shard.VectorIndex().Flush(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := ob.shard.propLengths.Flush(false); err != nil {
+	if err := ob.shard.GetPropertyLengthTracker().Flush(false); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}

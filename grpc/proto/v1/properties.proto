@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoProperties";
+
+message Properties {
+  map<string, Value> fields = 1;
+}
+
+message Value {
+  oneof kind {
+    double number_value = 1;
+    string string_value = 2;
+    bool bool_value = 3;
+    Properties object_value = 4;
+    ListValue list_value = 5;
+    string date_value = 6;
+    string uuid_value = 7;
+    int64 int_value = 8;
+    GeoCoordinate geo_value = 9;
+    string blob_value = 10;
+    PhoneNumber phone_value = 11;
+  }
+}
+
+message ListValue {
+  repeated Value values = 1;
+}
+
+message GeoCoordinate {
+  float longitude = 1;
+  float latitude = 2;
+}
+
+message PhoneNumber {
+  uint64 country_code = 1;
+  string default_country = 2;
+  string input = 3;
+  string international_formatted = 4;
+  uint64 national = 5;
+  string national_formatted = 6;
+  bool valid = 7;
+}

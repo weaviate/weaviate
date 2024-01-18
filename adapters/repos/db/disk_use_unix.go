@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,12 +17,12 @@ import (
 	"syscall"
 )
 
-func (d *DB) getDiskUse(diskPath string) diskUse {
+func (db *DB) getDiskUse(diskPath string) diskUse {
 	fs := syscall.Statfs_t{}
 
 	err := syscall.Statfs(diskPath, &fs)
 	if err != nil {
-		d.logger.WithField("action", "read_disk_use").
+		db.logger.WithField("action", "read_disk_use").
 			WithField("path", diskPath).
 			Errorf("failed to read disk usage: %s", err)
 	}

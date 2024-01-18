@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,8 +19,11 @@ import (
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 )
+
+var verbose = verbosity.OutputVerbose
 
 func TestCreateTenants(t *testing.T) {
 	testClass := models.Class{
@@ -48,7 +51,10 @@ func TestCreateTenants(t *testing.T) {
 
 		tenants := make([]*models.Tenant, len(expectedTenants))
 		for i := range tenants {
-			tenants[i] = &models.Tenant{Name: expectedTenants[i]}
+			tenants[i] = &models.Tenant{
+				Name:           expectedTenants[i],
+				ActivityStatus: models.TenantActivityStatusHOT,
+			}
 		}
 		helper.CreateTenants(t, testClass.Class, tenants)
 
@@ -57,7 +63,7 @@ func TestCreateTenants(t *testing.T) {
 		require.NotNil(t, respGet)
 		require.ElementsMatch(t, respGet.Payload, tenants)
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
@@ -72,19 +78,19 @@ func TestCreateTenants(t *testing.T) {
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
 	})
 
-	t.Run("Create duplicate tenant multiple times", func(Z *testing.T) {
+	t.Run("Create duplicate tenant once", func(Z *testing.T) {
 		defer func() {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
-		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"DoubleTenant"}, {"DoubleTenant"}})
-		require.NotNil(t, err)
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}, {Name: "DoubleTenant"}})
+		require.Nil(t, err)
 
-		// nothing added
+		// only added once
 		respGet, errGet := helper.GetTenants(t, testClass.Class)
 		require.Nil(t, errGet)
 		require.NotNil(t, respGet)
-		require.Len(t, respGet.Payload, 0)
+		require.Len(t, respGet.Payload, 1)
 	})
 
 	t.Run("Create same tenant multiple times", func(Z *testing.T) {
@@ -92,10 +98,11 @@ func TestCreateTenants(t *testing.T) {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
-		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{"AddTenantAgain"}})
+		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
 
-		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{"AddTenantAgain"}})
-		require.NotNil(t, err)
+		// idempotent operation
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
+		require.Nil(t, err)
 	})
 }
 
@@ -110,24 +117,44 @@ func TestDeleteTenants(t *testing.T) {
 	}()
 	helper.CreateClass(t, &testClass)
 
-	tenants := []string{"tenant1", "tenant2", "tenant3"}
+	tenants := []string{"tenant1", "tenant2", "tenant3", "tenant4"}
 	var tenantsObject []*models.Tenant
 	for _, tenant := range tenants {
 		tenantsObject = append(tenantsObject, &models.Tenant{Name: tenant})
 	}
 	helper.CreateTenants(t, testClass.Class, tenantsObject)
 
-	t.Run("Delete same tenant multiple times", func(Z *testing.T) {
-		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant1"})
-		require.NotNil(t, err)
+	t.Run("Delete same tenant multiple times", func(t *testing.T) {
+		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
+		require.Nil(t, err)
 
-		// nothing deleted
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		// deleted once
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
 		require.Len(t, resp.Payload.Nodes, 1)
-		require.Len(t, resp.Payload.Nodes[0].Shards, 3)
+		for _, shard := range resp.Payload.Nodes[0].Shards {
+			assert.NotEqual(t, "tenant4", shard.Name)
+		}
+
+		// idempotent operation
+		err = helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
+		require.Nil(t, err)
+	})
+
+	t.Run("Delete duplicate tenant once", func(Z *testing.T) {
+		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant1", "tenant1"})
+		// idempotent operation
+		require.Nil(t, err)
+
+		// deleted once
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
+		require.Nil(t, err)
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.Nodes)
+		require.Len(t, resp.Payload.Nodes, 1)
+		require.Len(t, resp.Payload.Nodes[0].Shards, 2)
 	})
 
 	t.Run("Delete non-existent tenant alongside existing", func(Z *testing.T) {
@@ -135,7 +162,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.Nil(t, err)
 
 		// idempotent - deleting multiple times works - tenant1 is removed
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)
@@ -148,7 +175,7 @@ func TestDeleteTenants(t *testing.T) {
 		require.Nil(t, err)
 
 		// successfully deleted
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
 		require.NotNil(t, resp.Payload.Nodes)

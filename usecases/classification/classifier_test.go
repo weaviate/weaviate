@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -230,7 +230,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 			Type:               notRecoginzedContextual,
 		}
 
-		t.Run("scheduling an unregonized classification", func(t *testing.T) {
+		t.Run("scheduling an unrecognized classification", func(t *testing.T) {
 			class, err := classifier.Schedule(context.Background(), nil, params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
@@ -239,7 +239,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 			id = class.ID
 		})
 
-		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+		t.Run("retrieving the same classification by id", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
@@ -287,7 +287,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 			id = class.ID
 		})
 
-		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+		t.Run("retrieving the same classification by id", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -63,6 +64,8 @@ type Physical struct {
 
 	LegacyBelongsToNodeForBackwardCompat string   `json:"belongsToNode,omitempty"`
 	BelongsToNodes                       []string `json:"belongsToNodes,omitempty"`
+
+	Status string `json:"status,omitempty"`
 }
 
 // BelongsToNode for backward-compatibility when there was no replication. It
@@ -112,6 +115,10 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 	}
 
 	return nil
+}
+
+func (p *Physical) ActivityStatus() string {
+	return schema.ActivityStatus(p.Status)
 }
 
 type nodes interface {
@@ -299,7 +306,7 @@ func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (m
 	partitions := make(map[string][]string, len(shards))
 	for _, name := range shards {
 		if _, alreadyExists := s.Physical[name]; alreadyExists {
-			return nil, fmt.Errorf("tenant %s already exists", name)
+			continue
 		}
 		owners := make([]string, 1, replFactor)
 		node := it.Next()
@@ -328,11 +335,12 @@ func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (m
 }
 
 // AddPartition to physical shards
-func (s *State) AddPartition(name string, nodes []string) Physical {
+func (s *State) AddPartition(name string, nodes []string, status string) Physical {
 	p := Physical{
 		Name:           name,
 		BelongsToNodes: nodes,
 		OwnsPercentage: 1.0,
+		Status:         status,
 	}
 	s.Physical[name] = p
 	return p
@@ -341,6 +349,30 @@ func (s *State) AddPartition(name string, nodes []string) Physical {
 // DeletePartition to physical shards
 func (s *State) DeletePartition(name string) {
 	delete(s.Physical, name)
+}
+
+// ApplyNodeMapping replaces node names with their new value form nodeMapping in s.
+// If s.LegacyBelongsToNodeForBackwardCompat is non empty, it will also perform node name replacement if present in nodeMapping.
+func (s *State) ApplyNodeMapping(nodeMapping map[string]string) {
+	if len(nodeMapping) == 0 {
+		return
+	}
+
+	for k, v := range s.Physical {
+		if v.LegacyBelongsToNodeForBackwardCompat != "" {
+			if newNodeName, ok := nodeMapping[v.LegacyBelongsToNodeForBackwardCompat]; ok {
+				v.LegacyBelongsToNodeForBackwardCompat = newNodeName
+			}
+		}
+
+		for i, nodeName := range v.BelongsToNodes {
+			if newNodeName, ok := nodeMapping[nodeName]; ok {
+				v.BelongsToNodes[i] = newNodeName
+			}
+		}
+
+		s.Physical[k] = v
+	}
 }
 
 func (s *State) initVirtual() {
@@ -488,6 +520,7 @@ func (p Physical) DeepCopy() Physical {
 		OwnsVirtual:    ownsVirtualCopy,
 		OwnsPercentage: p.OwnsPercentage,
 		BelongsToNodes: belongsCopy,
+		Status:         p.Status,
 	}
 }
 

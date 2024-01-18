@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,9 +17,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func (t *Traverser) validateExploreDistance(params ExploreParams) error {
@@ -37,7 +36,7 @@ func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
 	s := t.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
-		return hnsw.DefaultDistanceMetric, nil
+		return common.DefaultDistanceMetric, nil
 	}
 
 	var (
@@ -58,14 +57,14 @@ func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, 
 			continue
 		}
 
-		hnswConfig, assertErr := typeAssertVectorIndex(class)
+		vectorConfig, assertErr := schema.TypeAssertVectorIndex(class)
 		if assertErr != nil {
 			err = assertErr
 			return
 		}
 
-		distancerTypes[hnswConfig.Distance] = struct{}{}
-		classDistanceConfigs[class.Class] = hnswConfig.Distance
+		distancerTypes[vectorConfig.DistanceName()] = struct{}{}
+		classDistanceConfigs[class.Class] = vectorConfig.DistanceName()
 	}
 
 	if len(distancerTypes) != 1 {
@@ -89,7 +88,7 @@ func (t *Traverser) validateExploreDistanceParams(params ExploreParams, distType
 		return nil
 	}
 
-	if distType != hnsw.DistanceCosine {
+	if distType != common.DistanceCosine {
 		return certaintyUnsupportedError(distType)
 	}
 
@@ -103,26 +102,16 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
 
-	hnswConfig, err := typeAssertVectorIndex(class)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class)
 	if err != nil {
 		return err
 	}
 
-	if hnswConfig.Distance != hnsw.DistanceCosine {
-		return certaintyUnsupportedError(hnswConfig.Distance)
+	if dn := vectorConfig.DistanceName(); dn != common.DistanceCosine {
+		return certaintyUnsupportedError(dn)
 	}
 
 	return nil
-}
-
-func typeAssertVectorIndex(class *models.Class) (hnsw.UserConfig, error) {
-	hnswConfig, ok := class.VectorIndexConfig.(hnsw.UserConfig)
-	if !ok {
-		return hnsw.UserConfig{}, fmt.Errorf("class '%s' vector index: config is not hnsw.UserConfig: %T",
-			class.Class, class.VectorIndexConfig)
-	}
-
-	return hnswConfig, nil
 }
 
 func crossClassDistCompatError(classDistanceConfigs map[string]string) error {
@@ -137,6 +126,6 @@ func crossClassDistCompatError(classDistanceConfigs map[string]string) error {
 
 func certaintyUnsupportedError(distType string) error {
 	return errors.Errorf(
-		"can't use certainty when vector index is configured with %s distance",
+		"can't compute and return certainty when vector index is configured with %s distance",
 		distType)
 }

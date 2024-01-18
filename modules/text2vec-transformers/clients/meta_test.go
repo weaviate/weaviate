@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ func TestGetMeta(t *testing.T) {
 	t.Run("when common server is providing meta", func(t *testing.T) {
 		server := httptest.NewServer(&testMetaHandler{t: t})
 		defer server.Close()
-		v := New(server.URL, server.URL, nullLogger())
+		v := New(server.URL, server.URL, 0, nullLogger())
 		meta, err := v.MetaInfo()
 
 		assert.Nil(t, err)
@@ -44,7 +44,7 @@ func TestGetMeta(t *testing.T) {
 		serverQuery := httptest.NewServer(&testMetaHandler{t: t, modelType: "query"})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
-		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		v := New(serverPassage.URL, serverQuery.URL, 0, nullLogger())
 		meta, err := v.MetaInfo()
 
 		assert.Nil(t, err)
@@ -75,7 +75,7 @@ func TestGetMeta(t *testing.T) {
 		serverQuery := httptest.NewServer(&testMetaHandler{t: t, modelType: "query", readyTime: rt})
 		defer serverPassage.Close()
 		defer serverQuery.Close()
-		v := New(serverPassage.URL, serverQuery.URL, nullLogger())
+		v := New(serverPassage.URL, serverQuery.URL, 0, nullLogger())
 		meta, err := v.MetaInfo()
 
 		assert.NotNil(t, err)

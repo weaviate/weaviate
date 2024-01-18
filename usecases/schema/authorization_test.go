@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,7 +50,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetShardsStatus",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},
@@ -79,6 +79,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		{
+			methodName:       "MergeClassObjectProperty",
+			additionalArgs:   []interface{}{"somename", &models.Property{}},
+			expectedVerb:     "update",
+			expectedResource: "schema/objects",
+		},
+		{
 			methodName:       "DeleteClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",
@@ -93,6 +99,14 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:       "AddTenants",
 			additionalArgs:   []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
+			expectedVerb:     "update",
+			expectedResource: tenantsPath,
+		},
+		{
+			methodName: "UpdateTenants",
+			additionalArgs: []interface{}{"className", []*models.Tenant{
+				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
+			}},
 			expectedVerb:     "update",
 			expectedResource: tenantsPath,
 		},
@@ -123,7 +137,8 @@ func Test_Schema_Authorization(t *testing.T) {
 				"TryLock", "RLocker", "TryRLock", // introduced by sync.Mutex in go 1.18
 				"Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				"CopyShardingState", "TxManager", "RestoreClass",
-				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas":
+				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
+				"StartServing", "Shutdown": // internal methods to indicate readiness state
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
@@ -144,7 +159,7 @@ func Test_Schema_Authorization(t *testing.T) {
 					dummyParseVectorConfig, &fakeVectorizerValidator{},
 					dummyValidateInvertedConfig, &fakeModuleConfig{},
 					&fakeClusterState{hosts: []string{"node1"}}, &fakeTxClient{},
-					&fakeScaleOutManager{})
+					&fakeTxPersistence{}, &fakeScaleOutManager{})
 				require.Nil(t, err)
 
 				var args []interface{}

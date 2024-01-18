@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,11 +22,11 @@ import (
 )
 
 func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,
-	className string, id strfmt.UUID,
+	className string, id strfmt.UUID, tenant string,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
 		parent, err := m.vectorRepo.Object(ctx, className, id,
-			search.SelectProperties{}, additional.Properties{}, nil, "")
+			search.SelectProperties{}, additional.Properties{}, nil, tenant)
 		if err != nil {
 			return fmt.Errorf("find parent '%s/%s': %w",
 				className, id, err)

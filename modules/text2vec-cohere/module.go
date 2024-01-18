@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,16 +15,16 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-cohere/additional"
-	"github.com/weaviate/weaviate/modules/text2vec-cohere/additional/projector"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-cohere"
@@ -45,13 +45,9 @@ type CohereModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
+		cfg moduletools.ClassConfig) error
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -71,7 +67,7 @@ func (m *CohereModule) Init(ctx context.Context,
 ) error {
 	m.logger = params.GetLogger()
 
-	if err := m.initVectorizer(ctx, m.logger); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, m.logger); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -100,11 +96,11 @@ func (m *CohereModule) InitExtension(modules []modulecapabilities.Module) error 
 	return nil
 }
 
-func (m *CohereModule) initVectorizer(ctx context.Context,
+func (m *CohereModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("COHERE_APIKEY")
-	client := clients.New(apiKey, logger)
+	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client
@@ -113,8 +109,7 @@ func (m *CohereModule) initVectorizer(ctx context.Context,
 }
 
 func (m *CohereModule) initAdditionalPropertiesProvider() error {
-	projector := projector.New()
-	m.additionalPropertiesProvider = additional.New(projector)
+	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
@@ -126,8 +121,7 @@ func (m *CohereModule) RootHandler() http.Handler {
 func (m *CohereModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
+	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
 }
 
 func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {
@@ -137,7 +131,7 @@ func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {
 func (m *CohereModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 func (m *CohereModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

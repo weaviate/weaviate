@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,13 +24,48 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
+func TestReplaceStrategy(t *testing.T) {
+	ctx := testCtx()
+	tests := bucketIntegrationTests{
+		{
+			name: "replaceInsertAndUpdate",
+			f:    replaceInsertAndUpdate,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "replaceInsertAndUpdate_WithSecondaryKeys",
+			f:    replaceInsertAndUpdate_WithSecondaryKeys,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+			},
+		},
+		{
+			name: "replaceInsertAndDelete",
+			f:    replaceInsertAndDelete,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+		{
+			name: "replaceCursors",
+			f:    replaceCursors,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func replaceInsertAndUpdate(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -92,9 +127,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -163,9 +197,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 
 	t.Run("with a flush after the initial write and after the update", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -234,9 +267,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 
 	t.Run("update in memtable, then do an orderly shutdown, and re-init", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -287,9 +319,8 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 		})
 
 		t.Run("init another bucket on the same files", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyReplace))
+			b2, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 			require.Nil(t, err)
 
 			key1 := []byte("key-1")
@@ -315,14 +346,12 @@ func TestReplaceStrategy_InsertAndUpdate(t *testing.T) {
 	})
 }
 
-func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
+func replaceInsertAndUpdate_WithSecondaryKeys(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithSecondaryIndices(1),
-		)
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -412,9 +441,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -472,9 +500,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("with a flush after initial write and update", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -543,9 +570,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 
 	t.Run("update in memtable then do an orderly shutdown and reinit", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -589,9 +615,8 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 		})
 
 		t.Run("init a new one and verify", func(t *testing.T) {
-			b2, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+			b2, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 			require.Nil(t, err)
 
 			secondaryKey1 := []byte("secondary-key-1")
@@ -615,13 +640,12 @@ func TestReplaceStrategy_InsertAndUpdate_WithSecondaryKeys(t *testing.T) {
 	})
 }
 
-func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
+func replaceInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -671,9 +695,8 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -727,9 +750,8 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	})
 
 	t.Run("with flushes after initial write and delete", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -786,14 +808,13 @@ func TestReplaceStrategy_InsertAndDelete(t *testing.T) {
 	})
 }
 
-func TestReplaceStrategy_Cursors(t *testing.T) {
+func replaceCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("memtable-only", func(t *testing.T) {
 		r := getRandomSeed()
 		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1025,9 +1046,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 		r := getRandomSeed()
 		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1118,9 +1138,8 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 		r := getRandomSeed()
 		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -1402,15 +1421,14 @@ func TestReplaceStrategy_Cursors(t *testing.T) {
 	// This test is inspired by unusual behavior encountered as part of the
 	// evaluation of gh-1569 where a delete could sometimes lead to no data after
 	// a restart which was caused by the disk segment cursor's .first() method
-	// not returuning the correct key. Thus we'd have a null-key with a tombstone
+	// not returning the correct key. Thus we'd have a null-key with a tombstone
 	// which would override whatever is the real "first" key, since null is
 	// always smaller
 	t.Run("with deletes as latest in some segments", func(t *testing.T) {
 		dirName := t.TempDir()
 
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,7 +43,7 @@ func addDateAggregations(prop *aggregation.Property,
 	}
 
 	// when combining the results from different shards, we need the raw dates to recompute the mode and median.
-	// Therefor we add a reference later which needs to be cleared out before returning the results to a user
+	// Therefore we add a reference later which needs to be cleared out before returning the results to a user
 	for _, aProp := range aggs {
 		switch aProp {
 		case aggregation.ModeAggregator, aggregation.MedianAggregator:

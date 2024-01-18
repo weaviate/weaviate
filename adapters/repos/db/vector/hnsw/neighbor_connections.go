@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,14 +17,15 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
-	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
-	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, targetLevel,
+	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList)
 
 	return nfc.Do()
@@ -36,6 +37,7 @@ type neighborFinderConnector struct {
 	entryPointID    uint64
 	entryPointDist  float32
 	nodeVec         []float32
+	distancer       compressionhelpers.CompressorDistancer
 	targetLevel     int
 	currentMaxLevel int
 	denyList        helpers.AllowList
@@ -43,7 +45,7 @@ type neighborFinderConnector struct {
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
-	nodeVec []float32, targetLevel, currentMaxLevel int,
+	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
@@ -51,6 +53,7 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 		node:            node,
 		entryPointID:    entryPointID,
 		nodeVec:         nodeVec,
+		distancer:       distancer,
 		targetLevel:     targetLevel,
 		currentMaxLevel: currentMaxLevel,
 		denyList:        denyList,
@@ -74,11 +77,11 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		return errors.Wrap(err, "pick entrypoint at level beginning")
 	}
 
-	eps := priorityqueue.NewMin(1)
+	eps := priorityqueue.NewMin[any](1)
 	eps.Insert(n.entryPointID, n.entryPointDist)
 
-	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
-		level, nil)
+	results, err := n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
+		level, nil, n.distancer)
 	if err != nil {
 		return errors.Wrapf(err, "search layer at level %d", level)
 	}
@@ -106,7 +109,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.pools.pqResults.Put(results)
 
-	// set all outoing in one go
+	// set all outgoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
 	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
 
@@ -156,7 +159,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 	} else {
-		// we need to run the heurisitc
+		// we need to run the heuristic
 
 		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		if err != nil {
@@ -169,7 +172,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return nil
 		}
 
-		candidates := priorityqueue.NewMax(len(currentConnections) + 1)
+		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
@@ -290,7 +293,14 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	dist, ok, err := n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	var dist float32
+	var ok bool
+	var err error
+	if n.distancer == nil {
+		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	} else {
+		dist, ok, err = n.distancer.DistanceToNode(candidate)
+	}
 	if err != nil {
 		// not an error we could recover from - fail!
 		return false, errors.Wrapf(err,

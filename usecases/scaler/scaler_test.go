@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,7 +57,7 @@ func TestScalerScaleOut(t *testing.T) {
 		old     = sharding.Config{}
 		bak     = backup.ClassDescriptor{
 			Name: "C",
-			Shards: []backup.ShardDescriptor{
+			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "S1", Files: []string{"f1"},
 					PropLengthTrackerPath: "f4",

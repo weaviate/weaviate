@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// DeleteObject Class Instance from the conncected DB
+// DeleteObject Class Instance from the connected DB
 //
 // if class == "" it will delete all object with same id regardless of the class name.
 // This is due to backward compatibility reasons and should be removed in the future

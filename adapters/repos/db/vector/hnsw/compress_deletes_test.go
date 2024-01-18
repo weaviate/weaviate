@@ -4,14 +4,14 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build !race
 
-package hnsw_test
+package hnsw
 
 import (
 	"context"
@@ -21,13 +21,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
@@ -54,23 +54,25 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	uc.VectorCacheMaxObjects = 10e12
 	uc.PQ = ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "title", Distribution: "normal"}}
 
-	index, _ := hnsw.New(
-		hnsw.Config{
-			RootPath:              t.TempDir(),
-			ID:                    "recallbenchmark",
-			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)], nil
-			},
-			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *hnsw.VectorSlice) ([]float32, error) {
-				copy(container.Slice, vectors[int(id)])
-				return container.Slice, nil
-			},
-		}, uc,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	index, _ := New(Config{
+		RootPath:              t.TempDir(),
+		ID:                    "recallbenchmark",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if int(id) >= len(vectors) {
+				return nil, storobj.NewErrNotFoundf(id, "out of range")
+			}
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+			copy(container.Slice, vectors[int(id)])
+			return container.Slice, nil
+		},
+	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
-	ssdhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
 		index.Add(uint64(id), vectors[id])
 	})
 	index.Delete(delete_indices...)
@@ -84,7 +86,8 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 		Segments:  dimensions,
 		Centroids: 256,
 	}
-	index.Compress(cfg)
+	uc.PQ = cfg
+	index.compress(uc)
 	for _, v := range queries {
 		_, _, err := index.SearchByVector(v, k, nil)
 		assert.Nil(t, err)
@@ -124,20 +127,24 @@ func TestHnswPqNilVectors(t *testing.T) {
 		}
 	}(rootPath)
 
-	index, err := hnsw.New(hnsw.Config{
+	index, err := New(Config{
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
-		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewCosineDistanceProvider(),
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return vectors[int(id)], nil
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
 		},
-		TempVectorForIDThunk: hnsw.TempVectorForIDThunk(vectors),
-	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+	}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 
 	require.NoError(t, err)
 
-	ssdhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
 		if vectors[id] == nil {
 			return
 		}
@@ -153,7 +160,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 			Distribution: ent.PQEncoderDistributionLogNormal,
 		},
 		BitCompression: false,
-		Segments:       0,
+		Segments:       dimensions,
 		Centroids:      256,
 	}
 
@@ -165,7 +172,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 	<-ch
 	start := uint64(len(vectors) / 2)
-	ssdhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+	compressionhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
 		if vectors[id+start] == nil {
 			return
 		}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,8 +31,8 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                 geoPropID(s.ID(), prop.Name),
-		RootPath:           s.index.Config.RootPath,
+		ID:                 geoPropID(prop.Name),
+		RootPath:           s.path(),
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
@@ -87,8 +87,8 @@ func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
 	}
 }
 
-func geoPropID(shardID string, propName string) string {
-	return fmt.Sprintf("%s_%s", shardID, propName)
+func geoPropID(propName string) string {
+	return fmt.Sprintf("geo.%s", propName)
 }
 
 func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,7 +39,7 @@ func TestAnalyzeObject(t *testing.T) {
 			"profession":  "Mechanical Engineer",
 			"id1":         id1,                 // correctly parsed
 			"id2":         id2.String(),        // untyped
-			"idArray1":    []uuid.UUID{id1},    // coorectly parsed
+			"idArray1":    []uuid.UUID{id1},    // correctly parsed
 			"idArray2":    []any{id2.String()}, // untyped
 		}
 

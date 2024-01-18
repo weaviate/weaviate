@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantK                 int
 		wantStopSequences     []string
 		wantReturnLikelihoods string
+		wantBaseURL           string
 		wantErr               error
 	}{
 		{
@@ -42,6 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantK:                 0,
 			wantStopSequences:     []string{},
 			wantReturnLikelihoods: "NONE",
+			wantBaseURL:           "https://api.cohere.ai",
 			wantErr:               nil,
 		},
 		{
@@ -62,6 +64,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantK:                 2,
 			wantStopSequences:     []string{"stop1", "stop2"},
 			wantReturnLikelihoods: "NONE",
+			wantBaseURL:           "https://api.cohere.ai",
 			wantErr:               nil,
 		},
 		{
@@ -88,6 +91,24 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantK:                 0,
 			wantStopSequences:     []string{},
 			wantReturnLikelihoods: "NONE",
+			wantBaseURL:           "https://api.cohere.ai",
+			wantErr:               nil,
+		},
+		{
+			name: "default settings with command-light-nightly and baseURL",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":   "command-light-nightly",
+					"baseURL": "http://custom-url.com",
+				},
+			},
+			wantModel:             "command-light-nightly",
+			wantMaxTokens:         2048,
+			wantTemperature:       0,
+			wantK:                 0,
+			wantStopSequences:     []string{},
+			wantReturnLikelihoods: "NONE",
+			wantBaseURL:           "http://custom-url.com",
 			wantErr:               nil,
 		},
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,16 +25,30 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func TestBucketBackup_FlushMemtable(t *testing.T) {
+func Test_BucketBackup(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "bucketBackup_FlushMemtable",
+			f:    bucketBackup_FlushMemtable,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
+		},
+		{
+			name: "bucketBackup_ListFiles",
+			f:    bucketBackup_ListFiles,
+			opts: []BucketOption{WithStrategy(StrategyReplace)},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
-		ctx := context.Background()
 		dirName := t.TempDir()
 
 		b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyReplace))
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
-
 		b.UpdateStatus(storagestate.StatusReadOnly)
 
 		err = b.FlushMemtable()
@@ -47,13 +61,11 @@ func TestBucketBackup_FlushMemtable(t *testing.T) {
 	})
 }
 
-func TestBucketBackup_ListFiles(t *testing.T) {
-	ctx := context.Background()
+func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace))
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 
 	t.Run("insert contents into bucket", func(t *testing.T) {
@@ -65,7 +77,7 @@ func TestBucketBackup_ListFiles(t *testing.T) {
 	})
 
 	t.Run("assert expected bucket contents", func(t *testing.T) {
-		files, err := b.ListFiles(ctx)
+		files, err := b.ListFiles(ctx, dirName)
 		assert.Nil(t, err)
 		assert.Len(t, files, 3)
 

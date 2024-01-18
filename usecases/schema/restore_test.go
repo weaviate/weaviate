@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,8 +83,42 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		require.Nil(t, err)
 
 		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
-		err = mgr.RestoreClass(context.Background(), &descriptor)
+		err = mgr.RestoreClass(context.Background(), &descriptor, map[string]string{})
 		assert.Nil(t, err, "class passes validation")
+	}
+}
+
+func TestRestoreClass_WithNodeMapping(t *testing.T) {
+	classes := []*models.Class{{Class: "Class_A"}}
+
+	mgr := newSchemaManager()
+
+	for _, classRaw := range classes {
+		schemaBytes, err := json.Marshal(classRaw)
+		require.Nil(t, err)
+
+		shardingConfig, err := sharding.ParseConfig(nil, 2)
+		require.Nil(t, err)
+
+		nodes := fakeNodes{[]string{"node1", "node2"}}
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 2, false)
+		require.Nil(t, err)
+
+		shardingBytes, err := shardingState.JSON()
+		require.Nil(t, err)
+
+		descriptor := backup.ClassDescriptor{Name: classRaw.Class, Schema: schemaBytes, ShardingState: shardingBytes}
+		err = mgr.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"})
+		assert.NoError(t, err)
+
+		// Ensure that sharding state has been updated with the new node names
+		for _, shard := range mgr.ShardingState {
+			for _, v := range shard.Physical {
+				for _, node := range v.BelongsToNodes {
+					assert.Contains(t, []string{"new-node1", "node2"}, node)
+				}
+			}
+		}
 	}
 }
 

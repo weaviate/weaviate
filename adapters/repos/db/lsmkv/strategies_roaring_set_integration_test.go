@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@
 package lsmkv
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,13 +23,26 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
+func TestRoaringSetStrategy(t *testing.T) {
+	ctx := testCtx()
+	tests := bucketIntegrationTests{
+		{
+			name: "roaringsetInsertAndSetAdd",
+			f:    roaringsetInsertAndSetAdd,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSet),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyRoaringSet))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test
@@ -102,9 +116,8 @@ func TestRoaringSetStrategy_InsertAndSetAdd(t *testing.T) {
 	})
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			WithStrategy(StrategyRoaringSet))
+		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

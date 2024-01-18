@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// This aimes to prevent a regression on
+// This aims to prevent a regression on
 // https://github.com/weaviate/weaviate/issues/1016
 // The issue was that rapid POST .../references/... request in succession would
 // overwrite each other due to the eventual consistency nature of the used
@@ -94,14 +94,14 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 
 	t.Run("adding all objects (without referencing)", func(t *testing.T) {
 		t.Run("source object", func(t *testing.T) {
-			assertCreateObjectWithID(t, sourceClass, sourceID, map[string]interface{}{
+			assertCreateObjectWithID(t, sourceClass, "", sourceID, map[string]interface{}{
 				"name": "Source Object",
 			})
 		})
 
 		t.Run("target objects", func(t *testing.T) {
 			for i, id := range targetIDs {
-				assertCreateObjectWithID(t, targetClass, id, map[string]interface{}{
+				assertCreateObjectWithID(t, targetClass, "", id, map[string]interface{}{
 					"name": fmt.Sprintf("target object %d", i),
 				})
 			}

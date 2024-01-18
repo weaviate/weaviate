@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,10 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -53,7 +56,9 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -71,7 +76,10 @@ func TestBatchPutObjects(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -83,7 +91,9 @@ func TestBatchPutObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -96,7 +106,10 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -108,7 +121,9 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -127,7 +142,10 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -138,7 +156,9 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -151,7 +171,10 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   1,
 		RootPath:                  dirName,
@@ -162,7 +185,9 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 
 	migrator := NewMigrator(repo, logger)
 
@@ -225,7 +250,10 @@ func TestBatchDeleteObjects(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -236,7 +264,9 @@ func TestBatchDeleteObjects(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -251,7 +281,10 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 
 	queryMaximumResults := int64(200)
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -262,7 +295,9 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
@@ -286,7 +321,10 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 
 	queryMaximumResults := int64(20)
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -296,7 +334,9 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
+	defer func() {
+		require.Nil(t, repo.Shutdown(context.Background()))
+	}()
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
@@ -547,7 +587,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 
 			t.Run("can import", func(t *testing.T) {
 				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
-				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
 					require.Len(t, batchRes, 3)
@@ -699,7 +739,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 
 			t.Run("can import", func(t *testing.T) {
 				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
-				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
 					require.Len(t, batchRes, 53)
@@ -756,7 +796,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				defer cancel()
 
 				batchRes, err := repo.BatchPutObjects(ctx, batch, nil)
-				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("some elements have error'd due to context", func(t *testing.T) {
 					require.Len(t, batchRes, 50)

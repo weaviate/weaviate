@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,6 +27,7 @@ const (
 	frequencyPenaltyProperty = "frequencyPenalty"
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
+	baseURLProperty          = "baseURL"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -37,8 +38,10 @@ var availableOpenAILegacyModels = []string{
 var availableOpenAIModels = []string{
 	"gpt-3.5-turbo",
 	"gpt-3.5-turbo-16k",
+	"gpt-3.5-turbo-1106",
 	"gpt-4",
 	"gpt-4-32k",
+	"gpt-4-1106-preview",
 }
 
 var (
@@ -48,15 +51,19 @@ var (
 	DefaultOpenAIFrequencyPenalty = 0.0
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
+	DefaultOpenAIBaseURL          = "https://api.openai.com"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
 var defaultMaxTokens = map[string]float64{
-	"text-davinci-002": 4097,
-	"text-davinci-003": 4097,
-	"gpt-3.5-turbo":    4097,
-	"gpt-4":            8192,
-	"gpt-4-32k":        32768,
+	"text-davinci-002":   4097,
+	"text-davinci-003":   4097,
+	"gpt-3.5-turbo":      4097,
+	"gpt-3.5-turbo-16k":  16384,
+	"gpt-3.5-turbo-1106": 16385,
+	"gpt-4":              8192,
+	"gpt-4-32k":          32768,
+	"gpt-4-1106-preview": 128000,
 }
 
 type ClassSettings interface {
@@ -72,6 +79,7 @@ type ClassSettings interface {
 	IsAzure() bool
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
+	BaseURL() string
 }
 
 type classSettings struct {
@@ -194,6 +202,10 @@ func (ic *classSettings) Model() string {
 
 func (ic *classSettings) MaxTokens() float64 {
 	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
+}
+
+func (ic *classSettings) BaseURL() string {
+	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
 }
 
 func (ic *classSettings) Temperature() float64 {

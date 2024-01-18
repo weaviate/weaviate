@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,8 +20,10 @@ const AnonymousPrincipalUsername = "anonymous"
 
 // Authorizer provides either full (admin) or no access
 type Authorizer struct {
-	adminUsers    map[string]int
-	readOnlyUsers map[string]int
+	adminUsers     map[string]int
+	readOnlyUsers  map[string]int
+	adminGroups    map[string]int
+	readOnlyGroups map[string]int
 }
 
 // New Authorizer using the AdminList method
@@ -29,6 +31,8 @@ func New(cfg Config) *Authorizer {
 	a := &Authorizer{}
 	a.addAdminUserList(cfg.Users)
 	a.addReadOnlyUserList(cfg.ReadOnlyUsers)
+	a.addAdminGroupList(cfg.Groups)
+	a.addReadOnlyGroupList(cfg.ReadOnlyGroups)
 	return a
 }
 
@@ -43,9 +47,20 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 		return nil
 	}
 
+	for _, group := range principal.Groups {
+		if _, ok := a.adminGroups[group]; ok {
+			return nil
+		}
+	}
+
 	if verb == "get" || verb == "list" {
 		if _, ok := a.readOnlyUsers[principal.Username]; ok {
 			return nil
+		}
+		for _, group := range principal.Groups {
+			if _, ok := a.readOnlyGroups[group]; ok {
+				return nil
+			}
 		}
 	}
 
@@ -71,6 +86,28 @@ func (a *Authorizer) addReadOnlyUserList(users []string) {
 
 	for _, user := range users {
 		a.readOnlyUsers[user] = 1
+	}
+}
+
+func (a *Authorizer) addAdminGroupList(groups []string) {
+	// build a map for more efficient lookup on long lists
+	if a.adminGroups == nil {
+		a.adminGroups = map[string]int{}
+	}
+
+	for _, group := range groups {
+		a.adminGroups[group] = 1
+	}
+}
+
+func (a *Authorizer) addReadOnlyGroupList(groups []string) {
+	// build a map for more efficient lookup on long lists
+	if a.readOnlyGroups == nil {
+		a.readOnlyGroups = map[string]int{}
+	}
+
+	for _, group := range groups {
+		a.readOnlyGroups[group] = 1
 	}
 }
 

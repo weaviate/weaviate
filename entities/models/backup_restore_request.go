@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -29,22 +30,78 @@ import (
 type BackupRestoreRequest struct {
 
 	// Custom configuration for the backup restoration process
-	Config interface{} `json:"config,omitempty"`
+	Config *RestoreConfig `json:"config,omitempty"`
 
 	// List of classes to exclude from the backup restoration process
 	Exclude []string `json:"exclude"`
 
 	// List of classes to include in the backup restoration process
 	Include []string `json:"include"`
+
+	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.
+	NodeMapping map[string]string `json:"node_mapping,omitempty"`
 }
 
 // Validate validates this backup restore request
 func (m *BackupRestoreRequest) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this backup restore request based on context it is used
+func (m *BackupRestoreRequest) validateConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.Config) { // not required
+		return nil
+	}
+
+	if m.Config != nil {
+		if err := m.Config.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("config")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("config")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this backup restore request based on the context it is used
 func (m *BackupRestoreRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BackupRestoreRequest) contextValidateConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Config != nil {
+		if err := m.Config.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("config")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("config")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

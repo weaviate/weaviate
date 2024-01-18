@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,6 @@ type classifications struct {
 	txHandler
 }
 
-func NewClassifications(manager txManager) *classifications {
-	return &classifications{txHandler{manager: manager}}
+func NewClassifications(manager txManager, auth auth) *classifications {
+	return &classifications{txHandler{manager: manager, auth: auth}}
 }

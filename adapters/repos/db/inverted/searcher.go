@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,23 +42,19 @@ type Searcher struct {
 	schema                 schema.Schema
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	deletedDocIDs          DeletedDocIDChecker
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
-}
-
-type DeletedDocIDChecker interface {
-	Contains(id uint64) bool
+	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
+	nestedCrossRefLimit int64
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	schema schema.Schema,
-	propIndices propertyspecific.Indices, classSearcher ClassSearcher,
-	deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector,
+	schema schema.Schema, propIndices propertyspecific.Indices,
+	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string,
+	tenant string, nestedCrossRefLimit int64,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -66,11 +62,11 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		schema:                 schema,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
+		nestedCrossRefLimit:    nestedCrossRefLimit,
 	}
 }
 
@@ -188,33 +184,27 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
-	out := newPropValuePair()
+	class := s.schema.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return nil, fmt.Errorf("class %q not found", className)
+	}
+	out, err := newPropValuePair(class)
+	if err != nil {
+		return nil, errors.Wrap(err, "new prop value pair")
+	}
 	if filter.Operands != nil {
 		// nested filter
-		out.children = make([]*propValuePair, len(filter.Operands))
-
-		eg := errgroup.Group{}
-		// prevent unbounded concurrency, see
-		// https://github.com/weaviate/weaviate/issues/3179 for details
-		eg.SetLimit(2 * _NUMCPU)
-
-		for i, clause := range filter.Operands {
-			i, clause := i, clause
-			eg.Go(func() error {
-				child, err := s.extractPropValuePair(&clause, className)
-				if err != nil {
-					return errors.Wrapf(err, "nested clause at pos %d", i)
-				}
-				out.children[i] = child
-
-				return nil
-			})
+		children, err := s.extractPropValuePairs(filter.Operands, className)
+		if err != nil {
+			return nil, err
 		}
-		if err := eg.Wait(); err != nil {
-			return nil, fmt.Errorf("nested query: %w", err)
-		}
+		out.children = children
 		out.operator = filter.Operator
-		return &out, nil
+		return out, nil
+	}
+
+	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
+		return s.extractContains(filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
 	// on value or non-nested filter
@@ -222,7 +212,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	propName := props[0]
 
 	if s.onInternalProp(propName) {
-		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator)
+		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
 	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {
@@ -230,7 +220,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		if err != nil {
 			return nil, err
 		}
-		return s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		return s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
 	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
@@ -239,48 +229,69 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter)
+		return s.extractReferenceFilter(property, filter, class)
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
-		return s.extractReferenceCount(property, filter.Value.Value, filter.Operator)
+		return s.extractReferenceCount(property, filter.Value.Value, filter.Operator, class)
 	}
 
 	if filter.Operator == filters.OperatorIsNull {
-		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator)
+		return s.extractPropertyNull(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
 	if s.onGeoProp(property) {
-		return s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type,
-			filter.Operator)
+		return s.extractGeoFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator, class)
 	}
 
 	if s.onUUIDProp(property) {
-		return s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type,
-			filter.Operator)
+		return s.extractUUIDFilter(property, filter.Value.Value, filter.Value.Type, filter.Operator, class)
 	}
 
 	if s.onTokenizableProp(property) {
-		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value,
-			filter.Operator)
+		return s.extractTokenizableProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
-	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value,
-		filter.Operator)
+	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
+}
+
+func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
+	children := make([]*propValuePair, len(operands))
+	eg := errgroup.Group{}
+	// prevent unbounded concurrency, see
+	// https://github.com/weaviate/weaviate/issues/3179 for details
+	eg.SetLimit(2 * _NUMCPU)
+
+	for i, clause := range operands {
+		i, clause := i, clause
+		eg.Go(func() error {
+			child, err := s.extractPropValuePair(&clause, className)
+			if err != nil {
+				return errors.Wrapf(err, "nested clause at pos %d", i)
+			}
+			children[i] = child
+
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, fmt.Errorf("nested query: %w", err)
+	}
+	return children, nil
 }
 
 func (s *Searcher) extractReferenceFilter(prop *models.Property,
-	filter *filters.Clause,
+	filter *filters.Clause, class *models.Class,
 ) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(s.logger, s.classSearcher, filter, prop, s.tenant).
+	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit).
 		Do(ctx)
 }
 
 func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
+	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var extractValueFn func(in interface{}) ([]byte, error)
 	switch propType {
@@ -316,11 +327,12 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{},
-	operator filters.Operator,
+	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	byteValue, err := s.extractIntCountValue(value)
 	if err != nil {
@@ -340,11 +352,12 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
-	valueType schema.DataType, operator filters.Operator,
+	valueType schema.DataType, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	if valueType != schema.DataTypeGeoCoordinates {
 		return nil, fmt.Errorf("prop %q is of type geoCoordinates, it can only"+
@@ -360,11 +373,12 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
-	valueType schema.DataType, operator filters.Operator,
+	valueType schema.DataType, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var byteValue []byte
 
@@ -397,17 +411,18 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractInternalProp(propName string, propType schema.DataType, value interface{},
-	operator filters.Operator,
+	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	switch propName {
 	case filters.InternalPropBackwardsCompatID, filters.InternalPropID:
-		return s.extractIDProp(propName, propType, value, operator)
+		return s.extractIDProp(propName, propType, value, operator, class)
 	case filters.InternalPropCreationTimeUnix, filters.InternalPropLastUpdateTimeUnix:
-		return s.extractTimestampProp(propName, propType, value, operator)
+		return s.extractTimestampProp(propName, propType, value, operator, class)
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract internal prop, unsupported internal prop '%s'", propName)
@@ -415,7 +430,7 @@ func (s *Searcher) extractInternalProp(propName string, propType schema.DataType
 }
 
 func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
-	value interface{}, operator filters.Operator,
+	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var byteValue []byte
 
@@ -437,11 +452,12 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexIdProp,
 		hasSearchableIndex: HasSearchableIndexIdProp,
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractTimestampProp(propName string, propType schema.DataType, value interface{},
-	operator filters.Operator,
+	operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var byteValue []byte
 
@@ -481,22 +497,28 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexTimestampProp, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexTimestampProp, // TODO text_rbm_inverted_index & with settings
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
+	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var terms []string
+
+	valueString, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
+	}
 
 	switch propType {
 	case schema.DataTypeText:
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = helpers.TokenizeWithWildcards(prop.Tokenization, value.(string))
+			terms = helpers.TokenizeWithWildcards(prop.Tokenization, valueString)
 		} else {
-			terms = helpers.Tokenize(prop.Tokenization, value.(string))
+			terms = helpers.Tokenize(prop.Tokenization, valueString)
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -520,11 +542,12 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			operator:           operator,
 			hasFilterableIndex: hasFilterableIndex,
 			hasSearchableIndex: hasSearchableIndex,
+			Class:              class,
 		})
 	}
 
 	if len(propValuePairs) > 1 {
-		return &propValuePair{operator: filters.OperatorAnd, children: propValuePairs}, nil
+		return &propValuePair{operator: filters.OperatorAnd, children: propValuePairs, Class: class}, nil
 	}
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
@@ -533,7 +556,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 }
 
 func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
+	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var byteValue []byte
 
@@ -555,11 +578,12 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropLength, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexPropLength, // TODO text_rbm_inverted_index & with settings
+		Class:              class,
 	}, nil
 }
 
 func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.DataType,
-	value interface{}, operator filters.Operator,
+	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
 	var valResult []byte
 
@@ -581,7 +605,65 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndexPropNull, // TODO text_rbm_inverted_index & with settings
 		hasSearchableIndex: HasSearchableIndexPropNull, // TODO text_rbm_inverted_index & with settings
+		Class:              class,
 	}, nil
+}
+
+func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType, value interface{},
+	operator filters.Operator, class *models.Class,
+) (*propValuePair, error) {
+	var operands []filters.Clause
+	switch propType {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		valueStringArray, err := s.extractStringArray(value)
+		if err != nil {
+			return nil, err
+		}
+		operands = getContainsOperands(propType, path, valueStringArray)
+	case schema.DataTypeInt, schema.DataTypeIntArray:
+		valueIntArray, err := s.extractIntArray(value)
+		if err != nil {
+			return nil, err
+		}
+		operands = getContainsOperands(propType, path, valueIntArray)
+	case schema.DataTypeNumber, schema.DataTypeNumberArray:
+		valueFloat64Array, err := s.extractFloat64Array(value)
+		if err != nil {
+			return nil, err
+		}
+		operands = getContainsOperands(propType, path, valueFloat64Array)
+	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
+		valueBooleanArray, err := s.extractBoolArray(value)
+		if err != nil {
+			return nil, err
+		}
+		operands = getContainsOperands(propType, path, valueBooleanArray)
+	case schema.DataTypeDate, schema.DataTypeDateArray:
+		valueDateArray, err := s.extractStringArray(value)
+		if err != nil {
+			return nil, err
+		}
+		operands = getContainsOperands(propType, path, valueDateArray)
+	default:
+		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
+	}
+
+	children, err := s.extractPropValuePairs(operands, schema.ClassName(class.Class))
+	if err != nil {
+		return nil, err
+	}
+	out, err := newPropValuePair(class)
+	if err != nil {
+		return nil, errors.Wrap(err, "new prop value pair")
+	}
+	out.children = children
+	// filters.ContainsAny
+	out.operator = filters.OperatorOr
+	if operator == filters.ContainsAll {
+		out.operator = filters.OperatorAnd
+	}
+	out.Class = class
+	return out, nil
 }
 
 // TODO: repeated calls to on... aren't too efficient because we iterate over
@@ -628,6 +710,99 @@ func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Searcher) extractStringArray(value interface{}) ([]string, error) {
+	switch v := value.(type) {
+	case []string:
+		return v, nil
+	case []interface{}:
+		vals := make([]string, len(v))
+		for i := range v {
+			val, ok := v[i].(string)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be string but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []string but is %T", value)
+	}
+}
+
+func (s *Searcher) extractIntArray(value interface{}) ([]int, error) {
+	switch v := value.(type) {
+	case []int:
+		return v, nil
+	case []interface{}:
+		vals := make([]int, len(v))
+		for i := range v {
+			// in this case all number values are unmarshalled to float64, so we need to cast to float64
+			// and then make int
+			val, ok := v[i].(float64)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be float64 but is %T", i, v[i])
+			}
+			vals[i] = int(val)
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []int but is %T", value)
+	}
+}
+
+func (s *Searcher) extractFloat64Array(value interface{}) ([]float64, error) {
+	switch v := value.(type) {
+	case []float64:
+		return v, nil
+	case []interface{}:
+		vals := make([]float64, len(v))
+		for i := range v {
+			val, ok := v[i].(float64)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be float64 but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []float64 but is %T", value)
+	}
+}
+
+func (s *Searcher) extractBoolArray(value interface{}) ([]bool, error) {
+	switch v := value.(type) {
+	case []bool:
+		return v, nil
+	case []interface{}:
+		vals := make([]bool, len(v))
+		for i := range v {
+			val, ok := v[i].(bool)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be bool but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []bool but is %T", value)
+	}
+}
+
+func getContainsOperands[T any](propType schema.DataType, path *filters.Path, values []T) []filters.Clause {
+	operands := make([]filters.Clause, len(values))
+	for i := range values {
+		operands[i] = filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       path,
+			Value: &filters.Value{
+				Type:  propType,
+				Value: values[i],
+			},
+		}
+	}
+	return operands
 }
 
 type docIDsIterator interface {

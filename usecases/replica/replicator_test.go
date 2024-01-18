@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,7 +72,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("DeleteObjects", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		xs := rep.DeleteObjects(ctx, "S", []uint64{1, 2, 3}, false, All)
+		xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, false, All)
 		assert.Equal(t, 3, len(xs))
 		for _, x := range xs {
 			assert.ErrorIs(t, x.Err, errReplicas)
@@ -358,7 +358,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	t.Run("PhaseOneConnectionError", func(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
 		client := factory.WClient
-		docIDs := []uint64{1, 2}
+		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		client.On("DeleteObjects", ctx, nodes[0], cls, shard, anyVal, docIDs, false).Return(SimpleResponse{}, nil)
 		client.On("DeleteObjects", ctx, nodes[1], cls, shard, anyVal, docIDs, false).Return(SimpleResponse{}, errAny)
 		for _, n := range nodes {
@@ -374,7 +374,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 	t.Run("PhaseTwoDecodingError", func(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
 		client := factory.WClient
-		docIDs := []uint64{1, 2}
+		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		for _, n := range nodes {
 			client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(SimpleResponse{}, nil)
 			client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(errAny)
@@ -386,7 +386,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
-		docIDs := []uint64{1, 2}
+		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		resp1 := SimpleResponse{}
 		for _, n := range nodes {
 			client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp1, nil)
@@ -406,7 +406,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
-		docIDs := []uint64{1, 2}
+		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		resp1 := SimpleResponse{}
 		for _, n := range nodes {
 			client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp1, nil)
@@ -427,7 +427,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
-		docIDs := []uint64{1, 2}
+		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		resp1 := SimpleResponse{}
 		client.On("DeleteObjects", ctx, nodes[0], cls, shard, anyVal, docIDs, false).Return(resp1, nil)
 		client.On("DeleteObjects", ctx, nodes[1], cls, shard, anyVal, docIDs, false).Return(resp1, errAny)
@@ -446,7 +446,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
 		client := factory.WClient
 		rep := factory.newReplicator()
-		docIDs := []uint64{1, 2}
+		docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 		resp1 := SimpleResponse{}
 		for _, n := range nodes {
 			client.On("DeleteObjects", ctx, n, cls, shard, anyVal, docIDs, false).Return(resp1, nil)

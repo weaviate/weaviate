@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -91,6 +91,16 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 				if ok {
 					texts = append(texts, valueString)
 					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				}
+			}
+			valueArr, ok := value.([]interface{})
+			if ok {
+				for _, value := range valueArr {
+					valueString, ok := value.(string)
+					if ok {
+						texts = append(texts, valueString)
+						vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+					}
 				}
 			}
 		}

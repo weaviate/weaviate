@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package test
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -19,14 +20,38 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
 )
 
-func Test_GraphQL(t *testing.T) {
+func TestGraphQL_AsyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	testGraphQL(t)
+}
+
+func TestGraphQL_SyncIndexing(t *testing.T) {
+	testGraphQL(t)
+}
+
+func testGraphQL(t *testing.T) {
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
 

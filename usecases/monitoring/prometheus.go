@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,12 +55,86 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred       *prometheus.CounterVec
 	BackupStoreDataTransferred         *prometheus.CounterVec
 	VectorDimensionsSum                *prometheus.GaugeVec
+	VectorSegmentsSum                  *prometheus.GaugeVec
 
 	StartupProgress  *prometheus.GaugeVec
 	StartupDurations *prometheus.SummaryVec
 	StartupDiskIO    *prometheus.SummaryVec
 
+	ShardsLoaded    *prometheus.GaugeVec
+	ShardsUnloaded  *prometheus.GaugeVec
+	ShardsLoading   *prometheus.GaugeVec
+	ShardsUnloading *prometheus.GaugeVec
+
 	Group bool
+}
+
+// Delete Shard deletes existing label combinations that match both
+// the shard and class name. If a metric is not collected at the shard
+// level it is unaffected. This is to make sure that deleting a single
+// shard (e.g. multi-tenancy) does not affect metrics for existing
+// shards.
+//
+// In addition, there are some metrics that we explicitly keep, such
+// as vector_dimensions_sum as they can be used in billing decisions.
+func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
+	if pm == nil {
+		return nil
+	}
+
+	labels := prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	}
+	pm.BatchTime.DeletePartialMatch(labels)
+	pm.BatchDeleteTime.DeletePartialMatch(labels)
+	pm.ObjectsTime.DeletePartialMatch(labels)
+	pm.ObjectCount.DeletePartialMatch(labels)
+	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
+	pm.AsyncOperations.DeletePartialMatch(labels)
+	pm.LSMBloomFilters.DeletePartialMatch(labels)
+	pm.LSMMemtableDurations.DeletePartialMatch(labels)
+	pm.LSMMemtableSize.DeletePartialMatch(labels)
+	pm.LSMMemtableDurations.DeletePartialMatch(labels)
+	pm.LSMSegmentCount.DeletePartialMatch(labels)
+	pm.LSMSegmentSize.DeletePartialMatch(labels)
+	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
+	pm.VectorIndexTombstones.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
+	pm.VectorIndexOperations.DeletePartialMatch(labels)
+	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
+	pm.VectorIndexDurations.DeletePartialMatch(labels)
+	pm.VectorIndexSize.DeletePartialMatch(labels)
+	pm.StartupProgress.DeletePartialMatch(labels)
+	pm.StartupDurations.DeletePartialMatch(labels)
+	pm.StartupDiskIO.DeletePartialMatch(labels)
+	return nil
+}
+
+// DeleteClass deletes all metrics that match the class name, but do
+// not have a shard-specific label. See [DeleteShard] for more
+// information.
+func (pm *PrometheusMetrics) DeleteClass(className string) error {
+	if pm == nil {
+		return nil
+	}
+
+	labels := prometheus.Labels{
+		"class_name": className,
+	}
+	pm.QueriesCount.DeletePartialMatch(labels)
+	pm.QueriesDurations.DeletePartialMatch(labels)
+	pm.GoroutinesCount.DeletePartialMatch(labels)
+	pm.BackupRestoreClassDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreBackupInitDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreFromStorageDurations.DeletePartialMatch(labels)
+	pm.BackupStoreDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreDataTransferred.DeletePartialMatch(labels)
+	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
+	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
+
+	return nil
 }
 
 var (
@@ -132,6 +206,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Number of currently ongoing async operations",
 		}, []string{"operation", "class_name", "shard_name", "path"}),
 
+		// LSM metrics
 		LSMSegmentCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_active_segments",
 			Help: "Number of currently present segments per shard",
@@ -161,6 +236,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
+		// Vector index metrics
 		VectorIndexTombstones: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_tombstones",
 			Help: "Number of active vector index tombstones",
@@ -193,7 +269,12 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "vector_dimensions_sum",
 			Help: "Total dimensions in a shard",
 		}, []string{"class_name", "shard_name"}),
+		VectorSegmentsSum: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_segments_sum",
+			Help: "Total segments in a shard if quantization enabled",
+		}, []string{"class_name", "shard_name"}),
 
+		// Startup metrics
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
 			Help: "A ratio (percentage) of startup progress for a particular component in a shard",
@@ -214,6 +295,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "query_dimensions_combined_total",
 			Help: "The vector dimensions used by any read-query that involves vectors, aggregated across all classes and shards. The sum of all labels for query_dimensions_total should always match this labelless metric",
 		}),
+
+		// Backup/restore metrics
 		BackupRestoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_restore_ms",
 			Help: "Duration of a backup restore",
@@ -246,6 +329,24 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+
+		// Shard metrics
+		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_loaded",
+			Help: "Number of shards loaded",
+		}, []string{"class_name"}),
+		ShardsUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_unloaded",
+			Help: "Number of shards on not loaded",
+		}, []string{"class_name"}),
+		ShardsLoading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_loading",
+			Help: "Number of shards in process of loading",
+		}, []string{"class_name"}),
+		ShardsUnloading: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "shards_unloading",
+			Help: "Number of shards in process of unloading",
+		}, []string{"class_name"}),
 	}
 }
 

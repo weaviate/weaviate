@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,7 +54,7 @@ func TestGetAnswer(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			buildUrlFn: func(apiEndoint, projectID, modelID string) string {
+			buildUrlFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -85,7 +85,7 @@ func TestGetAnswer(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			buildUrlFn: func(apiEndoint, projectID, modelID string) string {
+			buildUrlFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -580,7 +580,8 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 	t.Run("node names by shard", func(t *testing.T) {
 		for _, n := range nodes {
 			nodeSet := make(map[string]bool)
-			foundNodes := n.repo.Shards(context.Background(), distributedClass)
+			foundNodes, err := n.repo.Shards(context.Background(), distributedClass)
+			assert.NoError(t, err)
 			for _, found := range foundNodes {
 				nodeSet[found] = true
 			}

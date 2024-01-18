@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -29,7 +30,7 @@ import (
 type BackupCreateRequest struct {
 
 	// Custom configuration for the backup creation process
-	Config interface{} `json:"config,omitempty"`
+	Config *BackupConfig `json:"config,omitempty"`
 
 	// List of classes to exclude from the backup creation process
 	Exclude []string `json:"exclude"`
@@ -43,11 +44,64 @@ type BackupCreateRequest struct {
 
 // Validate validates this backup create request
 func (m *BackupCreateRequest) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this backup create request based on context it is used
+func (m *BackupCreateRequest) validateConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.Config) { // not required
+		return nil
+	}
+
+	if m.Config != nil {
+		if err := m.Config.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("config")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("config")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this backup create request based on the context it is used
 func (m *BackupCreateRequest) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *BackupCreateRequest) contextValidateConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Config != nil {
+		if err := m.Config.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("config")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("config")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

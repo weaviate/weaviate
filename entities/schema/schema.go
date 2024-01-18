@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -84,4 +84,16 @@ func LowercaseFirstLetter(name string) string {
 	}
 
 	return strings.ToLower(string(name[0])) + name[1:]
+}
+
+func LowercaseFirstLetterOfStrings(in []string) []string {
+	if len(in) < 1 {
+		return in
+	}
+	out := make([]string, len(in))
+	for i, str := range in {
+		out[i] = LowercaseFirstLetter(str)
+	}
+
+	return out
 }

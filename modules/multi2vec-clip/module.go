@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -70,7 +70,7 @@ func (m *ClipModule) Type() modulecapabilities.ModuleType {
 func (m *ClipModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	if err := m.initVectorizer(ctx, params.GetLogger()); err != nil {
+	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
 
@@ -100,7 +100,7 @@ func (m *ClipModule) InitExtension(modules []modulecapabilities.Module) error {
 	return nil
 }
 
-func (m *ClipModule) initVectorizer(ctx context.Context,
+func (m *ClipModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	// TODO: proper config management
@@ -109,7 +109,7 @@ func (m *ClipModule) initVectorizer(ctx context.Context,
 		return errors.Errorf("required variable CLIP_INFERENCE_API is not set")
 	}
 
-	client := clients.New(uri, logger)
+	client := clients.New(uri, timeout, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote vectorizer")
 	}

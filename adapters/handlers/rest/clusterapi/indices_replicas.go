@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,7 +38,7 @@ type replicator interface {
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
 		requestID string, uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
-		requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse
+		requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
 		requestID string, refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(indexName,
@@ -64,6 +64,7 @@ type localScaler interface {
 type replicatedIndices struct {
 	shards replicator
 	scaler localScaler
+	auth   auth
 }
 
 var (
@@ -83,15 +84,20 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth) *replicatedIndices {
 	return &replicatedIndices{
 		shards: shards,
 		scaler: scaler,
+		auth:   auth,
 	}
 }
 
 func (i *replicatedIndices) Indices() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return i.auth.handleFunc(i.indicesHandler())
+}
+
+func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
 		case regxObjectsDigest.MatchString(path):
@@ -177,7 +183,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-	})
+	}
 }
 
 func (i *replicatedIndices) executeCommitPhase() http.Handler {
@@ -472,13 +478,13 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 		}
 		defer r.Body.Close()
 
-		docIDs, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
+		uuids, dryRun, err := IndicesPayloads.BatchDeleteParams.Unmarshal(bodyBytes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, docIDs, dryRun)
+		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,12 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // a single node of strategy "replace"
@@ -162,7 +164,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
-func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
 	out.offset = 0
 
 	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
@@ -227,6 +229,50 @@ func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentR
 	return nil
 }
 
+func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+	out.tombstone = r.ReadUint8() == 0x01
+	valueLength := r.ReadUint64()
+
+	if int(valueLength) > cap(out.value) {
+		out.value = make([]byte, valueLength)
+	} else {
+		out.value = out.value[:valueLength]
+	}
+
+	if _, err := r.CopyBytesFromBuffer(valueLength, out.value); err != nil {
+		return err
+	}
+
+	// Note: In a previous version (prior to
+	// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+	// mentioned PR optimizes the Replace Cursor which led to this now being
+	// shared memory. After internal review, we believe this is safe to do. The
+	// cursor gives no guarantees about memory after calling .next(). Before
+	// .next() is called, this should be safe. Nevertheless, we are leaving this
+	// note in case a future bug appears, as this should make this spot easier to
+	// find.
+	out.primaryKey = r.ReadBytesFromBufferWithUint32LengthIndicator()
+
+	if secondaryIndexCount > 0 {
+		out.secondaryKeys = make([][]byte, secondaryIndexCount)
+	}
+
+	for j := 0; j < int(secondaryIndexCount); j++ {
+		// Note: In a previous version (prior to
+		// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
+		// mentioned PR optimizes the Replace Cursor which led to this now being
+		// shared memory. After internal review, we believe this is safe to do. The
+		// cursor gives no guarantees about memory after calling .next(). Before
+		// .next() is called, this should be safe. Nevertheless, we are leaving this
+		// note in case a future bug appears, as this should make this spot easier to
+		// find.
+		out.secondaryKeys[j] = r.ReadBytesFromBufferWithUint32LengthIndicator()
+	}
+
+	out.offset = int(r.Position)
+	return nil
+}
+
 // collection strategy does not support secondary keys at this time
 type segmentCollectionNode struct {
 	values     []value
@@ -288,6 +334,15 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key
 	return out, nil
 }
 
+// ParseCollectionNode reads from r and parses the collection values into a segmentCollectionNode
+//
+// When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the
+// entire segment (could be GBs). Each consecutive read will be buffered to avoid excessive
+// syscalls.
+//
+// When we already have a finite and manageable []byte (i.e. when we have already seeked to an
+// lsmkv node and have start+end offset), r should be constructed as a *bytes.Reader, since the
+// contents have already been `pread` from the segment contentFile.
 func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 	out := segmentCollectionNode{}
 	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
@@ -352,32 +407,55 @@ func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
 // As a result calling this method only makes sense if you plan on calling it
 // multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
-func ParseCollectionNodeInto(in []byte, node *segmentCollectionNode) error {
+func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 	// offset is only the local offset relative to "in". In the end we need to
 	// update the global offset.
 	offset := 0
 
-	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	buf := make([]byte, 9)
+	_, err := io.ReadFull(r, buf[0:8])
+	if err != nil {
+		return fmt.Errorf("read values len: %w", err)
+	}
+
+	valuesLen := binary.LittleEndian.Uint64(buf[0:8])
 	offset += 8
 
 	resizeValuesOfCollectionNode(node, valuesLen)
 	for i := range node.values {
-		node.values[i].tombstone = in[offset] == 0x1
+		_, err = io.ReadFull(r, buf)
+		if err != nil {
+			return fmt.Errorf("read values len: %w", err)
+		}
+
+		node.values[i].tombstone = buf[0] == 0x1
 		offset += 1
 
-		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+		valueLen := binary.LittleEndian.Uint64(buf[1:9])
 		offset += 8
 
 		resizeValueOfCollectionNodeAtPos(node, i, valueLen)
-		node.values[i].value = in[offset : offset+int(valueLen)]
+
+		_, err = io.ReadFull(r, node.values[i].value)
+		if err != nil {
+			return fmt.Errorf("read node value: %w", err)
+		}
+
 		offset += int(valueLen)
 	}
 
-	keyLen := binary.LittleEndian.Uint32(in[offset : offset+4])
+	_, err = io.ReadFull(r, buf[0:4])
+	if err != nil {
+		return fmt.Errorf("read values len: %w", err)
+	}
+	keyLen := binary.LittleEndian.Uint32(buf)
 	offset += 4
 
 	resizeKeyOfCollectionNode(node, keyLen)
-	node.primaryKey = in[offset : offset+int(keyLen)]
+	_, err = io.ReadFull(r, node.primaryKey)
+	if err != nil {
+		return fmt.Errorf("read primary key: %w", err)
+	}
 	offset += int(keyLen)
 
 	node.offset = offset

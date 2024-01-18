@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,8 +43,7 @@ func TestBackup_SwitchCommitLogs(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
-	}, enthnsw.NewDefaultUserConfig(),
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -73,13 +72,12 @@ func TestBackup_ListFiles(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logrus.New(), cyclemanager.NewCallbackGroupNoop())
 		},
-	}, enthnsw.NewDefaultUserConfig(),
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, enthnsw.NewDefaultUserConfig(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
 	idx.PostStartup()
 
 	t.Run("assert expected index contents", func(t *testing.T) {
-		files, err := idx.ListFiles(ctx)
+		files, err := idx.ListFiles(ctx, dirName)
 		assert.Nil(t, err)
 
 		// should return empty, because the only file which

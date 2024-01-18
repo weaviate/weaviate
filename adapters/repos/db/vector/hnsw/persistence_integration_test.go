@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@
 package hnsw
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -49,8 +51,8 @@ func TestHnswPersistence(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -87,11 +89,11 @@ func TestHnswPersistence(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -119,8 +121,8 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -145,6 +147,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	})
 
 	// destroy the index
+	index.Shutdown(context.Background())
 	index = nil
 	indexDir := filepath.Join(dirName, "integrationtest_corrupt.hnsw.commitlog.d")
 
@@ -191,14 +194,14 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	// the minor corruption (just one missing link) will most likely not render
 	// the index unusable, so we should still expect to retrieve results as
 	// normal
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -225,8 +228,8 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -272,12 +275,12 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	dumpIndex(secondIndex, "without_cleanup_after_rebuild")
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -304,8 +307,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -345,6 +348,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	})
 
 	// destroy the index
+	index.Shutdown(context.Background())
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -357,12 +361,12 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	dumpIndex(secondIndex, "with cleanup second index")
 
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -389,7 +393,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	dumpIndex(secondIndex)
 
+	secondIndex.Shutdown(context.Background())
 	secondIndex = nil
+
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
 		RootPath:              dirName,
@@ -400,13 +406,13 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	dumpIndex(thirdIndex)
 
-	t.Run("verify that the results match after rebuiling from disk",
+	t.Run("verify that the results match after rebuilding from disk",
 		func(t *testing.T) {
 			position := 3
 			res, _, err := thirdIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
@@ -428,6 +434,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	require.Nil(t, thirdIndex.Flush())
 
+	thirdIndex.Shutdown(context.Background())
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
 	fourthIndex, err := New(Config{
@@ -439,8 +446,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	t.Run("load from disk and try to insert again", func(t *testing.T) {
@@ -461,4 +468,6 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
+
+	fourthIndex.Shutdown(context.Background())
 }

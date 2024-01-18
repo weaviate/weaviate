@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -179,9 +179,13 @@ func countMetricsLines(t *testing.T) int {
 	scanner := bufio.NewScanner(res.Body)
 	lineCount := 0
 	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "shards_loaded") || strings.Contains(line, "shards_loading") || strings.Contains(line, "shards_unloading") || strings.Contains(line, "shards_unloaded") {
+			continue
+		}
 		require.NotContains(
 			t,
-			strings.ToLower(scanner.Text()),
+			strings.ToLower(line),
 			strings.ToLower(metricClassPrefix),
 		)
 		lineCount++

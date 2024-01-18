@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,7 +96,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 		}
 	})
 
-	// This test "with an origin conifgured" is not repeated for every handler,
+	// This test "with an origin configured" is not repeated for every handler,
 	// as testing this feature once was deemed sufficient
 	t.Run("add object - with an origin configured", func(t *testing.T) {
 		type test struct {
@@ -578,7 +578,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}},
 			},
 			{
-				name: "forbbiden",
+				name: "forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{
@@ -724,7 +724,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}},
 			},
 			{
-				name: "error forbbiden",
+				name: "error forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{
@@ -773,7 +773,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				name: "without props - noaction changes",
 			},
 			{
-				name: "error forbbiden",
+				name: "error forbidden",
 				err:  errors.NewForbidden(&models.Principal{}, "get", "Myclass/123"),
 			},
 			{
@@ -1083,6 +1083,16 @@ func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class st
 
 func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	principal *models.Principal, id strfmt.UUID,
+) (*models.Class, error) {
+	class := &models.Class{
+		Class:      f.getObjectReturn.Class,
+		Vectorizer: "text2vec-contextionary",
+	}
+	return class, nil
+}
+
+func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
+	className string,
 ) (*models.Class, error) {
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,

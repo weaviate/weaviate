@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,12 +41,14 @@ func NewTree(capacity int) Tree {
 func NewBalanced(nodes []Node) Tree {
 	t := Tree{nodes: make([]*Node, len(nodes))}
 
-	// sort the slice just once
-	sort.Slice(nodes, func(a, b int) bool {
-		return bytes.Compare(nodes[a].Key, nodes[b].Key) < 0
-	})
+	if len(nodes) > 0 {
+		// sort the slice just once
+		sort.Slice(nodes, func(a, b int) bool {
+			return bytes.Compare(nodes[a].Key, nodes[b].Key) < 0
+		})
 
-	t.buildBalanced(nodes, 0, 0, len(nodes)-1)
+		t.buildBalanced(nodes, 0, 0, len(nodes)-1)
+	}
 
 	return t
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,8 +96,8 @@ func Test_AddingReferenceWithoutWaiting_UsingPostObjects(t *testing.T) {
 		"name": "My City",
 		"hasPlace": []interface{}{
 			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/%s", placeID.String()),
-				"href":   fmt.Sprintf("/v1/objects/%s", placeID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/%s/%s", "ReferenceWaitingTestPlace", placeID.String()),
+				"href":   fmt.Sprintf("/v1/objects/%s/%s", "ReferenceWaitingTestPlace", placeID.String()),
 			},
 		},
 	}, actualThunk)

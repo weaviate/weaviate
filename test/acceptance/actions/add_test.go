@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,9 +17,10 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
+
+	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -125,6 +126,6 @@ func addingObjects(t *testing.T) {
 		secondObject := helper.AssertGetObjectEventually(t, "TestObjectTwo", secondID)
 
 		singleRef := secondObject.Properties.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
-		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/%s", firstID))
+		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/TestObject/%s", firstID))
 	})
 }

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package weaviategrpc;
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v0";
+option java_outer_classname = "WeaviateProtoBatch";
+
+message BatchObjectsRequest {
+}
+message BatchObjectsReply {
+}

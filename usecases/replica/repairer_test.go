@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -1142,7 +1142,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).
 			Return(directR2, nil).
 			Once()
-		// response must at leas contain one item
+		// response must at least contain one item
 		f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, anyVal).
 			Return(directR3, nil).
 			Once()
@@ -1223,7 +1223,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 		f.RClient.On("FetchObjects", anyVal, nodes[1], cls, shard, anyVal).
 			Return(directR2, nil).
 			Once()
-		// response must at leas contain one item
+		// response must at least contain one item
 		f.RClient.On("FetchObjects", anyVal, nodes[2], cls, shard, anyVal).
 			Return(directR3, nil).
 			Once()

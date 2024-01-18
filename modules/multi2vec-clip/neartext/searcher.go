@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,8 @@ package neartext
 
 import (
 	"context"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -49,11 +51,11 @@ func (s *Searcher) vectorForNearTextParam(ctx context.Context, params interface{
 	findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return s.vectorFromNearTextParam(ctx, params.(*NearTextParams), className, findVectorFn, cfg)
+	return s.vectorFromNearTextParam(ctx, params.(*nearText.NearTextParams), className, findVectorFn, cfg)
 }
 
 func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
-	params *NearTextParams,
+	params *nearText.NearTextParams,
 	className string, findVectorFn modulecapabilities.FindVectorFn,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
@@ -101,7 +103,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 }
 
 func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
-	values []string, objects []ObjectMove,
+	values []string, objects []nearText.ObjectMove,
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
 	settings localvectorizer.ClassSettings, tenant string,

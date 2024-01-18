@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -114,6 +114,16 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().
 		WithClassName(class).WithID(id).WithTenant(&tenant)
+	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	return getResp.Payload, nil
+}
+
+func TenantObjectWithInclude(t *testing.T, class string, id strfmt.UUID, tenant string, includes string) (*models.Object, error) {
+	req := objects.NewObjectsClassGetParams().
+		WithClassName(class).WithID(id).WithTenant(&tenant).WithInclude(&includes)
 	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err

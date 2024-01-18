@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,14 +61,35 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 			if err := c.container.Start(ctx); err != nil {
 				return fmt.Errorf("cannot start %q: %w", c.name, err)
 			}
-			newURI, err := c.container.Endpoint(context.Background(), "")
-			if err != nil {
-				return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
+			if err := d.waitUntilRunning(c.name, c.container); err != nil {
+				return err
 			}
-			c.uri = newURI
+			newEndpoints := map[EndpointName]endpoint{}
+			for name, e := range c.endpoints {
+				newURI, err := c.container.PortEndpoint(ctx, e.port, "")
+				if err != nil {
+					return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
+				}
+				newEndpoints[name] = endpoint{e.port, newURI}
+			}
+			c.endpoints = newEndpoints
 		}
 	}
 	return nil
+}
+
+func (d *DockerCompose) waitUntilRunning(name string, container testcontainers.Container) error {
+	waitTimeout := 1 * time.Minute
+	start := time.Now()
+	for {
+		if container.IsRunning() {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+		if time.Now().After(start.Add(waitTimeout)) {
+			return fmt.Errorf("container %q: was still not running after %v", name, waitTimeout)
+		}
+	}
 }
 
 func (d *DockerCompose) GetMinIO() *DockerContainer {
@@ -85,6 +106,10 @@ func (d *DockerCompose) GetAzurite() *DockerContainer {
 
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
 	return d.getContainerByName(Weaviate)
+}
+
+func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
+	return d.getContainerByName(SecondWeaviate)
 }
 
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {

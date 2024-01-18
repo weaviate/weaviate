@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,8 @@ package hnsw
 
 import (
 	"fmt"
+
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 const (
@@ -71,6 +73,9 @@ func validEncoderDistribution(v string) error {
 }
 
 func ValidatePQConfig(cfg PQConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
 	err := validEncoder(cfg.Encoder.Type)
 	if err != nil {
 		return err
@@ -135,31 +140,31 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 		return nil
 	}
 
-	if err := optionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
+	if err := common.OptionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
 		pq.Enabled = v
 	}); err != nil {
 		return err
 	}
 
-	if err := optionalBoolFromMap(pqConfigMap, "bitCompression", func(v bool) {
+	if err := common.OptionalBoolFromMap(pqConfigMap, "bitCompression", func(v bool) {
 		pq.BitCompression = v
 	}); err != nil {
 		return err
 	}
 
-	if err := optionalIntFromMap(pqConfigMap, "segments", func(v int) {
+	if err := common.OptionalIntFromMap(pqConfigMap, "segments", func(v int) {
 		pq.Segments = v
 	}); err != nil {
 		return err
 	}
 
-	if err := optionalIntFromMap(pqConfigMap, "centroids", func(v int) {
+	if err := common.OptionalIntFromMap(pqConfigMap, "centroids", func(v int) {
 		pq.Centroids = v
 	}); err != nil {
 		return err
 	}
 
-	if err := optionalIntFromMap(pqConfigMap, "trainingLimit", func(v int) {
+	if err := common.OptionalIntFromMap(pqConfigMap, "trainingLimit", func(v int) {
 		pq.TrainingLimit = v
 	}); err != nil {
 		return err

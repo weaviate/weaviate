@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,7 @@ package filters
 const (
 	// LimitFlagSearchByDist indicates that the
 	// vector search should be conducted by
-	// distance, witout limit
+	// distance, without limit
 	LimitFlagSearchByDist int = iota - 2
 
 	// LimitFlagNotSet indicates that no limit

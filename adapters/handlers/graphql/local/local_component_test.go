@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,9 +31,9 @@ import (
 // graphql tree can be built under certain circumstances. This helps us to
 // catch errors on edge cases like empty schemas, classes with empty
 // properties, empty peer lists, peers with empty schemas, etc. However, we
-// don't get any guaruantuee of whether the individual queries resolve
+// don't get any guarantee of whether the individual queries resolve
 // correctly. For those cases we have unit tests in die individual subpackages
-// (i.e. get, getmeta, aggreagate, etc.).  Additionally we have (a few) e2e
+// (i.e. get, getmeta, aggregate, etc.).  Additionally we have (a few) e2e
 // tests.
 
 func TestBuild_GraphQLNetwork(t *testing.T) {

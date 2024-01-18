@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,23 +27,17 @@ func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) 
 		return schema.Schema{}, err
 	}
 
-	return schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
-	}, nil
+	return m.getSchema(), nil
 }
 
 // GetSchemaSkipAuth can never be used as a response to a user request as it
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
-func (m *Manager) GetSchemaSkipAuth() schema.Schema {
-	return schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
-	}
-}
+func (m *Manager) GetSchemaSkipAuth() schema.Schema { return m.getSchema() }
 
 func (m *Manager) getSchema() schema.Schema {
 	return schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
+		Objects: m.schemaCache.readOnlySchema(),
 	}
 }
 
@@ -70,11 +64,8 @@ func (m *Manager) GetClass(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) getClassByName(name string) *models.Class {
-	s := schema.Schema{
-		Objects: m.schemaCache.ObjectSchema,
-	}
-
-	return s.FindClassByName(schema.ClassName(name))
+	c, _ := m.schemaCache.readOnlyClass(name)
+	return c
 }
 
 // ResolveParentNodes gets all replicas for a specific class shard and resolves their names
@@ -113,14 +104,18 @@ func (m *Manager) ClusterHealthScore() int {
 }
 
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
-	className string,
+	className, tenant string,
 ) (models.ShardStatusList, error) {
 	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
 		return nil, err
 	}
 
-	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className)
+	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className, tenant)
+	if err != nil {
+		return nil, err
+	}
+	shardsQueueSize, err := m.migrator.GetShardsQueueSize(ctx, className, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -129,8 +124,9 @@ func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Princip
 
 	for name, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
+			Name:            name,
+			Status:          status,
+			VectorQueueSize: shardsQueueSize[name],
 		})
 	}
 

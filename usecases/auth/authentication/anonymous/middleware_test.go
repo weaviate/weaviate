@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,7 +22,7 @@ import (
 
 func Test_AnonymousMiddleware_Enabled(t *testing.T) {
 	// when anonymous access is enabled, we don't need to do anything and can
-	// savely call the next next handler
+	// safely call the next next handler
 
 	r := httptest.NewRequest("GET", "/foo", nil)
 	w := httptest.NewRecorder()

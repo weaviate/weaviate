@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -198,7 +198,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 }
 
 // checkShardConsistency checks consistency for a set of objects belonging to a shard
-// It returns the most recent objects or and erro
+// It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l ConsistencyLevel,
 	batch shardPart,

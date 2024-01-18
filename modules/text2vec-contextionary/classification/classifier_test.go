@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -122,7 +122,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 			id = class.ID
 		})
 
-		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
+		t.Run("retrieving the same classification by id", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)

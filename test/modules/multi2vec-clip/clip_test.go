@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -36,34 +37,49 @@ func Test_CLIP(t *testing.T) {
 		}
 	})
 
-	t.Run("query Books data with nearText", func(t *testing.T) {
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, `
-			{
-				Get {
-					Books(
-						limit: 1
-						nearText: {
-							concepts: ["Dune"]
-							distance: 0.5
-						}
-					){
-						title
-						_additional {
-							distance
+	tests := []struct {
+		concept       string
+		expectedTitle string
+	}{
+		{
+			concept:       "Dune",
+			expectedTitle: "Dune",
+		},
+		{
+			concept:       "three",
+			expectedTitle: "The Lord of the Ice Garden",
+		},
+	}
+	for _, tt := range tests {
+		t.Run("query Books data with nearText", func(t *testing.T) {
+			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+				{
+					Get {
+						Books(
+							limit: 1
+							nearText: {
+								concepts: ["%v"]
+								distance: 0.5
+							}
+						){
+							title
+							_additional {
+								distance
+							}
 						}
 					}
 				}
-			}
-		`)
-		books := result.Get("Get", "Books").AsSlice()
-		require.Len(t, books, 1)
-		title := books[0].(map[string]interface{})["title"]
-		assert.Equal(t, "Dune", title)
-		distance := books[0].(map[string]interface{})["_additional"].(map[string]interface{})["distance"].(json.Number)
-		assert.NotNil(t, distance)
-		dist, err := distance.Float64()
-		require.Nil(t, err)
-		assert.Greater(t, dist, 0.0)
-		assert.LessOrEqual(t, dist, 0.03)
-	})
+			`, tt.concept))
+			books := result.Get("Get", "Books").AsSlice()
+			require.Len(t, books, 1)
+			title := books[0].(map[string]interface{})["title"]
+			assert.Equal(t, tt.expectedTitle, title)
+			distance := books[0].(map[string]interface{})["_additional"].(map[string]interface{})["distance"].(json.Number)
+			assert.NotNil(t, distance)
+			dist, err := distance.Float64()
+			require.Nil(t, err)
+			assert.Greater(t, dist, 0.0)
+			assert.LessOrEqual(t, dist, 0.03)
+		})
+	}
 }

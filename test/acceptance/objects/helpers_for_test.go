@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,12 +40,13 @@ func assertCreateObject(t *testing.T, className string, schema map[string]interf
 	return objectID
 }
 
-func assertCreateObjectWithID(t *testing.T, className string, id strfmt.UUID, schema map[string]interface{}) {
+func assertCreateObjectWithID(t *testing.T, className, tenant string, id strfmt.UUID, schema map[string]interface{}) {
 	params := objects.NewObjectsCreateParams().WithBody(
 		&models.Object{
 			ID:         id,
 			Class:      className,
 			Properties: schema,
+			Tenant:     tenant,
 		})
 
 	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)

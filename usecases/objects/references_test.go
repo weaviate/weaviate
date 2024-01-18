@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 			},
 		}
 		m := newFakeGetManager(zooAnimalSchemaForTest())
-		m.repo.On("Exists", "", mock.Anything).Return(true, nil)
+		m.repo.On("Exists", "Animal", mock.Anything).Return(true, nil)
 		m.repo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: cls,
 			Schema: map[string]interface{}{
@@ -50,7 +50,7 @@ func Test_ReferencesAddDeprecated(t *testing.T) {
 		}, nil)
 		expectedRefProperty := "hasAnimals"
 		source := crossref.NewSource(schema.ClassName(cls), schema.PropertyName(expectedRefProperty), id)
-		target := crossref.New("localhost", "", "d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
+		target := crossref.New("localhost", "Animal", "d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
 		m.repo.On("AddReference", source, target).Return(nil)
 		m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 
@@ -142,23 +142,23 @@ func Test_ReferenceAdd(t *testing.T) {
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
 		{
 			Name: "empty data type",
-			Req:  AddReferenceInput{Class: cls, ID: id, Property: "emptyType", Ref: ref}, Stage: 2,
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "emptyType", Ref: ref}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "primitive data type",
-			Req:  AddReferenceInput{Class: cls, ID: id, Property: "name", Ref: ref}, Stage: 2,
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "name", Ref: ref}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "unknown property",
-			Req:  AddReferenceInput{Class: cls, ID: id, Property: "unknown", Ref: ref}, Stage: 2,
+			Req:  AddReferenceInput{Class: cls, ID: id, Property: "unknown", Ref: ref}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
@@ -211,7 +211,7 @@ func Test_ReferenceAdd(t *testing.T) {
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
-				m.repo.On("Exists", "", refID).Return(true, tc.ErrTargetExists).Once()
+				m.repo.On("Exists", "Animal", refID).Return(true, tc.ErrTargetExists).Once()
 			}
 			if tc.Stage >= 3 {
 				m.repo.On("Exists", tc.Req.Class, tc.Req.ID).Return(!tc.SrcNotFound, tc.ErrSrcExists).Once()
@@ -303,23 +303,23 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "get schema",
-			Req:  req, Stage: 2,
+			Req:  req, Stage: 1,
 			ErrSchema: anyErr,
 			WantCode:  StatusBadRequest,
 		},
 		{
 			Name: "empty data type",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "emptyType", Refs: refs}, Stage: 2,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "emptyType", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "primitive data type",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "name", Refs: refs}, Stage: 2,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "name", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
 			Name: "unknown property",
-			Req:  PutReferenceInput{Class: cls, ID: id, Property: "unknown", Refs: refs}, Stage: 2,
+			Req:  PutReferenceInput{Class: cls, ID: id, Property: "unknown", Refs: refs}, Stage: 1,
 			WantCode: StatusBadRequest,
 		},
 		{
@@ -364,7 +364,7 @@ func Test_ReferenceUpdate(t *testing.T) {
 				srcObj = nil
 			}
 			if tc.Stage >= 1 {
-				m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything, "").Return(srcObj, tc.ErrSrcExists)
 			}
 
 			if tc.Stage >= 2 {
@@ -448,20 +448,20 @@ func Test_ReferenceDelete(t *testing.T) {
 			Name: "source object internal error", Req: req,
 			WantCode:     StatusInternalServerError,
 			ErrSrcExists: anyErr,
-			WantErr:      NewErrInternal("repo: object by id: %v", anyErr),
+			WantErr:      NewErrInternal("repo: object by id: %v", anyErr), Stage: 2,
 		},
 		{
 			Name: "source object missing", Req: req,
 			WantCode:    StatusNotFound,
-			SrcNotFound: true,
+			SrcNotFound: true, Stage: 2,
 		},
 		{
 			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
+			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr, Stage: 2,
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 2,
 		},
 		{
 			Name: "get schema",
@@ -554,8 +554,10 @@ func Test_ReferenceDelete(t *testing.T) {
 			if tc.SrcNotFound {
 				srcObj = nil
 			}
-			m.repo.On("Object", cls, id, mock.Anything, mock.Anything).Return(srcObj, tc.ErrSrcExists)
-			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+			if tc.Stage >= 2 {
+				m.repo.On("Object", cls, id, mock.Anything, mock.Anything, "").Return(srcObj, tc.ErrSrcExists)
+				m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
+			}
 
 			if tc.Stage >= 3 {
 				m.repo.On("PutObject", mock.Anything, mock.Anything).Return(tc.ErrPutRefs).Once()
@@ -607,6 +609,7 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 
 	source := crossref.NewSource(schema.ClassName(req.Class), schema.PropertyName(req.Property), req.ID)
 	target := crossref.New("localhost", "Paragraph", "494a2fe5-3e4c-4e9a-a47e-afcd9814f5ea")
+	tenant := "randomTenant"
 
 	parent := &search.Result{
 		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
@@ -622,15 +625,14 @@ func Test_ReferenceAdd_Ref2Vec(t *testing.T) {
 
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
-	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
-	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}).Return(ref1, nil)
+	m.repo.On("Object", "Article", parent.ID, search.SelectProperties{}, additional.Properties{}, tenant).Return(parent, nil)
+	m.repo.On("Object", "Paragraph", ref1.ID, search.SelectProperties{}, additional.Properties{}, tenant).Return(ref1, nil)
 	m.repo.On("AddReference", source, target).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 	m.modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 		Return(ref1.Vector, nil)
 	m.repo.On("PutObject", mock.Anything, ref1.Vector).Return(nil)
-
-	err := m.Manager.AddObjectReference(ctx, nil, &req, nil, "")
+	err := m.Manager.AddObjectReference(ctx, nil, &req, nil, tenant)
 	assert.Nil(t, err)
 }
 
@@ -651,6 +653,8 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 		},
 	}
 
+	tenant := "randomTenant"
+
 	parent := &search.Result{
 		ID:        strfmt.UUID("e1a60252-c38c-496d-8e54-306e1cedc5c4"),
 		ClassName: "Article",
@@ -665,11 +669,11 @@ func Test_ReferenceDelete_Ref2Vec(t *testing.T) {
 
 	m.repo.On("Exists", "Article", parent.ID).Return(true, nil)
 	m.repo.On("Exists", "Paragraph", ref1.ID).Return(true, nil)
-	m.repo.On("Object", req.Class, req.ID, search.SelectProperties{}, additional.Properties{}).Return(parent, nil)
+	m.repo.On("Object", req.Class, req.ID, search.SelectProperties{}, additional.Properties{}, tenant).Return(parent, nil)
 	m.repo.On("PutObject", parent.Object(), []float32(nil)).Return(nil)
 	m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(true)
 
-	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil, "")
+	err := m.Manager.DeleteObjectReference(ctx, nil, &req, nil, tenant)
 	assert.Nil(t, err)
 }
 

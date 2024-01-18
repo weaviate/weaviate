@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -100,26 +100,22 @@ func TestCombinedCursor(t *testing.T) {
 			values: []uint64{22, 33},
 		},
 		{ // 2
-			key:    "ccc",
-			values: []uint64{},
-		},
-		{ // 3
 			key:    "ddd",
 			values: []uint64{4444},
 		},
-		{ // 4
+		{ // 3
 			key:    "eee",
 			values: []uint64{55555, 66666},
 		},
-		{ // 5
+		{ // 4
 			key:    "fff",
 			values: []uint64{666666},
 		},
-		{ // 6
+		{ // 5
 			key:    "ggg",
 			values: []uint64{7777777, 8888888},
 		},
-		{ // 7
+		{ // 6
 			key:    "hhh",
 			values: []uint64{999999999},
 		},
@@ -169,7 +165,7 @@ func TestCombinedCursor(t *testing.T) {
 		t.Run("seek matching element and go through rest", func(t *testing.T) {
 			cursor := createCursor(t, bst1, bst2, bst3)
 
-			i := 3 // 1st match is "ddd"
+			i := 2 // 1st match is "ddd"
 			matching := []byte("ddd")
 			for key, bm := cursor.Seek(matching); key != nil; key, bm = cursor.Next() {
 				assert.Equal(t, []byte(expected[i].key), key)
@@ -184,7 +180,7 @@ func TestCombinedCursor(t *testing.T) {
 		t.Run("seek non-matching element and go through rest", func(t *testing.T) {
 			cursor := createCursor(t, bst1, bst2, bst3)
 
-			i := 5 // 1st match is "fff"
+			i := 4 // 1st match is "fff"
 			nonMatching := []byte("efg")
 			for key, bm := cursor.Seek(nonMatching); key != nil; key, bm = cursor.Next() {
 				assert.Equal(t, []byte(expected[i].key), key)
@@ -257,9 +253,9 @@ func TestCombinedCursor(t *testing.T) {
 			cursor.Next()
 			key, bm := cursor.Seek(matching)
 
-			assert.Equal(t, []byte(expected[4].key), key)
-			assert.Equal(t, len(expected[4].values), bm.GetCardinality())
-			for _, v := range expected[4].values {
+			assert.Equal(t, []byte(expected[3].key), key)
+			assert.Equal(t, len(expected[3].values), bm.GetCardinality())
+			for _, v := range expected[3].values {
 				assert.True(t, bm.Contains(v))
 			}
 		})
@@ -300,7 +296,7 @@ func TestCombinedCursor(t *testing.T) {
 		t.Run("seek matching element and go through rest", func(t *testing.T) {
 			cursor := createCursorKeyOnly(t, bst1, bst2, bst3)
 
-			i := 3 // 1st match is "ddd"
+			i := 2 // 1st match is "ddd"
 			matching := []byte("ddd")
 			for key, bm := cursor.Seek(matching); key != nil; key, bm = cursor.Next() {
 				assert.Equal(t, []byte(expected[i].key), key)
@@ -312,7 +308,7 @@ func TestCombinedCursor(t *testing.T) {
 		t.Run("seek non-matching element and go through rest", func(t *testing.T) {
 			cursor := createCursorKeyOnly(t, bst1, bst2, bst3)
 
-			i := 5 // 1st match is "fff"
+			i := 4 // 1st match is "fff"
 			nonMatching := []byte("efg")
 			for key, bm := cursor.Seek(nonMatching); key != nil; key, bm = cursor.Next() {
 				assert.Equal(t, []byte(expected[i].key), key)
@@ -377,7 +373,7 @@ func TestCombinedCursor(t *testing.T) {
 			cursor.Next()
 			key, bm := cursor.Seek(matching)
 
-			assert.Equal(t, []byte(expected[4].key), key)
+			assert.Equal(t, []byte(expected[3].key), key)
 			assert.Nil(t, bm)
 		})
 	})

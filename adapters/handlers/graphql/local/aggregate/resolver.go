@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -189,7 +189,7 @@ func extractProperties(selections *ast.SelectionSet) ([]aggregation.ParamPropert
 		if name == GroupedByFieldName {
 			// in the graphQL API we show the "groupedBy" field alongside various
 			// properties, however, we don't have to include it here, as we don't
-			// wont to perform aggregations on it.
+			// won't to perform aggregations on it.
 			// If we didn't exclude it we'd run into errors down the line, because
 			// the connector would look for a "groupedBy" prop on the specific class
 			// which doesn't exist.

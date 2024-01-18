@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,8 +24,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -310,7 +310,7 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQ(data ssdhelpers.PQData) error {
+func (l *hnswCommitLogger) AddPQ(data compressionhelpers.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -520,7 +520,7 @@ func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 }
 
 func (l *hnswCommitLogger) combineLogs() (bool, error) {
-	// maxSize is the desired final size, since we assume a lot of redunancy we
+	// maxSize is the desired final size, since we assume a lot of redundancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				assert.Equal(t, "endpoint", apiEndoint)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", modelID)
@@ -44,8 +44,8 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
@@ -53,7 +53,7 @@ func TestClient(t *testing.T) {
 				ApiEndpoint: "endpoint",
 				ProjectID:   "project",
 				Model:       "model",
-			})
+			}, "")
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -65,7 +65,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -73,7 +73,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -88,13 +88,13 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to Google PaLM failed with status: 500 error: nope, not gonna happen")
@@ -106,7 +106,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -115,11 +115,11 @@ func TestClient(t *testing.T) {
 			"X-Palm-Api-Key", []string{"some-key"})
 
 		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -131,7 +131,7 @@ func TestClient(t *testing.T) {
 		c := &palm{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilderFn: func(apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -139,7 +139,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
@@ -159,7 +159,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+

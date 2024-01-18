@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,12 +50,12 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) init() error {
 }
 
 func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(ctx context.Context,
-	shard *Shard,
+	shard ShardLike,
 ) ([]ReindexableProperty, error) {
 	reindexableProperties := []ReindexableProperty{}
 
 	t.stateLock.RLock()
-	className := shard.index.Config.ClassName.String()
+	className := shard.Index().Config.ClassName.String()
 	props, ok := t.migrationState.MissingFilterableClass2Props[className]
 	t.stateLock.RUnlock()
 
@@ -64,15 +64,15 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 	}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithIdleThreshold(time.Duration(shard.index.Config.MemtablesFlushIdleAfter) * time.Second),
+		lsmkv.WithIdleThreshold(time.Duration(shard.Index().Config.MemtablesFlushIdleAfter) * time.Second),
 	}
 
 	for propName := range props {
 		bucketNameSearchable := helpers.BucketSearchableFromPropNameLSM(propName)
 		bucketNameFilterable := helpers.BucketFromPropNameLSM(propName)
 
-		bucketSearchable := shard.store.Bucket(bucketNameSearchable)
-		bucketFilterable := shard.store.Bucket(bucketNameFilterable)
+		bucketSearchable := shard.Store().Bucket(bucketNameSearchable)
+		bucketFilterable := shard.Store().Bucket(bucketNameFilterable)
 
 		// exists bucket searchable of strategy map and either of
 		// - exists empty filterable bucket of strategy roaring set
@@ -113,8 +113,8 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) updateMigrationStateAndS
 	return t.files.saveMigrationState(t.migrationState)
 }
 
-func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard *Shard) error {
+func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
 	// turn off fallback mode immediately after creating filterable index and resuming store's activity
-	shard.fallbackToSearchable = false
+	shard.setFallbackToSearchable(false)
 	return nil
 }

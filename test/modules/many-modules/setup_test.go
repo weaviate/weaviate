@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,11 +31,15 @@ func TestMain(m *testing.M) {
 		WithText2VecOpenAI().
 		WithText2VecCohere().
 		WithText2VecPaLM().
+		WithText2VecHuggingFace().
+		WithText2VecAWS().
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
 		WithGenerativePaLM().
-		WithSUMTransformers().
+		WithGenerativeAWS().
+		WithGenerativeAnyscale().
 		WithQnAOpenAI().
+		WithRerankerCohere().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,13 +16,15 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/deprecations"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"gopkg.in/yaml.v2"
 )
@@ -68,33 +70,39 @@ type Flags struct {
 
 // Config outline of the config file
 type Config struct {
-	Name                                string         `json:"name" yaml:"name"`
-	Debug                               bool           `json:"debug" yaml:"debug"`
-	QueryDefaults                       QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
-	QueryMaximumResults                 int64          `json:"query_maximum_results" yaml:"query_maximum_results"`
-	Contextionary                       Contextionary  `json:"contextionary" yaml:"contextionary"`
-	Authentication                      Authentication `json:"authentication" yaml:"authentication"`
-	Authorization                       Authorization  `json:"authorization" yaml:"authorization"`
-	Origin                              string         `json:"origin" yaml:"origin"`
-	Persistence                         Persistence    `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule             string         `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
-	DefaultVectorDistanceMetric         string         `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
-	EnableModules                       string         `json:"enable_modules" yaml:"enable_modules"`
-	ModulesPath                         string         `json:"modules_path" yaml:"modules_path"`
-	AutoSchema                          AutoSchema     `json:"auto_schema" yaml:"auto_schema"`
-	Cluster                             cluster.Config `json:"cluster" yaml:"cluster"`
-	Monitoring                          Monitoring     `json:"monitoring" yaml:"monitoring"`
-	GRPC                                GRPC           `json:"grpc" yaml:"grpc"`
-	Profiling                           Profiling      `json:"profiling" yaml:"profiling"`
-	ResourceUsage                       ResourceUsage  `json:"resource_usage" yaml:"resource_usage"`
-	MaxImportGoroutinesFactor           float64        `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
-	MaximumConcurrentGetRequests        int            `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
-	TrackVectorDimensions               bool           `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
-	ReindexVectorDimensionsAtStartup    bool           `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
-	RecountPropertiesAtStartup          bool           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
-	ReindexSetToRoaringsetAtStartup     bool           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	IndexMissingTextFilterableAtStartup bool           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
-	DisableGraphQL                      bool           `json:"disable_graphql" yaml:"disable_graphql"`
+	Name                                string                   `json:"name" yaml:"name"`
+	Debug                               bool                     `json:"debug" yaml:"debug"`
+	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
+	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
+	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
+	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
+	Origin                              string                   `json:"origin" yaml:"origin"`
+	Persistence                         Persistence              `json:"persistence" yaml:"persistence"`
+	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
+	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
+	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
+	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
+	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
+	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
+	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
+	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
+	Monitoring                          Monitoring               `json:"monitoring" yaml:"monitoring"`
+	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
+	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
+	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
+	MaxImportGoroutinesFactor           float64                  `json:"max_import_goroutine_factor" yaml:"max_import_goroutine_factor"`
+	MaximumConcurrentGetRequests        int                      `json:"maximum_concurrent_get_requests" yaml:"maximum_concurrent_get_requests"`
+	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
+	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
+	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
+	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
+	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
+	CORS                                CORS                     `json:"cors" yaml:"cors"`
 }
 
 type moduleProvider interface {
@@ -125,7 +133,7 @@ func (c Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
 
 func (c Config) validateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
-	case "", hnsw.DistanceCosine, hnsw.DistanceDot, hnsw.DistanceL2Squared, hnsw.DistanceManhattan, hnsw.DistanceHamming:
+	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
 		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
@@ -172,8 +180,11 @@ type Monitoring struct {
 	Group   bool   `json:"group_classes" yaml:"group_classes"`
 }
 
+// Support independent TLS credentials for gRPC
 type GRPC struct {
-	Port int `json:"port" yaml:"port"`
+	Port     int    `json:"port" yaml:"port"`
+	CertFile string `json:"certFile" yaml:"certFile"`
+	KeyFile  string `json:"keyFile" yaml:"keyFile"`
 }
 
 type Profiling struct {
@@ -235,6 +246,18 @@ type ResourceUsage struct {
 	DiskUse DiskUse
 	MemUse  MemUse
 }
+
+type CORS struct {
+	AllowOrigin  string `json:"allow_origin" yaml:"allow_origin"`
+	AllowMethods string `json:"allow_methods" yaml:"allow_methods"`
+	AllowHeaders string `json:"allow_headers" yaml:"allow_headers"`
+}
+
+const (
+	DefaultCORSAllowOrigin  = "*"
+	DefaultCORSAllowMethods = "*"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key"
+)
 
 func (r ResourceUsage) Validate() error {
 	if err := r.DiskUse.Validate(); err != nil {

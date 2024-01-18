@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,11 +31,20 @@ type NodeShardStatus struct {
 	// The name of shard's class.
 	Class string `json:"class"`
 
+	// The status of vector compression/quantization.
+	Compressed bool `json:"compressed"`
+
 	// The name of the shard.
 	Name string `json:"name"`
 
 	// The number of objects in shard.
 	ObjectCount int64 `json:"objectCount"`
+
+	// The status of the vector indexing process.
+	VectorIndexingStatus string `json:"vectorIndexingStatus"`
+
+	// The length of the vector indexing queue.
+	VectorQueueLength int64 `json:"vectorQueueLength"`
 }
 
 // Validate validates this node shard status

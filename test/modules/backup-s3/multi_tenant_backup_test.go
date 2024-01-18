@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		require.Nil(t, err)
 		defer func() {
 			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminte test containers: %s", err.Error())
+				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
 
@@ -80,7 +80,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		require.Nil(t, err)
 		defer func() {
 			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminte test containers: %s", err.Error())
+				t.Fatalf("failed to terminate test containers: %s", err.Error())
 			}
 		}()
 

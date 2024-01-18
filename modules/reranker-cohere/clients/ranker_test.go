@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func TestRank(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 
 		expected := &ent.RankResult{
@@ -78,7 +78,7 @@ func TestRank(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 
 		_, err := c.Rank(context.Background(), "I work at Apple", []string{"Where do I work?"}, nil)
@@ -132,7 +132,7 @@ func TestRank(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("apiKey", nullLogger())
+		c := New("apiKey", 0, nullLogger())
 		c.host = server.URL
 		// this will trigger 4 go routines
 		c.maxDocuments = 2

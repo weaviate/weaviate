@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,22 @@ func (s *segment) bloomFilterPath() string {
 func (s *segment) bloomFilterSecondaryPath(pos int) string {
 	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
 	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
+}
+
+func (s *segment) initBloomFilters(metrics *Metrics) error {
+	if err := s.initBloomFilter(); err != nil {
+		return fmt.Errorf("init bloom filter for primary index: %w", err)
+	}
+	if s.secondaryIndexCount > 0 {
+		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+		for i := range s.secondaryBloomFilters {
+			if err := s.initSecondaryBloomFilter(i); err != nil {
+				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
+			}
+		}
+	}
+	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
+	return nil
 }
 
 func (s *segment) initBloomFilter() error {
@@ -84,6 +100,26 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 	}
 
 	return nil
+}
+
+func (s *segment) precomputeBloomFilters() ([]string, error) {
+	out := []string{}
+
+	if err := s.precomputeBloomFilter(); err != nil {
+		return nil, fmt.Errorf("precompute bloom filter for primary index: %w", err)
+	}
+	out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterPath()))
+
+	if s.secondaryIndexCount > 0 {
+		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+		for i := range s.secondaryBloomFilters {
+			if err := s.precomputeSecondaryBloomFilter(i); err != nil {
+				return nil, fmt.Errorf("precompute bloom filter for secondary index at %d: %w", i, err)
+			}
+			out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(i)))
+		}
+	}
+	return out, nil
 }
 
 func (s *segment) precomputeBloomFilter() error {

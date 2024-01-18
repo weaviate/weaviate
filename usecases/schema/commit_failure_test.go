@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -130,6 +130,8 @@ func TestFailedCommits(t *testing.T) {
 
 			sm, err := newManagerWithClusterAndTx(t, clusterState, txClient, initialSchema)
 			require.Nil(t, err)
+
+			sm.StartServing(context.Background())
 
 			if test.prepare != nil {
 				test.prepare(t, sm)

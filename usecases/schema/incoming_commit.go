@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,18 +22,24 @@ import (
 
 func (m *Manager) handleCommit(ctx context.Context, tx *cluster.Transaction) error {
 	switch tx.Type {
-	case AddClass:
+	case AddClass, RepairClass:
 		return m.handleAddClassCommit(ctx, tx)
-	case AddProperty:
+	case AddProperty, RepairProperty:
 		return m.handleAddPropertyCommit(ctx, tx)
+	case mergeObjectProperty:
+		return m.handleMergeObjectPropertyCommit(ctx, tx)
 	case DeleteClass:
 		return m.handleDeleteClassCommit(ctx, tx)
 	case UpdateClass:
 		return m.handleUpdateClassCommit(ctx, tx)
-	case addTenants:
+	case addTenants, RepairTenant:
 		return m.handleAddTenantsCommit(ctx, tx)
+	case updateTenants:
+		return m.handleUpdateTenantsCommit(ctx, tx)
 	case deleteTenants:
 		return m.handleDeleteTenantsCommit(ctx, tx)
+	case ReadSchema:
+		return nil
 	default:
 		return errors.Errorf("unrecognized commit type %q", tx.Type)
 	}
@@ -78,6 +84,14 @@ func (m *Manager) handleAddClassCommit(ctx context.Context,
 }
 
 func (m *Manager) handleAddClassCommitAndParse(ctx context.Context, pl *AddClassPayload) error {
+	if pl.Class == nil {
+		return fmt.Errorf("invalid tx: class is nil")
+	}
+
+	if pl.State == nil {
+		return fmt.Errorf("invalid tx: state is nil")
+	}
+
 	err := m.parseShardingConfig(ctx, pl.Class)
 	if err != nil {
 		return err
@@ -104,7 +118,30 @@ func (m *Manager) handleAddPropertyCommit(ctx context.Context,
 			tx.Payload)
 	}
 
+	if pl.Property == nil {
+		return fmt.Errorf("invalid tx: property is nil")
+	}
+
 	return m.addClassPropertyApplyChanges(ctx, pl.ClassName, pl.Property)
+}
+
+func (m *Manager) handleMergeObjectPropertyCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	pl, ok := tx.Payload.(MergeObjectPropertyPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be MergeObjectPropertyPayload, but got %T",
+			tx.Payload)
+	}
+
+	if pl.Property == nil {
+		return fmt.Errorf("invalid tx: property is nil")
+	}
+
+	return m.mergeClassObjectPropertyApplyChanges(ctx, pl.ClassName, pl.Property)
 }
 
 func (m *Manager) handleDeleteClassCommit(ctx context.Context,
@@ -134,6 +171,14 @@ func (m *Manager) handleUpdateClassCommit(ctx context.Context,
 			tx.Payload)
 	}
 
+	if pl.Class == nil {
+		return fmt.Errorf("invalid tx: class is nil")
+	}
+
+	// note that a nil state may be valid on an update_class tx, whereas it's not
+	// valid on a add_class. That's why we're not validating whether state is set
+	// here
+
 	if err := m.parseVectorIndexConfig(ctx, pl.Class); err != nil {
 		return err
 	}
@@ -162,6 +207,31 @@ func (m *Manager) handleAddTenantsCommit(ctx context.Context,
 	}
 
 	err := m.onAddTenants(ctx, cls, req)
+	if err != nil {
+		m.logger.WithField("action", "on_add_tenants").
+			WithField("n", len(req.Tenants)).
+			WithField("class", cls.Class).Error(err)
+	}
+	return err
+}
+
+func (m *Manager) handleUpdateTenantsCommit(ctx context.Context,
+	tx *cluster.Transaction,
+) error {
+	m.Lock()
+	defer m.Unlock()
+
+	req, ok := tx.Payload.(UpdateTenantsPayload)
+	if !ok {
+		return errors.Errorf("expected commit payload to be UpdateTenants, but got %T",
+			tx.Payload)
+	}
+	cls := m.getClassByName(req.Class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", req.Class, ErrNotFound)
+	}
+
+	err := m.onUpdateTenants(ctx, cls, req)
 	if err != nil {
 		m.logger.WithField("action", "on_add_tenants").
 			WithField("n", len(req.Tenants)).

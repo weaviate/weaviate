@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,10 +17,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
+	testlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -92,7 +93,8 @@ func TestStartupSync(t *testing.T) {
 
 	t.Run("new node joining, conflict in schema between nodes", func(t *testing.T) {
 		clusterState := &fakeClusterState{
-			hosts: []string{"node1", "node2"},
+			hosts:      []string{"node1", "node2"},
+			skipRepair: true,
 		}
 
 		txJSON, _ := json.Marshal(ReadSchemaPayload{
@@ -126,10 +128,47 @@ func TestStartupSync(t *testing.T) {
 		assert.Contains(t, err.Error(), "corrupt")
 	})
 
+	t.Run("conflict, but schema repaired", func(t *testing.T) {
+		clusterState := &fakeClusterState{
+			hosts: []string{"node1", "node2"},
+		}
+
+		txJSON, _ := json.Marshal(ReadSchemaPayload{
+			Schema: &State{
+				ObjectSchema: &models.Schema{
+					Classes: []*models.Class{
+						{
+							Class:           "Bongourno",
+							VectorIndexType: "hnsw",
+						},
+					},
+				},
+			},
+		})
+
+		txClient := &fakeTxClient{
+			openInjectPayload: json.RawMessage(txJSON),
+		}
+
+		mgr, err := newManagerWithClusterAndTx(t, clusterState, txClient, &State{
+			ObjectSchema: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class:           "Hola",
+						VectorIndexType: "hnsw",
+					},
+				},
+			},
+		})
+		assert.Len(t, mgr.ObjectSchema.Classes, 2)
+		require.Nil(t, err, "expected nil err, got: %v", err)
+	})
+
 	t.Run("conflict, but sync skipped -> no error", func(t *testing.T) {
 		clusterState := &fakeClusterState{
 			hosts:       []string{"node1", "node2"},
 			syncIgnored: true,
+			skipRepair:  true,
 		}
 
 		txJSON, _ := json.Marshal(ReadSchemaPayload{
@@ -255,7 +294,7 @@ func TestStartupSync(t *testing.T) {
 	})
 
 	t.Run("new node joining, schema identical, but other nodes have already been migrated", func(t *testing.T) {
-		// Migration refers to the the change that happens when a node first starts
+		// Migration refers to the change that happens when a node first starts
 		// up with v1.17. It reads the `belongsToNode` from the sharding config and
 		// writes the content into the new `belongsToNodes[]` array type.
 		//
@@ -405,7 +444,7 @@ func TestStartupSyncUnhappyPaths(t *testing.T) {
 func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 	txClient cluster.Client, initialSchema *State,
 ) (*Manager, error) {
-	logger, _ := test.NewNullLogger()
+	logger, _ := testlog.NewNullLogger()
 	repo := newFakeRepo()
 	if initialSchema == nil {
 		initState := NewState(1)
@@ -413,10 +452,13 @@ func newManagerWithClusterAndTx(t *testing.T, clusterState clusterState,
 	}
 	repo.schema = *initialSchema
 	sm, err := NewManager(&NilMigrator{}, repo, logger, &fakeAuthorizer{},
-		config.Config{DefaultVectorizerModule: config.VectorizerModuleNone},
+		config.Config{
+			DefaultVectorizerModule: config.VectorizerModuleNone,
+			Replication:             replication.GlobalConfig{MinimumFactor: 1},
+		},
 		dummyParseVectorConfig, // only option for now
 		&fakeVectorizerValidator{}, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, clusterState, txClient, &fakeScaleOutManager{},
+		&fakeModuleConfig{}, clusterState, txClient, &fakeTxPersistence{}, &fakeScaleOutManager{},
 	)
 
 	return sm, err

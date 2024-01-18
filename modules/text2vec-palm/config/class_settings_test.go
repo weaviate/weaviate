@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantApiEndpoint string
 		wantProjectID   string
 		wantModelID     string
+		wantTitle       string
 		wantErr         error
 	}{
 		{
@@ -37,20 +38,22 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
-			wantModelID:     "textembedding-gecko",
+			wantModelID:     "textembedding-gecko@001",
 			wantErr:         nil,
 		},
 		{
 			name: "custom values",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
-					"projectId":   "projectId",
+					"apiEndpoint":   "google.com",
+					"projectId":     "projectId",
+					"titleProperty": "title",
 				},
 			},
 			wantApiEndpoint: "google.com",
 			wantProjectID:   "projectId",
-			wantModelID:     "textembedding-gecko",
+			wantModelID:     "textembedding-gecko@001",
+			wantTitle:       "title",
 			wantErr:         nil,
 		},
 		{
@@ -70,7 +73,10 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong modelId available model names are: [textembedding-gecko]"),
+			wantErr: errors.Errorf("wrong modelId available model names are: " +
+				"[textembedding-gecko@001 textembedding-gecko@latest " +
+				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
 		},
 		{
 			name: "all wrong",
@@ -81,7 +87,45 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("projectId cannot be empty, " +
-				"wrong modelId available model names are: [textembedding-gecko]"),
+				"wrong modelId available model names are: " +
+				"[textembedding-gecko@001 textembedding-gecko@latest " +
+				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
+		},
+		{
+			name: "Generative AI",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+				},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "embedding-gecko-001",
+			wantErr:         nil,
+		},
+		{
+			name: "Generative AI with model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "embedding-gecko-001",
+				},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "embedding-gecko-001",
+			wantErr:         nil,
+		},
+		{
+			name: "Generative AI with wrong model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "textembedding-gecko@001",
+				},
+			},
+			wantErr: errors.Errorf("wrong modelId available Generative AI model names are: [embedding-gecko-001]"),
 		},
 	}
 	for _, tt := range tests {
@@ -93,6 +137,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.ModelID())
+				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
 			}
 		})
 	}

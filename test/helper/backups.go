@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,14 +16,30 @@ import (
 
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/backup"
 )
 
-func CreateBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsCreateOK, error) {
+func DefaultBackupConfig() *models.BackupConfig {
+	return &models.BackupConfig{
+		CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
+		CPUPercentage:    backup.DefaultCPUPercentage,
+		ChunkSize:        128,
+	}
+}
+
+func DefaultRestoreConfig() *models.RestoreConfig {
+	return &models.RestoreConfig{
+		CPUPercentage: backup.DefaultCPUPercentage,
+	}
+}
+
+func CreateBackup(t *testing.T, cfg *models.BackupConfig, className, backend, backupID string) (*backups.BackupsCreateOK, error) {
 	params := backups.NewBackupsCreateParams().
 		WithBackend(backend).
 		WithBody(&models.BackupCreateRequest{
 			ID:      backupID,
 			Include: []string{className},
+			Config:  cfg,
 		})
 	return Client(t).Backups.BackupsCreate(params, nil)
 }
@@ -35,12 +51,14 @@ func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.Backup
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
-func RestoreBackup(t *testing.T, className, backend, backupID string) (*backups.BackupsRestoreOK, error) {
+func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, backupID string, nodeMapping map[string]string) (*backups.BackupsRestoreOK, error) {
 	params := backups.NewBackupsRestoreParams().
 		WithBackend(backend).
 		WithID(backupID).
 		WithBody(&models.BackupRestoreRequest{
-			Include: []string{className},
+			Include:     []string{className},
+			NodeMapping: nodeMapping,
+			Config:      cfg,
 		})
 	return Client(t).Backups.BackupsRestore(params, nil)
 }

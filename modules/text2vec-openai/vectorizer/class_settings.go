@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,15 +28,16 @@ const (
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
+	DefaultBaseURL               = "https://api.openai.com"
 )
 
 var availableOpenAITypes = []string{"text", "code"}
 
 var availableOpenAIModels = []string{
 	"ada",     // supports 001 and 002
-	"babbage", // only suppports 001
-	"curie",   // only suppports 001
-	"davinci", // only suppports 001
+	"babbage", // only supports 001
+	"curie",   // only supports 001
+	"davinci", // only supports 001
 }
 
 type classSettings struct {
@@ -99,6 +100,10 @@ func (cs *classSettings) ModelVersion() string {
 
 func (cs *classSettings) ResourceName() string {
 	return cs.getProperty("resourceName", "")
+}
+
+func (cs *classSettings) BaseURL() string {
+	return cs.getProperty("baseURL", DefaultBaseURL)
 }
 
 func (cs *classSettings) DeploymentID() string {

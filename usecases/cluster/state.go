@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,11 +28,26 @@ type State struct {
 }
 
 type Config struct {
-	Hostname                string `json:"hostname" yaml:"hostname"`
-	GossipBindPort          int    `json:"gossipBindPort" yaml:"gossipBindPort"`
-	DataBindPort            int    `json:"dataBindPort" yaml:"dataBindPort"`
-	Join                    string `json:"join" yaml:"join"`
-	IgnoreStartupSchemaSync bool   `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
+	Hostname                string     `json:"hostname" yaml:"hostname"`
+	GossipBindPort          int        `json:"gossipBindPort" yaml:"gossipBindPort"`
+	DataBindPort            int        `json:"dataBindPort" yaml:"dataBindPort"`
+	Join                    string     `json:"join" yaml:"join"`
+	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
+	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
+	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
+}
+
+type AuthConfig struct {
+	BasicAuth BasicAuth `json:"basic" yaml:"basic"`
+}
+
+type BasicAuth struct {
+	Username string `json:"username" yaml:"username"`
+	Password string `json:"password" yaml:"password"`
+}
+
+func (ba BasicAuth) Enabled() bool {
+	return ba.Username != "" || ba.Password != ""
 }
 
 func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
@@ -174,6 +189,10 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 
 func (s *State) SchemaSyncIgnored() bool {
 	return s.config.IgnoreStartupSchemaSync
+}
+
+func (s *State) SkipSchemaRepair() bool {
+	return s.config.SkipSchemaSyncRepair
 }
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {

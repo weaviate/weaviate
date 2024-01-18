@@ -1,0 +1,59 @@
+name: Found a bug?
+description: Report your bug here.
+labels: ["bug", "triage"]
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        #### Before you get started
+        * Check to make sure someone hasn't already opened a similar [issue](https://github.com/weaviate/weaviate-io/issues).
+        * Check this example of a [good bug report](https://github.com/weaviate/weaviate/issues/3762).
+        * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
+
+  - type: textarea
+    id: how_to_reproduce
+    attributes:
+      label: How to reproduce this bug?
+      description: Specify the steps here in order to reproduce this bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: What is the expected behavior?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: What is the actual behavior?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suporting_information
+    attributes:
+      label: Supporting information
+      description: Please, paste any logs, context information (client version? environment variables?) or other details in here.
+    validations:
+      required: false
+
+  - type: input
+    id: server_version
+    attributes:
+      label: Server Version
+      description: What Weaviate Version are you running?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: This project has a Code of Conduct. All participants are expected to understand and follow the CoC.
+      options:
+        - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
+          required: true

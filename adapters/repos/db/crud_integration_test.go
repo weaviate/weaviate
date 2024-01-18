@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,7 +83,10 @@ func TestCRUD(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -907,8 +910,8 @@ func TestCRUD(t *testing.T) {
 							actionIds = append(actionIds, res[i].ID)
 						}
 					}
-					assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids dont match")
-					assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids dont match")
+					assert.EqualValues(t, thingIds, tt.expectedThingIDs, "thing ids don't match")
+					assert.EqualValues(t, actionIds, tt.expectedActionIDs, "action ids don't match")
 				}
 			})
 		}
@@ -1287,7 +1290,10 @@ func TestCRUD_Query(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -1523,7 +1529,10 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -1678,7 +1687,10 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter: 60,
 		RootPath:                dirName,
@@ -1814,7 +1826,10 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter: 60,
 		RootPath:                dirName,
@@ -1962,7 +1977,10 @@ func Test_PutPatchRestart(t *testing.T) {
 		},
 	}
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -2103,7 +2121,10 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -2233,7 +2254,10 @@ func TestOverwriteObjects(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -2332,7 +2356,10 @@ func TestIndexDigestObjects(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -2456,7 +2483,10 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  t.TempDir(),

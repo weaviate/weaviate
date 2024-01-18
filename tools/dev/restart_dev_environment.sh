@@ -39,8 +39,14 @@ fi
 if [[ "$*" == *--clip* ]]; then
   ADDITIONAL_SERVICES+=('multi2vec-clip')
 fi
+if [[ "$*" == *--bind* ]]; then
+  ADDITIONAL_SERVICES+=('multi2vec-bind')
+fi
 if [[ "$*" == *--reranker* ]]; then
   ADDITIONAL_SERVICES+=('reranker-transformers')
+fi
+if [[ "$*" == *--gpt4all* ]]; then
+  ADDITIONAL_SERVICES+=('t2v-gpt4all')
 fi
 if [[ "$*" == *--prometheus* ]]; then
   ADDITIONAL_SERVICES+=('prometheus')

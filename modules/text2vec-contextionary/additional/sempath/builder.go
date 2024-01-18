@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -289,7 +289,7 @@ func (pb *PathBuilder) discardFurtherThan(candidates []*txt2vecmodels.NearestNei
 	return out[:i]
 }
 
-// craete an explicit deep copy that does not keep any references
+// create an explicit deep copy that does not keep any references
 func copyNeighbors(in []*txt2vecmodels.NearestNeighbor) []*txt2vecmodels.NearestNeighbor {
 	out := make([]*txt2vecmodels.NearestNeighbor, len(in))
 	for i, n := range in {

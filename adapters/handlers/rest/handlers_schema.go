@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -168,7 +168,13 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	var tenant string
+	if params.Tenant == nil {
+		tenant = ""
+	} else {
+		tenant = *params.Tenant
+	}
+	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -213,7 +219,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.AddTenants(
+	created, err := s.manager.AddTenants(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -227,10 +233,31 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 		}
 	}
 
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewTenantsCreateOK().WithPayload(created)
+}
+
+func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
+	principal *models.Principal,
+) middleware.Responder {
+	err := s.manager.UpdateTenants(
+		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
 	payload := params.Body
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK().WithPayload(payload)
+	return schema.NewTenantsUpdateOK().WithPayload(payload)
 }
 
 func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
@@ -299,11 +326,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
 
-	api.SchemaTenantsCreateHandler = schema.
-		TenantsCreateHandlerFunc(h.createTenants)
-	api.SchemaTenantsDeleteHandler = schema.
-		TenantsDeleteHandlerFunc(h.deleteTenants)
-
+	api.SchemaTenantsCreateHandler = schema.TenantsCreateHandlerFunc(h.createTenants)
+	api.SchemaTenantsUpdateHandler = schema.TenantsUpdateHandlerFunc(h.updateTenants)
+	api.SchemaTenantsDeleteHandler = schema.TenantsDeleteHandlerFunc(h.deleteTenants)
 	api.SchemaTenantsGetHandler = schema.TenantsGetHandlerFunc(h.getTenants)
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,7 +59,10 @@ type cycleCombinedCallbackCtrl struct {
 	ctrls         []CycleCallbackCtrl
 }
 
-func NewCycleCombinedCallbackCtrl(routinesLimit int, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
+// Creates combined controller to manage all provided controllers at once as it was single instance.
+// Methods (activate, deactivate, unregister) calls nested controllers' methods in parallel by number of
+// goroutines given as argument. If < 1 value given, NumCPU is used.
+func NewCombinedCallbackCtrl(routinesLimit int, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
 	if routinesLimit <= 0 {
 		routinesLimit = _NUMCPU
 	}
@@ -186,7 +189,7 @@ func (c *cycleCombinedCallbackCtrl) combineErrors(errors ...error) error {
 
 type cycleCallbackCtrlNoop struct{}
 
-func NewCycleCallbackCtrlNoop() CycleCallbackCtrl {
+func NewCallbackCtrlNoop() CycleCallbackCtrl {
 	return &cycleCallbackCtrlNoop{}
 }
 

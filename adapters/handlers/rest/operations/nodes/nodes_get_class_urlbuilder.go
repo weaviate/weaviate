@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,8 @@ import (
 // NodesGetClassURL generates an URL for the nodes get class operation
 type NodesGetClassURL struct {
 	ClassName string
+
+	Output *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -65,6 +67,18 @@ func (o *NodesGetClassURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var outputQ string
+	if o.Output != nil {
+		outputQ = *o.Output
+	}
+	if outputQ != "" {
+		qs.Set("output", outputQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

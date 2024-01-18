@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,17 +49,29 @@ func (m *Manager) startupClusterSync(ctx context.Context) error {
 	}
 
 	err := m.validateSchemaCorruption(ctx)
-	if err != nil {
-		if m.clusterState.SchemaSyncIgnored() {
-			m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
-				Warning("schema out of sync, but ignored because " +
-					"CLUSTER_IGNORE_SCHEMA_SYNC=true")
-		} else {
-			return err
-		}
+	if err == nil {
+		// schema is fine, we are done
+		return nil
 	}
 
-	return nil
+	if m.clusterState.SchemaSyncIgnored() {
+		m.logger.WithError(err).WithFields(logrusStartupSyncFields()).
+			Warning("schema out of sync, but ignored because " +
+				"CLUSTER_IGNORE_SCHEMA_SYNC=true")
+		return nil
+	}
+
+	if m.cluster.HaveDanglingTxs(ctx, resumableTxs) {
+		m.logger.WithFields(logrusStartupSyncFields()).
+			Infof("schema out of sync, but there are dangling transactions, the check will be repeated after an attempt to resume those transactions")
+
+		m.LockGuard(func() {
+			m.shouldTryToResumeTx = true
+		})
+		return nil
+	}
+
+	return err
 }
 
 // startupHandleSingleNode deals with the case where there is only a single
@@ -172,7 +184,9 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context) error {
 
 	// this tx is read-only, so we don't have to worry about aborting it, the
 	// close should be the same on both happy and unhappy path
-	defer m.cluster.CloseReadTransaction(ctx, tx)
+	if err = m.cluster.CloseReadTransaction(ctx, tx); err != nil {
+		return err
+	}
 
 	pl, ok := tx.Payload.(ReadSchemaPayload)
 	if !ok {
@@ -189,9 +203,14 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context) error {
 	if err := m.schemaCache.RLockGuard(cmp); err != nil {
 		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
 			"diff": diff,
-		}).Errorf("mismatch between local schema and remote (other nodes consensus) schema")
-		return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
-			"but local node has a different (non-null) schema: %w", err)
+		}).Warning("mismatch between local schema and remote (other nodes consensus) schema")
+		if m.clusterState.SkipSchemaRepair() {
+			return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
+				"but local node has a different (non-null) schema: %w", err)
+		}
+		if repairErr := m.repairSchema(ctx, pl.Schema); repairErr != nil {
+			return fmt.Errorf("attempted to repair and failed: %v, sync error: %w", repairErr, err)
+		}
 	}
 
 	return nil

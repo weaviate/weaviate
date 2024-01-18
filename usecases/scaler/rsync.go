@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,7 +52,7 @@ func newRSync(c client, cl cluster, rootPath string) *rsync {
 }
 
 // Push pushes local shards of a class to remote nodes
-func (r *rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor, dist ShardDist, className string) error {
+func (r *rsync) Push(ctx context.Context, shardsBackups []*backup.ShardDescriptor, dist ShardDist, className string) error {
 	var g errgroup.Group
 	g.SetLimit(_NUMCPU * 2)
 	for _, desc := range shardsBackups {
@@ -68,7 +68,7 @@ func (r *rsync) Push(ctx context.Context, shardsBackups []backup.ShardDescriptor
 }
 
 // PushShard replicates a shard on a set of nodes
-func (r *rsync) PushShard(ctx context.Context, className string, desc backup.ShardDescriptor, nodes []string) error {
+func (r *rsync) PushShard(ctx context.Context, className string, desc *backup.ShardDescriptor, nodes []string) error {
 	// Iterate over the new target nodes and copy files
 	for _, node := range nodes {
 		host, ok := r.cluster.NodeHostname(node)

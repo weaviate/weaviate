@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -236,7 +236,7 @@ func TestSearcher(t *testing.T) {
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
-				assert.Contains(t, res[0].Result.ExplainScore, "(bm25)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -286,7 +286,7 @@ func TestSearcher(t *testing.T) {
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
-				assert.Contains(t, res[0].Result.ExplainScore, "(vector)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearText) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -336,7 +336,7 @@ func TestSearcher(t *testing.T) {
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
-				assert.Contains(t, res[0].Result.ExplainScore, "(vector)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearVector) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Contains(t, res[0].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
@@ -419,11 +419,11 @@ func TestSearcher(t *testing.T) {
 				assert.Len(t, res, 2)
 				assert.NotNil(t, res[0])
 				assert.NotNil(t, res[1])
-				assert.Contains(t, res[0].Result.ExplainScore, "(vector)")
+				assert.Contains(t, res[0].Result.ExplainScore, "(Result Set vector,nearVector) Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 				assert.Contains(t, res[0].Result.ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 				assert.Equal(t, res[0].Result.Vector, []float32{4, 5, 6})
 				assert.Equal(t, res[0].Result.Dist, float32(0.008))
-				assert.Contains(t, res[1].Result.ExplainScore, "(bm25)")
+				assert.Contains(t, res[1].Result.ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Contains(t, res[1].Result.ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[1].Result.Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[1].Result.Dist, float32(0.008))

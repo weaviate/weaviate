@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,7 +54,7 @@ func Test_SerializeAndParseCollectionNode(t *testing.T) {
 
 	t.Run("parse using the reusable way", func(t *testing.T) {
 		var node segmentCollectionNode
-		err := ParseCollectionNodeInto(encoded, &node)
+		err := ParseCollectionNodeInto(bytes.NewReader(encoded), &node)
 		assert.Nil(t, err)
 		assert.Equal(t, expected, node)
 	})

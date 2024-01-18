@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,9 +34,9 @@ func Test_ManyModules(t *testing.T) {
 		require.NotNil(t, meta)
 
 		expectedModuleNames := []string{
-			"generative-cohere", "generative-palm", "generative-openai",
-			"text2vec-cohere", "text2vec-contextionary", "text2vec-openai",
-			"text2vec-palm", "text2vec-transformers", "sum-transformers", "qna-openai",
+			"generative-cohere", "generative-palm", "generative-openai", "generative-aws", "generative-anyscale",
+			"text2vec-cohere", "text2vec-contextionary", "text2vec-openai", "text2vec-huggingface",
+			"text2vec-palm", "text2vec-aws", "text2vec-transformers", "qna-openai", "reranker-cohere",
 		}
 
 		modules, ok := meta.Modules.(map[string]interface{})

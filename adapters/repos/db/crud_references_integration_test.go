@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -118,7 +118,10 @@ func TestNestedReferences(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,
@@ -513,8 +516,22 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
-	index.ForEachShard(func(name string, shard *Shard) error {
+	index.ForEachShard(func(name string, shard ShardLike) error {
 		sum += shard.Dimensions()
+		return nil
+	})
+	return sum
+}
+
+func GetQuantizedDimensionsFromRepo(repo *DB, className string, segments int) int {
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return 0
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	sum := 0
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		sum += shard.QuantizedDimensions(segments)
 		return nil
 	})
 	return sum
@@ -558,7 +575,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		},
 	}
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		MemtablesFlushIdleAfter:   60,
 		RootPath:                  dirName,

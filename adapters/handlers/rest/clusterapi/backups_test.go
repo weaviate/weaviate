@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,7 +62,7 @@ func setupClusterAPI(t *testing.T, nodes []*backupNode) map[string]string {
 	hosts := make(map[string]string)
 
 	for _, node := range nodes {
-		backupsHandler := clusterapi.NewBackups(node.backupManager)
+		backupsHandler := clusterapi.NewBackups(node.backupManager, clusterapi.NewNoopAuthHandler())
 
 		mux := http.NewServeMux()
 		mux.Handle("/backups/can-commit", backupsHandler.CanCommit())

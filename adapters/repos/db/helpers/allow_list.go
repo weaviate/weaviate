@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,9 +21,13 @@ type AllowList interface {
 	Contains(id uint64) bool
 	DeepCopy() AllowList
 	Slice() []uint64
-	Len() int
+
 	IsEmpty() bool
+	Len() int
+	Min() uint64
+	Max() uint64
 	Size() uint64
+
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
 }
@@ -65,12 +69,20 @@ func (al *bitmapAllowList) Slice() []uint64 {
 	return al.bm.ToArray()
 }
 
+func (al *bitmapAllowList) IsEmpty() bool {
+	return al.bm.IsEmpty()
+}
+
 func (al *bitmapAllowList) Len() int {
 	return al.bm.GetCardinality()
 }
 
-func (al *bitmapAllowList) IsEmpty() bool {
-	return al.bm.IsEmpty()
+func (al *bitmapAllowList) Min() uint64 {
+	return al.bm.Minimum()
+}
+
+func (al *bitmapAllowList) Max() uint64 {
+	return al.bm.Maximum()
 }
 
 func (al *bitmapAllowList) Size() uint64 {
@@ -116,45 +128,3 @@ func (i *bitmapAllowListIterator) Next() (uint64, bool) {
 func (i *bitmapAllowListIterator) Len() int {
 	return i.len
 }
-
-// // AllowList groups a list of possible indexIDs to be passed to a secondary
-// // index. The secondary index must make sure that it only returns result
-// // present on the AllowList
-// type AllowList map[uint64]struct{}
-
-// // Inserting and reading is not thread-safe. However, if inserting has
-// // completed, and the list can be considered read-only, it is safe to read from
-// // it concurrently
-// func (al AllowList) Insert(id uint64) {
-// 	// no need to check if it's already present, simply overwrite
-// 	al[id] = struct{}{}
-// }
-
-// // Contains is not thread-safe if the list is still being filled. However, if
-// // you can guarantee that the list is no longer being inserted into and it
-// // effectively becomes read-only, you can safely read concurrently
-// func (al AllowList) Contains(id uint64) bool {
-// 	_, ok := al[id]
-// 	return ok
-// }
-
-// func (al AllowList) DeepCopy() AllowList {
-// 	out := AllowList{}
-
-// 	for id := range al {
-// 		out[id] = struct{}{}
-// 	}
-
-// 	return out
-// }
-
-// func (al AllowList) Slice() []uint64 {
-// 	out := make([]uint64, len(al))
-// 	i := 0
-// 	for id := range al {
-// 		out[i] = id
-// 		i++
-// 	}
-
-// 	return out
-// }

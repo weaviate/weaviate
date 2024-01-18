@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaent "github.com/weaviate/weaviate/entities/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -56,6 +57,10 @@ func (f *fakeRepo) NewShards(ctx context.Context, class string, shards []ucs.Key
 	return nil
 }
 
+func (f *fakeRepo) UpdateShards(ctx context.Context, class string, shards []ucs.KeyValuePair) error {
+	return nil
+}
+
 func (f *fakeRepo) DeleteShards(ctx context.Context, class string, shards []string) error {
 	return nil
 }
@@ -72,7 +77,11 @@ func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
 
-func dummyParseVectorConfig(in interface{}) (schemaent.VectorIndexConfig, error) {
+func (f fakeVectorConfig) DistanceName() string {
+	return "fake"
+}
+
+func dummyParseVectorConfig(in interface{}, indexType string) (schemaent.VectorIndexConfig, error) {
 	return fakeVectorConfig(in.(map[string]interface{})), nil
 }
 
@@ -144,6 +153,10 @@ func (f *fakeClusterState) SchemaSyncIgnored() bool {
 	return false
 }
 
+func (f *fakeClusterState) SkipSchemaRepair() bool {
+	return false
+}
+
 func (f *fakeClusterState) Hostnames() []string {
 	return f.hosts
 }
@@ -165,7 +178,7 @@ func (f *fakeClusterState) NodeCount() int {
 }
 
 func (f *fakeClusterState) ClusterHealthScore() int {
-	// 0 - healty, >0 - unhealthy
+	// 0 - healthy, >0 - unhealthy
 	return 0
 }
 
@@ -193,7 +206,11 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
-func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (n *NilMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -205,7 +222,11 @@ func (n *NilMigrator) AddProperty(ctx context.Context, className string, prop *m
 	return nil
 }
 
-func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, partitions []string) (commit func(success bool), err error) {
+func (n *NilMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
 	return nil, nil
 }
 

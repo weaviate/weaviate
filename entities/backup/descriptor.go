@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ type DistributedBackupDescriptor struct {
 	CompletedAt   time.Time                  `json:"completedAt"`
 	ID            string                     `json:"id"` // User created backup id
 	Nodes         map[string]*NodeDescriptor `json:"nodes"`
+	NodeMapping   map[string]string          `json:"node_mapping"`
 	Status        Status                     `json:"status"`  //
 	Version       string                     `json:"version"` //
 	ServerVersion string                     `json:"serverVersion"`
@@ -123,6 +124,41 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 	d.Filter(pred)
 }
 
+// ToMappedNodeName will return nodeName after applying d.NodeMapping translation on it.
+// If nodeName is not contained in d.nodeMapping, returns nodeName unmodified
+func (d *DistributedBackupDescriptor) ToMappedNodeName(nodeName string) string {
+	if newNodeName, ok := d.NodeMapping[nodeName]; ok {
+		return newNodeName
+	}
+	return nodeName
+}
+
+// ToOriginalNodeName will return nodeName after trying to find an original node name from d.NodeMapping values.
+// If nodeName is not contained in d.nodeMapping values, returns nodeName unmodified
+func (d *DistributedBackupDescriptor) ToOriginalNodeName(nodeName string) string {
+	for oldNodeName, newNodeName := range d.NodeMapping {
+		if newNodeName == nodeName {
+			return oldNodeName
+		}
+	}
+	return nodeName
+}
+
+// ApplyNodeMapping applies d.NodeMapping translation to d.Nodes. If a node in d.Nodes is not translated by d.NodeMapping, it will remain
+// unchanged.
+func (d *DistributedBackupDescriptor) ApplyNodeMapping() {
+	if len(d.NodeMapping) == 0 {
+		return
+	}
+
+	for k, v := range d.NodeMapping {
+		if nodeDescriptor, ok := d.Nodes[k]; !ok {
+			d.Nodes[v] = nodeDescriptor
+			delete(d.Nodes, k)
+		}
+	}
+}
+
 // AllExist checks if all classes exist in d.
 // It returns either "" or the first class which it could not find
 func (d *DistributedBackupDescriptor) AllExist(classes []string) string {
@@ -178,23 +214,38 @@ func (d *DistributedBackupDescriptor) ResetStatus() *DistributedBackupDescriptor
 type ShardDescriptor struct {
 	Name  string   `json:"name"`
 	Node  string   `json:"node"`
-	Files []string `json:"files"`
+	Files []string `json:"files,omitempty"`
 
-	DocIDCounterPath      string `json:"docIdCounterPath"`
-	DocIDCounter          []byte `json:"docIdCounter"`
-	PropLengthTrackerPath string `json:"propLengthTrackerPath"`
-	PropLengthTracker     []byte `json:"propLengthTracker"`
-	ShardVersionPath      string `json:"shardVersionPath"`
-	Version               []byte `json:"version"`
+	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
+	DocIDCounter          []byte `json:"docIdCounter,omitempty"`
+	PropLengthTrackerPath string `json:"propLengthTrackerPath,omitempty"`
+	PropLengthTracker     []byte `json:"propLengthTracker,omitempty"`
+	ShardVersionPath      string `json:"shardVersionPath,omitempty"`
+	Version               []byte `json:"version,omitempty"`
+	Chunk                 int32  `json:"chunk"`
+}
+
+// ClearTemporary clears fields that are no longer needed once compression is done.
+// These fields are not required in versions > 1 because they are stored in the tarball.
+func (s *ShardDescriptor) ClearTemporary() {
+	s.ShardVersionPath = ""
+	s.Version = nil
+
+	s.DocIDCounterPath = ""
+	s.DocIDCounter = nil
+
+	s.PropLengthTrackerPath = ""
+	s.PropLengthTracker = nil
 }
 
 // ClassDescriptor contains everything needed to completely restore a class
 type ClassDescriptor struct {
-	Name          string            `json:"name"` // DB class name, also selected by user
-	Shards        []ShardDescriptor `json:"shards"`
-	ShardingState []byte            `json:"shardingState"`
-	Schema        []byte            `json:"schema"`
-	Error         error             `json:"-"`
+	Name          string             `json:"name"` // DB class name, also selected by user
+	Shards        []*ShardDescriptor `json:"shards"`
+	ShardingState []byte             `json:"shardingState"`
+	Schema        []byte             `json:"schema"`
+	Chunks        map[int32][]string `json:"chunks,omitempty"`
+	Error         error              `json:"-"`
 }
 
 // BackupDescriptor contains everything needed to completely restore a list of classes
@@ -282,12 +333,8 @@ func (d *BackupDescriptor) Filter(pred func(s string) bool) {
 	d.Classes = cs
 }
 
-// Validate validates d
-func (d *BackupDescriptor) Validate() error {
-	if d.StartedAt.IsZero() || d.ID == "" ||
-		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
-		return fmt.Errorf("attribute mismatch: [id versions time error]")
-	}
+// ValidateV1 validates d
+func (d *BackupDescriptor) validateV1() error {
 	for _, c := range d.Classes {
 		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
 			return fmt.Errorf("invalid class %q: [name schema sharding]", c.Name)
@@ -305,6 +352,27 @@ func (d *BackupDescriptor) Validate() error {
 				if fpath == "" {
 					return fmt.Errorf("invalid shard %q.%q: file number %d", c.Name, s.Name, i)
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func (d *BackupDescriptor) Validate(newSchema bool) error {
+	if d.StartedAt.IsZero() || d.ID == "" ||
+		d.Version == "" || d.ServerVersion == "" || d.Error != "" {
+		return fmt.Errorf("attribute mismatch: [id versions time error]")
+	}
+	if !newSchema {
+		return d.validateV1()
+	}
+	for _, c := range d.Classes {
+		if c.Name == "" || len(c.Schema) == 0 || len(c.ShardingState) == 0 {
+			return fmt.Errorf("class=%q: invalid attributes [name schema sharding]", c.Name)
+		}
+		for _, s := range c.Shards {
+			if s.Name == "" || s.Node == "" {
+				return fmt.Errorf("class=%q: invalid shard %q node=%q", c.Name, s.Name, s.Node)
 			}
 		}
 	}

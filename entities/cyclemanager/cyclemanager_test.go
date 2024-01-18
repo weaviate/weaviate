@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -352,7 +352,7 @@ func TestCycleManager_cycleCallbackStoppedDueToFrequentStopChecks(t *testing.T) 
 	p := newProviderAbortable(cycleDuration, 1, 15)
 	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
 
-	t.Run("cycle funcion stopped before timeout reached", func(t *testing.T) {
+	t.Run("cycle function stopped before timeout reached", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
 		defer cancel()
 

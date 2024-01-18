@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,7 +22,7 @@ import (
 )
 
 func TestPropValuePairs_Merging(t *testing.T) {
-	t.Run("allways creates new underlying bitmap", func(t *testing.T) {
+	t.Run("always creates new underlying bitmap", func(t *testing.T) {
 		type testCase struct {
 			name string
 

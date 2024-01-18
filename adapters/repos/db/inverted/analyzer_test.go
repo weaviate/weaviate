@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -315,6 +315,85 @@ func TestAnalyzer(t *testing.T) {
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)
 	})
+
+	byteTrue := []byte{0x1}
+	byteFalse := []byte{0x0}
+
+	t.Run("analyze bool", func(t *testing.T) {
+		t.Run("true", func(t *testing.T) {
+			countable, err := a.Bool(true)
+			require.Nil(t, err)
+			require.Len(t, countable, 1)
+
+			c := countable[0]
+			assert.Equal(t, byteTrue, c.Data)
+			assert.Equal(t, float32(0), c.TermFrequency)
+		})
+
+		t.Run("false", func(t *testing.T) {
+			countable, err := a.Bool(false)
+			require.Nil(t, err)
+			require.Len(t, countable, 1)
+
+			c := countable[0]
+			assert.Equal(t, byteFalse, c.Data)
+			assert.Equal(t, float32(0), c.TermFrequency)
+		})
+	})
+
+	t.Run("analyze bool array", func(t *testing.T) {
+		type testCase struct {
+			name     string
+			values   []bool
+			expected [][]byte
+		}
+
+		testCases := []testCase{
+			{
+				name:     "[true]",
+				values:   []bool{true},
+				expected: [][]byte{byteTrue},
+			},
+			{
+				name:     "[false]",
+				values:   []bool{false},
+				expected: [][]byte{byteFalse},
+			},
+			{
+				name:     "[true, true, true]",
+				values:   []bool{true, true, true},
+				expected: [][]byte{byteTrue, byteTrue, byteTrue},
+			},
+			{
+				name:     "[false, false, false]",
+				values:   []bool{false, false, false},
+				expected: [][]byte{byteFalse, byteFalse, byteFalse},
+			},
+			{
+				name:     "[false, true, false, true]",
+				values:   []bool{false, true, false, true},
+				expected: [][]byte{byteFalse, byteTrue, byteFalse, byteTrue},
+			},
+			{
+				name:     "[]",
+				values:   []bool{},
+				expected: [][]byte{},
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				countable, err := a.BoolArray(tc.values)
+				require.Nil(t, err)
+				require.Len(t, countable, len(tc.expected))
+
+				for i := range countable {
+					assert.Equal(t, tc.expected[i], countable[i].Data)
+					assert.Equal(t, float32(0), countable[i].TermFrequency)
+				}
+			})
+		}
+	})
 }
 
 func TestAnalyzer_DefaultEngPreset(t *testing.T) {
@@ -455,4 +534,65 @@ type fakeStopwordDetector struct{}
 
 func (fsd fakeStopwordDetector) IsStopword(word string) bool {
 	return false
+}
+
+func TestDedupItems(t *testing.T) {
+	props := []Property{
+		{
+			Name: "propNothingToDo",
+			Items: []Countable{
+				{Data: []byte("fff"), TermFrequency: 3},
+				{Data: []byte("eee"), TermFrequency: 2},
+				{Data: []byte("ddd"), TermFrequency: 1},
+			},
+		},
+		{
+			Name: "propToDedup1",
+			Items: []Countable{
+				{Data: []byte("aaa"), TermFrequency: 1},
+				{Data: []byte("bbb"), TermFrequency: 2},
+				{Data: []byte("ccc"), TermFrequency: 3},
+				{Data: []byte("aaa"), TermFrequency: 4},
+				{Data: []byte("ccc"), TermFrequency: 0},
+			},
+		},
+		{
+			Name: "propToDedup2",
+			Items: []Countable{
+				{Data: []uint8{1}, TermFrequency: 5},
+				{Data: []uint8{1}, TermFrequency: 4},
+				{Data: []uint8{1}, TermFrequency: 3},
+				{Data: []uint8{1}, TermFrequency: 2},
+				{Data: []uint8{1}, TermFrequency: 1},
+			},
+		},
+	}
+
+	expectedProps := []Property{
+		{
+			Name: "propNothingToDo",
+			Items: []Countable{
+				{Data: []byte("fff"), TermFrequency: 3},
+				{Data: []byte("eee"), TermFrequency: 2},
+				{Data: []byte("ddd"), TermFrequency: 1},
+			},
+		},
+		{
+			Name: "propToDedup1",
+			Items: []Countable{
+				{Data: []byte("bbb"), TermFrequency: 2},
+				{Data: []byte("aaa"), TermFrequency: 4},
+				{Data: []byte("ccc"), TermFrequency: 0},
+			},
+		},
+		{
+			Name: "propToDedup2",
+			Items: []Countable{
+				{Data: []uint8{1}, TermFrequency: 1},
+			},
+		},
+	}
+
+	dedupProps := DedupItems(props)
+	assert.Equal(t, expectedProps, dedupProps)
 }

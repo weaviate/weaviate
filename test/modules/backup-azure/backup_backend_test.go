@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_AzureBackend_Backup(t *testing.T) {
@@ -47,7 +48,7 @@ func Test_AzureBackend_Backup(t *testing.T) {
 	t.Run("copy files", moduleLevelCopyFiles)
 
 	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminte test containers"))
+		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
 	}
 }
 
@@ -155,12 +156,12 @@ func moduleLevelCopyObjects(t *testing.T) {
 		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
 		require.Nil(t, err)
 
-		t.Run("put object to backet", func(t *testing.T) {
+		t.Run("put object to bucket", func(t *testing.T) {
 			err := azure.PutObject(testCtx, backupID, key, []byte("hello"))
 			assert.Nil(t, err)
 		})
 
-		t.Run("get object from backet", func(t *testing.T) {
+		t.Run("get object from bucket", func(t *testing.T) {
 			meta, err := azure.GetObject(testCtx, backupID, key)
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
@@ -227,6 +228,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 type fakeModuleParams struct {
 	logger   logrus.FieldLogger
 	provider fakeStorageProvider
+	config   config.Config
 }
 
 func newFakeModuleParams(dataPath string) *fakeModuleParams {
@@ -247,6 +249,10 @@ func (f *fakeModuleParams) GetAppState() interface{} {
 
 func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
 	return f.logger
+}
+
+func (f *fakeModuleParams) GetConfig() config.Config {
+	return f.config
 }
 
 type fakeStorageProvider struct {

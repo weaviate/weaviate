@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ type authorizer interface {
 }
 
 type db interface {
-	GetNodeStatus(ctx context.Context, className string) ([]*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
 }
 
 type Manager struct {
@@ -41,10 +41,10 @@ func NewManager(logger logrus.FieldLogger, authorizer authorizer,
 }
 
 func (m *Manager) GetNodeStatus(ctx context.Context,
-	principal *models.Principal, className string,
+	principal *models.Principal, className string, verbosity string,
 ) ([]*models.NodeStatus, error) {
 	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
 		return nil, err
 	}
-	return m.db.GetNodeStatus(ctx, className)
+	return m.db.GetNodeStatus(ctx, className, verbosity)
 }

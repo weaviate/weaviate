@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,9 +22,9 @@ import (
 )
 
 // RefSource is an abstraction of the source of a cross-ref. The opposite would
-// be Ref which represents the target insted. A RefSource is specified in a URI
+// be Ref which represents the target instead. A RefSource is specified in a URI
 // format in the API. When this type is used it is safe to assume that a Ref is
-// semantically valid. This guarantuee would not be possible on the URI format,
+// semantically valid. This guarantee would not be possible on the URI format,
 // as the URI can be well-formed, but not contain the data we expect in it.  Do
 // not use directly, such as crossref.RefSource{}, as you won't have any
 // guarantees in this case. Always use one of the parsing options or New()

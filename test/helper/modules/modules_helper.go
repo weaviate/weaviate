@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,37 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
+
+func EnsureClassExists(t *testing.T, className string, tenant string) {
+	query := fmt.Sprintf("{Aggregate{%s", className)
+	if tenant != "" {
+		query += fmt.Sprintf("(tenant:%q)", tenant)
+	}
+	query += " { meta { count}}}}"
+	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+
+	class := resp.Get("Aggregate", className).Result.([]interface{})
+	require.Len(t, class, 1)
+}
+
+func EnsureCompressedVectorsRestored(t *testing.T, className string) {
+	query := fmt.Sprintf("{Get{%s(limit:1){_additional{vector}}}}", className)
+	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+
+	class := resp.Get("Get", className).Result.([]interface{})
+	require.Len(t, class, 1)
+	vecResp := class[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
+
+	searchVec := graphqlhelper.Vec2String(graphqlhelper.ParseVec(t, vecResp))
+
+	limit := 10
+	query = fmt.Sprintf(
+		"{Get{%s(nearVector:{vector:%s} limit:%d){_additional{vector}}}}",
+		className, searchVec, limit)
+	resp = graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+	class = resp.Get("Get", className).Result.([]interface{})
+	require.Len(t, class, limit)
+}
 
 func GetClassCount(t *testing.T, className string, tenant string) int64 {
 	query := fmt.Sprintf("{Aggregate{%s", className)

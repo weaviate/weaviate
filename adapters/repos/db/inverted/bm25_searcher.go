@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
@@ -41,15 +41,14 @@ import (
 )
 
 type BM25Searcher struct {
-	config        schema.BM25Config
-	store         *lsmkv.Store
-	schema        schema.Schema
-	classSearcher ClassSearcher // to allow recursive searches on ref-props
-	propIndices   propertyspecific.Indices
-	deletedDocIDs DeletedDocIDChecker
-	propLengths   propLengthRetriever
-	logger        logrus.FieldLogger
-	shardVersion  uint16
+	config         schema.BM25Config
+	store          *lsmkv.Store
+	schema         schema.Schema
+	classSearcher  ClassSearcher // to allow recursive searches on ref-props
+	propIndices    propertyspecific.Indices
+	propLenTracker propLengthRetriever
+	logger         logrus.FieldLogger
+	shardVersion   uint16
 }
 
 type propLengthRetriever interface {
@@ -58,20 +57,18 @@ type propLengthRetriever interface {
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16,
+	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
+	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
-		config:        config,
-		store:         store,
-		schema:        schema,
-		propIndices:   propIndices,
-		classSearcher: classSearcher,
-		deletedDocIDs: deletedDocIDs,
-		propLengths:   propLengths,
-		logger:        logger.WithField("action", "bm25_search"),
-		shardVersion:  shardVersion,
+		config:         config,
+		store:          store,
+		schema:         schema,
+		propIndices:    propIndices,
+		classSearcher:  classSearcher,
+		propLenTracker: propLenTracker,
+		logger:         logger.WithField("action", "bm25_search"),
+		shardVersion:   shardVersion,
 	}
 }
 
@@ -93,6 +90,10 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	}
 
 	return objs, scores, nil
+}
+
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
+	return b.propLenTracker.(*JsonShardMetaData)
 }
 
 func (b *BM25Searcher) wand(
@@ -149,7 +150,7 @@ func (b *BM25Searcher) wand(
 		}
 		propertyBoosts[property] = float32(propBoost)
 
-		propMean, err := b.propLengths.PropertyMean(property)
+		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -256,7 +257,9 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results terms, indices []map[uint64]int, additionalExplanations bool) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
+	results terms, indices []map[uint64]int, additionalExplanations bool,
+) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
 		return nil, nil, errors.Errorf("objects bucket not found")
@@ -304,8 +307,9 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64) *priorityqueue.Queue {
-	topKHeap := priorityqueue.NewMin(limit)
+func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64,
+) *priorityqueue.Queue[any] {
+	topKHeap := priorityqueue.NewMin[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	for {
@@ -399,6 +403,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
+				if len(val.Value) < 8 {
+					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+					continue
+				}
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				docMapPairs = append(docMapPairs,
@@ -413,6 +421,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			}
 		} else {
 			for _, val := range m {
+				if len(val.Value) < 8 {
+					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+					continue
+				}
 				key := binary.BigEndian.Uint64(val.Key)
 				ind, ok := docMapPairsIndices[key]
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])

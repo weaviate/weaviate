@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,6 +53,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	batchReferences := b.validateReferencesConcurrently(ctx, principal, refs)
+
 	if err := b.autodetectToClass(ctx, principal, batchReferences); err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 	}
 	for i, ref := range batchReferences {
 		// get to class from property datatype
-		if ref.To.Class != "" {
+		if ref.To.Class != "" || ref.Err != nil {
 			continue
 		}
 		className := string(ref.From.Class)
@@ -111,12 +112,17 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 		if !ok {
 			class := scheme.FindClassByName(ref.From.Class)
 			if class == nil {
-				return NewErrInvalidUserInput("class for ref does not exist: "+className+": %v", err)
+				batchReferences[i].Err = fmt.Errorf("class %s does not exist", className)
+				continue
 			}
 
 			prop, err := schema.GetPropertyByName(class, propName)
 			if err != nil {
-				return NewErrInvalidUserInput("get prop: %v", err)
+				batchReferences[i].Err = fmt.Errorf("property %s does not exist for class %s", propName, className)
+				continue
+			}
+			if len(prop.DataType) > 1 {
+				continue // can't auto-detect for multi-target
 			}
 			target = prop.DataType[0] // datatype is the name of the class that is referenced
 			classPropTarget[className+propName] = target
@@ -147,6 +153,9 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 			"Please perform a regular non-batch import for network references, got peer %s",
 			target.PeerName))
 	}
+
+	// target id must be lowercase
+	target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
 
 	if len(validateErrors) == 0 {
 		err = nil

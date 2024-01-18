@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.20.5"
+    "version": "1.23.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -882,6 +882,11 @@ func init() {
           "nodes"
         ],
         "operationId": "nodes.get",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -935,6 +940,9 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
         "responses": {
@@ -2624,6 +2632,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -2747,6 +2760,64 @@ func init() {
         "responses": {
           "200": {
             "description": "tenants from specified class.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Update tenant of a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenants.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated tenants of the specified class",
             "schema": {
               "type": "array",
               "items": {
@@ -2913,12 +2984,46 @@ func init() {
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "maximum": 512,
+          "minimum": 2,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ],
+          "x-nullable": false
+        }
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup creation process",
@@ -3018,7 +3123,8 @@ func init() {
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -3031,6 +3137,13 @@ func init() {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
@@ -3277,6 +3390,24 @@ func init() {
           }
         }
       ]
+    },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        }
+      }
     },
     "C11yExtension": {
       "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
@@ -3843,12 +3974,58 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
         "class": {
           "description": "The name of shard's class.",
           "type": "string",
+          "x-omitempty": false
+        },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
           "x-omitempty": false
         },
         "name": {
@@ -3858,6 +4035,17 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -3884,6 +4072,11 @@ func init() {
     "NodeStatus": {
       "description": "The definition of a backup node status response body",
       "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
         "gitHash": {
           "description": "The gitHash of Weaviate.",
           "type": "string"
@@ -4225,6 +4418,14 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
+        "nestedProperties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
@@ -4311,6 +4512,20 @@ func init() {
         }
       }
     },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
@@ -4386,6 +4601,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -4452,6 +4672,16 @@ func init() {
       "description": "attributes representing a single tenant within weaviate",
       "type": "object",
       "properties": {
+        "activityStatus": {
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "WARM",
+            "COLD",
+            "FROZEN"
+          ]
+        },
         "name": {
           "description": "name of the tenant",
           "type": "string"
@@ -4481,14 +4711,15 @@ func init() {
             "Or",
             "Equal",
             "Like",
-            "Not",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -4510,10 +4741,33 @@ func init() {
           "x-nullable": true,
           "example": false
         },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            true,
+            false
+          ]
+        },
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
           "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
           "example": "TODO"
         },
         "valueGeoRange": {
@@ -4529,6 +4783,17 @@ func init() {
           "x-nullable": true,
           "example": 2000
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": "[100, 200]"
+        },
         "valueNumber": {
           "description": "value as number/float",
           "type": "number",
@@ -4536,17 +4801,54 @@ func init() {
           "x-nullable": true,
           "example": 3.14
         },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            3.14
+          ]
+        },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
         }
       }
     },
@@ -4620,6 +4922,13 @@ func init() {
       "type": "string",
       "description": "Order parameter to tell how to order (asc or desc) data within given field",
       "name": "order",
+      "in": "query"
+    },
+    "CommonOutputVerbosityParameterQuery": {
+      "type": "string",
+      "default": "minimal",
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "name": "output",
       "in": "query"
     },
     "CommonSortParameterQuery": {
@@ -4699,7 +5008,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.20.5"
+    "version": "1.23.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -5545,6 +5854,15 @@ func init() {
           "nodes"
         ],
         "operationId": "nodes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "default": "minimal",
+            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "name": "output",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -5598,6 +5916,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "default": "minimal",
+            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "name": "output",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7389,6 +7714,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7512,6 +7842,64 @@ func init() {
         "responses": {
           "200": {
             "description": "tenants from specified class.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Update tenant of a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenants.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Tenant"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated tenants of the specified class",
             "schema": {
               "type": "array",
               "items": {
@@ -7678,12 +8066,46 @@ func init() {
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "maximum": 512,
+          "minimum": 2,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ],
+          "x-nullable": false
+        }
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup creation process",
@@ -7783,7 +8205,8 @@ func init() {
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -7796,6 +8219,13 @@ func init() {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
@@ -8129,6 +8559,24 @@ func init() {
             "PENDING",
             "FAILED"
           ]
+        }
+      }
+    },
+    "BatchStats": {
+      "description": "The summary of a nodes batch queue congestion status.",
+      "properties": {
+        "queueLength": {
+          "description": "How many objects are currently in the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "ratePerSecond": {
+          "description": "How many objects are approximately processed from the batch queue per second.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
         }
       }
     },
@@ -8767,12 +9215,58 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NestedProperty": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nestedProperties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
+        "tokenization": {
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
         "class": {
           "description": "The name of shard's class.",
           "type": "string",
+          "x-omitempty": false
+        },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
           "x-omitempty": false
         },
         "name": {
@@ -8782,6 +9276,17 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -8808,6 +9313,11 @@ func init() {
     "NodeStatus": {
       "description": "The definition of a backup node status response body",
       "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
         "gitHash": {
           "description": "The gitHash of Weaviate.",
           "type": "string"
@@ -9167,6 +9677,14 @@ func init() {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
         },
+        "nestedProperties": {
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "x-omitempty": true
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are ` + "`" + `word` + "`" + ` (default; splits on any non-alphanumerical, lowercases), ` + "`" + `lowercase` + "`" + ` (splits on white spaces, lowercases), ` + "`" + `whitespace` + "`" + ` (splits on white spaces), ` + "`" + `field` + "`" + ` (trims). Not supported for remaining data types",
           "type": "string",
@@ -9253,6 +9771,20 @@ func init() {
         }
       }
     },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas).",
       "type": "object",
@@ -9328,6 +9860,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -9394,6 +9931,16 @@ func init() {
       "description": "attributes representing a single tenant within weaviate",
       "type": "object",
       "properties": {
+        "activityStatus": {
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "type": "string",
+          "enum": [
+            "HOT",
+            "WARM",
+            "COLD",
+            "FROZEN"
+          ]
+        },
         "name": {
           "description": "name of the tenant",
           "type": "string"
@@ -9423,14 +9970,15 @@ func init() {
             "Or",
             "Equal",
             "Like",
-            "Not",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
             "LessThan",
             "LessThanEqual",
             "WithinGeoRange",
-            "IsNull"
+            "IsNull",
+            "ContainsAny",
+            "ContainsAll"
           ],
           "example": "GreaterThanEqual"
         },
@@ -9452,10 +10000,33 @@ func init() {
           "x-nullable": true,
           "example": false
         },
+        "valueBooleanArray": {
+          "description": "value as boolean",
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            true,
+            false
+          ]
+        },
         "valueDate": {
           "description": "value as date (as string)",
           "type": "string",
           "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueDateArray": {
+          "description": "value as date (as string)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
           "example": "TODO"
         },
         "valueGeoRange": {
@@ -9471,6 +10042,17 @@ func init() {
           "x-nullable": true,
           "example": 2000
         },
+        "valueIntArray": {
+          "description": "value as integer",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": "[100, 200]"
+        },
         "valueNumber": {
           "description": "value as number/float",
           "type": "number",
@@ -9478,17 +10060,54 @@ func init() {
           "x-nullable": true,
           "example": 3.14
         },
+        "valueNumberArray": {
+          "description": "value as number/float",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float64"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            3.14
+          ]
+        },
         "valueString": {
           "description": "value as text (deprecated as of v1.19; alias for valueText)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
         },
+        "valueStringArray": {
+          "description": "value as text (deprecated as of v1.19; alias for valueText)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
+        },
         "valueText": {
           "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueTextArray": {
+          "description": "value as text",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-nullable": true,
+          "x-omitempty": true,
+          "example": [
+            "my search term"
+          ]
         }
       }
     },
@@ -9571,6 +10190,13 @@ func init() {
       "type": "string",
       "description": "Order parameter to tell how to order (asc or desc) data within given field",
       "name": "order",
+      "in": "query"
+    },
+    "CommonOutputVerbosityParameterQuery": {
+      "type": "string",
+      "default": "minimal",
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "name": "output",
       "in": "query"
     },
     "CommonSortParameterQuery": {

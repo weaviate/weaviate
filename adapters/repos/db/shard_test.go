@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,34 +45,34 @@ func TestShard_UpdateStatus(t *testing.T) {
 		if err != nil {
 			fmt.Println(err)
 		}
-	}(shd.index.Config.RootPath)
+	}(shd.Index().Config.RootPath)
 
 	t.Run("insert data into shard", func(t *testing.T) {
 		for i := 0; i < amount; i++ {
 			obj := testObject(className)
 
-			err := shd.putObject(ctx, obj)
+			err := shd.PutObject(ctx, obj)
 			require.Nil(t, err)
 		}
 
-		objs, err := shd.objectList(ctx, amount, nil, nil, additional.Properties{}, shd.index.Config.ClassName)
+		objs, err := shd.ObjectList(ctx, amount, nil, nil, additional.Properties{}, shd.Index().Config.ClassName)
 		require.Nil(t, err)
 		require.Equal(t, amount, len(objs))
 	})
 
 	t.Run("mark shard readonly and fail to insert", func(t *testing.T) {
-		err := shd.updateStatus(storagestate.StatusReadOnly.String())
+		err := shd.UpdateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject(className))
+		err = shd.PutObject(ctx, testObject(className))
 		require.EqualError(t, err, storagestate.ErrStatusReadOnly.Error())
 	})
 
 	t.Run("mark shard ready and insert successfully", func(t *testing.T) {
-		err := shd.updateStatus(storagestate.StatusReady.String())
+		err := shd.UpdateStatus(storagestate.StatusReady.String())
 		require.Nil(t, err)
 
-		err = shd.putObject(ctx, testObject(className))
+		err = shd.PutObject(ctx, testObject(className))
 		require.Nil(t, err)
 	})
 
@@ -95,15 +95,15 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		if err != nil {
 			fmt.Println(err)
 		}
-	}(shd.index.Config.RootPath)
+	}(shd.Index().Config.RootPath)
 
-	err := shd.store.CreateOrLoadBucket(context.Background(), bucketName,
+	err := shd.Store().CreateOrLoadBucket(context.Background(), bucketName,
 		lsmkv.WithMemtableThreshold(1024))
 	require.Nil(t, err)
 
-	bucket := shd.store.Bucket(bucketName)
+	bucket := shd.Store().Bucket(bucketName)
 	require.NotNil(t, bucket)
-	dirName := path.Join(shd.DBPathLSM(), bucketName)
+	dirName := path.Join(shd.Index().path(), shd.Name(), "lsm", bucketName)
 
 	t.Run("generate random data", func(t *testing.T) {
 		for i := range keys {
@@ -127,7 +127,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	t.Run("halt compaction with readonly status", func(t *testing.T) {
-		err := shd.updateStatus(storagestate.StatusReadOnly.String())
+		err := shd.UpdateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 
 		// give the status time to propagate
@@ -156,7 +156,7 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 	})
 
 	t.Run("update shard status to ready", func(t *testing.T) {
-		err := shd.updateStatus(storagestate.StatusReady.String())
+		err := shd.UpdateStatus(storagestate.StatusReady.String())
 		require.Nil(t, err)
 
 		time.Sleep(time.Second)
@@ -182,12 +182,12 @@ func TestShard_ParallelBatches(t *testing.T) {
 	wg.Add(len(batches))
 	for _, batch := range batches {
 		go func(localBatch []*storobj.Object) {
-			shd.putObjectBatch(ctx, localBatch)
+			shd.PutObjectBatch(ctx, localBatch)
 			wg.Done()
 		}(batch)
 	}
 	wg.Wait()
 
-	require.Equal(t, totalObjects, int(shd.counter.Get()))
+	require.Equal(t, totalObjects, int(shd.Counter().Get()))
 	require.Nil(t, idx.drop())
 }

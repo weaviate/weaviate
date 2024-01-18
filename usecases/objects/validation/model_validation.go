@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package validation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -98,18 +99,23 @@ func validateClass(class string) error {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRef,
-	errorVal string, tenant string,
-) error {
+func (v *Validator) ValidateSingleRef(cref *models.SingleRef) (*crossref.Ref, error) {
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
-		return fmt.Errorf("invalid reference: %s", err)
+		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
+
+	// target id must be lowercase
+	ref.TargetID = strfmt.UUID(strings.ToLower(ref.TargetID.String()))
 
 	if !ref.Local {
-		return fmt.Errorf("unrecognized cross-ref ref format")
+		return nil, fmt.Errorf("unrecognized cross-ref ref format")
 	}
 
+	return ref, nil
+}
+
+func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, errorVal string, tenant string) error {
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {
@@ -134,16 +140,20 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 
 func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
 	errorVal string, tenant string,
-) error {
+) ([]*crossref.Ref, error) {
+	parsedRefs := make([]*crossref.Ref, len(refs))
+
 	if refs == nil {
-		return nil
+		return parsedRefs, nil
 	}
 
-	for _, ref := range refs {
-		err := v.ValidateSingleRef(ctx, ref, errorVal, tenant)
+	for i, ref := range refs {
+		parsedRef, err := v.ValidateSingleRef(ref)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		parsedRefs[i] = parsedRef
+
 	}
-	return nil
+	return parsedRefs, nil
 }

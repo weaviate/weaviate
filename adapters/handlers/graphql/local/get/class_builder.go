@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -131,6 +131,9 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 
 				if propertyType.IsPrimitive() {
 					classProperties[property.Name] = b.primitiveField(propertyType, property,
+						class.Class)
+				} else if propertyType.IsNested() {
+					classProperties[property.Name] = b.nestedField(propertyType, property,
 						class.Class)
 				} else {
 					classProperties[property.Name] = b.referenceField(propertyType, property,

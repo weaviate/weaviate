@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,7 +52,7 @@ var ByID = map[string]models.Deprecation{
 		},
 		Status:       "deprecated",
 		APIType:      "REST",
-		Mitigation:   "Use ?include=<propName>, e.g. ?include=_classification for classification meta or ?include=_vector to show the vector position or ?include=_classification,_vector for both. When consuming the response use the additional fields such as _vector, as the meta object in the reponse, such as meta.vector will be removed.",
+		Mitigation:   "Use ?include=<propName>, e.g. ?include=_classification for classification meta or ?include=_vector to show the vector position or ?include=_classification,_vector for both. When consuming the response use the additional fields such as _vector, as the meta object in the response, such as meta.vector will be removed.",
 		Msg:          "use of deprecated property ?meta=true/false",
 		SinceVersion: "0.22.8",
 		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),

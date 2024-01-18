@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -54,20 +55,21 @@ func (m *GenerativeOpenAIModule) Type() modulecapabilities.ModuleType {
 func (m *GenerativeOpenAIModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
+	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init q/a")
 	}
 
 	return nil
 }
 
-func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context,
+func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
+	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(openAIApiKey, azureApiKey, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
 	m.generative = client
 

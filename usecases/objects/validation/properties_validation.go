@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,6 +46,11 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 	className := incomingObject.Class
 	isp := incomingObject.Properties
 	vectorWeights := incomingObject.VectorWeights
+	tenant := incomingObject.Tenant
+
+	if existingObject != nil && tenant != existingObject.Tenant {
+		return fmt.Errorf("tenant mismatch, expected %s but got %s", existingObject.Tenant, tenant)
+	}
 
 	if vectorWeights != nil {
 		res, err := v.validateVectorWeights(vectorWeights)
@@ -77,12 +82,54 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 		if len(propertyKey) > 1 {
 			propertyKeyLowerCase += propertyKey[1:]
 		}
+		property, err := schema.GetPropertyByName(class, propertyKeyLowerCase)
+		if err != nil {
+			return err
+		}
 		dataType, err := schema.GetPropertyDataType(class, propertyKeyLowerCase)
 		if err != nil {
 			return err
 		}
 
-		data, err := v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType)
+		// autodetect to_class in references
+		if dataType.String() == schema.DataTypeCRef.String() {
+			propertyValueSlice, ok := propertyValue.([]interface{})
+			if !ok {
+				return fmt.Errorf("reference property is not a slice %v", propertyValue)
+			}
+			for i := range propertyValueSlice {
+				propertyValueMap, ok := propertyValueSlice[i].(map[string]interface{})
+				if !ok {
+					return fmt.Errorf("reference property is not a map %v", propertyValueMap)
+				}
+				beacon := propertyValueMap["beacon"].(string)
+				beaconParsed, err := crossref.Parse(beacon)
+				if err != nil {
+					return err
+				}
+
+				if beaconParsed.Class == "" {
+					prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(propertyKey))
+					if err != nil {
+						return err
+					}
+					if len(prop.DataType) > 1 {
+						continue
+					}
+					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
+					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
+					propertyValue.([]interface{})[i].(map[string]interface{})["beacon"] = toBeacon
+				}
+			}
+		}
+
+		var data interface{}
+		if schema.IsNested(*dataType) {
+			data, err = v.extractAndValidateNestedProperty(ctx, propertyKeyLowerCase, propertyValue, className,
+				dataType, property.NestedProperties)
+		} else {
+			data, err = v.extractAndValidateProperty(ctx, propertyKeyLowerCase, propertyValue, className, dataType, tenant)
+		}
 		if err != nil {
 			return err
 		}
@@ -96,8 +143,99 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 	return nil
 }
 
+func nestedPropertiesToMap(nestedProperties []*models.NestedProperty) map[string]*models.NestedProperty {
+	nestedPropertiesMap := map[string]*models.NestedProperty{}
+	for _, nestedProperty := range nestedProperties {
+		nestedPropertiesMap[nestedProperty.Name] = nestedProperty
+	}
+	return nestedPropertiesMap
+}
+
+// TODO nested
+// refactor/simplify + improve recurring error msgs on nested properties
+func (v *Validator) extractAndValidateNestedProperty(ctx context.Context, propertyName string,
+	val interface{}, className string, dataType *schema.DataType, nestedProperties []*models.NestedProperty,
+) (interface{}, error) {
+	var data interface{}
+	var err error
+
+	switch *dataType {
+	case schema.DataTypeObject:
+		data, err = objectVal(ctx, v, val, propertyName, className, nestedPropertiesToMap(nestedProperties))
+		if err != nil {
+			return nil, fmt.Errorf("invalid object property '%s' on class '%s': %w", propertyName, className, err)
+		}
+	case schema.DataTypeObjectArray:
+		data, err = objectArrayVal(ctx, v, val, propertyName, className, nestedPropertiesToMap(nestedProperties))
+		if err != nil {
+			return nil, fmt.Errorf("invalid object[] property '%s' on class '%s': %w", propertyName, className, err)
+		}
+	default:
+		return nil, fmt.Errorf("unrecognized data type '%s'", *dataType)
+	}
+
+	return data, nil
+}
+
+func objectVal(ctx context.Context, v *Validator, val interface{}, propertyPrefix string,
+	className string, nestedPropertiesMap map[string]*models.NestedProperty,
+) (map[string]interface{}, error) {
+	typed, ok := val.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("object must be a map, but got: %T", val)
+	}
+
+	for nestedKey, nestedValue := range typed {
+		propertyName := propertyPrefix + "." + nestedKey
+		nestedProperty, ok := nestedPropertiesMap[nestedKey]
+		if !ok {
+			return nil, fmt.Errorf("unknown property '%s'", propertyName)
+		}
+
+		nestedDataType, err := schema.GetValueDataTypeFromString(nestedProperty.DataType[0])
+		if err != nil {
+			return nil, fmt.Errorf("property '%s': %w", propertyName, err)
+		}
+
+		var data interface{}
+		if schema.IsNested(*nestedDataType) {
+			data, err = v.extractAndValidateNestedProperty(ctx, propertyName, nestedValue,
+				className, nestedDataType, nestedProperty.NestedProperties)
+		} else {
+			data, err = v.extractAndValidateProperty(ctx, propertyName, nestedValue,
+				className, nestedDataType, "")
+			// tenant isn't relevant for nested properties since crossrefs are not allowed
+		}
+		if err != nil {
+			return nil, fmt.Errorf("property '%s': %w", propertyName, err)
+		}
+		typed[nestedKey] = data
+	}
+
+	return typed, nil
+}
+
+func objectArrayVal(ctx context.Context, v *Validator, val interface{}, propertyPrefix string,
+	className string, nestedPropertiesMap map[string]*models.NestedProperty,
+) (interface{}, error) {
+	typed, ok := val.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("not an object array, but %T", val)
+	}
+
+	for i := range typed {
+		data, err := objectVal(ctx, v, typed[i], propertyPrefix, className, nestedPropertiesMap)
+		if err != nil {
+			return nil, fmt.Errorf("invalid object '%d' in array: %w", i, err)
+		}
+		typed[i] = data
+	}
+
+	return typed, nil
+}
+
 func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName string, pv interface{},
-	className string, dataType *schema.DataType,
+	className string, dataType *schema.DataType, tenant string,
 ) (interface{}, error) {
 	var (
 		data interface{}
@@ -106,7 +244,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 
 	switch *dataType {
 	case schema.DataTypeCRef:
-		data, err = v.cRef(ctx, propertyName, pv, className)
+		data, err = v.cRef(ctx, propertyName, pv, className, tenant)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cref: %s", err)
 		}
@@ -211,7 +349,7 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 }
 
 func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{},
-	className string,
+	className, tenant string,
 ) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
@@ -225,7 +363,7 @@ func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{
 					className, propertyName, ref)
 			}
 
-			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className)
+			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className, tenant)
 			if err != nil {
 				return nil, err
 			}
@@ -299,7 +437,7 @@ func intVal(val interface{}) (interface{}, error) {
 					return nil, fmt.Errorf(errInvalidInteger, val)
 				}
 			} else {
-				// If it is not a float, it is cerntainly not a integer, return the err
+				// If it is not a float, it is certainly not a integer, return the err
 				return nil, fmt.Errorf(errInvalidInteger, val)
 			}
 		}
@@ -321,7 +459,11 @@ func numberVal(val interface{}) (interface{}, error) {
 
 	if _, ok = val.(json.Number); !ok {
 		if data, ok = val.(float64); !ok {
-			return nil, fmt.Errorf(errInvalidFloat, val)
+			data64, ok := val.(int64)
+			if !ok {
+				return nil, fmt.Errorf(errInvalidFloat, val)
+			}
+			data = float64(data64)
 		}
 	} else if data, err = val.(json.Number).Float64(); err != nil {
 		return nil, fmt.Errorf(errInvalidFloatConvertion, val)
@@ -427,7 +569,7 @@ func blobVal(val interface{}) (string, error) {
 }
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
-	pvcr map[string]interface{}, className string,
+	pvcr map[string]interface{}, className, tenant string,
 ) (*models.SingleRef, error) {
 	delete(pvcr, "href")
 
@@ -454,8 +596,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s:%s", className, propertyName)
-	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal, "")
+	ref, err = v.ValidateSingleRef(ref.SingleRef())
 	if err != nil {
+		return nil, err
+	}
+
+	if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
 		return nil, err
 	}
 
@@ -464,12 +610,12 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 }
 
 // vectorWeights are passed as a non-typed interface{}, this is due to a
-// limition in go-swagger which itself is coming from swagger 2.0 which does
+// limitation in go-swagger which itself is coming from swagger 2.0 which does
 // not have support for arbitrary key/value objects
 //
 // we must thus validate that it's a map and they keys are strings
 // NOTE: We are not validating the semantic correctness of the equations
-// themselves, as they are in the contextinoary's resopnsibility
+// themselves, as they are in the contextinoary's responsibility
 func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, error) {
 	asMap, ok := in.(map[string]interface{})
 	if !ok {
@@ -526,9 +672,11 @@ func numberArrayVal(val interface{}) ([]interface{}, error) {
 	}
 
 	for i := range typed {
-		if _, err := numberVal(typed[i]); err != nil {
+		data, err := numberVal(typed[i])
+		if err != nil {
 			return nil, fmt.Errorf("invalid integer array value: %s", val)
 		}
+		typed[i] = data
 	}
 
 	return typed, nil

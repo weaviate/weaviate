@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	baseURLProperty           = "baseURL"
 	modelProperty             = "model"
 	temperatureProperty       = "temperature"
 	maxTokensProperty         = "maxTokens"
@@ -36,6 +37,7 @@ var availableCohereModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
+	DefaultBaseURL                 = "https://api.cohere.ai"
 	DefaultCohereModel             = "command-nightly"
 	DefaultCohereTemperature       = 0
 	DefaultCohereMaxTokens         = 2048
@@ -140,6 +142,10 @@ func (ic *classSettings) GetMaxTokensForModel(model string) int {
 
 func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableCohereModels, model)
+}
+
+func (ic *classSettings) BaseURL() string {
+	return *ic.getStringProperty(baseURLProperty, DefaultBaseURL)
 }
 
 func (ic *classSettings) Model() string {

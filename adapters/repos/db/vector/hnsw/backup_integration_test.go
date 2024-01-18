@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,7 +55,7 @@ func TestBackup_Integration(t *testing.T) {
 	tombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("childTombstoneCleanup", logger, 1)
 	tombstoneCleanupCallbacksCtrl := parentTombstoneCleanupCallbacks.Register("tombstoneCleanup", tombstoneCleanupCallbacks.CycleCallback)
 
-	combinedCtrl := cyclemanager.NewCycleCombinedCallbackCtrl(2, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
+	combinedCtrl := cyclemanager.NewCombinedCallbackCtrl(2, commitLoggerCallbacksCtrl, tombstoneCleanupCallbacksCtrl)
 
 	idx, err := New(Config{
 		RootPath:         dirName,
@@ -66,8 +66,7 @@ func TestBackup_Integration(t *testing.T) {
 		MakeCommitLoggerThunk: func() (CommitLogger, error) {
 			return NewCommitLogger(dirName, indexID, logger, commitLoggerCallbacks)
 		},
-	}, enthnsw.NewDefaultUserConfig(),
-		tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, enthnsw.NewDefaultUserConfig(), tombstoneCleanupCallbacks, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -95,7 +94,7 @@ func TestBackup_Integration(t *testing.T) {
 	})
 
 	t.Run("list files", func(t *testing.T) {
-		files, err := idx.ListFiles(ctx)
+		files, err := idx.ListFiles(ctx, dirName)
 		require.Nil(t, err)
 
 		// by this point there should be two files in the commitlog directory.

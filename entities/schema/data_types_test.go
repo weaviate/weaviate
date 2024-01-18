@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,24 @@ func TestDetectPrimitiveTypes(t *testing.T) {
 		assert.Nil(t, err)
 		assert.True(t, pdt.IsPrimitive())
 		assert.Equal(t, dt, pdt.AsPrimitive())
+
+		assert.False(t, pdt.IsNested())
+		assert.False(t, pdt.IsReference())
+	}
+}
+
+func TestDetectNestedTypes(t *testing.T) {
+	s := Empty()
+
+	for _, dt := range NestedDataTypes {
+		ndt, err := s.FindPropertyDataType(dt.PropString())
+
+		assert.Nil(t, err)
+		assert.True(t, ndt.IsNested())
+		assert.Equal(t, dt, ndt.AsNested())
+
+		assert.False(t, ndt.IsPrimitive())
+		assert.False(t, ndt.IsReference())
 	}
 }
 
@@ -83,6 +101,8 @@ func TestGetPropertyDataType(t *testing.T) {
 		"date", "geoCoordinates", "phoneNumber", "blob", "Ref", "invalid",
 		"string[]", "text[]", "int[]", "number[]", "boolean[]", "date[]",
 		"uuid", "uuid[]",
+
+		"object", "object[]",
 	}
 	class.Properties = make([]*models.Property, len(dataTypes))
 	for i, dtString := range dataTypes {
@@ -168,6 +188,14 @@ func TestGetPropertyDataType(t *testing.T) {
 			expectedDataType: ptDataType(DataTypeUUIDArray),
 		},
 		{
+			propName:         "objectProp",
+			expectedDataType: ptDataType(DataTypeObject),
+		},
+		{
+			propName:         "object[]Prop",
+			expectedDataType: ptDataType(DataTypeObjectArray),
+		},
+		{
 			propName:         "RefProp",
 			expectedDataType: ptDataType(DataTypeCRef),
 		},
@@ -222,13 +250,48 @@ func Test_DataType_AsPrimitive(t *testing.T) {
 			})
 		}
 
-		for _, dtStr := range []string{"non-existing", ""} {
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is empty data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dtStr := range []string{""} {
 			inputDataType := []string{dtStr}
 			testCases = append(testCases, testCase{
 				name:                fmt.Sprintf("%v", inputDataType),
 				inputDataType:       inputDataType,
 				expectedDataType:    "",
 				expectedIsPrimitive: true,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is non existent data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dtStr := range []string{"non-existent"} {
+			inputDataType := []string{dtStr}
+			testCases = append(testCases, testCase{
+				name:                fmt.Sprintf("%v", inputDataType),
+				inputDataType:       inputDataType,
+				expectedDataType:    "",
+				expectedIsPrimitive: false,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is nested data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dt := range NestedDataTypes {
+			inputDataType := dt.PropString()
+			testCases = append(testCases, testCase{
+				name:                fmt.Sprintf("%v", inputDataType),
+				inputDataType:       inputDataType,
+				expectedDataType:    "",
+				expectedIsPrimitive: false,
 			})
 		}
 
@@ -246,6 +309,102 @@ func Test_DataType_AsPrimitive(t *testing.T) {
 				inputDataType:       inputDataType,
 				expectedDataType:    "",
 				expectedIsPrimitive: false,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+}
+
+func Test_DataType_AsNested(t *testing.T) {
+	type testCase struct {
+		name             string
+		inputDataType    []string
+		expectedDataType DataType
+		expectedIsNested bool
+	}
+
+	runTestCases := func(t *testing.T, testCases []testCase) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				dataType, ok := AsNested(tc.inputDataType)
+				assert.Equal(t, tc.expectedDataType, dataType)
+				assert.Equal(t, tc.expectedIsNested, ok)
+			})
+		}
+	}
+
+	t.Run("is nested data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dt := range NestedDataTypes {
+			inputDataType := dt.PropString()
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("%v", inputDataType),
+				inputDataType:    inputDataType,
+				expectedDataType: dt,
+				expectedIsNested: true,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is empty data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dtStr := range []string{""} {
+			inputDataType := []string{dtStr}
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("%v", inputDataType),
+				inputDataType:    inputDataType,
+				expectedDataType: "",
+				expectedIsNested: false,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is non existent data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dtStr := range []string{"non-existent"} {
+			inputDataType := []string{dtStr}
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("%v", inputDataType),
+				inputDataType:    inputDataType,
+				expectedDataType: "",
+				expectedIsNested: false,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is primitive data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, dt := range append(PrimitiveDataTypes, DeprecatedPrimitiveDataTypes...) {
+			inputDataType := dt.PropString()
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("%v", inputDataType),
+				inputDataType:    inputDataType,
+				expectedDataType: "",
+				expectedIsNested: false,
+			})
+		}
+
+		runTestCases(t, testCases)
+	})
+
+	t.Run("is reference data type", func(t *testing.T) {
+		testCases := []testCase{}
+		for _, inputDataType := range [][]string{
+			{"SomeClass"},
+			{"SomeOtherClass", "AndAnotherOne"},
+		} {
+			testCases = append(testCases, testCase{
+				name:             fmt.Sprintf("%v", inputDataType),
+				inputDataType:    inputDataType,
+				expectedDataType: "",
+				expectedIsNested: false,
 			})
 		}
 

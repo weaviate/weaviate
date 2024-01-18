@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,13 +52,13 @@ func (m *NERModule) Type() modulecapabilities.ModuleType {
 func (m *NERModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
-	if err := m.initAdditional(ctx, params.GetLogger()); err != nil {
+	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init additional")
 	}
 	return nil
 }
 
-func (m *NERModule) initAdditional(ctx context.Context,
+func (m *NERModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	uri := os.Getenv("NER_INFERENCE_API")
@@ -66,7 +66,7 @@ func (m *NERModule) initAdditional(ctx context.Context,
 		return errors.Errorf("required variable NER_INFERENCE_API is not set")
 	}
 
-	client := clients.New(uri, logger)
+	client := clients.New(uri, timeout, logger)
 	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
 		return errors.Wrap(err, "init remote ner module")
 	}

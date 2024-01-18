@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ const (
 	HybridRankedFusion = iota
 	HybridRelativeScoreFusion
 )
+const HybridFusionDefault = HybridRelativeScoreFusion
 
 func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
 	var subsearches []interface{}
@@ -95,7 +96,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	if ok {
 		args.FusionAlgorithm = fusionType.(int)
 	} else {
-		args.FusionAlgorithm = HybridRankedFusion
+		args.FusionAlgorithm = HybridFusionDefault
 	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})

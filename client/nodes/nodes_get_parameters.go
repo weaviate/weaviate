@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -71,6 +71,15 @@ NodesGetParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type NodesGetParams struct {
+
+	/* Output.
+
+	   Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+
+	   Default: "minimal"
+	*/
+	Output *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -88,7 +97,18 @@ func (o *NodesGetParams) WithDefaults() *NodesGetParams {
 //
 // All values with no default are reset to their zero value.
 func (o *NodesGetParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		outputDefault = string("minimal")
+	)
+
+	val := NodesGetParams{
+		Output: &outputDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the nodes get params
@@ -124,6 +144,17 @@ func (o *NodesGetParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithOutput adds the output to the nodes get params
+func (o *NodesGetParams) WithOutput(output *string) *NodesGetParams {
+	o.SetOutput(output)
+	return o
+}
+
+// SetOutput adds the output to the nodes get params
+func (o *NodesGetParams) SetOutput(output *string) {
+	o.Output = output
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *NodesGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -131,6 +162,23 @@ func (o *NodesGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Regi
 		return err
 	}
 	var res []error
+
+	if o.Output != nil {
+
+		// query param output
+		var qrOutput string
+
+		if o.Output != nil {
+			qrOutput = *o.Output
+		}
+		qOutput := qrOutput
+		if qOutput != "" {
+
+			if err := r.SetQueryParam("output", qOutput); err != nil {
+				return err
+			}
+		}
+	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

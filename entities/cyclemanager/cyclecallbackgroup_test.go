@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,7 +96,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		assert.GreaterOrEqual(t, d, 10*time.Millisecond)
 	})
 
-	t.Run("2 executable callbacks, not executed due to should abort", func(t *testing.T) {
+	t.Run("3 executable callbacks, not all executed due to should abort", func(t *testing.T) {
 		executedCounter1 := 0
 		callback1 := func(shouldAbort ShouldAbortCallback) bool {
 			time.Sleep(25 * time.Millisecond)
@@ -109,9 +109,20 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			executedCounter2++
 			return true
 		}
+		executedCounter3 := 0
+		callback3 := func(shouldAbort ShouldAbortCallback) bool {
+			time.Sleep(25 * time.Millisecond)
+			executedCounter3++
+			return true
+		}
+		// due to async calls of shouldAbort callback by main for loop
+		// and goroutines reading from shared channel it is hard to
+		// establish order of calls.
+		// with 3 callbacks and shouldAbort returning true on 6th call
+		// 1 or 2 callbacks should be executed, but not all 3.
 		shouldAbortCounter := uint32(0)
 		shouldAbort := func() bool {
-			return atomic.AddUint32(&shouldAbortCounter, 1) > 3
+			return atomic.AddUint32(&shouldAbortCounter, 1) > 5
 		}
 		var executed bool
 		var d time.Duration
@@ -119,14 +130,16 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		callbacks.Register("c1", callback1)
 		callbacks.Register("c2", callback2)
+		callbacks.Register("c3", callback3)
 
 		start := time.Now()
 		executed = callbacks.CycleCallback(shouldAbort)
 		d = time.Since(start)
 
 		assert.True(t, executed)
-		// only one routine should fail, unknown which one
-		assert.Equal(t, 1, executedCounter1+executedCounter2)
+		totalExecuted := executedCounter1 + executedCounter2 + executedCounter3
+		assert.Greater(t, totalExecuted, 0)
+		assert.Less(t, totalExecuted, 3)
 		assert.GreaterOrEqual(t, d, 25*time.Millisecond)
 	})
 
@@ -263,6 +276,48 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			assert.GreaterOrEqual(t, executionTimes3[i], sumDuration)
 			sumDuration += 60 * time.Millisecond
 		}
+	})
+
+	t.Run("unregister while running", func(t *testing.T) {
+		counter := 0
+		callback := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return true
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter++
+
+				// 10ms * 100 = 1s
+				if counter > 100 {
+					return false
+				}
+			}
+		}
+		chStarted := make(chan struct{}, 1)
+		chFinished := make(chan struct{}, 1)
+		var executed bool
+		var d time.Duration
+
+		callbacks := NewCallbackGroup("id", logger, 1)
+		ctrl := callbacks.Register("c", callback)
+
+		go func() {
+			chStarted <- struct{}{}
+			start := time.Now()
+			executed = callbacks.CycleCallback(shouldNotAbort)
+			d = time.Since(start)
+			chFinished <- struct{}{}
+		}()
+		<-chStarted
+		time.Sleep(50 * time.Millisecond)
+		err := ctrl.Unregister(context.Background())
+		assert.NoError(t, err)
+		<-chFinished
+
+		assert.True(t, executed)
+		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
 	})
 }
 
