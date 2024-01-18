@@ -134,8 +134,8 @@ const (
 	// PropertyTokenizationTrigram captures enum value "trigram"
 	PropertyTokenizationTrigram string = "trigram"
 
-	// PropertyTokenizationGSE captures enum value "gse"
-	PropertyTokenizationGSE string = "gse"
+	// PropertyTokenizationGse captures enum value "gse"
+	PropertyTokenizationGse string = "gse"
 )
 
 // prop value enum

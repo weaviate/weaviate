@@ -13,15 +13,17 @@ package helpers
 
 import (
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/go-ego/gse"
 	"github.com/weaviate/weaviate/entities/models"
-	"sync"
 )
 
-var gseTokenizer *gse.Segmenter
-var gseTokenizerLock = &sync.Mutex{}
+var (
+	gseTokenizer     *gse.Segmenter
+	gseTokenizerLock = &sync.Mutex{}
+)
 
 var Tokenizations []string = []string{
 	models.PropertyTokenizationWord,
@@ -99,7 +101,7 @@ func tokenizeWord(in string) []string {
 
 // tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
 func tokenizetrigram(in string) []string {
-	//Strip whitespace and punctuation from the input string
+	// Strip whitespace and punctuation from the input string
 	inputString := strings.ToLower(strings.Join(strings.FieldsFunc(in, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	}), ""))
@@ -134,7 +136,7 @@ func tokenizeGSE(in string) []string {
 		terms = append(terms, segment.Token().Text())
 	}
 
-	//Remove empty strings from terms
+	// Remove empty strings from terms
 	for i := 0; i < len(terms); i++ {
 		if terms[i] == "" || terms[i] == " " {
 			terms = append(terms[:i], terms[i+1:]...)
