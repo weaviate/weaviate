@@ -168,17 +168,6 @@ func (t *JsonShardMetaData) FileName() string {
 	return t.path
 }
 
-func (t *JsonShardMetaData) TrackObjects(delta int) error {
-	if t == nil {
-		return nil
-	}
-	t.Lock()
-	defer t.Unlock()
-
-	t.data.ObjectCount = t.data.ObjectCount + delta
-	return nil
-}
-
 // Adds a new value to the tracker
 func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error {
 	if t == nil {
@@ -288,17 +277,6 @@ func (t *JsonShardMetaData) PropertyTally(propName string) (int, int, float64, e
 		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
 	}
 	return sum, count, float64(sum) / float64(count), nil
-}
-
-// Returns the number of documents stored in the shard
-func (t *JsonShardMetaData) ObjectTally() int {
-	if t == nil {
-		return 0
-	}
-	t.Lock()
-	defer t.Unlock()
-
-	return t.data.ObjectCount
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file

@@ -146,13 +146,6 @@ func (l *LazyLoadShard) UpdateStatus(status string) error {
 	return l.shard.UpdateStatus(status)
 }
 
-func (l *LazyLoadShard) ChangeObjectCountBy(delta int) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.ChangeObjectCountBy(delta)
-}
-
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
@@ -166,7 +159,8 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 }
 
 func (l *LazyLoadShard) ObjectCount() int {
-	return l.GetPropertyLengthTracker().ObjectTally()
+	l.mustLoad()
+	return l.shard.ObjectCount()
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {

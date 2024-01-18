@@ -139,7 +139,6 @@ type ShardLike interface {
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	ChangeObjectCountBy(int) error
 
 	Metrics() *Metrics
 }
@@ -800,7 +799,12 @@ func (s *Shard) NotifyReady() {
 }
 
 func (s *Shard) ObjectCount() int {
-	return s.GetPropertyLengthTracker().ObjectTally()
+       b := s.store.Bucket(helpers.ObjectsBucketLSM)
+       if b == nil {
+               return 0
+       }
+
+       return b.Count()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
