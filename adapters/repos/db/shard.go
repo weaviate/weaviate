@@ -12,12 +12,16 @@
 package db
 
 import (
+	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -518,6 +522,10 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 	return "main"
 }
 
+func (s *Shard) pathHashTree() string {
+	return path.Join(s.path(), "hashtree")
+}
+
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
@@ -568,8 +576,73 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) initHashTree(ctx context.Context) error {
-	// TODO (jeroiraz): create a MultiSegmentHashTree
-	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
+	if err := os.MkdirAll(s.pathHashTree(), 0o700); err != nil {
+		return err
+	}
+
+	// load the most recent hashtree file
+	dirEntries, err := os.ReadDir(s.pathHashTree())
+	if err != nil {
+		return err
+	}
+
+	for i := len(dirEntries) - 1; i >= 0; i-- {
+		dirEntry := dirEntries[i]
+
+		if dirEntry.IsDir() || !strings.HasPrefix(dirEntry.Name(), "hashtree") {
+			continue
+		}
+
+		if s.hashtree != nil {
+			err := os.Remove(dirEntry.Name())
+			s.index.logger.Warnf("deleting older hashtree file %q (%v)", dirEntry.Name(), err)
+			continue
+		}
+
+		f, err := os.Open(dirEntry.Name())
+		if err != nil {
+			s.index.logger.Warnf("reading hashtree file %q: %v", dirEntry.Name(), err)
+			continue
+		}
+
+		// attempt to load hashtree from file
+		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+		if err != nil {
+			s.index.logger.Warnf("reading hashtree file %q: %v", dirEntry.Name(), err)
+			f.Close()
+			continue
+		}
+
+		f.Close()
+	}
+
+	if s.hashtree == nil {
+		// TODO (jeroiraz): create a MultiSegmentHashTree
+		s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
+	}
+
+	// TODO (jeroiraz): register missing changes in the hashtree
+
+	return nil
+}
+
+func (s *Shard) closeHashTree() error {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
+
+	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%v", b[:]))
+
+	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_APPEND, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+	defer f.Close()
+
+	_, err = s.hashtree.Serialize(bufio.NewWriter(f))
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+
 	return nil
 }
 
@@ -932,6 +1005,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 
 	if s.hashtree != nil {
 		s.stopHashBeater()
+		s.closeHashTree()
 	}
 
 	if s.hasTargetVectors() {
