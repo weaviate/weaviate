@@ -31,7 +31,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationWhitespace,
 	models.PropertyTokenizationField,
 	models.PropertyTokenizationTrigram,
-	models.PropertyTokenizationGSE,
+	models.PropertyTokenizationGse,
 }
 
 func Tokenize(tokenization string, in string) []string {
@@ -46,7 +46,7 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizeField(in)
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigram(in)
-	case models.PropertyTokenizationGSE:
+	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
 	default:
 		return []string{}
@@ -65,7 +65,7 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizeField(in)
 	case models.PropertyTokenizationTrigram:
 		return tokenizetrigramWithWildcards(in)
-	case models.PropertyTokenizationGSE:
+	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
 	default:
 		return []string{}

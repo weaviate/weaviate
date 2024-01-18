@@ -66,7 +66,7 @@ func (m *Manager) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGSE:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
 			}
 		default:

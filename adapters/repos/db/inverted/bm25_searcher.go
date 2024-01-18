@@ -120,7 +120,7 @@ func (b *BM25Searcher) wand(
 		models.PropertyTokenizationWhitespace,
 		models.PropertyTokenizationField,
 		models.PropertyTokenizationTrigram,
-		models.PropertyTokenizationGSE,
+		models.PropertyTokenizationGse,
 	}
 
 	queryTermsByTokenization := map[string][]string{}
