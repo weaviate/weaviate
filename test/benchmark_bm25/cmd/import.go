@@ -49,22 +49,27 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("weaviate is not ready")
 		}
 
+		fmt.Println("Parsing dataset config")
 		datasets, err := lib.ParseDatasetConfig(DatasetConfigPath)
 		if err != nil {
 			return fmt.Errorf("parse dataset cfg file: %w", err)
 		}
 
+		fmt.Println("Clearing schema")
 		if err := client.Schema().AllDeleter().Do(context.Background()); err != nil {
 			return fmt.Errorf("clear schema prior to import: %w", err)
 		}
 
+		fmt.Println("Importing datasets")
 		for _, dataset := range datasets.Datasets {
 
+			fmt.Println("Parsing corpus")
 			c, err := lib.ParseCorpi(dataset, MultiplyProperties)
 			if err != nil {
 				return err
 			}
 
+			fmt.Println("Creating schema")
 			if err := client.Schema().ClassCreator().
 				WithClass(lib.SchemaFromDataset(dataset, Vectorizer)).
 				Do(context.Background()); err != nil {

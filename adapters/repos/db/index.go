@@ -1903,8 +1903,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
 	if shard := i.localShard(shardName); shard != nil {
-		ret := shard.UpdateStatus(targetStatus)
-		return ret
+		return shard.UpdateStatus(targetStatus)
 	}
 	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
 }
@@ -1914,8 +1913,7 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	if shard == nil {
 		return errShardNotFound
 	}
-	ret := shard.UpdateStatus(targetStatus)
-	return ret
+	return shard.UpdateStatus(targetStatus)
 }
 
 func (i *Index) notifyReady() {

@@ -221,7 +221,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 	}
 
 	s.propLenTracker.SetWantFlush(true)
-	s.propLenTracker.Flush(false)
+	s.propLenTracker.Flush()
 
 	if err := s.initNonVector(ctx, s.class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
@@ -796,7 +796,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 	s.Index().logger.WithField("action", "shutdown").Debugf("shard=%s stopped cyclecallbacks", s.name)
 
 	s.propLenTracker.SetWantFlush(true)
-	s.propLenTracker.Flush(false)
+	s.propLenTracker.Flush()
 	s.propLenTracker = nil
 
 

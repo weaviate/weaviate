@@ -92,7 +92,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
 			logger.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
-			t.Flush(false)
+			t.Flush()
 			return t, nil
 		}
 		return nil, errors.Wrap(err, "read property length tracker file:"+path)
@@ -139,10 +139,9 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 			}
 		}
 		t.data = data
-		t.Flush(true)
 		plt.Close()
 		plt.Drop()
-		t.Flush(false)
+		t.Flush()
 	}
 	t.path = path
 
@@ -151,7 +150,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
 	t.SetWantFlush(true)
-	t.Flush(false)
+	t.Flush()
 	return t, nil
 }
 
@@ -337,13 +336,9 @@ func (t *JsonShardMetaData) ObjectTally() int {
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
-func (t *JsonShardMetaData) Flush(flushBackup bool) error {
+func (t *JsonShardMetaData) Flush() error {
 	if t == nil {
 		return nil
-	}
-
-	if !flushBackup { // Write the backup file first
-		t.Flush(true)
 	}
 
 	t.Lock()
@@ -363,9 +358,6 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	}
 
 	filename := t.path
-	if flushBackup {
-		filename = t.path + ".bak"
-	}
 
 	if t.logger != nil {
 		t.logger.Printf("Flushing prop len tracker to disk: %s", filename)
@@ -384,13 +376,11 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 		return err
 	}
 
-	if !flushBackup {
-		t.WantFlush = false
-	}
+	t.WantFlush = false
 	return nil
 }
 
-func (t *JsonShardMetaData) SetWantFlush(val bool)  {
+func (t *JsonShardMetaData) SetWantFlush(val bool) {
 	t.Lock()
 	defer t.Unlock()
 	if t.closed {
@@ -404,7 +394,7 @@ func (t *JsonShardMetaData) Close() error {
 	if t == nil {
 		return nil
 	}
-	if err := t.Flush(false); err != nil {
+	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
 
@@ -436,6 +426,6 @@ func (t *JsonShardMetaData) Drop() error {
 }
 
 func (t *JsonShardMetaData) CycleFlush() bool {
-	err := t.Flush(false)
+	err := t.Flush()
 	return err == nil
 }
