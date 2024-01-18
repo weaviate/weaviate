@@ -54,6 +54,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
+	defer vrepo.Shutdown(context.Background()) 
 	migrator := db.NewMigrator(vrepo, logger)
 
 	// so we can reuse it for follow up requests, such as checking the status
@@ -173,6 +174,8 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, 0, len(res))
 		})
+
+
 	})
 }
 
