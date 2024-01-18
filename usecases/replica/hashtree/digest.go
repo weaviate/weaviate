@@ -52,12 +52,12 @@ func (d *Digest) MarshalJSON() ([]byte, error) {
 }
 
 func (d *Digest) UnmarshalJSON(b []byte) error {
-	var bs [DigestLength]byte
+	var bs []byte
 
 	err := json.Unmarshal(b, &bs)
 	if err != nil {
 		return err
 	}
 
-	return d.UnmarshalBinary(bs[:])
+	return d.UnmarshalBinary(bs)
 }
