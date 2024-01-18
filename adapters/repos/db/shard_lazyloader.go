@@ -55,7 +55,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) *LazyLoadShard {
 	promMetrics.NewUnloadedshard(class.Class)
-	return &LazyLoadShard{
+	l:=  &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics: promMetrics,
 
@@ -66,6 +66,13 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			indexCheckpoints: indexCheckpoints,
 		},
 	}
+
+		//if shard directory does not exist, create a new shard immediately
+		if _, err := os.Stat(l.shardOpts.index.path()); os.IsNotExist(err) {
+			l.mustLoad()
+		}
+
+		return l
 }
 
 type deferredShardOpts struct {
@@ -173,6 +180,12 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 
 	if l.propLenTracker != nil {
 		return l.propLenTracker
+	}
+
+	//if shard directory does not exist, create a new shard immediately
+	if _, err := os.Stat(l.shardOpts.index.path()); os.IsNotExist(err) {
+		l.mustLoad()
+		return l.shard.GetPropertyLengthTracker()
 	}
 
 	var tracker *inverted.JsonShardMetaData
