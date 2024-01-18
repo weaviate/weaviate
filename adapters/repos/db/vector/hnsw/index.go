@@ -165,6 +165,7 @@ type hnsw struct {
 	store                          *lsmkv.Store
 	pendingForReassign             []uint64
 	pendingForReassignDependencies []uint64
+	pendingForReassignVisited      []bool
 }
 
 type CommitLogger interface {

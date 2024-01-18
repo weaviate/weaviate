@@ -294,6 +294,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 		h.reassignNeighbor(id, helpers.NewAllowList(h.pendingForReassignDependencies...), func() bool { return false }, false)
 	}
 	h.pendingForReassign = nil
+	h.pendingForReassignVisited = make([]bool, len(h.nodes))
 	h.pendingForReassignDependencies = nil
 	h.pools.visitedListsLock.Lock()
 	visited := h.pools.visitedLists.Borrow()

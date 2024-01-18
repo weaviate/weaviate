@@ -108,8 +108,11 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited []bool, level int) error {
 	var pending []uint64
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
-		n.graph.pendingForReassign = append(n.graph.pendingForReassign, source)
-		n.graph.pendingForReassignDependencies = append(n.graph.pendingForReassignDependencies, from)
+		if !n.graph.pendingForReassignVisited[source] {
+			n.graph.pendingForReassignVisited[source] = true
+			n.graph.pendingForReassign = append(n.graph.pendingForReassign, source)
+			n.graph.pendingForReassignDependencies = append(n.graph.pendingForReassignDependencies, from)
+		}
 		return nil
 	}
 	for _, id := range n.graph.nodes[from].connections[level] {

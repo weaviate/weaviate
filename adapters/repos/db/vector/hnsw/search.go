@@ -66,6 +66,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 		h.reassignNeighbor(id, helpers.NewAllowList(h.pendingForReassignDependencies...), func() bool { return false }, false)
 	}
 	h.pendingForReassign = nil
+	h.pendingForReassignVisited = make([]bool, len(h.nodes))
 	h.pendingForReassignDependencies = nil
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
@@ -280,11 +281,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					for level := range candidateNode.connections {
-						candidateNode.connections[level] = candidateNode.connections[level][:0]
+					if !h.pendingForReassignVisited[candidateNode.id] {
+						h.pendingForReassignVisited[candidateNode.id] = true
+						h.pendingForReassign = append(h.pendingForReassign, candidateNode.id)
+						h.pendingForReassignDependencies = append(h.pendingForReassignDependencies, neighborID)
 					}
-					h.pendingForReassign = append(h.pendingForReassign, candidateNode.id)
-					h.pendingForReassignDependencies = append(h.pendingForReassignDependencies, neighborID)
 					continue
 				} else {
 					if err != nil {
