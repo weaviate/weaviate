@@ -341,7 +341,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = results[:totalLimit]
 		}
 
-		res1 := make([]search.Result,0, len(results))
+		res1 := make([]search.Result, 0, len(results))
 		for _, res := range results {
 			res1 = append(res1, *res)
 		}
