@@ -415,5 +415,7 @@ func TestShardedLocks(t *testing.T) {
 		m.Unlock(1)
 
 		<-ch2
+
+		m.Unlock(1)
 	})
 }
