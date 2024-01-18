@@ -642,4 +642,3 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 
 	require.Nil(t, tracker.Close())
 }
-
