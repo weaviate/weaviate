@@ -341,9 +341,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = results[:totalLimit]
 		}
 
-		res1 := make([]search.Result, 0, len(results))
-		for i, res := range results {
-			res1[i] = *res
+		res1 := make([]search.Result,0, len(results))
+		for _, res := range results {
+			res1 = append(res1, *res)
 		}
 
 		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, params.Tenant)
