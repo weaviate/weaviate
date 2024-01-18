@@ -16,55 +16,50 @@ import "sync"
 const DefaultShardedLocksCount = 512
 
 type ShardedLocks struct {
-	// number of locks
-	count int
-	// ensures single LockAll and multiple RLockAll, Lock and RLock
-	// LockAll is exclusive to RLockAll, Lock, RLock
-	writeAll *sync.RWMutex
-	// indicates whether write of any single shard is ongoing, exclusive with readAll
-	writeAny *sync.RWMutex
-	// indicates whether read of all shards is ongoing, exclusive with writeAny
-	readAll *sync.RWMutex
-	// allows safe transition between writeAny and readAll
-	change *sync.RWMutex
 	// sharded locks
-	shards []*sync.RWMutex
+	shards []Shard
+	// number of locks
+	count uint64
+}
+
+type Shard struct {
+	// shared lock for shard
+	shardLock sync.RWMutex
+	// Each read must acquire a read rlock.
+	// Locking it for writing (Lock()) prevents any reads from happening.
+	readLock sync.RWMutex
+	// Each write must acquire a write rlock.
+	// Locking it for writing (Lock()) prevents any writes from happening.
+	writeLock sync.RWMutex
 }
 
 func NewDefaultShardedLocks() *ShardedLocks {
 	return NewShardedLocks(DefaultShardedLocksCount)
 }
 
-func NewShardedLocks(count int) *ShardedLocks {
+func NewShardedLocks(count uint64) *ShardedLocks {
 	if count < 2 {
 		count = 2
 	}
 
-	writeAll := new(sync.RWMutex)
-	writeAny := new(sync.RWMutex)
-	readAll := new(sync.RWMutex)
-	change := new(sync.RWMutex)
-	shards := make([]*sync.RWMutex, count)
-	for i := 0; i < count; i++ {
-		shards[i] = new(sync.RWMutex)
-	}
-
 	return &ShardedLocks{
-		count:    count,
-		writeAll: writeAll,
-		readAll:  readAll,
-		writeAny: writeAny,
-		change:   change,
-		shards:   shards,
+		shards: make([]Shard, count),
+		count:  count,
 	}
 }
 
 func (sl *ShardedLocks) LockAll() {
-	sl.writeAll.Lock()
+	for i := uint64(0); i < sl.count; i++ {
+		sl.shards[i].writeLock.Lock()
+		sl.shards[i].readLock.Lock()
+	}
 }
 
 func (sl *ShardedLocks) UnlockAll() {
-	sl.writeAll.Unlock()
+	for i := int(sl.count) - 1; i >= 0; i-- {
+		sl.shards[i].readLock.Unlock()
+		sl.shards[i].writeLock.Unlock()
+	}
 }
 
 func (sl *ShardedLocks) LockedAll(callback func()) {
@@ -75,15 +70,15 @@ func (sl *ShardedLocks) LockedAll(callback func()) {
 }
 
 func (sl *ShardedLocks) Lock(id uint64) {
-	sl.writeAll.RLock()
-	sl.markOngoingWriteAny()
-	sl.shards[sl.mid(id)].Lock()
+	shard := &sl.shards[id%sl.count]
+	shard.writeLock.RLock()
+	shard.shardLock.Lock()
 }
 
 func (sl *ShardedLocks) Unlock(id uint64) {
-	sl.shards[sl.mid(id)].Unlock()
-	sl.writeAny.RUnlock()
-	sl.writeAll.RUnlock()
+	shard := &sl.shards[id%sl.count]
+	shard.shardLock.Unlock()
+	shard.writeLock.RUnlock()
 }
 
 func (sl *ShardedLocks) Locked(id uint64, callback func()) {
@@ -94,13 +89,15 @@ func (sl *ShardedLocks) Locked(id uint64, callback func()) {
 }
 
 func (sl *ShardedLocks) RLockAll() {
-	sl.writeAll.RLock()
-	sl.markOngoingReadAll()
+	for i := uint64(0); i < sl.count; i++ {
+		sl.shards[i].writeLock.Lock()
+	}
 }
 
 func (sl *ShardedLocks) RUnlockAll() {
-	sl.readAll.RUnlock()
-	sl.writeAll.RUnlock()
+	for i := int(sl.count) - 1; i >= 0; i-- {
+		sl.shards[i].writeLock.Unlock()
+	}
 }
 
 func (sl *ShardedLocks) RLockedAll(callback func()) {
@@ -111,13 +108,15 @@ func (sl *ShardedLocks) RLockedAll(callback func()) {
 }
 
 func (sl *ShardedLocks) RLock(id uint64) {
-	sl.writeAll.RLock()
-	sl.shards[sl.mid(id)].RLock()
+	shard := &sl.shards[id%sl.count]
+	shard.readLock.RLock()
+	shard.shardLock.RLock()
 }
 
 func (sl *ShardedLocks) RUnlock(id uint64) {
-	sl.shards[sl.mid(id)].RUnlock()
-	sl.writeAll.RUnlock()
+	group := &sl.shards[id%sl.count]
+	group.shardLock.RUnlock()
+	group.readLock.RUnlock()
 }
 
 func (sl *ShardedLocks) RLocked(id uint64, callback func()) {
@@ -125,30 +124,4 @@ func (sl *ShardedLocks) RLocked(id uint64, callback func()) {
 	defer sl.RUnlock(id)
 
 	callback()
-}
-
-func (sl *ShardedLocks) mid(id uint64) uint64 {
-	return id % uint64(sl.count)
-}
-
-func (sl *ShardedLocks) markOngoingWriteAny() {
-	sl.change.RLock()
-	defer sl.change.RUnlock()
-
-	// wait until no ongoing readAll
-	sl.readAll.Lock()
-	// mark ongoing writeAny
-	sl.writeAny.RLock()
-	sl.readAll.Unlock()
-}
-
-func (sl *ShardedLocks) markOngoingReadAll() {
-	sl.change.Lock()
-	defer sl.change.Unlock()
-
-	// wait until no ongoing writeAny
-	sl.writeAny.Lock()
-	// mark ongoing readAll
-	sl.readAll.RLock()
-	sl.writeAny.Unlock()
 }
