@@ -89,7 +89,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
 			logger.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
-			t.Flush(false)
+			t.Flush()
 			return t, nil
 		}
 		return nil, errors.Wrap(err, "read property length tracker file:"+path)
@@ -136,10 +136,10 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 			}
 		}
 		t.data = data
-		t.Flush(true)
+		t.Flush()
 		plt.Close()
 		plt.Drop()
-		t.Flush(false)
+
 	}
 	t.path = path
 
@@ -302,13 +302,11 @@ func (t *JsonShardMetaData) ObjectTally() int {
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
-func (t *JsonShardMetaData) Flush(flushBackup bool) error {
+func (t *JsonShardMetaData) Flush() error {
 	if t == nil {
 		return nil
 	}
-	if !flushBackup { // Write the backup file first
-		t.Flush(true)
-	}
+
 
 	t.Lock()
 	defer t.Unlock()
@@ -319,9 +317,7 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	}
 
 	filename := t.path
-	if flushBackup {
-		filename = t.path + ".bak"
-	}
+
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
@@ -344,7 +340,7 @@ func (t *JsonShardMetaData) Close() error {
 	if t == nil {
 		return nil
 	}
-	if err := t.Flush(false); err != nil {
+	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
 
