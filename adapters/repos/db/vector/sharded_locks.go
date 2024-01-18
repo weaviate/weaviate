@@ -17,14 +17,9 @@ const DefaultShardedLocksCount = 512
 
 type ShardedLocks struct {
 	// sharded locks
-	shards []Shard
+	shards []sync.RWMutex
 	// number of locks
 	count uint64
-}
-
-type Shard struct {
-	// shared lock for shard
-	shardLock sync.RWMutex
 }
 
 func NewDefaultShardedLocks() *ShardedLocks {
@@ -37,20 +32,20 @@ func NewShardedLocks(count uint64) *ShardedLocks {
 	}
 
 	return &ShardedLocks{
-		shards: make([]Shard, count),
+		shards: make([]sync.RWMutex, count),
 		count:  count,
 	}
 }
 
 func (sl *ShardedLocks) LockAll() {
 	for i := uint64(0); i < sl.count; i++ {
-		sl.shards[i].shardLock.Lock()
+		sl.shards[i].Lock()
 	}
 }
 
 func (sl *ShardedLocks) UnlockAll() {
 	for i := int(sl.count) - 1; i >= 0; i-- {
-		sl.shards[i].shardLock.Unlock()
+		sl.shards[i].Unlock()
 	}
 }
 
@@ -62,15 +57,11 @@ func (sl *ShardedLocks) LockedAll(callback func()) {
 }
 
 func (sl *ShardedLocks) Lock(id uint64) {
-	shard := &sl.shards[id%sl.count]
-	// shard.writeLock.RLock()
-	shard.shardLock.Lock()
+	sl.shards[id%sl.count].Lock()
 }
 
 func (sl *ShardedLocks) Unlock(id uint64) {
-	shard := &sl.shards[id%sl.count]
-	shard.shardLock.Unlock()
-	// shard.writeLock.RUnlock()
+	sl.shards[id%sl.count].Unlock()
 }
 
 func (sl *ShardedLocks) Locked(id uint64, callback func()) {
@@ -82,13 +73,13 @@ func (sl *ShardedLocks) Locked(id uint64, callback func()) {
 
 func (sl *ShardedLocks) RLockAll() {
 	for i := uint64(0); i < sl.count; i++ {
-		sl.shards[i].shardLock.RLock()
+		sl.shards[i].RLock()
 	}
 }
 
 func (sl *ShardedLocks) RUnlockAll() {
 	for i := int(sl.count) - 1; i >= 0; i-- {
-		sl.shards[i].shardLock.RUnlock()
+		sl.shards[i].RUnlock()
 	}
 }
 
@@ -100,13 +91,11 @@ func (sl *ShardedLocks) RLockedAll(callback func()) {
 }
 
 func (sl *ShardedLocks) RLock(id uint64) {
-	shard := &sl.shards[id%sl.count]
-	shard.shardLock.RLock()
+	sl.shards[id%sl.count].RLock()
 }
 
 func (sl *ShardedLocks) RUnlock(id uint64) {
-	group := &sl.shards[id%sl.count]
-	group.shardLock.RUnlock()
+	sl.shards[id%sl.count].RUnlock()
 }
 
 func (sl *ShardedLocks) RLocked(id uint64, callback func()) {
