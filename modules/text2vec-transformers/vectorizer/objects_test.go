@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -185,11 +185,12 @@ func TestVectorizingObjects(t *testing.T) {
 
 			v := New(client)
 
-			ic := &fakeSettings{
-				excludedProperty:   test.excludedProperty,
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Car",
-				poolingStrategy:    test.poolingStrategy,
+			ic := &fakeClassConfig{
+				excludedProperty:      test.excludedProperty,
+				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Car",
+				poolingStrategy:       test.poolingStrategy,
+				vectorizePropertyName: true,
 			}
 			err := v.Object(context.Background(), test.input, nil, ic)
 
@@ -341,7 +342,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeSettings{
+			ic := &fakeClassConfig{
 				skippedProperty: test.skipped,
 			}
 

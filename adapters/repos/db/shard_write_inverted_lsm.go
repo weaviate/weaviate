@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,15 +15,13 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/weaviate/weaviate/entities/filters"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
+func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -108,7 +106,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
 
-	key, err := s.keyPropertyLength(length)
+	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
 	}
@@ -124,7 +122,7 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}
 
-	key, err := s.keyPropertyNull(isNull)
+	key, err := bucketKeyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}
@@ -152,17 +150,6 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 		Key:   buf[:8],
 		Value: buf[8:],
 	}
-}
-
-func (s *Shard) keyPropertyLength(length int) ([]byte, error) {
-	return inverted.LexicographicallySortableInt64(int64(length))
-}
-
-func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
-	if isNull {
-		return []byte{uint8(filters.InternalNullState)}, nil
-	}
-	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
@@ -220,6 +207,15 @@ func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 
 	}
 
+	s.GetPropertyLengthTracker().Flush(false)
+	return nil
+}
+
+func (s *Shard) ChangeObjectCountBy(count int) error {
+	if err := s.GetPropertyLengthTracker().TrackObjects(count); err != nil {
+		return err
+	}
+	s.GetPropertyLengthTracker().Flush(false)
 	return nil
 }
 
@@ -235,6 +231,7 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 
 	}
 
+	s.GetPropertyLengthTracker().Flush(false)
 	return nil
 }
 

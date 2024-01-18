@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,17 +42,15 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 	var returnList []priorityqueue.Item[uint64]
 
 	if h.compressed.Load() {
-		vecs := make([][]byte, 0, len(ids))
+		bag := h.compressor.NewBag()
 		for _, id := range ids {
-			v, err := h.compressedVectorsCache.Get(context.Background(), id)
+			err := bag.Load(context.Background(), id)
 			if err != nil {
 				return err
 			}
-			vecs = append(vecs, v)
 		}
 
 		returnList = h.pools.pqItemSlice.Get().([]priorityqueue.Item[uint64])
-
 		for closestFirst.Len() > 0 && len(returnList) < max {
 			curr := closestFirst.Pop()
 			if denyList != nil && denyList.Contains(curr.ID) {
@@ -60,10 +58,12 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 			}
 			distToQuery := curr.Dist
 
-			currVec := vecs[curr.Value]
 			good := true
 			for _, item := range returnList {
-				peerDist := h.pq.DistanceBetweenCompressedVectors(currVec, vecs[item.Value])
+				peerDist, err := bag.Distance(curr.ID, item.ID)
+				if err != nil {
+					return err
+				}
 
 				if peerDist < distToQuery {
 					good = false

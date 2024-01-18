@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -151,7 +151,7 @@ func (b *backupper) backup(ctx context.Context,
 
 		}
 		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set, b.logger).
-			withCompression(newZipConfig(req.CompressionLevel, req.CPUPercentage, req.ChunkSize))
+			withCompression(newZipConfig(req.Compression))
 
 		result := backup.BackupDescriptor{
 			StartedAt:     time.Now().UTC(),

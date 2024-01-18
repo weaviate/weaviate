@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -42,10 +43,11 @@ import (
 )
 
 type LazyLoadShard struct {
-	shardOpts *deferredShardOpts
-	shard     *Shard
-	loaded    bool
-	mutex     sync.Mutex
+	shardOpts      *deferredShardOpts
+	propLenTracker *inverted.JsonShardMetaData
+	shard          *Shard
+	loaded         bool
+	mutex          sync.Mutex
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -89,6 +91,8 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
+	l.propLenTracker = nil
+
 	if l.loaded {
 		return nil
 	}
@@ -98,7 +102,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, l.propLenTracker)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -142,6 +146,13 @@ func (l *LazyLoadShard) UpdateStatus(status string) error {
 	return l.shard.UpdateStatus(status)
 }
 
+func (l *LazyLoadShard) ChangeObjectCountBy(delta int) error {
+	if err := l.Load(context.Background()); err != nil {
+		return err
+	}
+	return l.shard.ChangeObjectCountBy(delta)
+}
+
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) {
 	if err := l.Load(ctx); err != nil {
 		return []strfmt.UUID{}, err
@@ -155,13 +166,32 @@ func (l *LazyLoadShard) Counter() *indexcounter.Counter {
 }
 
 func (l *LazyLoadShard) ObjectCount() int {
-	l.mustLoad()
-	return l.shard.ObjectCount()
+	return l.GetPropertyLengthTracker().ObjectTally()
 }
 
-func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
-	l.mustLoad()
-	return l.shard.GetPropertyLengthTracker()
+func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded {
+		return l.shard.GetPropertyLengthTracker()
+	}
+
+	if l.propLenTracker != nil {
+		return l.propLenTracker
+	}
+
+	var tracker *inverted.JsonShardMetaData
+
+	// FIXME add method for tracker path
+	plPath := path.Join(l.shardOpts.index.path(), "proplengths")
+	tracker, err := inverted.NewJsonShardMetaData(plPath, l.shardOpts.index.logger)
+	l.propLenTracker = tracker
+	if err != nil {
+		panic(fmt.Sprintf("could not create property length tracker at %v: %v", plPath, err))
+	}
+
+	return l.propLenTracker
 }
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
@@ -336,7 +366,7 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 	return l.shard.SetPropertyLengths(props)
 }
 
-func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []nilProp, error) {
+func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
 }
@@ -480,16 +510,6 @@ func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen fl
 	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
 }
 
-func (l *LazyLoadShard) keyPropertyNull(isNull bool) ([]byte, error) {
-	l.mustLoad()
-	return l.shard.keyPropertyNull(isNull)
-}
-
-func (l *LazyLoadShard) keyPropertyLength(length int) ([]byte, error) {
-	l.mustLoad()
-	return l.shard.keyPropertyLength(length)
-}
-
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
 	l.mustLoad()
 	l.shard.setFallbackToSearchable(fallback)
@@ -522,9 +542,9 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idByt
 	return l.shard.mutableMergeObjectLSM(merge, idBytes)
 }
 
-func (l *LazyLoadShard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error {
+func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
-	return l.shard.deleteInvertedIndexItemLSM(bucket, item, docID)
+	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {

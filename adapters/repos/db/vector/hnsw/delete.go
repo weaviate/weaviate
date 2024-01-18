@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -325,12 +326,9 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	}
 
 	var neighborVec []float32
+	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		var vec []byte
-		vec, err = h.compressedVectorsCache.Get(context.Background(), neighbor)
-		if err == nil {
-			neighborVec = h.pq.Decode(vec)
-		}
+		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
@@ -355,7 +353,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	neighborNode.Unlock()
 
 	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
-		neighborLevel, currentEntrypoint, neighborVec)
+		neighborLevel, currentEntrypoint, neighborVec, compressorDistancer)
 	if err != nil {
 		return false, errors.Wrap(err, "find best entrypoint")
 	}
@@ -404,7 +402,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 		return false, err
 	}
 
-	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
+	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
@@ -625,7 +623,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			h.nodes[id] = nil
 			h.shardedNodeLocks.Unlock(id)
 			if h.compressed.Load() {
-				h.compressedVectorsCache.Delete(context.TODO(), id)
+				h.compressor.Delete(context.TODO(), id)
 			} else {
 				h.cache.Delete(context.TODO(), id)
 			}

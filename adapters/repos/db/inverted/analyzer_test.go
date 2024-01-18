@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -534,4 +534,65 @@ type fakeStopwordDetector struct{}
 
 func (fsd fakeStopwordDetector) IsStopword(word string) bool {
 	return false
+}
+
+func TestDedupItems(t *testing.T) {
+	props := []Property{
+		{
+			Name: "propNothingToDo",
+			Items: []Countable{
+				{Data: []byte("fff"), TermFrequency: 3},
+				{Data: []byte("eee"), TermFrequency: 2},
+				{Data: []byte("ddd"), TermFrequency: 1},
+			},
+		},
+		{
+			Name: "propToDedup1",
+			Items: []Countable{
+				{Data: []byte("aaa"), TermFrequency: 1},
+				{Data: []byte("bbb"), TermFrequency: 2},
+				{Data: []byte("ccc"), TermFrequency: 3},
+				{Data: []byte("aaa"), TermFrequency: 4},
+				{Data: []byte("ccc"), TermFrequency: 0},
+			},
+		},
+		{
+			Name: "propToDedup2",
+			Items: []Countable{
+				{Data: []uint8{1}, TermFrequency: 5},
+				{Data: []uint8{1}, TermFrequency: 4},
+				{Data: []uint8{1}, TermFrequency: 3},
+				{Data: []uint8{1}, TermFrequency: 2},
+				{Data: []uint8{1}, TermFrequency: 1},
+			},
+		},
+	}
+
+	expectedProps := []Property{
+		{
+			Name: "propNothingToDo",
+			Items: []Countable{
+				{Data: []byte("fff"), TermFrequency: 3},
+				{Data: []byte("eee"), TermFrequency: 2},
+				{Data: []byte("ddd"), TermFrequency: 1},
+			},
+		},
+		{
+			Name: "propToDedup1",
+			Items: []Countable{
+				{Data: []byte("bbb"), TermFrequency: 2},
+				{Data: []byte("aaa"), TermFrequency: 4},
+				{Data: []byte("ccc"), TermFrequency: 0},
+			},
+		},
+		{
+			Name: "propToDedup2",
+			Items: []Countable{
+				{Data: []uint8{1}, TermFrequency: 1},
+			},
+		},
+	}
+
+	dedupProps := DedupItems(props)
+	assert.Equal(t, expectedProps, dedupProps)
 }

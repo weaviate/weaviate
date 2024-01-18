@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -165,9 +166,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	h.shardedNodeLocks.Unlock(nodeId)
 
 	if h.compressed.Load() {
-		compressed := h.pq.Encode(vector)
-		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.Preload(node.id, compressed)
+		h.compressor.Preload(node.id, vector)
 	} else {
 		h.cache.Preload(node.id, vector)
 	}
@@ -176,8 +175,16 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	var err error
+	var distancer compressionhelpers.CompressorDistancer
+	var returnFn compressionhelpers.ReturnDistancerFn
+	if h.compressed.Load() {
+		distancer, returnFn = h.compressor.NewDistancer(vector)
+	}
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
-		entryPointID, vector)
+		entryPointID, vector, distancer)
+	if h.compressed.Load() {
+		returnFn()
+	}
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
 	}
@@ -186,7 +193,7 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 	before = time.Now()
 
 	// TODO: check findAndConnectNeighbors...
-	if err := h.findAndConnectNeighbors(node, entryPointID, vector,
+	if err := h.findAndConnectNeighbors(node, entryPointID, vector, distancer,
 		targetLevel, currentMaximumLayer, helpers.NewAllowList()); err != nil {
 		return errors.Wrap(err, "find and connect neighbors")
 	}
@@ -250,9 +257,7 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.shardedNodeLocks.Unlock(node.id)
 
 	if h.compressed.Load() {
-		compressed := h.pq.Encode(nodeVec)
-		h.storeCompressedVector(node.id, compressed)
-		h.compressedVectorsCache.Preload(node.id, compressed)
+		h.compressor.Preload(node.id, nodeVec)
 	} else {
 		h.cache.Preload(node.id, nodeVec)
 	}

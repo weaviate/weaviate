@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -130,7 +130,7 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 				exists: tt.fields.exists,
 				config: tt.fields.config,
 			}
-			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType)
+			got, err := v.extractAndValidateProperty(tt.args.ctx, tt.args.propertyName, tt.args.pv, tt.args.className, tt.args.dataType, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validator.extractAndValidateProperty() error = %v, wantErr %v", err, tt.wantErr)
 				return

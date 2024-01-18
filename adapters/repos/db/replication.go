@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -282,19 +282,13 @@ func (s *Shard) filePutter(ctx context.Context,
 }
 
 func (s *Shard) reinit(ctx context.Context) error {
+	// This is a short term fix to deal with the problem that the shard is still running while we are changing its files on disk.  The shard needs to be shut down before we can safely change the files.  Otherwise the shutdown process will overwrite, or possibly even corrupt the changed files.
+	s.propLenTracker = nil
 	if err := s.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
-	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("reinit non-vector: %w", err)
-	}
-
-	if err := s.initVector(ctx); err != nil {
-		return fmt.Errorf("reinit vector: %w", err)
-	}
-
-	s.initCycleCallbacks()
+	s.initShard(ctx)
 
 	return nil
 }

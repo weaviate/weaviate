@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -133,6 +133,7 @@ func TestNewPrimitiveValue(t *testing.T) {
 				schema.DataTypeString: {Kind: &pb.Value_StringValue{StringValue: "a string"}},
 				schema.DataTypeText:   {Kind: &pb.Value_StringValue{StringValue: "a string"}},
 				schema.DataTypeUUID:   {Kind: &pb.Value_UuidValue{UuidValue: "a string"}},
+				schema.DataTypeBlob:   {Kind: &pb.Value_BlobValue{BlobValue: "a string"}},
 			}),
 		},
 		{
@@ -148,6 +149,13 @@ func TestNewPrimitiveValue(t *testing.T) {
 			in:   &models.GeoCoordinates{Longitude: &float_val, Latitude: &float_val},
 			tests: makeTestList(map[schema.DataType]*pb.Value{
 				schema.DataTypeGeoCoordinates: {Kind: &pb.Value_GeoValue{GeoValue: &pb.GeoCoordinate{Latitude: float_val, Longitude: float_val}}},
+			}),
+		},
+		{
+			name: "phone number",
+			in:   &models.PhoneNumber{Input: "1234567890"},
+			tests: makeTestList(map[schema.DataType]*pb.Value{
+				schema.DataTypePhoneNumber: {Kind: &pb.Value_PhoneValue{PhoneValue: &pb.PhoneNumber{Input: "1234567890"}}},
 			}),
 		},
 	}

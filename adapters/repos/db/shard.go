@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -68,7 +68,7 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
@@ -91,7 +91,7 @@ type ShardLike interface {
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error //
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
-	AnalyzeObject(*storobj.Object) ([]inverted.Property, []nilProp, error) //
+	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) //
 
 	// TODO tests only
 	Dimensions() int // dim(vector)*number vectors
@@ -127,8 +127,6 @@ type ShardLike interface {
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
-	keyPropertyNull(isNull bool) ([]byte, error)
-	keyPropertyLength(length int) ([]byte, error)
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
@@ -136,11 +134,12 @@ type ShardLike interface {
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error
+	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	hasGeoIndex() bool
+	ChangeObjectCountBy(int) error
 
 	Metrics() *Metrics
 }
@@ -149,6 +148,7 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
+	class            *models.Class
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
 	name             string
@@ -159,7 +159,7 @@ type Shard struct {
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonPropertyLengthTracker
+	propLenTracker   *inverted.JsonShardMetaData
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -187,23 +187,9 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*Shard, error) {
+func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 	before := time.Now()
 	var err error
-	s := &Shard{
-		index:       index,
-		name:        shardName,
-		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
-		stopMetrics:      make(chan struct{}),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		indexCheckpoints: indexCheckpoints,
-	}
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -220,7 +206,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	if err := s.initNonVector(ctx, class); err != nil {
+	if s.propLenTracker == nil {
+		plPath := path.Join(s.path(), "proplengths")
+		tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+		}
+
+		s.propLenTracker = tracker
+	}
+
+	if err := s.initNonVector(ctx, s.class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
@@ -249,7 +245,38 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
+
 	return s, nil
+}
+
+/* NewShard - create a new physical storage shard
+ *  ctx - the timeout context
+ *  promMetrics - prometheus metrics
+ *  shardName - shard name
+ *  index - The owning index
+ *  class - The class this shard belongs to
+ *  jobQueueCh - The central job queue
+ *  indexCheckpoints - The index checkpoints
+ *  propLengths - The property lengths tracker.  There should only be one instance per shard, and it is stored in the shard.  If a null pointer is passed, a new one will be created.  Care must be taken to only create one, otherwise they will overwrite each other on disk.
+ */
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonShardMetaData,
+) (*Shard, error) {
+	s := &Shard{
+		index:       index,
+		name:        shardName,
+		promMetrics: promMetrics,
+		metrics: NewMetrics(index.logger, promMetrics,
+			string(index.Config.ClassName), shardName),
+		stopMetrics:      make(chan struct{}),
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		indexCheckpoints: indexCheckpoints,
+		propLenTracker:   propLengths,
+		class:            class,
+	}
+	return s.initShard(ctx)
 }
 
 func (s *Shard) initVector(ctx context.Context) error {
@@ -368,14 +395,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: check versions", s.ID())
 	}
 	s.versioner = versioner
-
-	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
-	if err != nil {
-		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
-	}
-
-	s.propLenTracker = tracker
 
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -781,12 +800,7 @@ func (s *Shard) NotifyReady() {
 }
 
 func (s *Shard) ObjectCount() int {
-	b := s.store.Bucket(helpers.ObjectsBucketLSM)
-	if b == nil {
-		return 0
-	}
-
-	return b.Count()
+	return s.GetPropertyLengthTracker().ObjectTally()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
@@ -807,4 +821,15 @@ func shardId(indexId, shardName string) string {
 
 func shardPath(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName)
+}
+
+func bucketKeyPropertyLength(length int) ([]byte, error) {
+	return inverted.LexicographicallySortableInt64(int64(length))
+}
+
+func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
+	if isNull {
+		return []byte{uint8(filters.InternalNullState)}, nil
+	}
+	return []byte{uint8(filters.InternalNotNullState)}, nil
 }

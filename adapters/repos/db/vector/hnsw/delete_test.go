@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -39,6 +40,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
 
+	store := testinghelpers.NewDummyStore(t)
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -58,7 +60,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -134,6 +136,8 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
 
+	store := testinghelpers.NewDummyStore(t)
+
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -153,7 +157,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -248,6 +252,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	// there is a single bulk clean event after all the deletes
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -268,7 +273,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
 		index.randFunc = func() float64 { return 0.1 }
 
@@ -369,7 +374,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	})
 }
 
-func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32) (index *hnsw, remainingResult []uint64) {
+func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32, store *lsmkv.Store) (index *hnsw, remainingResult []uint64) {
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "delete-test",
@@ -388,7 +393,7 @@ func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32)
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+		cyclemanager.NewCallbackGroupNoop(), store)
 	require.Nil(t, err)
 
 	// makes sure index is build only with level 0. To be removed after fixing WEAVIATE-179
@@ -450,9 +455,10 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	// TODO to be simplified after fixing WEAVIATE-179, all results should be the same
 	var controlRemainingResult []uint64
 	var controlRemainingResultAfterCleanup []uint64
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("create control index", func(t *testing.T) {
-		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors)
+		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
 	})
 
 	t.Run("count all cleanup tombstones stops", func(t *testing.T) {
@@ -486,7 +492,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	})
 
 	for i := 0; i < possibleStopsCount; i++ {
-		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors)
+		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
 
 		t.Run("stop cleanup at place", func(t *testing.T) {
 			require.Nil(t, index.CleanUpTombstonedNodes(genStopAtFunc(i)))
@@ -539,6 +545,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			},
 		}
 	)
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -547,11 +554,14 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			DistanceProvider:      distancer.NewCosineDistanceProvider(),
 			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "out of range")
+				}
 				return vectors[int(id)], nil
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -569,7 +579,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			Segments:       3,
 			Centroids:      256,
 		}
-		index.Compress(cfg)
+		userConfig.PQ = cfg
+		index.compress(userConfig)
 	})
 
 	var control []uint64
@@ -674,6 +685,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 		}
 	)
 
+	store := testinghelpers.NewDummyStore(t)
+
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              rootPath,
@@ -685,7 +698,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			},
 			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		}, userConfig, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -703,7 +716,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			Segments:       3,
 			Centroids:      256,
 		}
-		index.Compress(cfg)
+		userConfig.PQ = cfg
+		index.compress(userConfig)
 		for i := len(vectors); i < 1000; i++ {
 			err := vectorIndex.Add(uint64(i), vectors[i%len(vectors)])
 			require.Nil(t, err)
@@ -883,7 +897,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1028,7 +1042,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	// manually build the index
@@ -1105,7 +1119,7 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 		// after just being deleted, so make sure to use a positive number here.
 		VectorCacheMaxObjects: 100000,
 	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 
 	objVec := []float32{0.1, 0.2}
@@ -1257,6 +1271,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 		nil,
 		nil,
 	}
+	store := testinghelpers.NewDummyStore(t)
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1278,7 +1293,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
+			cyclemanager.NewCallbackGroupNoop(), store)
 		require.Nil(t, err)
 		vectorIndex = index
 

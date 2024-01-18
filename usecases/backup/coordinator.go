@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -126,6 +126,7 @@ func newCoordinator(
 
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request) error {
+	req.Method = OpCreate
 	groups, err := c.groupByShard(ctx, req.Classes)
 	if err != nil {
 		return err
@@ -148,7 +149,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		delete(c.Participants, key)
 	}
 
-	nodes, err := c.canCommit(ctx, OpCreate, req.Backend)
+	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -182,9 +183,10 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 func (c *coordinator) Restore(
 	ctx context.Context,
 	store coordStore,
-	backend string,
+	req *Request,
 	desc *backup.DistributedBackupDescriptor,
 ) error {
+	req.Method = OpRestore
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(desc.ID, store.HomeDir()); prevID != "" {
 		return fmt.Errorf("restoration %s already in progress", prevID)
@@ -195,7 +197,7 @@ func (c *coordinator) Restore(
 	}
 	c.descriptor = desc.ResetStatus()
 
-	nodes, err := c.canCommit(ctx, OpRestore, backend)
+	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -204,12 +206,12 @@ func (c *coordinator) Restore(
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 		c.lastOp.reset()
-		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: backend}
+		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 		c.abortAll(ctx, req, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: backend}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
 	go func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
@@ -250,7 +252,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) (map[string]string, error) {
+func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
@@ -290,12 +292,13 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 			reqChan <- pair{
 				nodeHost{node, host},
 				&Request{
-					Method:      method,
+					Method:      req.Method,
 					ID:          id,
-					Backend:     backend,
+					Backend:     req.Backend,
 					Classes:     gr.Classes,
-					NodeMapping: nodeMapping,
 					Duration:    _BookingPeriod,
+					NodeMapping: nodeMapping,
+					Compression: req.Compression,
 				},
 			}
 		}
@@ -320,9 +323,9 @@ func (c *coordinator) canCommit(ctx context.Context, method Op, backend string) 
 			return nil
 		})
 	}
-	req := &AbortRequest{Method: method, ID: id, Backend: backend}
+	abortReq := &AbortRequest{Method: req.Method, ID: id, Backend: req.Backend}
 	if err := g.Wait(); err != nil {
-		c.abortAll(ctx, req, nodes)
+		c.abortAll(ctx, abortReq, nodes)
 		return nil, err
 	}
 	return nodes, nil

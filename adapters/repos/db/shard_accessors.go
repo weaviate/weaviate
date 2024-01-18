@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,12 +51,15 @@ func (s *Shard) Counter() *indexcounter.Counter {
 }
 
 // Tracks the lengths of all properties.  Must be updated on inserts/deletes.
-func (s *Shard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (s *Shard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
+	if s == nil {
+		return nil
+	}
 	return s.propLenTracker
 }
 
 // Tracks the lengths of all properties.  Must be updated on inserts/deletes.
-func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonPropertyLengthTracker) {
+func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonShardMetaData) {
 	s.propLenTracker = tracker
 }
 

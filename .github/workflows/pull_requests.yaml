@@ -97,10 +97,6 @@ jobs:
   Acceptance-Tests:
     name: acceptance-tests  
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        async_indexing: ["true", "false"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -112,7 +108,6 @@ jobs:
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-          ASYNC_INDEXING: ${{ matrix.async_indexing }}
         run: ./test/run.sh --acceptance-only
   Codecov:
     needs: [Unit-Tests, Integration-Tests]

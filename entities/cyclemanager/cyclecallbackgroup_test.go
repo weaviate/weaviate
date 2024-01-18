@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -276,6 +276,48 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			assert.GreaterOrEqual(t, executionTimes3[i], sumDuration)
 			sumDuration += 60 * time.Millisecond
 		}
+	})
+
+	t.Run("unregister while running", func(t *testing.T) {
+		counter := 0
+		callback := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return true
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter++
+
+				// 10ms * 100 = 1s
+				if counter > 100 {
+					return false
+				}
+			}
+		}
+		chStarted := make(chan struct{}, 1)
+		chFinished := make(chan struct{}, 1)
+		var executed bool
+		var d time.Duration
+
+		callbacks := NewCallbackGroup("id", logger, 1)
+		ctrl := callbacks.Register("c", callback)
+
+		go func() {
+			chStarted <- struct{}{}
+			start := time.Now()
+			executed = callbacks.CycleCallback(shouldNotAbort)
+			d = time.Since(start)
+			chFinished <- struct{}{}
+		}()
+		<-chStarted
+		time.Sleep(50 * time.Millisecond)
+		err := ctrl.Unregister(context.Background())
+		assert.NoError(t, err)
+		<-chFinished
+
+		assert.True(t, executed)
+		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
 	})
 }
 

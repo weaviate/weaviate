@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,6 +74,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
 	}
 
+	if err = s.ChangeObjectCountBy(-1); err != nil {
+		return fmt.Errorf("subtract prop lengths: %w", err)
+	}
+
 	return nil
 }
 
@@ -136,17 +140,16 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
 
-	if err = s.subtractPropLengths(previousInvertProps); err != nil {
+	if err = s.subtractPropLengths(previousProps); err != nil {
 		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
-	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
+	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}

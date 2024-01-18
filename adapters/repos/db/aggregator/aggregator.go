@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ type Aggregator struct {
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
-	propLenTracker         *inverted.JsonPropertyLengthTracker
+	propLenTracker         *inverted.JsonShardMetaData
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
@@ -51,7 +51,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher,
 	stopwords stopwords.StopwordDetector, shardVersion uint16,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
-	propLenTracker *inverted.JsonPropertyLengthTracker,
+	propLenTracker *inverted.JsonShardMetaData,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 ) *Aggregator {
@@ -71,7 +71,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	}
 }
 
-func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	return a.propLenTracker
 }
 

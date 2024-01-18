@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
+func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -32,8 +32,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 			}
 
 			for _, item := range prop.Items {
-				if err := s.deleteInvertedIndexItemLSM(bucket, item,
-					docID); err != nil {
+				if err := s.deleteFromPropertySetBucket(bucket, docID, item.Data); err != nil {
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
@@ -52,6 +51,39 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property,
 					return errors.Wrapf(err, "delete item '%s' from index",
 						string(item.Data))
 				}
+			}
+		}
+
+		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
+		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+			continue
+		}
+
+		// properties where defining a length does not make sense (floats etc.) have a negative entry as length
+		if s.index.invertedIndexConfig.IndexPropertyLength && prop.Length >= 0 {
+			if err := s.deleteFromPropertyLengthIndex(prop.Name, docID, prop.Length); err != nil {
+				return errors.Wrap(err, "add indexed property length")
+			}
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.deleteFromPropertyNullIndex(prop.Name, docID, prop.Length == 0); err != nil {
+				return errors.Wrap(err, "add indexed null state")
+			}
+		}
+	}
+
+	// remove nil properties from the nullstate and property length inverted index
+	for _, nilProperty := range nilProps {
+		if s.index.invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
+			if err := s.deleteFromPropertyLengthIndex(nilProperty.Name, docID, 0); err != nil {
+				return errors.Wrap(err, "add indexed property length")
+			}
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.deleteFromPropertyNullIndex(nilProperty.Name, docID, true); err != nil {
+				return errors.Wrap(err, "add indexed null state")
 			}
 		}
 	}
@@ -76,17 +108,47 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket,
-	item inverted.Countable, docID uint64,
-) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
-
-	if bucket.Strategy() == lsmkv.StrategyRoaringSet {
-		return bucket.RoaringSetRemoveOne(item.Data, docID)
+func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, length int) error {
+	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
+	if bucketLength == nil {
+		return errors.Errorf("no bucket for prop '%s' length found", propName)
 	}
 
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	key, err := bucketKeyPropertyLength(length)
+	if err != nil {
+		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
+	}
+	if err := s.deleteFromPropertySetBucket(bucketLength, docID, key); err != nil {
+		return errors.Wrapf(err, "failed adding to prop '%s' length bucket", propName)
+	}
+	return nil
+}
 
-	return bucket.SetDeleteSingle(item.Data, docIDBytes)
+func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNull bool) error {
+	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
+	if bucketNull == nil {
+		return errors.Errorf("no bucket for prop '%s' null found", propName)
+	}
+
+	key, err := bucketKeyPropertyNull(isNull)
+	if err != nil {
+		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
+	}
+	if err := s.deleteFromPropertySetBucket(bucketNull, docID, key); err != nil {
+		return errors.Wrapf(err, "failed adding to prop '%s' null bucket", propName)
+	}
+	return nil
+}
+
+func (s *Shard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+
+	if bucket.Strategy() == lsmkv.StrategySetCollection {
+		docIDBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(docIDBytes, docID)
+
+		return bucket.SetDeleteSingle(key, docIDBytes)
+	}
+
+	return bucket.RoaringSetRemoveOne(key, docID)
 }
