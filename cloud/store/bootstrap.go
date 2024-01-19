@@ -52,7 +52,6 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string) *Bootstrapper {
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
 func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger, voter bool) error {
-	// TODO handle empty server list
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	defer ticker.Stop()
 	for {
