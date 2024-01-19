@@ -69,13 +69,13 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 		n += int64(ni)
 	}
 
-	return n, err
+	return n, nil
 }
 
 func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	var hdr [hashTreeHeaderLength]byte
 
-	_, err := r.Read(hdr[:])
+	_, err := io.ReadFull(r, hdr[:])
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	for i := 0; i < LeavesCount(ht.Height()); i++ {
 		var leafBs [DigestLength]byte
 
-		_, err := r.Read(leafBs[:])
+		_, err := io.ReadFull(r, leafBs[:])
 		if err != nil {
 			return nil, fmt.Errorf("reading leaf %d: %w", i, err)
 		}
@@ -116,7 +116,7 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 		}
 	}
 
-	if root != ht.Root() {
+	if root != ht.root() {
 		return nil, fmt.Errorf("root digest mismatch")
 	}
 

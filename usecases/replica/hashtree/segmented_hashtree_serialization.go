@@ -74,7 +74,7 @@ func (ht *SegmentedHashTree) Serialize(w io.Writer) (n int64, err error) {
 func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 	var hdr [segmentedHashTreeHeaderLength]byte
 
-	_, err := r.Read(hdr[:])
+	_, err := io.ReadFull(r, hdr[:])
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 	for i := 0; i < segmentCount; i++ {
 		var b [8]byte
 
-		_, err = r.Read(b[:])
+		_, err = io.ReadFull(r, b[:])
 		if err != nil {
 			return nil, err
 		}

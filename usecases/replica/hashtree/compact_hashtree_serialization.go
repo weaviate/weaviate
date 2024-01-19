@@ -57,7 +57,7 @@ func (ht *CompactHashTree) Serialize(w io.Writer) (n int64, err error) {
 func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 	var hdr [compactHashtreeHeaderLength]byte
 
-	_, err := r.Read(hdr[:])
+	_, err := io.ReadFull(r, hdr[:])
 	if err != nil {
 		return nil, err
 	}
