@@ -80,11 +80,11 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules-acceptance-tests
-    runs-on: ubuntu-latest-4-cores
+    runs-on: ubuntu-latest-8-cores
     strategy:
       fail-fast: false
       matrix:
-        test: ["--modules-backup-only", "--modules-except-backup"]
+        test: ["--only-module-backup-azure", "--only-module-backup-filesystem", "--only-module-backup-gcs", "--only-module-backup-s3", "--only-module-img2vec-neural", "--only-module-many-modules", "--only-module-multi2vec-clip", "--only-module-qna-transformers", "--only-module-ref2vec-centroid", "--only-module-reranker-transformers", "--only-module-sum-transformers", "--only-module-text2vec-contextionary", "--only-module-text2vec-transformers"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -97,6 +97,10 @@ jobs:
   Acceptance-Tests:
     name: acceptance-tests  
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--acceptance-only-fast", "--acceptance-only-graphql", "--acceptance-only-replication"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -107,8 +111,8 @@ jobs:
       - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
-          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-        run: ./test/run.sh --acceptance-only
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}        
+        run: ./test/run.sh ${{ matrix.test }}
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
