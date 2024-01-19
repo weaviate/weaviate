@@ -62,12 +62,6 @@ func (h *hnsw) autoEfFromK(k int) int {
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	for _, id := range h.pendingForReassign {
-		h.reassignNeighbor(id, helpers.NewAllowList(h.pendingForReassignDependencies...), func() bool { return false }, false)
-	}
-	h.pendingForReassign = nil
-	h.pendingForReassignVisited = make([]bool, len(h.nodes))
-	h.pendingForReassignDependencies = nil
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
@@ -281,11 +275,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					if !h.pendingForReassignVisited[candidateNode.id] {
-						h.pendingForReassignVisited[candidateNode.id] = true
-						h.pendingForReassign = append(h.pendingForReassign, candidateNode.id)
-						h.pendingForReassignDependencies = append(h.pendingForReassignDependencies, neighborID)
-					}
+					h.handleDeletedNode(neighborID)
 					continue
 				} else {
 					if err != nil {
