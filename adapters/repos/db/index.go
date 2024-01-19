@@ -152,6 +152,8 @@ type Index struct {
 	remote                    *sharding.RemoteIndex
 	stopwords                 *stopwords.Detector
 	replicator                *replica.Replicator
+	active                    bool
+	activeLock                sync.Mutex
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -270,7 +272,46 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	index.cycleCallbacks.compactionCycle.Start()
 	index.cycleCallbacks.flushCycle.Start()
 
+	index.active = true
+	go func() {
+		for {
+			index.flush_if_modified()
+			time.Sleep(5 * time.Second)
+		}
+	}()
+
 	return index, nil
+}
+
+func (i *Index) flush_if_modified() error {
+
+	return i.ForEachShard(func(name string, shard ShardLike) error {
+		i.activeLock.Lock()
+		defer i.activeLock.Unlock()
+		if i.active {
+			i.logger.WithField("shard", name).Debug("Checking for changed metadata")
+			shard.GetPropertyLengthTracker().CycleFlush()
+		}
+
+		return nil
+	})
+}
+
+func (i *Index) Flush() {
+	i.ForEachShard(func(name string, shard ShardLike) error {
+		tracker := shard.GetPropertyLengthTracker()
+		tracker.SetWantFlush(true)
+		tracker.CycleFlush()
+		return nil
+	})
+	i.flush_if_modified()
+}
+
+func (i *Index) ForceLoad() {
+	i.ForEachShard(func(name string, shard ShardLike) error {
+		shard.MustLoad()
+		return nil
+	})
 }
 
 func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
@@ -1734,6 +1775,9 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
+	i.activeLock.Lock()
+	defer i.activeLock.Unlock()
+	i.active = false
 	i.closingCancel()
 
 	i.backupMutex.RLock()

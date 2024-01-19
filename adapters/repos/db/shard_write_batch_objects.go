@@ -432,12 +432,6 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
-
-	if err := ob.shard.GetPropertyLengthTracker().Flush(false); err != nil {
-		for i := range ob.objects {
-			ob.setErrorAtIndex(err, i)
-		}
-	}
 }
 
 // returns the originalIndexIDs to be ignored

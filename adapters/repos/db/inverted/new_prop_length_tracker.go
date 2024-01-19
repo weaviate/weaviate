@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"sync"
@@ -36,6 +37,8 @@ type JsonShardMetaData struct {
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
+	closed           bool
+	WantFlush        bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -89,7 +92,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
 			logger.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
-			t.Flush(false)
+			t.Flush()
 			return t, nil
 		}
 		return nil, errors.Wrap(err, "read property length tracker file:"+path)
@@ -136,10 +139,9 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 			}
 		}
 		t.data = data
-		t.Flush(true)
 		plt.Close()
 		plt.Drop()
-		t.Flush(false)
+		t.Flush()
 	}
 	t.path = path
 
@@ -147,6 +149,8 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
+	t.SetWantFlush(true)
+	t.Flush()
 	return t, nil
 }
 
@@ -156,6 +160,10 @@ func (t *JsonShardMetaData) Clear() {
 	}
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return
+	}
+	t.WantFlush = true
 
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 }
@@ -165,6 +173,7 @@ func (t *JsonShardMetaData) FileName() string {
 	if t == nil {
 		return ""
 	}
+
 	return t.path
 }
 
@@ -172,8 +181,13 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	if t == nil {
 		return nil
 	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
+	t.WantFlush = true
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
 	return nil
@@ -184,8 +198,13 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 	if t == nil {
 		return nil
 	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
+	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
@@ -212,8 +231,13 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 	if t == nil {
 		return nil
 	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
+	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
@@ -257,8 +281,12 @@ func (t *JsonShardMetaData) PropertyMean(propName string) (float32, error) {
 	if t == nil {
 		return 0, nil
 	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return 0, fmt.Errorf("tracker is closed")
+	}
 
 	sum, ok := t.data.SumData[propName]
 	if !ok {
@@ -277,8 +305,13 @@ func (t *JsonShardMetaData) PropertyTally(propName string) (int, int, float64, e
 	if t == nil {
 		return 0, 0, 0, nil
 	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return 0, 0, 0, fmt.Errorf("tracker is closed")
+	}
+
 	sum, ok := t.data.SumData[propName]
 	if !ok {
 		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
@@ -295,6 +328,7 @@ func (t *JsonShardMetaData) ObjectTally() int {
 	if t == nil {
 		return 0
 	}
+
 	t.Lock()
 	defer t.Unlock()
 
@@ -302,16 +336,21 @@ func (t *JsonShardMetaData) ObjectTally() int {
 }
 
 // Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
-func (t *JsonShardMetaData) Flush(flushBackup bool) error {
+func (t *JsonShardMetaData) Flush() error {
 	if t == nil {
 		return nil
-	}
-	if !flushBackup { // Write the backup file first
-		t.Flush(true)
 	}
 
 	t.Lock()
 	defer t.Unlock()
+
+	if !t.WantFlush {
+		return nil
+	}
+
+	if t.closed {
+		return fmt.Errorf("cannot flush closed tracker")
+	}
 
 	bytes, err := json.Marshal(t.data)
 	if err != nil {
@@ -319,8 +358,9 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 	}
 
 	filename := t.path
-	if flushBackup {
-		filename = t.path + ".bak"
+
+	if t.logger != nil {
+		t.logger.Printf("Flushing prop len tracker to disk: %s", filename)
 	}
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
@@ -336,7 +376,17 @@ func (t *JsonShardMetaData) Flush(flushBackup bool) error {
 		return err
 	}
 
+	t.WantFlush = false
 	return nil
+}
+
+func (t *JsonShardMetaData) SetWantFlush(val bool) {
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return
+	}
+	t.WantFlush = val
 }
 
 // Closes the tracker and removes the backup file
@@ -344,7 +394,7 @@ func (t *JsonShardMetaData) Close() error {
 	if t == nil {
 		return nil
 	}
-	if err := t.Flush(false); err != nil {
+	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
 
@@ -352,6 +402,7 @@ func (t *JsonShardMetaData) Close() error {
 	defer t.Unlock()
 
 	t.data.BucketedData = nil
+	t.closed = true
 
 	return nil
 }
@@ -368,12 +419,13 @@ func (t *JsonShardMetaData) Drop() error {
 
 	t.data.BucketedData = nil
 
-	if err := os.Remove(t.path); err != nil {
-		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
-	}
-	if err := os.Remove(t.path + ".bak"); err != nil {
-		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path+".bak")
-	}
+	os.Remove(t.path)
+	os.Remove(t.path + ".bak")
 
 	return nil
+}
+
+func (t *JsonShardMetaData) CycleFlush() bool {
+	err := t.Flush()
+	return err == nil
 }

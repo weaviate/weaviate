@@ -140,6 +140,7 @@ type ShardLike interface {
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 	ChangeObjectCountBy(int) error
+	MustLoad()
 
 	Metrics() *Metrics
 }
@@ -187,6 +188,9 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
+func (s *Shard) MustLoad() {
+}
+
 func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 	before := time.Now()
 	var err error
@@ -216,6 +220,9 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		s.propLenTracker = tracker
 	}
 
+	s.propLenTracker.SetWantFlush(true)
+	s.propLenTracker.Flush()
+
 	if err := s.initNonVector(ctx, s.class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
@@ -238,6 +245,9 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 			}
 		}()
 	}
+
+
+
 	s.NotifyReady()
 
 	if exists {
@@ -748,14 +758,13 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.Vect
 }
 
 func (s *Shard) Shutdown(ctx context.Context) error {
+
+	s.Index().logger.WithField("action", "shutdown").Debugf("shard=%s is shutting down", s.name)
+
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
-	}
-
-	if err := s.GetPropertyLengthTracker().Close(); err != nil {
-		return errors.Wrap(err, "close prop length tracker")
 	}
 
 	if err := s.queue.Close(); err != nil {
@@ -784,6 +793,12 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 	).Unregister(ctx); err != nil {
 		return err
 	}
+	s.Index().logger.WithField("action", "shutdown").Debugf("shard=%s stopped cyclecallbacks", s.name)
+
+	s.propLenTracker.SetWantFlush(true)
+	s.propLenTracker.Flush()
+	s.propLenTracker = nil
+
 
 	if err := s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")

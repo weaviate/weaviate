@@ -324,6 +324,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 		return configErr(err)
 	}
 
+	logger.Printf("Lazy-loading shards: %v\n", !f.Config.DisableLazyLoadShards)
+
 	if err := f.Config.Authentication.Validate(); err != nil {
 		return configErr(err)
 	}

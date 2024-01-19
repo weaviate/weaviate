@@ -55,7 +55,8 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) *LazyLoadShard {
 	promMetrics.NewUnloadedshard(class.Class)
-	return &LazyLoadShard{
+
+	l := &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics: promMetrics,
 
@@ -66,6 +67,13 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			indexCheckpoints: indexCheckpoints,
 		},
 	}
+
+	//If the shard directory does not exist, create the shard and init everything
+	if _, err := os.Stat(l.shardOpts.index.path()); os.IsNotExist(err) {
+		l.MustLoad()
+	}
+
+	return l
 }
 
 type deferredShardOpts struct {
@@ -77,7 +85,19 @@ type deferredShardOpts struct {
 	indexCheckpoints *indexcheckpoint.Checkpoints
 }
 
-func (l *LazyLoadShard) mustLoad() {
+func (l *LazyLoadShard) CycleFlush() bool {
+	tracker := l.GetPropertyLengthTracker()
+	if tracker == nil {
+		return true
+	}
+	if l.loaded {
+		return l.shard.GetPropertyLengthTracker().CycleFlush()
+	} else {
+		return tracker.CycleFlush()
+	}
+}
+
+func (l *LazyLoadShard) MustLoad() {
 	l.mustLoadCtx(context.Background())
 }
 
@@ -91,8 +111,6 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	l.propLenTracker = nil
-
 	if l.loaded {
 		return nil
 	}
@@ -101,6 +119,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
+
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, l.propLenTracker)
 	if err != nil {
@@ -127,22 +146,22 @@ func (l *LazyLoadShard) Name() string {
 }
 
 func (l *LazyLoadShard) Store() *lsmkv.Store {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.Store()
 }
 
 func (l *LazyLoadShard) NotifyReady() {
-	l.mustLoad()
+	l.MustLoad()
 	l.shard.NotifyReady()
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.GetStatus()
 }
 
 func (l *LazyLoadShard) UpdateStatus(status string) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.UpdateStatus(status)
 }
 
@@ -161,7 +180,7 @@ func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFil
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.Counter()
 }
 
@@ -182,6 +201,12 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	}
 
 	var tracker *inverted.JsonShardMetaData
+
+	//if directory does not exist, load the shard and init everything
+	if _, err := os.Stat(l.shardOpts.index.path()); os.IsNotExist(err) {
+		l.MustLoad()
+		return l.shard.propLenTracker
+	}
 
 	// FIXME add method for tracker path
 	plPath := path.Join(l.shardOpts.index.path(), "proplengths")
@@ -336,7 +361,7 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 }
 
 func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
-	l.mustLoad()
+	l.MustLoad()
 	l.shard.createPropertyIndex(ctx, prop, eg)
 }
 
@@ -362,22 +387,22 @@ func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 }
 
 func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.SetPropertyLengths(props)
 }
 
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.AnalyzeObject(object)
 }
 
 func (l *LazyLoadShard) Dimensions() int {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.Dimensions()
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(segments int) int {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.QuantizedDimensions(segments)
 }
 
@@ -396,12 +421,13 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 }
 
 func (l *LazyLoadShard) Queue() *IndexQueue {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.Queue()
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
+		l.GetPropertyLengthTracker().Close()
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
@@ -422,17 +448,17 @@ func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, e
 }
 
 func (l *LazyLoadShard) VectorIndex() VectorIndex {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.VectorIndex()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.Versioner()
 }
 
 func (l *LazyLoadShard) isReadOnly() bool {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.isReadOnly()
 }
 
@@ -467,12 +493,12 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 }
 
 func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *backupMutex) interface{} {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.commitReplication(ctx, shardID, mutex)
 }
 
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.abortReplication(ctx, shardID)
 }
 
@@ -491,37 +517,37 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 }
 
 func (l *LazyLoadShard) extendDimensionTrackerLSM(dimensions int, docID uint64) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.extendDimensionTrackerLSM(dimensions, docID)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.addToPropertyMapBucket(bucket, pair, key)
 }
 
 func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
 }
 
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
-	l.mustLoad()
+	l.MustLoad()
 	l.shard.setFallbackToSearchable(fallback)
 }
 
 func (l *LazyLoadShard) addJobToQueue(job job) {
-	l.mustLoad()
+	l.MustLoad()
 	l.shard.addJobToQueue(job)
 }
 
 func (l *LazyLoadShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.uuidFromDocID(docID)
 }
 
@@ -533,42 +559,42 @@ func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID) e
 }
 
 func (l *LazyLoadShard) putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.putObjectLSM(object, idBytes)
 }
 
 func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.mutableMergeObjectLSM(merge, idBytes)
 }
 
 func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.batchExtendInvertedIndexItemsLSMNoFrequency(b, item)
 }
 
 func (l *LazyLoadShard) updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.updatePropertySpecificIndices(object, status)
 }
 
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.updateVectorIndexIgnoreDelete(vector, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.hasGeoIndex()
 }
 
 func (l *LazyLoadShard) Metrics() *Metrics {
-	l.mustLoad()
+	l.MustLoad()
 	return l.shard.Metrics()
 }
 
