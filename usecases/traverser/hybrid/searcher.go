@@ -40,20 +40,9 @@ type Params struct {
 // This type is key in generalising hybrid search across different use cases.
 // Some use cases require a full search result (Get{} queries) and others need
 // only a doc id (Aggregate{}) which the search.Result type does not contain.
-type Result struct {
-	DocID uint64
-	*search.Result
-}
+// It does now
 
-type Results []*Result
-
-func (res Results) SearchResults() []search.Result {
-	out := make([]search.Result, len(res))
-	for i, r := range res {
-		out[i] = *r.Result
-	}
-	return out
-}
+type Results []*search.Result
 
 // sparseSearchFunc is the signature of a closure which performs sparse search.
 // Any package which wishes use hybrid search must provide this. The weights are
@@ -70,7 +59,7 @@ type denseSearchFunc func(searchVector []float32) (results []*storobj.Object, we
 // This is optionally provided, and allows the caller to somehow change the nature of
 // the result set. For example, Get{} queries sometimes require resolving references,
 // which is implemented by doing the reference resolution within a postProcFunc closure.
-type postProcFunc func(hybridResults Results) (postProcResults []search.Result, err error)
+type postProcFunc func(hybridResults []*search.Result) (postProcResults []search.Result, err error)
 
 type modulesProvider interface {
 	VectorFromInput(ctx context.Context,
@@ -78,11 +67,11 @@ type modulesProvider interface {
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) (Results, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) ([]*search.Result, error) {
 	var (
-		found   [][]*Result
-		weights []float64
-		names   []string
+		resultSet [][]*search.Result
+		weights   []float64
+		names     []string
 	)
 
 	if params.Query != "" {
@@ -94,7 +83,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				return nil, err
 			}
 
-			found = append(found, res)
+			resultSet = append(resultSet, res)
 			weights = append(weights, 1-alpha)
 			names = append(names, "keyword")
 		}
@@ -105,7 +94,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				return nil, err
 			}
 
-			found = append(found, res)
+			resultSet = append(resultSet, res)
 			weights = append(weights, alpha)
 			names = append(names, "vector")
 		}
@@ -128,20 +117,20 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				continue
 			}
 
-			found = append(found, res)
+			resultSet = append(resultSet, res)
 			weights = append(weights, weight)
 			names = append(names, name)
 		}
 	}
-	if len(weights) != len(found) {
-		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
+	if len(weights) != len(resultSet) {
+		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(resultSet))
 	}
 
-	var fused []*Result
+	var fused []*search.Result
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
-		fused = FusionRanked(weights, found, names)
+		fused = FusionRanked(weights, resultSet, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, found, names)
+		fused = FusionRelativeScore(weights, resultSet, names)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
@@ -151,10 +140,14 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
 		}
-		fused = fused[:len(sr)]
-		for i := range fused {
-			fused[i].Result = &(sr[i])
+		newResults := make([]*search.Result, len(sr))
+		for i := range sr {
+			if err != nil {
+				return nil, fmt.Errorf("hybrid search post-processing: %w", err)
+			}
+			newResults[i] = &sr[i]
 		}
+		fused = newResults
 	}
 	if params.Autocut > 0 {
 		scores := make([]float32, len(fused))
@@ -167,22 +160,21 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	return fused, nil
 }
 
-func processSparseSearch(results []*storobj.Object, weights []float32, err error) ([]*Result, error) {
+func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*search.Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
 	}
 
-	out := make([]*Result, len(results))
+	out := make([]*search.Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithDist(additional.Properties{}, weights[i])
+		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
 		sr.SecondarySortValue = sr.Score
-		sr.ExplainScore = "(bm25)" + sr.ExplainScore
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &sr
 	}
 	return out, nil
 }
 
-func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, error) {
+func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, error) {
 	vector, err := decideSearchVector(ctx, params, modules)
 	if err != nil {
 		return nil, err
@@ -193,19 +185,16 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 		return nil, fmt.Errorf("dense search: %w", err)
 	}
 
-	out := make([]*Result, len(res))
+	out := make([]*search.Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
 		sr.SecondarySortValue = 1 - sr.Dist
-		sr.ExplainScore = fmt.Sprintf(
-			"(vector) %v %v ", truncateVectorString(10, vector),
-			res[i].ExplainScore())
-		out[i] = &Result{obj.DocID(), &sr}
+		out[i] = &sr
 	}
 	return out, nil
 }
 
-func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*Result, string, float64, error) {
+func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
@@ -220,7 +209,7 @@ func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearch
 	}
 }
 
-func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*Result, string, float64, error) {
+func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*search.Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.KeywordRanking)
 	params.Keyword = &sp
 
@@ -229,16 +218,17 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 		return nil, "", 0, fmt.Errorf("sparse subsearch: %w", err)
 	}
 
-	out := make([]*Result, len(res))
+	out := make([]*search.Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		out[i] = &Result{obj.DocID(), &sr}
+		sr.SecondarySortValue = sr.Score
+		out[i] = &sr
 	}
 
 	return out, "bm25f", subsearch.Weight, nil
 }
 
-func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*Result, string, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
 	if modules == nil {
 		return nil, "", 0, nil
@@ -254,16 +244,17 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 		return nil, "", 0, err
 	}
 
-	out := make([]*Result, len(res))
+	out := make([]*search.Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		out[i] = &Result{obj.DocID(), &sr}
+		sr.SecondarySortValue = 1 - sr.Dist
+		out[i] = &sr
 	}
 
 	return out, "vector,nearText", subsearch.Weight, nil
 }
 
-func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*Result, string, float64, error) {
+func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc) ([]*search.Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearVector)
 
 	res, dists, err := denseSearch(sp.Vector)
@@ -271,10 +262,11 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 		return nil, "", 0, err
 	}
 
-	out := make([]*Result, len(res))
+	out := make([]*search.Result, len(res))
 	for i, obj := range res {
 		sr := obj.SearchResultWithDist(additional.Properties{}, dists[i])
-		out[i] = &Result{obj.DocID(), &sr}
+		sr.SecondarySortValue = 1 - sr.Dist
+		out[i] = &sr
 	}
 
 	return out, "vector,nearVector", subsearch.Weight, nil
@@ -306,11 +298,4 @@ func vectorFromModuleInput(ctx context.Context, class, input string, modules mod
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
 	}
 	return vector, nil
-}
-
-func truncateVectorString(maxLength int, vector []float32) string {
-	if len(vector) <= maxLength {
-		return fmt.Sprintf("%v", vector)
-	}
-	return fmt.Sprintf("%v...", vector[:maxLength])
 }
