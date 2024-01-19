@@ -159,15 +159,15 @@ function run_integration_tests() {
 }
 
 function run_acceptance_tests() {
-  if $run_acceptance_only_fast || $run_acceptance_tests; then
+  if $run_acceptance_only_fast || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance fast only"
     run_acceptance_only_fast "$@"
   fi
-  if $run_acceptance_graphql_tests || $run_acceptance_tests; then
+  if $run_acceptance_graphql_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance graphql"
     run_acceptance_graphql_tests "$@"
   fi
-  if $run_acceptance_replication_tests || $run_acceptance_tests; then
+  if $run_acceptance_replication_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance replciation"
     run_acceptance_replication_tests "$@"
   fi  
