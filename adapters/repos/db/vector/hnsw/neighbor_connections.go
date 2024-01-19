@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
@@ -105,17 +106,17 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited []bool, level int) error {
+func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level int) error {
 	var pending []uint64
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
 		return nil
 	}
 	for _, id := range n.graph.nodes[from].connections[level] {
-		if visited[id] {
+		if visited.Visited(id) {
 			continue
 		}
-		visited[id] = true
+		visited.Visit(id)
 		if n.denyList.Contains(id) {
 			pending = append(pending, id)
 			continue
@@ -156,8 +157,14 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	var results *priorityqueue.Queue[any]
 	if n.afterCleanUpTombstonedNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
-		visited := make([]bool, len(n.graph.nodes))
+
+		n.graph.pools.visitedListsLock.Lock()
+		visited := n.graph.pools.visitedLists.Borrow()
+		n.graph.pools.visitedListsLock.Unlock()
 		err := n.processRecursively(n.node.id, n.node.id, results, visited, level)
+		n.graph.pools.visitedListsLock.Lock()
+		n.graph.pools.visitedLists.Return(visited)
+		n.graph.pools.visitedListsLock.Unlock()
 		if err != nil {
 			return err
 		}

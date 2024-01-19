@@ -290,11 +290,6 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
-	h.pools.visitedListsLock.Lock()
-	visited := h.pools.visitedLists.Borrow()
-	defer h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.Unlock()
-
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
@@ -304,10 +299,6 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 			continue
 		}
 		for _, neighbourID := range h.nodes[deletedID].connections[len(h.nodes[deletedID].connections)-1] {
-			if visited.Visited(neighbourID) {
-				continue
-			}
-			visited.Visit(neighbourID)
 			if ok, err := h.reassignNeighbor(neighbourID, deleteList, breakCleanUpTombstonedNodes); err != nil {
 				return false, errors.Wrap(err, "reassign neighbor edges")
 			} else if !ok {
