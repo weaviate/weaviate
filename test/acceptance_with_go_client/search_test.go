@@ -248,6 +248,32 @@ func TestHybridWithPureVectorSearch(t *testing.T) {
 	require.Len(t, result, 4)
 }
 
+func TestHybridWithOnlyVectorSearch(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+
+	className := "HybridVectorOnlySearch"
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		Vectorizer: "text2vec-contextionary",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	creator := c.Data().Creator()
+	model, err := creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
+	require.Nil(t, err)
+
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{vector:%v}){text}}}", className, model.Object.Vector)).Do(ctx)
+	require.Nil(t, err)
+	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+	require.Len(t, result, 1)
+}
+
 func TestNearVectorAndObjectAutocut(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
