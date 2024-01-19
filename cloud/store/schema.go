@@ -53,6 +53,12 @@ func NewSchema(nodeID string, shardReader shardReader) *schema {
 	}
 }
 
+func (s *schema) Len() int {
+	s.RLock()
+	defer s.RUnlock()
+	return len(s.Classes)
+}
+
 func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
 	s.Lock()
 	defer s.Unlock()
@@ -107,6 +113,8 @@ func (s *schema) addProperty(class string, p models.Property) error {
 }
 
 func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {
+	req.Tenants = removeNilTenants(req.Tenants)
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -188,11 +196,33 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 	return
 }
 
+func (s *schema) clear() {
+	s.Lock()
+	defer s.Unlock()
+	for k := range s.Classes {
+		delete(s.Classes, k)
+	}
+}
+
+// ClassEqual returns the name of an existing class with a similar name, and "" otherwise
+// strings.EqualFold is used to compare classes
+func (s *schema) ClassEqual(name string) string {
+	s.RLock()
+	defer s.RUnlock()
+	for k := range s.Classes {
+		if strings.EqualFold(k, name) {
+			return k
+		}
+	}
+	return ""
+}
+
 type ClassInfo struct {
 	Exists            bool
 	MultiTenancy      models.MultiTenancyConfig
 	ReplicationFactor int
 	Tenants           int
+	Properties        int
 }
 
 func (s *schema) ClassInfo(class string) (ci ClassInfo) {
@@ -204,6 +234,7 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 		return
 	}
 	ci.Exists = true
+	ci.Properties = len(i.Class.Properties)
 	ci.MultiTenancy = parseMultiTenancyConfig(i)
 	ci.ReplicationFactor = 1
 	if i.Class.ReplicationConfig != nil && i.Class.ReplicationConfig.Factor > 1 {
@@ -216,9 +247,7 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
 	s.RLock()
 	defer s.RUnlock()
-
-	i := s.Classes[class]
-	return parseMultiTenancyConfig(i)
+	return parseMultiTenancyConfig(s.Classes[class])
 }
 
 func parseMultiTenancyConfig(class *metaClass) (cfg models.MultiTenancyConfig) {
@@ -275,19 +304,6 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	}
 
 	return cp
-}
-
-// ClassEqual returns the name of an existing class with a similar name, and "" otherwise
-// strings.EqualFold is used to compare classes
-func (s *schema) ClassEqual(name string) string {
-	s.RLock()
-	defer s.RUnlock()
-	for k := range s.Classes {
-		if strings.EqualFold(k, name) {
-			return k
-		}
-	}
-	return ""
 }
 
 // ShardOwner returns the node owner of the specified shard

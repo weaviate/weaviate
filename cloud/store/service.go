@@ -60,6 +60,9 @@ func (s *Service) SchemaReader() *schema {
 }
 
 func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
+	if cls == nil || cls.Class == "" {
+		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
+	}
 	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -74,6 +77,9 @@ func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
 }
 
 func (s *Service) UpdateClass(cls *models.Class, ss *sharding.State) error {
+	if cls == nil || cls.Class == "" {
+		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
+	}
 	req := cmd.UpdateClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -96,6 +102,9 @@ func (s *Service) DeleteClass(name string) error {
 }
 
 func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) error {
+	if cls == nil || cls.Class == "" {
+		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
+	}
 	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -110,6 +119,9 @@ func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) error {
 }
 
 func (s *Service) AddProperty(class string, p *models.Property) error {
+	if p == nil || p.Name == "" || class == "" {
+		return fmt.Errorf("empty property or empty class name : %w", errBadRequest)
+	}
 	req := cmd.AddPropertyRequest{Property: p}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -124,6 +136,9 @@ func (s *Service) AddProperty(class string, p *models.Property) error {
 }
 
 func (s *Service) UpdateShardStatus(class, shard, status string) error {
+	if class == "" || shard == "" {
+		return fmt.Errorf("empty class or shard : %w", errBadRequest)
+	}
 	req := cmd.UpdateShardStatusRequest{Class: class, Shard: shard, Status: status}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
@@ -138,6 +153,9 @@ func (s *Service) UpdateShardStatus(class, shard, status string) error {
 }
 
 func (s *Service) AddTenants(class string, req *cmd.AddTenantsRequest) error {
+	if class == "" || req == nil {
+		return fmt.Errorf("empty class name or nil request : %w", errBadRequest)
+	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -151,6 +169,9 @@ func (s *Service) AddTenants(class string, req *cmd.AddTenantsRequest) error {
 }
 
 func (s *Service) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
+	if class == "" || req == nil {
+		return fmt.Errorf("empty class name or nil request : %w", errBadRequest)
+	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -164,6 +185,9 @@ func (s *Service) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) err
 }
 
 func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error {
+	if class == "" || req == nil {
+		return fmt.Errorf("empty class name or nil request : %w", errBadRequest)
+	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
@@ -195,7 +219,7 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 	}
 	leader := s.store.Leader()
 	if leader == "" {
-		return fmt.Errorf("cannot find leader")
+		return ErrLeaderNotFound
 	}
 	req := &cmd.JoinPeerRequest{Id: id, Address: addr, Voter: voter}
 	_, err := s.cl.Join(ctx, leader, req)
@@ -228,7 +252,7 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration)
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
 	n := 0
 	for i := range tenants {
-		if tenants[i] != nil {
+		if tenants[i] != nil && tenants[i].Name != "" {
 			tenants[n] = tenants[i]
 			n++
 		}

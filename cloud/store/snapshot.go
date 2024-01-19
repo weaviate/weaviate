@@ -60,8 +60,7 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 }
 
 // Release is invoked when we are finished with the snapshot.
-func (s *schema) Release() {
-}
+func (s *schema) Release() {}
 
 func snapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 	ls, err := ss.List()
