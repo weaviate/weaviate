@@ -146,6 +146,16 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return e.getClassVectorSearch(ctx, params)
 	}
 
+	if params.HybridSearch != nil && params.HybridSearch.Query == "" && params.HybridSearch.Vector != nil {
+		// This is a hybrid search without a query and only a vector
+		// Therefore convert it into a near vector search
+		params.NearVector = &searchparams.NearVector{
+			Vector: params.HybridSearch.Vector,
+		}
+		params.HybridSearch = nil
+		return e.getClassVectorSearch(ctx, params)
+	}
+
 	return e.getClassList(ctx, params)
 }
 
