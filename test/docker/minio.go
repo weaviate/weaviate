@@ -47,6 +47,7 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 			).WithDeadline(60 * time.Second),
 		},
 		Started: true,
+		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err
