@@ -40,6 +40,7 @@ const (
 
 var availableAWSServices = []string{
 	"bedrock",
+	"sagemaker",
 }
 
 var availableAWSBedrockModels = []string{

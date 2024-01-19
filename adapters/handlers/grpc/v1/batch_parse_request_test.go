@@ -183,6 +183,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 				TextArrayProperties: []*pb.TextArrayProperties{
 					{PropName: "text1", Values: []string{"first", "second"}}, {PropName: "text2", Values: []string{"third"}},
 				},
+				EmptyListProps: []string{"text3"},
 			}}},
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"name":       "something",
@@ -194,6 +195,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 				"float2":     []interface{}{4., 5.},
 				"text1":      []interface{}{"first", "second"},
 				"text2":      []interface{}{"third"},
+				"text3":      []interface{}{},
 			}}},
 		},
 		{
@@ -210,6 +212,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 							ObjectProperties: []*pb.ObjectProperties{{
 								PropName: "obj", Value: &pb.ObjectPropertiesValue{
 									NonRefProperties: newStruct(t, map[string]interface{}{"name": "something"}),
+									EmptyListProps:   []string{"empty"},
 								},
 							}},
 						},
@@ -219,7 +222,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 			out: []*models.Object{{Class: collection, ID: UUID4, Properties: map[string]interface{}{
 				"simpleObj": map[string]interface{}{"name": "something"},
 				"nestedObj": map[string]interface{}{
-					"obj": map[string]interface{}{"name": "something"},
+					"obj": map[string]interface{}{"name": "something", "empty": []interface{}{}},
 				},
 			}}},
 		},
