@@ -12,15 +12,20 @@
 package hashtree
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/spaolacci/murmur3"
 )
 
 const (
-	compactHashTreeMagicNumber  uint64 = 0xD2D2D2D2D2D2D2D2
-	compactHashtreeVersion             = 1
-	compactHashtreeHeaderLength        = 8 + 1 + 8 // magicnumber version capacity
+	compactHashTreeMagicNumber uint32 = 0xD2D2D2D2
+	compactHashtreeVersion     byte   = 1
+
+	// magicnumber version capacity checksum
+	compactHashtreeHeaderLength int = 4 + 1 + 8 + DigestLength
 )
 
 func (ht *CompactHashTree) Serialize(w io.Writer) (n int64, err error) {
@@ -28,14 +33,17 @@ func (ht *CompactHashTree) Serialize(w io.Writer) (n int64, err error) {
 
 	hdrOff := 0
 
-	binary.BigEndian.PutUint64(hdr[hdrOff:], compactHashTreeMagicNumber)
-	hdrOff += 8
+	binary.BigEndian.PutUint32(hdr[hdrOff:], compactHashTreeMagicNumber)
+	hdrOff += 4
 
 	hdr[hdrOff] = compactHashtreeVersion
 	hdrOff++
 
 	binary.BigEndian.PutUint64(hdr[hdrOff:], uint64(ht.capacity))
 	hdrOff += 8
+
+	checksum := murmur3.New128().Sum(hdr[:hdrOff])
+	copy(hdr[hdrOff:hdrOff+DigestLength], checksum)
 
 	n1, err := w.Write(hdr[:])
 	if err != nil {
@@ -64,11 +72,11 @@ func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 
 	hdrOff := 0
 
-	magicNumber := binary.BigEndian.Uint64(hdr[hdrOff:])
+	magicNumber := binary.BigEndian.Uint32(hdr[hdrOff:])
 	if magicNumber != compactHashTreeMagicNumber {
 		return nil, fmt.Errorf("compact hashtree magic number mismatch")
 	}
-	hdrOff += 8
+	hdrOff += 4
 
 	if hdr[hdrOff] != compactHashtreeVersion {
 		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], compactHashtreeVersion)
@@ -77,6 +85,11 @@ func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 
 	capacity := binary.BigEndian.Uint64(hdr[hdrOff:])
 	hdrOff += 8
+
+	checksum := murmur3.New128().Sum(hdr[:hdrOff])
+	if bytes.Equal(hdr[:hdrOff], checksum) {
+		return nil, fmt.Errorf("header checksum mismatch")
+	}
 
 	hashtree, err := DeserializeHashTree(r)
 	if err != nil {
