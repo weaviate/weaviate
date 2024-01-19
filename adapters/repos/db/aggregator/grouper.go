@@ -146,7 +146,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {
-		ids[i] = r.DocID
+		ids[i] = *r.DocID
 	}
 
 	return ids, nil
@@ -274,7 +274,7 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID())
+		_, err = scan(&properties, elem.DocID)
 		return err
 	})
 
@@ -299,7 +299,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID())
+		_, err = scan(&properties, elem.DocID)
 		if err != nil {
 			return err
 		}

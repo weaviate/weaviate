@@ -6,7 +6,12 @@ function main() {
   # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
   run_all_tests=true
   run_acceptance_tests=false
+  run_acceptance_only_fast=false
+  run_acceptance_graphql_tests=false
+  run_acceptance_replication_tests=false
   run_module_tests=false
+  only_module=false
+  only_module_value=false
   run_unit_and_integration_tests=false
   run_unit_tests=false
   run_integration_tests=false
@@ -20,6 +25,11 @@ function main() {
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
+          
+          --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
+          --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
+          --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
+          --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
           --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
@@ -30,9 +40,13 @@ function main() {
               "--unit-and-integration-only | -ui"\
               "--integration-only | -i"\
               "--acceptance-only | -a"\
+              "--acceptance-only-fast | -aof"\
+              "--acceptance-only-graphql | -aog"\
+              "--acceptance-only-replication| -aor"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
+              "--only-module-{moduleName}"
               "--benchmark-only | -b" \
               "--help | -h"; exit 1;;
           *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -68,7 +82,7 @@ function main() {
     echo_green "Integration tests successful"
   fi 
 
-  if $run_acceptance_tests || $run_all_tests || $run_benchmark
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -90,13 +104,24 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_all_tests
+    if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
     fi
   fi
 
+  if $only_module; then
+    mod=${only_module_value//--only-module-/}
+    echo_green "Running acceptance test for $mod"
+    for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
+      echo $pkg
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done    
+  fi
   if $run_module_tests; then
     local module_test_image=weaviate:module-tests
     echo_green "Running module acceptance tests..."
@@ -134,7 +159,61 @@ function run_integration_tests() {
 }
 
 function run_acceptance_tests() {
-  ./test/acceptance/run.sh --include-slow
+  if $run_acceptance_only_fast || $run_acceptance_tests; then
+  echo "running acceptance fast only"
+    run_acceptance_only_fast "$@"
+  fi
+  if $run_acceptance_graphql_tests || $run_acceptance_tests; then
+  echo "running acceptance graphql"
+    run_acceptance_graphql_tests "$@"
+  fi
+  if $run_acceptance_replication_tests || $run_acceptance_tests; then
+  echo "running acceptance replciation"
+    run_acceptance_replication_tests "$@"
+  fi  
+}
+
+function run_acceptance_only_fast() {
+ # needed for test/docker package during replication tests
+ export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
+    for pkg in $(go list ./acceptance/... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers'); do
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+    for pkg in $(go list ./acceptance/... | grep 'test/acceptance/stress_tests' ); do
+      if ! go test -count 1 "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+    # tests with go client are in a separate package with its own dependencies to isolate them
+    cd 'test/acceptance_with_go_client'
+    for pkg in $(go list ./... ); do
+      if ! go test -count 1 -race "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+}
+function run_acceptance_graphql_tests() {
+ for pkg in $(go list ./acceptance/... | grep 'test/acceptance/graphql_resolvers'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_replication_tests() {
+ for pkg in $(go list ./acceptance/... | grep 'test/replication/graphql_resolvers'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
 }
 
 function run_module_only_backup_tests() {
