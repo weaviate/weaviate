@@ -16,13 +16,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -32,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
@@ -143,16 +142,6 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		return e.getClassVectorSearch(ctx, params)
-	}
-
-	if params.HybridSearch != nil && params.HybridSearch.Query == "" && params.HybridSearch.Vector != nil {
-		// This is a hybrid search without a query and only a vector
-		// Therefore convert it into a near vector search
-		params.NearVector = &searchparams.NearVector{
-			Vector: params.HybridSearch.Vector,
-		}
-		params.HybridSearch = nil
 		return e.getClassVectorSearch(ctx, params)
 	}
 
