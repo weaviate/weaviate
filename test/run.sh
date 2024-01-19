@@ -208,7 +208,7 @@ function run_acceptance_graphql_tests() {
 }
 
 function run_acceptance_replication_tests() {
- for pkg in $(go list ./acceptance/... | grep 'test/replication/graphql_resolvers'); do
+ for pkg in $(go list ./.../ | grep 'test/replication/graphql_resolvers'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
