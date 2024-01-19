@@ -318,10 +318,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err := s.subtractPropLengths(prevProps); err != nil {
 			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
 		}
-	} else {
-		if err := s.ChangeObjectCountBy(1); err != nil {
-			return fmt.Errorf("increment object count: %w", err)
-		}
 	}
 
 	if err := s.SetPropertyLengths(props); err != nil {

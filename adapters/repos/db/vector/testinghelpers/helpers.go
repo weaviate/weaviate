@@ -100,7 +100,7 @@ func readSiftFloat(file string, maxObjects int, vectorLengthFloat int) [][]float
 }
 
 func ReadSiftVecsFrom(path string, size int, dimensions int) [][]float32 {
-	fmt.Printf("generating %d sift vectors...", size)
+	fmt.Printf("generating %d vectors...", size)
 	vectors := readSiftFloat(path, size, dimensions)
 	fmt.Printf(" done\n")
 	return vectors
@@ -138,7 +138,7 @@ func Normalize(vectors [][]float32) {
 }
 
 func ReadVecs(size int, queriesSize int, dimensions int, db string, path ...string) ([][]float32, [][]float32) {
-	fmt.Printf("generating %d read vectors...", size+queriesSize)
+	fmt.Printf("generating %d vectors...", size+queriesSize)
 	uri := db
 	if len(path) > 0 {
 		uri = fmt.Sprintf("%s/%s", path[0], uri)
@@ -150,7 +150,7 @@ func ReadVecs(size int, queriesSize int, dimensions int, db string, path ...stri
 }
 
 func ReadQueries(queriesSize int) [][]float32 {
-	fmt.Printf("generating %d read queries vectors...", queriesSize)
+	fmt.Printf("generating %d vectors...", queriesSize)
 	queries := readSiftFloat("sift/sift_query.fvecs", queriesSize, 128)
 	fmt.Printf(" done\n")
 	return queries
