@@ -300,6 +300,7 @@ func (d *Compose) WithBasicAuth(username, password string) *Compose {
 }
 
 func (d *Compose) WithWeaviateAuth() *Compose {
+	d.withWeaviateAuth = true
 	return d.With1NodeCluster()
 }
 
