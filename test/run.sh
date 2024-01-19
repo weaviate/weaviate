@@ -141,7 +141,6 @@ function main() {
     run_module_tests "$@"
     echo_green "Module acceptance tests successful"
   fi
-  
   echo "Done!"
 }
 
