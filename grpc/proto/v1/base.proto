@@ -120,11 +120,16 @@ message FilterReferenceMultiTarget {
   string target_collection = 3;
 }
 
+message FilterReferenceCount {
+  string on = 1;
+}
+
 message FilterTarget {
   oneof target{
     string property = 1;
     FilterReferenceSingleTarget single_target = 2;
     FilterReferenceMultiTarget multi_target = 3;
+    FilterReferenceCount count = 4;
   };
 }
 
