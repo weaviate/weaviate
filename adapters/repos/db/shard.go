@@ -576,7 +576,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) initHashTree(ctx context.Context) error {
-	if err := os.MkdirAll(s.pathHashTree(), 0o700); err != nil {
+	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
 
@@ -593,22 +593,24 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			continue
 		}
 
+		hashtreeFilename := filepath.Join(s.pathHashTree(), dirEntry.Name())
+
 		if s.hashtree != nil {
-			err := os.Remove(dirEntry.Name())
-			s.index.logger.Warnf("deleting older hashtree file %q (%v)", dirEntry.Name(), err)
+			err := os.Remove(hashtreeFilename)
+			s.index.logger.Warnf("deleting older hashtree file %q (%v)", hashtreeFilename, err)
 			continue
 		}
 
-		f, err := os.Open(dirEntry.Name())
+		f, err := os.OpenFile(hashtreeFilename, os.O_RDONLY, os.ModePerm)
 		if err != nil {
-			s.index.logger.Warnf("reading hashtree file %q: %v", dirEntry.Name(), err)
+			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
 			continue
 		}
 
 		// attempt to load hashtree from file
 		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
 		if err != nil {
-			s.index.logger.Warnf("reading hashtree file %q: %v", dirEntry.Name(), err)
+			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
 			f.Close()
 			continue
 		}
@@ -630,20 +632,22 @@ func (s *Shard) closeHashTree() error {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
 
-	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%v", b[:]))
+	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%x", string(b[:])))
 
-	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_APPEND, os.ModePerm)
+	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
 	if err != nil {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
 	defer f.Close()
 
-	_, err = s.hashtree.Serialize(bufio.NewWriter(f))
+	w := bufio.NewWriter(f)
+
+	_, err = s.hashtree.Serialize(w)
 	if err != nil {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
 
-	return nil
+	return w.Flush()
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
