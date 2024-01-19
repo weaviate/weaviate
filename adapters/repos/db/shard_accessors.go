@@ -51,15 +51,12 @@ func (s *Shard) Counter() *indexcounter.Counter {
 }
 
 // Tracks the lengths of all properties.  Must be updated on inserts/deletes.
-func (s *Shard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
-	if s == nil {
-		return nil
-	}
+func (s *Shard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	return s.propLenTracker
 }
 
 // Tracks the lengths of all properties.  Must be updated on inserts/deletes.
-func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonShardMetaData) {
+func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonPropertyLengthTracker) {
 	s.propLenTracker = tracker
 }
 
