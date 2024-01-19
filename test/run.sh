@@ -159,15 +159,15 @@ function run_integration_tests() {
 }
 
 function run_acceptance_tests() {
-  if $run_acceptance_only_fast || $run_acceptance_tests; then
+  if $run_acceptance_only_fast || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance fast only"
     run_acceptance_only_fast "$@"
   fi
-  if $run_acceptance_graphql_tests || $run_acceptance_tests; then
+  if $run_acceptance_graphql_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance graphql"
     run_acceptance_graphql_tests "$@"
   fi
-  if $run_acceptance_replication_tests || $run_acceptance_tests; then
+  if $run_acceptance_replication_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance replciation"
     run_acceptance_replication_tests "$@"
   fi  
@@ -177,13 +177,13 @@ function run_acceptance_only_fast() {
  # needed for test/docker package during replication tests
  export TEST_WEAVIATE_IMAGE=weaviate/test-server
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./acceptance/... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers'); do
+    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers'); do
       if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
     done
-    for pkg in $(go list ./acceptance/... | grep 'test/acceptance/stress_tests' ); do
+    for pkg in $(go list ./... | grep 'test/acceptance/stress_tests' ); do
       if ! go test -count 1 "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
@@ -199,7 +199,7 @@ function run_acceptance_only_fast() {
     done
 }
 function run_acceptance_graphql_tests() {
- for pkg in $(go list ./acceptance/... | grep 'test/acceptance/graphql_resolvers'); do
+ for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
@@ -208,7 +208,7 @@ function run_acceptance_graphql_tests() {
 }
 
 function run_acceptance_replication_tests() {
- for pkg in $(go list ./acceptance/... | grep 'test/replication/graphql_resolvers'); do
+ for pkg in $(go list ./.../ | grep 'test/replication/graphql_resolvers'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
