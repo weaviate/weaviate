@@ -18,8 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
@@ -32,28 +34,205 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-var errAny = errors.New("any error")
+var (
+	errAny   = errors.New("any error")
+	Anything = mock.Anything
+)
 
-func TestStoreApplyPanics(t *testing.T) {
-	var (
-		mIDX    = &MockIndexer{}
-		mParser = &MockParser{}
-		mLogger = NewMockSLog(t)
-	)
-	cfg := Config{
-		DB:     mIDX,
-		Parser: mParser,
-		Logger: mLogger.Logger,
-		NodeID: "THIS",
+func TestServiceEndpoints(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	m.indexer.On("Open", Anything).Return(nil)
+	m.indexer.On("Close", Anything).Return(nil)
+	m.indexer.On("AddClass", Anything).Return(nil)
+	m.indexer.On("UpdateClass", Anything).Return(nil)
+	m.indexer.On("DeleteClass", Anything).Return(nil)
+	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateShardStatus", Anything).Return(nil)
+	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
+	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
+	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+
+	srv := NewService(m.store, nil)
+
+	// LeaderNotFound
+	assert.ErrorIs(t, srv.Execute(&command.ApplyRequest{}), ErrLeaderNotFound)
+	assert.ErrorIs(t, srv.Join(ctx, m.store.nodeID, addr, true), ErrLeaderNotFound)
+	assert.ErrorIs(t, srv.Remove(ctx, m.store.nodeID), ErrLeaderNotFound)
+
+	// Deadline exceeded while waiting for DB to be restored
+	func() {
+		ctx, cancel := context.WithTimeout(ctx, time.Millisecond*30)
+		defer cancel()
+		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond), context.DeadlineExceeded)
+	}()
+
+	// Open
+	defer srv.Close(ctx)
+	assert.Nil(t, srv.Open(ctx, m.indexer))
+
+	// node lose leadership after service call
+	assert.ErrorIs(t, srv.store.Join(m.store.nodeID, addr, true), ErrNotLeader)
+	assert.ErrorIs(t, srv.store.Remove(m.store.nodeID), ErrNotLeader)
+
+	// Connect
+	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
+
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
+	assert.True(t, srv.Ready())
+	for i := 0; i < 20; i++ {
+		if srv.store.IsLeader() {
+			break
+		}
+		time.Sleep(time.Millisecond * 100)
 	}
-	store := New(cfg)
-	ret := store.Apply(&raft.Log{Type: raft.LogNoop})
+	assert.True(t, srv.store.IsLeader())
+	schema := srv.SchemaReader()
+	assert.Equal(t, schema.Len(), 0)
+
+	// AddClass
+	assert.ErrorIs(t, srv.AddClass(nil, nil), errBadRequest)
+	assert.Equal(t, schema.ClassEqual("C"), "")
+
+	cls := &models.Class{Class: "C"}
+	ss := &sharding.State{}
+	assert.Nil(t, srv.AddClass(cls, ss))
+	assert.Equal(t, schema.ClassEqual("C"), "C")
+
+	// UpdateClass
+	info := ClassInfo{
+		Exists:            true,
+		MultiTenancy:      models.MultiTenancyConfig{Enabled: true},
+		ReplicationFactor: 2,
+		Tenants:           1,
+	}
+	assert.ErrorIs(t, srv.UpdateClass(nil, nil), errBadRequest)
+	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 2}
+	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
+	assert.Nil(t, srv.UpdateClass(cls, ss))
+	assert.Equal(t, schema.ClassInfo("C"), info)
+
+	// DeleteClass
+	assert.Nil(t, srv.DeleteClass("X"))
+	assert.Nil(t, srv.DeleteClass("C"))
+	assert.Equal(t, ClassInfo{}, schema.ClassInfo("C"))
+
+	// RestoreClass
+	assert.ErrorIs(t, srv.RestoreClass(nil, nil), errBadRequest)
+	assert.Nil(t, srv.RestoreClass(cls, ss))
+	assert.Equal(t, info, schema.ClassInfo("C"))
+
+	// AddProperty
+	assert.ErrorIs(t, srv.AddProperty("C", nil), errBadRequest)
+	assert.ErrorIs(t, srv.AddProperty("", &models.Property{Name: "P1"}), errBadRequest)
+	assert.Nil(t, srv.AddProperty("C", &models.Property{Name: "P1"}))
+	info.Properties = 1
+	assert.Equal(t, info, schema.ClassInfo("C"))
+
+	// UpdateStatus
+	assert.ErrorIs(t, srv.UpdateShardStatus("", "A", "ACTIVE"), errBadRequest)
+	assert.ErrorIs(t, srv.UpdateShardStatus("C", "", "ACTIVE"), errBadRequest)
+	assert.Nil(t, srv.UpdateShardStatus("C", "A", "ACTIVE"))
+
+	// AddTenants
+	assert.ErrorIs(t, srv.AddTenants("", &command.AddTenantsRequest{}), errBadRequest)
+	assert.Nil(t, srv.AddTenants("C", &command.AddTenantsRequest{
+		Tenants: []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
+	}))
+	info.Tenants += 1
+	assert.Equal(t, schema.ClassInfo("C"), info)
+
+	// UpdateTenants
+	assert.ErrorIs(t, srv.UpdateTenants("", &command.UpdateTenantsRequest{}), errBadRequest)
+	assert.Nil(t, srv.UpdateTenants("C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T2", Status: "S2"}}}))
+
+	// DeleteTenants
+	assert.ErrorIs(t, srv.DeleteTenants("", &command.DeleteTenantsRequest{}), errBadRequest)
+	assert.Nil(t, srv.DeleteTenants("C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}}))
+	info.Tenants -= 1
+	assert.Equal(t, info, schema.ClassInfo("C"))
+	assert.Equal(t, "S2", schema.CopyShardingState("C").Physical["T2"].Status)
+
+	// Self Join
+	assert.Nil(t, srv.Join(ctx, m.store.nodeID, addr, true))
+	assert.True(t, srv.store.IsLeader())
+	assert.Nil(t, srv.Join(ctx, m.store.nodeID, addr, false))
+	assert.True(t, srv.store.IsLeader())
+	assert.ErrorContains(t, srv.Remove(ctx, m.store.nodeID), "configuration")
+	assert.True(t, srv.store.IsLeader())
+
+	// Stats
+	stats := srv.Stats()
+	assert.Equal(t, "Leader", stats["state"])
+
+	// create snapshot
+	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
+	assert.Nil(t, srv.store.raft.Snapshot().Error())
+
+	// restore from snapshot
+	assert.Nil(t, srv.Close(ctx))
+	srv.store.db.Schema.clear()
+	assert.Nil(t, srv.Open(ctx, m.indexer))
+	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
+	assert.True(t, srv.Ready())
+	for i := 0; i < 20; i++ {
+		if srv.store.IsLeader() {
+			break
+		}
+		time.Sleep(time.Millisecond * 100)
+	}
+	assert.Equal(t, info, srv.store.db.Schema.ClassInfo("C"))
+}
+
+func TestServiceStoreInit(t *testing.T) {
+	var (
+		ctx   = context.Background()
+		m     = NewMockStore(t, "Node-1", 9093)
+		store = m.store
+		addr  = fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	)
+
+	// NotOpen
+	assert.ErrorIs(t, store.Join(m.store.nodeID, addr, true), ErrNotOpen)
+	assert.ErrorIs(t, store.Remove(m.store.nodeID), ErrNotOpen)
+	assert.ErrorIs(t, store.Notify(m.store.nodeID, addr), ErrNotOpen)
+
+	// Already Open
+	store.open.Store(true)
+	assert.Nil(t, store.Open(ctx))
+
+	// notify non voter
+	store.bootstrapExpect = 0
+	assert.Nil(t, store.Notify("A", "localhost:123"))
+
+	// not enough voter
+	store.bootstrapExpect = 2
+	assert.Nil(t, store.Notify("A", "localhost:123"))
+}
+
+func TestServicePanics(t *testing.T) {
+	m := NewMockStore(t, "Node-1", 9091)
+
+	// Assert Correct Response Type
+	ret := m.store.Apply(&raft.Log{Type: raft.LogNoop})
 	resp, ok := ret.(Response)
 	assert.True(t, ok)
 	assert.Equal(t, resp, Response{})
 
-	assert.Panics(t, func() { store.Apply(&raft.Log{}) }, "unknown command")
-	assert.Panics(t, func() { store.Apply(&raft.Log{Data: []byte("a")}) }, "command payload")
+	// Unknown Command
+	assert.Panics(t, func() { m.store.Apply(&raft.Log{}) })
+
+	// Not a Valid Payload
+	assert.Panics(t, func() { m.store.Apply(&raft.Log{Data: []byte("a")}) })
+
+	// Cannot Open File Store
+	m.indexer.On("Open", mock.Anything).Return(errAny)
+	assert.Panics(t, func() { m.store.loadDatabase(context.TODO()) })
 }
 
 func TestStoreApply(t *testing.T) {
@@ -80,14 +259,14 @@ func TestStoreApply(t *testing.T) {
 	}{
 		{
 			name: "AddClass/Unmarshal",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_CLASS,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS,
 				nil, &cmd.AddTenantsRequest{})},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "AddClass/StateIsNil",
-			req: raft.Log{Data: mustCommand("C2",
+			req: raft.Log{Data: cmdAsBytes("C2",
 				cmd.ApplyRequest_TYPE_ADD_CLASS,
 				cmd.AddClassRequest{Class: cls, State: nil},
 				nil)},
@@ -98,7 +277,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "AddClass/ParseClass",
-			req: raft.Log{Data: mustCommand("C2",
+			req: raft.Log{Data: cmdAsBytes("C2",
 				cmd.ApplyRequest_TYPE_ADD_CLASS,
 				cmd.AddClassRequest{Class: cls, State: ss},
 				nil)},
@@ -110,7 +289,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "AddClass/Success",
-			req: raft.Log{Data: mustCommand("C1",
+			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_ADD_CLASS,
 				cmd.AddClassRequest{Class: cls, State: ss},
 				nil)},
@@ -125,8 +304,23 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
+			name: "AddClass/DBError",
+			req: raft.Log{
+				Index: 3,
+				Data: cmdAsBytes("C1",
+					cmd.ApplyRequest_TYPE_ADD_CLASS,
+					cmd.AddClassRequest{Class: cls, State: ss},
+					nil),
+			},
+			resp: Response{Error: errAny},
+			doBefore: func(ms *MockStore) {
+				doFirst(ms)
+				ms.indexer.On("AddClass", mock.Anything).Return(errAny)
+			},
+		},
+		{
 			name: "AddClass/AlreadyExists",
-			req: raft.Log{Data: mustCommand("C1",
+			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_ADD_CLASS,
 				cmd.AddClassRequest{Class: cls, State: ss},
 				nil)},
@@ -139,7 +333,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "RestoreClass/Success",
-			req: raft.Log{Data: mustCommand("C1",
+			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_RESTORE_CLASS,
 				cmd.AddClassRequest{Class: cls, State: ss},
 				nil)},
@@ -159,14 +353,14 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "UpdateClass/Unmarshal",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_CLASS,
 				nil, &cmd.AddTenantsRequest{})},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "UpdateClass/ParseClass",
-			req: raft.Log{Data: mustCommand("C2",
+			req: raft.Log{Data: cmdAsBytes("C2",
 				cmd.ApplyRequest_TYPE_UPDATE_CLASS,
 				cmd.UpdateClassRequest{Class: cls, State: ss},
 				nil)},
@@ -178,7 +372,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "UpdateClass/ClassNotFound",
-			req: raft.Log{Data: mustCommand("C1",
+			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_UPDATE_CLASS,
 				cmd.UpdateClassRequest{Class: cls, State: nil},
 				nil)},
@@ -190,7 +384,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "UpdateClass/Success",
-			req: raft.Log{Data: mustCommand("C1",
+			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_UPDATE_CLASS,
 				cmd.UpdateClassRequest{Class: cls, State: nil},
 				nil)},
@@ -203,7 +397,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "DeleteClass/Success",
-			req: raft.Log{Data: mustCommand("C1",
+			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_DELETE_CLASS, nil,
 				nil)},
 			resp: Response{Error: nil},
@@ -220,22 +414,36 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "AddProperty/Unmarshal",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
 				nil, &cmd.AddTenantsRequest{})},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "AddProperty/ClassNotFound",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
 				cmd.AddPropertyRequest{Property: &models.Property{Name: "P1"}}, nil)},
 			resp:     Response{Error: errSchema},
 			doBefore: doFirst,
 		},
 		{
+			name: "AddProperty/Nil",
+			req: raft.Log{
+				Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
+					cmd.AddPropertyRequest{Property: nil}, nil),
+			},
+			resp: Response{Error: errBadRequest},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.store.db.Schema.addClass(cls, ss)
+			},
+		},
+		{
 			name: "AddProperty/Success",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
-				cmd.AddPropertyRequest{Property: &models.Property{Name: "P1"}}, nil)},
+			req: raft.Log{
+				Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
+					cmd.AddPropertyRequest{Property: &models.Property{Name: "P1"}}, nil),
+			},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				doFirst(m)
@@ -257,27 +465,27 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "UpdateShard/Unmarshal",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
 				nil, &cmd.AddTenantsRequest{})},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "UpdateShard/Success",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
 				cmd.UpdateShardStatusRequest{Class: "C1"}, nil)},
 			resp:     Response{Error: nil},
 			doBefore: doFirst,
 		},
 		{
 			name:     "AddTenant/Unmarshal",
-			req:      raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, cmd.AddClassRequest{}, nil)},
+			req:      raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, cmd.AddClassRequest{}, nil)},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "AddTenant/ClassNotFound",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
 				Tenants: []*command.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp:     Response{Error: errSchema},
@@ -285,7 +493,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "AddTenant/Success",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
 				Tenants: []*command.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp: Response{Error: nil},
@@ -304,20 +512,20 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name:     "UpdateTenant/Unmarshal",
-			req:      raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT, cmd.AddClassRequest{}, nil)},
+			req:      raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT, cmd.AddClassRequest{}, nil)},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "UpdateTenant/ClassNotFound",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{nil, {Name: "T1"}, nil}})},
 			resp:     Response{Error: errSchema},
 			doBefore: doFirst,
 		},
 		{
 			name: "UpdateTenant/NoFound",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
 				}})},
@@ -330,7 +538,7 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name: "UpdateTenant/Success",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
 					{Name: "T1", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
 					{Name: "T2", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
@@ -377,20 +585,20 @@ func TestStoreApply(t *testing.T) {
 		},
 		{
 			name:     "DeleteTenant/Unmarshal",
-			req:      raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT, cmd.AddClassRequest{}, nil)},
+			req:      raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT, cmd.AddClassRequest{}, nil)},
 			resp:     Response{Error: errBadRequest},
 			doBefore: doFirst,
 		},
 		{
 			name: "DeleteTenant/ClassNotFound",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
 			resp:     Response{Error: errSchema},
 			doBefore: doFirst,
 		},
 		{
 			name: "DeleteTenant/Success",
-			req: raft.Log{Data: mustCommand("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -407,7 +615,7 @@ func TestStoreApply(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		m := NewMockStore(t)
+		m := NewMockStore(t, "Node-1", 9091)
 		store := m.Store(tc.doBefore)
 		ret := store.Apply(&tc.req)
 		resp, ok := ret.(Response)
@@ -429,7 +637,7 @@ func TestStoreApply(t *testing.T) {
 	}
 }
 
-func mustCommand(class string,
+func cmdAsBytes(class string,
 	cmdType cmd.ApplyRequest_Type,
 	jsonSubCmd interface{},
 	rpcSubCmd protoreflect.ProtoMessage,
@@ -471,19 +679,29 @@ type MockStore struct {
 	store   *Store
 }
 
-func NewMockStore(t *testing.T) MockStore {
+func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := &MockIndexer{}
 	parser := &MockParser{}
 	logger := NewMockSLog(t)
+
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
 		logger:  logger,
 		cfg: Config{
-			DB:     indexer,
-			Parser: parser,
-			Logger: logger.Logger,
-			NodeID: "THIS",
+			WorkDir:  t.TempDir(),
+			NodeID:   nodeID,
+			Host:     "localhost",
+			RaftPort: raftPort,
+			// RPCPort:           9092,
+			BootstrapExpect:   1,
+			HeartbeatTimeout:  1000 * time.Millisecond,
+			ElectionTimeout:   1000 * time.Millisecond,
+			SnapshotInterval:  2 * time.Second,
+			SnapshotThreshold: 125,
+			DB:                indexer,
+			Parser:            parser,
+			Logger:            logger.Logger,
 		},
 	}
 	s := New(ms.cfg)
@@ -578,4 +796,17 @@ type MockParser struct {
 func (m *MockParser) ParseClass(class *models.Class) error {
 	args := m.Called(class)
 	return args.Error(0)
+}
+
+func MustGetFreeTCPPort() (port int) {
+	lAddr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		panic(err)
+	}
+	l, err := net.ListenTCP("tcp", lAddr)
+	if err != nil {
+		panic(err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
 }
