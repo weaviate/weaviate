@@ -308,7 +308,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 				continue
 			}
 			visited.Visit(neighbourID)
-			if ok, err := h.reassignNeighbor(neighbourID, deleteList, breakCleanUpTombstonedNodes, true); err != nil {
+			if ok, err := h.reassignNeighbor(neighbourID, deleteList, breakCleanUpTombstonedNodes); err != nil {
 				return false, errors.Wrap(err, "reassign neighbor edges")
 			} else if !ok {
 				return false, nil
@@ -323,7 +323,6 @@ func (h *hnsw) reassignNeighbor(
 	neighbor uint64,
 	deleteList helpers.AllowList,
 	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
-	afterCleanUpTombstonedNodes bool,
 ) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
@@ -411,28 +410,9 @@ func (h *hnsw) reassignNeighbor(
 	}
 
 	neighborNode.markAsMaintenance()
-	if !afterCleanUpTombstonedNodes {
-		neighborNode.Lock()
-		// delete all existing connections before re-assigning
-		for level := range neighborNode.connections {
-			neighborNode.connections[level] = neighborNode.connections[level][:0]
-		}
-		neighborNode.Unlock()
-		if err := h.commitLog.ClearLinks(neighbor); err != nil {
-			return false, err
-		}
-	}
-
-	if afterCleanUpTombstonedNodes {
-		if err := h.findAndConnectNeighborsAfterCleanUpTombstonedNodes(neighborNode, entryPointID, neighborVec, compressorDistancer,
-			neighborLevel, currentMaximumLayer, deleteList); err != nil {
-			return false, errors.Wrap(err, "find and connect neighbors")
-		}
-	} else {
-		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressorDistancer,
-			neighborLevel, currentMaximumLayer, deleteList); err != nil {
-			return false, errors.Wrap(err, "find and connect neighbors")
-		}
+	if err := h.findAndConnectNeighborsAfterCleanUpTombstonedNodes(neighborNode, entryPointID, neighborVec, compressorDistancer,
+		neighborLevel, currentMaximumLayer, deleteList); err != nil {
+		return false, errors.Wrap(err, "find and connect neighbors")
 	}
 	neighborNode.unmarkAsMaintenance()
 
