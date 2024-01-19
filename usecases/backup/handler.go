@@ -97,7 +97,26 @@ func NewHandler(
 	return m
 }
 
+// Compression is the compression configuration.
+type Compression struct {
+	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	Level CompressionLevel
+
+	// ChunkSize represents the desired size for chunks between 1 - 512  MB
+	// However, during compression, the chunk size might
+	// slightly deviate from this value, being either slightly
+	// below or above the specified size
+	ChunkSize int
+
+	// CPUPercentage desired CPU core utilization (1%-80%), default: 50%
+	CPUPercentage int
+}
+
+// BackupRequest a transition request from API to Backend.
 type BackupRequest struct {
+	// Compression is the compression configuration.
+	Compression
+
 	// ID is the backup ID
 	ID string
 	// Backend specify on which backend to store backups (gcs, s3, ..)

@@ -72,63 +72,6 @@ message GenerativeSearch {
   repeated string grouped_properties = 3;
 }
 
-message TextArray {
-  repeated string values = 1;
-}
-
-message IntArray {
-  repeated int64 values = 1;
-}
-
-message NumberArray {
-  repeated double values = 1;
-}
-
-message BooleanArray {
-  repeated bool values = 1;
-}
-
-message Filters {
-  enum Operator {
-    OPERATOR_UNSPECIFIED = 0;
-    OPERATOR_EQUAL = 1;
-    OPERATOR_NOT_EQUAL = 2;
-    OPERATOR_GREATER_THAN = 3;
-    OPERATOR_GREATER_THAN_EQUAL = 4;
-    OPERATOR_LESS_THAN = 5;
-    OPERATOR_LESS_THAN_EQUAL = 6;
-    OPERATOR_AND = 7;
-    OPERATOR_OR = 8;
-    OPERATOR_WITHIN_GEO_RANGE = 9;
-    OPERATOR_LIKE = 10;
-    OPERATOR_IS_NULL = 11;
-    OPERATOR_CONTAINS_ANY = 12;
-    OPERATOR_CONTAINS_ALL = 13;
-  }
-
-  Operator operator = 1;
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated string on = 2;
-  repeated Filters filters = 3;
-  oneof test_value{
-    string value_text = 4;
-    int64 value_int = 5;
-    bool value_boolean = 6;
-    double value_number = 7;
-    TextArray value_text_array = 9;
-    IntArray value_int_array = 10;
-    BooleanArray value_boolean_array = 11;
-    NumberArray value_number_array = 12;
-    GeoCoordinatesFilter value_geo = 13;
-  };
-}
-
-message GeoCoordinatesFilter {
-  float latitude = 1;
-  float longitude = 2;
-  float distance = 3;
-}
-
 message MetadataRequest {
   bool uuid = 1;
   bool vector = 2;
@@ -301,6 +244,7 @@ message PropertiesResult {
   repeated ObjectProperties object_properties = 9 [deprecated = true];
   repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
   Properties non_ref_props = 11;
+  bool ref_props_requested = 12;
 }
 
 message RefPropertiesResult {

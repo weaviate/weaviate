@@ -239,6 +239,16 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedVerb:     "delete",
 			expectedResource: "batch/objects",
 		},
+		{
+			methodName: "DeleteObjectsFromGRPC",
+			additionalArgs: []interface{}{
+				BatchDeleteParams{},
+				&additional.ReplicationProperties{},
+				"",
+			},
+			expectedVerb:     "delete",
+			expectedResource: "batch/objects",
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {

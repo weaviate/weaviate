@@ -91,7 +91,7 @@ type ShardLike interface {
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error //
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
-	AnalyzeObject(*storobj.Object) ([]inverted.Property, []nilProp, error) //
+	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) //
 
 	// TODO tests only
 	Dimensions() int // dim(vector)*number vectors
@@ -127,8 +127,6 @@ type ShardLike interface {
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
-	keyPropertyNull(isNull bool) ([]byte, error)
-	keyPropertyLength(length int) ([]byte, error)
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
@@ -136,7 +134,7 @@ type ShardLike interface {
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteInvertedIndexItemLSM(bucket *lsmkv.Bucket, item inverted.Countable, docID uint64) error
+	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
@@ -823,4 +821,15 @@ func shardId(indexId, shardName string) string {
 
 func shardPath(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName)
+}
+
+func bucketKeyPropertyLength(length int) ([]byte, error) {
+	return inverted.LexicographicallySortableInt64(int64(length))
+}
+
+func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
+	if isNull {
+		return []byte{uint8(filters.InternalNullState)}, nil
+	}
+	return []byte{uint8(filters.InternalNotNullState)}, nil
 }

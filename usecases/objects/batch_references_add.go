@@ -154,6 +154,9 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 			target.PeerName))
 	}
 
+	// target id must be lowercase
+	target.TargetID = strfmt.UUID(strings.ToLower(target.TargetID.String()))
+
 	if len(validateErrors) == 0 {
 		err = nil
 	} else {

@@ -253,7 +253,7 @@ func (r *ShardInvertedReindexer) reindexProperties(ctx context.Context, reindexa
 				WithField("shard", r.shard.Name()).
 				Debugf("iterating through objects: %d done", i)
 		}
-		docID := object.DocID()
+		docID := object.DocID
 		properties, nilProperties, err := r.shard.AnalyzeObject(object)
 		if err != nil {
 			return errors.Wrapf(err, "failed analyzying object")
@@ -333,7 +333,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 
 	// properties where defining a length does not make sense (floats etc.) have a negative entry as length
 	if r.shard.Index().invertedIndexConfig.IndexPropertyLength && property.Length >= 0 {
-		key, err := r.shard.keyPropertyLength(property.Length)
+		key, err := bucketKeyPropertyLength(property.Length)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' length", property.Name)
 		}
@@ -349,7 +349,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	}
 
 	if r.shard.Index().invertedIndexConfig.IndexNullState {
-		key, err := r.shard.keyPropertyNull(property.Length == 0)
+		key, err := bucketKeyPropertyNull(property.Length == 0)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' null", property.Name)
 		}
@@ -368,10 +368,10 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 }
 
 func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker *reindexablePropertyChecker,
-	docID uint64, nilProperty nilProp,
+	docID uint64, nilProperty inverted.NilProperty,
 ) error {
 	if r.shard.Index().invertedIndexConfig.IndexPropertyLength && nilProperty.AddToPropertyLength {
-		key, err := r.shard.keyPropertyLength(0)
+		key, err := bucketKeyPropertyLength(0)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' length", nilProperty.Name)
 		}
@@ -387,7 +387,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 	}
 
 	if r.shard.Index().invertedIndexConfig.IndexNullState {
-		key, err := r.shard.keyPropertyNull(true)
+		key, err := bucketKeyPropertyNull(true)
 		if err != nil {
 			return errors.Wrapf(err, "failed creating key for prop '%s' null", nilProperty.Name)
 		}

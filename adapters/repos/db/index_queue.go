@@ -305,7 +305,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		if err != nil {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
-		id := obj.DocID()
+		id := obj.DocID
 		if shard.VectorIndex().ContainsNode(id) {
 			continue
 		}
@@ -782,7 +782,13 @@ func (q *vectorQueue) borrowChunks(max int) []*chunk {
 }
 
 func (q *vectorQueue) releaseChunk(c *chunk) {
-	close(c.indexed)
+	if c == nil {
+		return
+	}
+
+	if c.indexed != nil {
+		close(c.indexed)
+	}
 
 	q.fullChunks.Lock()
 	if c.elem != nil {
@@ -801,7 +807,9 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 
 	q.fullChunks.Unlock()
 
-	q.pool.Put(&data)
+	if len(data) == q.IndexQueue.BatchSize {
+		q.pool.Put(&data)
+	}
 }
 
 // persistCheckpoint update the on-disk checkpoint that tracks the last indexed id
