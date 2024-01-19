@@ -46,6 +46,7 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 			).WithStartupTimeoutDefault(60 * time.Second),
 		},
 		Started: true,
+		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

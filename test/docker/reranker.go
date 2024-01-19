@@ -37,6 +37,7 @@ func startRerankerTransformers(ctx context.Context, networkName, rerankerTransfo
 			NetworkAliases: map[string][]string{
 				networkName: {RerankerTransformers},
 			},
+			Name:         RerankerTransformers,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -48,6 +49,7 @@ func startRerankerTransformers(ctx context.Context, networkName, rerankerTransfo
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
+		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err
