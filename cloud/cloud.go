@@ -35,12 +35,12 @@ type Service struct {
 	logger     *slog.Logger
 }
 
-func New(cfg store.Config) Service {
+func New(cfg store.Config) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort))
 	fsm := store.New(cfg)
 	server := store.NewService(&fsm, cl)
-	return Service{
+	return &Service{
 		Service:    server,
 		nodeName:   cfg.NodeID,
 		raftAddr:   fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
