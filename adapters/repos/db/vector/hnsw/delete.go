@@ -300,9 +300,6 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.RUnlock()
 
 	for deletedID := uint64(0); deletedID < uint64(size); deletedID++ {
-		if deleteList.Contains(deletedID) {
-			continue
-		}
 		if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
 			continue
 		}
