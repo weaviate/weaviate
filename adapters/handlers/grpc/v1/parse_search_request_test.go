@@ -714,7 +714,7 @@ func TestGRPCRequest(t *testing.T) {
 				Filters: &pb.Filters{
 					Operator:  pb.Filters_OPERATOR_LESS_THAN,
 					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
-					Target:    &pb.FilterTarget{Target: &pb.FilterTarget_SingleTarget{SingleTarget: &pb.FilterReferenceSingleTarget{On: "ref"}}},
+					Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Count{Count: &pb.FilterReferenceCount{On: "ref"}}},
 				},
 			},
 			out: dto.GetParams{
@@ -768,9 +768,8 @@ func TestGRPCRequest(t *testing.T) {
 				Filters: &pb.Filters{
 					Operator:  pb.Filters_OPERATOR_LESS_THAN,
 					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
-					Target: &pb.FilterTarget{Target: &pb.FilterTarget_MultiTarget{MultiTarget: &pb.FilterReferenceMultiTarget{
-						On:               "multiRef",
-						TargetCollection: refClass1,
+					Target: &pb.FilterTarget{Target: &pb.FilterTarget_Count{Count: &pb.FilterReferenceCount{
+						On: "multiRef",
 					}}},
 				},
 			},
