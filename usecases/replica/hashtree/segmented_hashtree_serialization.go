@@ -12,15 +12,20 @@
 package hashtree
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/spaolacci/murmur3"
 )
 
 const (
-	segmentedHashTreeMagicNumber  uint64 = 0xD4D4D4D4D4D4D4D4
-	segmentedHashtreeVersion             = 1
-	segmentedHashTreeHeaderLength        = 8 + 1 + 8 + 4 // magicnumber version segmentSize segmentCount
+	segmentedHashTreeMagicNumber uint32 = 0xD4D4D4D4
+	segmentedHashtreeVersion     byte   = 1
+
+	// magicnumber version segmentSize segmentCount segmentsChecksum checksum
+	segmentedHashTreeHeaderLength int = 4 + 1 + 8 + 4 + DigestLength + DigestLength
 )
 
 func (ht *SegmentedHashTree) Serialize(w io.Writer) (n int64, err error) {
@@ -28,8 +33,8 @@ func (ht *SegmentedHashTree) Serialize(w io.Writer) (n int64, err error) {
 
 	hdrOff := 0
 
-	binary.BigEndian.PutUint64(hdr[hdrOff:], segmentedHashTreeMagicNumber)
-	hdrOff += 8
+	binary.BigEndian.PutUint32(hdr[hdrOff:], segmentedHashTreeMagicNumber)
+	hdrOff += 4
 
 	hdr[hdrOff] = segmentedHashtreeVersion
 	hdrOff++
@@ -39,6 +44,26 @@ func (ht *SegmentedHashTree) Serialize(w io.Writer) (n int64, err error) {
 
 	binary.BigEndian.PutUint32(hdr[hdrOff:], uint32(len(ht.segments)))
 	hdrOff += 4
+
+	hash := murmur3.New128()
+
+	// write segments checksum
+	for _, s := range ht.segments {
+		var b [8]byte
+
+		binary.BigEndian.PutUint64(b[:], s)
+
+		_, err := hash.Write(b[:])
+		if err != nil {
+			return 0, err
+		}
+	}
+	copy(hdr[hdrOff:hdrOff+DigestLength], hash.Sum(nil))
+	hdrOff += DigestLength
+
+	hash.Reset()
+	checksum := hash.Sum(hdr[:hdrOff])
+	copy(hdr[hdrOff:hdrOff+DigestLength], checksum)
 
 	n1, err := w.Write(hdr[:])
 	if err != nil {
@@ -81,11 +106,11 @@ func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 
 	hdrOff := 0
 
-	magicNumber := binary.BigEndian.Uint64(hdr[hdrOff:])
+	magicNumber := binary.BigEndian.Uint32(hdr[hdrOff:])
 	if magicNumber != segmentedHashTreeMagicNumber {
 		return nil, fmt.Errorf("multi-segment hashtree magic number mismatch")
 	}
-	hdrOff += 8
+	hdrOff += 4
 
 	if hdr[hdrOff] != segmentedHashtreeVersion {
 		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[0], segmentedHashtreeVersion)
@@ -98,6 +123,18 @@ func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 	segmentCount := int(binary.BigEndian.Uint32(hdr[hdrOff:]))
 	hdrOff += 4
 
+	segmentsChecksum := hdr[hdrOff : hdrOff+DigestLength]
+	hdrOff += DigestLength
+
+	hash := murmur3.New128()
+
+	checksum := hash.Sum(hdr[:hdrOff])
+	if bytes.Equal(hdr[:hdrOff], checksum) {
+		return nil, fmt.Errorf("header checksum mismatch")
+	}
+
+	hash.Reset()
+
 	segments := make([]uint64, segmentCount)
 
 	for i := 0; i < segmentCount; i++ {
@@ -109,6 +146,15 @@ func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 		}
 
 		segments[i] = binary.BigEndian.Uint64(b[:])
+
+		_, err = hash.Write(b[:])
+		if err != nil {
+			return nil, fmt.Errorf("unmarshalling segment %d: %w", i, err)
+		}
+	}
+
+	if !bytes.Equal(segmentsChecksum, hash.Sum(nil)) {
+		return nil, fmt.Errorf("header checksum mismatch (segments)")
 	}
 
 	hashtree, err := DeserializeCompactHashTree(r)
