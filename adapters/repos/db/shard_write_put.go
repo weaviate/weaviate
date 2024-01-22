@@ -94,7 +94,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
-	if err := s.mayUpsertObjectHashTree(object, uuid); err != nil {
+	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
 		return errors.Wrap(err, "object creation in hashtree")
 	}
 
@@ -295,7 +295,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	return status, nil
 }
 
-func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte) error {
+func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
 	if s.hashtree == nil {
 		return nil
 	}
@@ -315,17 +315,28 @@ func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte
 	var objectDigest [16 + 8]byte
 
 	copy(objectDigest[:], uuidBytes)
-	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 
+	if status.docIDChanged {
+		if status.oldUpdateTime < 1 {
+			return fmt.Errorf("invalid object previous update time")
+		}
+
+		// Given only latest object version is maintained, previous registration is erased
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		s.hashtree.AggregateLeafWith(token, objectDigest[:])
+	}
+
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
 	return nil
 }
 
 type objectInsertStatus struct {
-	docID        uint64
-	docIDChanged bool
-	oldDocID     uint64
+	docID         uint64
+	docIDChanged  bool
+	oldDocID      uint64
+	oldUpdateTime int64
 	// docID was not changed, although object itself did. DocID can be preserved if
 	// object's vector remain the same, allowing to omit vector index update which is time
 	// consuming operation. New object is saved and inverted indexes updated if required.
@@ -352,6 +363,7 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	}
 
 	out.oldDocID = prevObj.DocID
+	out.oldUpdateTime = prevObj.LastUpdateTimeUnix()
 
 	// If object was not changed (props and additional props of prev and next objects are the same)
 	// skip updates of object, inverted indexes and vector index.
@@ -398,6 +410,7 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 	}
 
 	out.docID = previous.DocID
+	out.oldUpdateTime = previous.LastUpdateTimeUnix()
 
 	// we are planning on mutating and thus not altering the doc id
 	return out, nil
