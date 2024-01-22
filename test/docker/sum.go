@@ -37,6 +37,7 @@ func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*D
 			NetworkAliases: map[string][]string{
 				networkName: {SUMTransformers},
 			},
+			Name:         SUMTransformers,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -48,6 +49,7 @@ func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*D
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
+		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

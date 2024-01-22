@@ -35,7 +35,7 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 	return &filteredAggregator{Aggregator: agg}
 }
 
-func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
+func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	return fa.propLenTracker
 }
 
@@ -59,12 +59,12 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 			fa.params.ObjectLimit = &limit
 		}
 
-		sparse, dists, err := fa.bm25Objects(ctx, kw)
+		sparse, scores, err := fa.bm25Objects(ctx, kw)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}
 
-		return sparse, dists, nil
+		return sparse, scores, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
@@ -91,7 +91,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {
-		ids[i] = r.DocID
+		ids[i] = *r.DocID
 	}
 
 	return fa.prepareResult(ctx, ids)
@@ -123,14 +123,14 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 		class = s.GetClass(fa.params.ClassName)
 		cfg   = inverted.ConfigFromModel(class.InvertedIndexConfig)
 	)
-	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
+	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
 		propertyspecific.Indices{}, fa.classSearcher,
 		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}
-	return objs, dists, nil
+	return objs, scores, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,

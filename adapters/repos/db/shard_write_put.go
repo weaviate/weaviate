@@ -158,7 +158,7 @@ func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
 	}
 	s.metrics.PutObjectDetermineStatus(before)
 
-	object.SetDocID(status.docID)
+	object.DocID = status.docID
 	data, err := object.MarshalBinary()
 	if err != nil {
 		lock.Unlock()
@@ -317,10 +317,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	if status.docIDChanged || status.docIDPreserved {
 		if err := s.subtractPropLengths(prevProps); err != nil {
 			s.index.logger.WithField("action", "subtractPropLengths").WithError(err).Error("could not subtract prop lengths")
-		}
-	} else {
-		if err := s.ChangeObjectCountBy(1); err != nil {
-			return fmt.Errorf("increment object count: %w", err)
 		}
 	}
 
