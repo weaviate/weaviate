@@ -298,12 +298,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 		if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
 			continue
 		}
-		for _, neighbourID := range h.nodes[deletedID].connections[len(h.nodes[deletedID].connections)-1] {
-			if ok, err := h.reassignNeighbor(neighbourID, deleteList, breakCleanUpTombstonedNodes); err != nil {
-				return false, errors.Wrap(err, "reassign neighbor edges")
-			} else if !ok {
-				return false, nil
-			}
+		if ok, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
+			return false, errors.Wrap(err, "reassign neighbor edges")
+		} else if !ok {
+			return false, nil
 		}
 	}
 
