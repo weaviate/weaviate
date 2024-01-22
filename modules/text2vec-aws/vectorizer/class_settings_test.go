@@ -46,6 +46,20 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:     nil,
 		},
 		{
+			name: "happy flow - SageMaker",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service":  "sagemaker",
+					"region":   "us-east-1",
+					"endpoint": "my-sagemaker",
+				},
+			},
+			wantService:  "sagemaker",
+			wantRegion:   "us-east-1",
+			wantEndpoint: "my-sagemaker",
+			wantErr:      nil,
+		},
+		{
 			name: "empty service",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -87,7 +101,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "",
 				},
 			},
-			wantErr: errors.Errorf("wrong service, available services are: [bedrock], " +
+			wantErr: errors.Errorf("wrong service, available services are: [bedrock sagemaker], " +
 				"region cannot be empty"),
 		},
 	}
