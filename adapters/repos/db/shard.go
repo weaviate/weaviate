@@ -68,7 +68,7 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	GetPropertyLengthTracker() *inverted.JsonShardMetaData
+	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
@@ -139,7 +139,6 @@ type ShardLike interface {
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	ChangeObjectCountBy(int) error
 
 	Metrics() *Metrics
 }
@@ -148,7 +147,6 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	class            *models.Class
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
 	name             string
@@ -159,7 +157,7 @@ type Shard struct {
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonShardMetaData
+	propLenTracker   *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -187,9 +185,23 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 }
 
-func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	indexCheckpoints *indexcheckpoint.Checkpoints,
+) (*Shard, error) {
 	before := time.Now()
 	var err error
+	s := &Shard{
+		index:       index,
+		name:        shardName,
+		promMetrics: promMetrics,
+		metrics: NewMetrics(index.logger, promMetrics,
+			string(index.Config.ClassName), shardName),
+		stopMetrics:      make(chan struct{}),
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		indexCheckpoints: indexCheckpoints,
+	}
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -206,17 +218,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 		return nil, err
 	}
 
-	if s.propLenTracker == nil {
-		plPath := path.Join(s.path(), "proplengths")
-		tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
-		}
-
-		s.propLenTracker = tracker
-	}
-
-	if err := s.initNonVector(ctx, s.class); err != nil {
+	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
@@ -245,38 +247,7 @@ func (s *Shard) initShard(ctx context.Context) (*Shard, error) {
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
-
 	return s, nil
-}
-
-/* NewShard - create a new physical storage shard
- *  ctx - the timeout context
- *  promMetrics - prometheus metrics
- *  shardName - shard name
- *  index - The owning index
- *  class - The class this shard belongs to
- *  jobQueueCh - The central job queue
- *  indexCheckpoints - The index checkpoints
- *  propLengths - The property lengths tracker.  There should only be one instance per shard, and it is stored in the shard.  If a null pointer is passed, a new one will be created.  Care must be taken to only create one, otherwise they will overwrite each other on disk.
- */
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints, propLengths *inverted.JsonShardMetaData,
-) (*Shard, error) {
-	s := &Shard{
-		index:       index,
-		name:        shardName,
-		promMetrics: promMetrics,
-		metrics: NewMetrics(index.logger, promMetrics,
-			string(index.Config.ClassName), shardName),
-		stopMetrics:      make(chan struct{}),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		indexCheckpoints: indexCheckpoints,
-		propLenTracker:   propLengths,
-		class:            class,
-	}
-	return s.initShard(ctx)
 }
 
 func (s *Shard) initVector(ctx context.Context) error {
@@ -395,6 +366,14 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: check versions", s.ID())
 	}
 	s.versioner = versioner
+
+	plPath := path.Join(s.path(), "proplengths")
+	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
+	}
+
+	s.propLenTracker = tracker
 
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -800,7 +779,12 @@ func (s *Shard) NotifyReady() {
 }
 
 func (s *Shard) ObjectCount() int {
-	return s.GetPropertyLengthTracker().ObjectTally()
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	return b.Count()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
