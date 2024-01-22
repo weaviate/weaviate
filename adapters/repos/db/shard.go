@@ -611,19 +611,19 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
 		if err != nil {
 			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
-			f.Close()
-			continue
 		}
 
 		f.Close()
+		os.Remove(hashtreeFilename)
 	}
 
 	if s.hashtree == nil {
 		// TODO (jeroiraz): create a MultiSegmentHashTree
 		s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
-	}
 
-	// TODO (jeroiraz): register missing changes in the hashtree
+		// TODO (jeroiraz): register missing changes in the hashtree
+		// TODO (jeroiraz): level info should not be provided until it's locally in sync
+	}
 
 	return nil
 }
@@ -647,7 +647,12 @@ func (s *Shard) closeHashTree() error {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
 
-	return w.Flush()
+	err = w.Flush()
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+
+	return nil
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
