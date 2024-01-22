@@ -112,7 +112,11 @@ func (n *neighborFinderConnector) processRecursively(source, from uint64, result
 		n.graph.handleDeletedNode(from)
 		return nil
 	}
-	for _, id := range n.graph.nodes[from].connections[level] {
+	n.graph.nodes[from].Lock()
+	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
+	copy(connections, n.graph.nodes[from].connections[level])
+	n.graph.nodes[from].Unlock()
+	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
 		}
