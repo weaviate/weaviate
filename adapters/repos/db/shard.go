@@ -159,7 +159,7 @@ type ShardLike interface {
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
-	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte) error
+	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error

@@ -539,7 +539,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
@@ -553,7 +552,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, err = storobj.DocIDFromBinary(existing)
+	docID, updateTime, err := storobj.DocIDFromBinary(existing)
 	if err != nil {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
@@ -580,7 +579,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		}
 	}
 
-	if err = s.mayDeleteObjectHashTree(idBytes); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
