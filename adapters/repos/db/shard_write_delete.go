@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -34,7 +35,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get([]byte(idBytes))
 	if err != nil {
@@ -48,7 +48,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, err = storobj.DocIDFromBinary(existing)
+	docID, updateTime, err := storobj.DocIDFromBinary(existing)
 	if err != nil {
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
@@ -87,38 +87,38 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		}
 	}
 
-	if err = s.mayDeleteObjectHashTree(idBytes); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, err error) {
+func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, updateTime int64, err error) {
 	if uid, err = parseBytesUUID(id); err != nil {
-		return nil, nil, uid, 0, err
+		return nil, nil, uid, 0, 0, err
 	}
 
 	bucket = s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get(uid)
 	if err != nil {
-		return nil, nil, uid, 0, fmt.Errorf("get previous object: %w", err)
+		return nil, nil, uid, 0, 0, fmt.Errorf("get previous object: %w", err)
 	}
 
 	if existing == nil {
-		return bucket, nil, uid, 0, nil
+		return bucket, nil, uid, 0, 0, nil
 	}
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, err = storobj.DocIDFromBinary(existing)
+	docID, updateTime, err = storobj.DocIDFromBinary(existing)
 	if err != nil {
-		return bucket, nil, uid, 0, fmt.Errorf("get existing doc id from object binary: %w", err)
+		return bucket, nil, uid, 0, 0, fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
-	return bucket, existing, uid, docID, nil
+	return bucket, existing, uid, docID, updateTime, nil
 }
 
-func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64) error {
+func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64, updateTime int64) error {
 	if obj == nil || bucket == nil {
 		return nil
 	}
@@ -156,7 +156,7 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		}
 	}
 
-	if err = s.mayDeleteObjectHashTree(idBytes); err != nil {
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return fmt.Errorf("store object deletion in hashtree: %w", err)
 	}
 
@@ -200,24 +200,36 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	return nil
 }
 
-func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte) error {
+func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	if s.hashtree == nil {
 		return nil
 	}
 
-	return s.deleteObjectHashTree(uuidBytes)
+	return s.deleteObjectHashTree(uuidBytes, updateTime)
 }
 
-func (s *Shard) deleteObjectHashTree(uuidBytes []byte) error {
+func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	if len(uuidBytes) != 16 {
 		return fmt.Errorf("invalid object uuid")
+	}
+
+	if updateTime < 1 {
+		return fmt.Errorf("invalid object update time")
 	}
 
 	h := murmur3.New64()
 	h.Write(uuidBytes)
 	token := h.Sum64()
 
-	s.hashtree.AggregateLeafWith(token, uuidBytes)
+	var objectDigest [16 + 8]byte
+
+	copy(objectDigest[:], uuidBytes)
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
+
+	// object deletion is treated as non-existent,
+	// that because deletion time or tombstone may not be available
+
+	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
 	return nil
 }
