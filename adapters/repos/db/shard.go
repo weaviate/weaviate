@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const IdLockPoolSize = 128
@@ -620,41 +622,78 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		os.Remove(hashtreeFilename)
 	}
 
-	if s.hashtree == nil {
-		// TODO (jeroiraz): create a MultiSegmentHashTree
-		s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
-
-		// sync hashtree with current object states
-		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-		go func() {
-			prevContextEvaluation := time.Now()
-
-			err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
-				if time.Since(prevContextEvaluation) > time.Second {
-					if ctx.Err() != nil {
-						return ctx.Err()
-					}
-					prevContextEvaluation = time.Now()
-				}
-
-				uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
-				if err != nil {
-					return err
-				}
-
-				return s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
-			})
-			if err != nil {
-				s.index.logger.Warnf("iterating objects during hashtree initialization: %v", err)
-				return
-			}
-
-			s.hashtreeInitialized.Store(true)
-		}()
+	if s.hashtree != nil {
+		s.hashtreeInitialized.Store(true)
+		return nil
 	}
 
+	s.buildHashTree()
+
+	// sync hashtree with current object states
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	go func() {
+		prevContextEvaluation := time.Now()
+
+		err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
+			if time.Since(prevContextEvaluation) > time.Second {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				prevContextEvaluation = time.Now()
+			}
+
+			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+			if err != nil {
+				return err
+			}
+
+			return s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
+		})
+		if err != nil {
+			s.index.logger.Warnf("iterating objects during hashtree initialization: %v", err)
+			return
+		}
+
+		s.hashtreeInitialized.Store(true)
+	}()
+
 	return nil
+}
+
+func (s *Shard) buildHashTree() {
+	// s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
+
+	shardState := s.index.shardState
+	physical := shardState.Physical[s.name]
+
+	virtualNodes := make([]*sharding.Virtual, len(physical.OwnsVirtual))
+	for i, v := range physical.OwnsVirtual {
+		virtualNodes[i] = shardState.VirtualByName(v)
+	}
+
+	sort.SliceStable(virtualNodes, func(i, j int) bool {
+		return virtualNodes[i].Upper <= virtualNodes[j].Upper
+	})
+
+	segments := make([]hashtree.Segment, len(virtualNodes))
+
+	for i := 0; i < len(segments); i++ {
+		var segmentStart uint64
+		var segmentSize uint64
+
+		if i == 0 {
+			segmentStart = shardState.Virtual[len(virtualNodes)-1].Upper
+			segmentSize = shardState.Virtual[0].Upper + (math.MaxUint64 - segmentStart)
+		} else {
+			segmentStart = shardState.Virtual[i-1].Upper
+			segmentSize = shardState.Virtual[i].Upper - segmentStart
+		}
+
+		segments[i] = hashtree.NewSegment(segmentStart, segmentSize)
+	}
+
+	s.hashtree = hashtree.NewMultiSegmentHashTree(segments, 16)
 }
 
 func (s *Shard) closeHashTree() error {

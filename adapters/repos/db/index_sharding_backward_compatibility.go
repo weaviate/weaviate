@@ -17,10 +17,9 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (i *Index) checkSingleShardMigration(shardState *sharding.State) error {
+func (i *Index) checkSingleShardMigration() error {
 	res, err := os.ReadDir(i.Config.RootPath)
 	if err != nil {
 		return err
@@ -33,7 +32,7 @@ func (i *Index) checkSingleShardMigration(shardState *sharding.State) error {
 		}
 
 		// whatever is left now, needs to be migrated
-		shards := shardState.AllPhysicalShards()
+		shards := i.shardState.AllPhysicalShards()
 		if len(shards) != 1 {
 			return errors.Errorf("cannot migrate '_single' shard into config with %d "+
 				"desired shards", len(shards))
