@@ -21,7 +21,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,7 +63,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const IdLockPoolSize = 128
@@ -662,32 +660,36 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 }
 
 func (s *Shard) buildHashTree() {
-	// s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
+	/*
+		s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
+		if s.hashtree != nil {
+			return
+		}
+	*/
 
 	shardState := s.index.shardState
-	physical := shardState.Physical[s.name]
 
-	virtualNodes := make([]*sharding.Virtual, len(physical.OwnsVirtual))
-	for i, v := range physical.OwnsVirtual {
-		virtualNodes[i] = shardState.VirtualByName(v)
+	virtualNodes := make(map[string]int, len(shardState.Virtual))
+	for i, v := range shardState.Virtual {
+		virtualNodes[v.Name] = i
 	}
 
-	sort.SliceStable(virtualNodes, func(i, j int) bool {
-		return virtualNodes[i].Upper <= virtualNodes[j].Upper
-	})
+	physical := shardState.Physical[s.name]
 
-	segments := make([]hashtree.Segment, len(virtualNodes))
+	segments := make([]hashtree.Segment, len(physical.OwnsVirtual))
 
-	for i := 0; i < len(segments); i++ {
+	for i, v := range physical.OwnsVirtual {
 		var segmentStart uint64
 		var segmentSize uint64
 
-		if i == 0 {
-			segmentStart = shardState.Virtual[len(virtualNodes)-1].Upper
+		vi := virtualNodes[v]
+
+		if vi == 0 {
+			segmentStart = shardState.Virtual[len(shardState.Virtual)-1].Upper
 			segmentSize = shardState.Virtual[0].Upper + (math.MaxUint64 - segmentStart)
 		} else {
-			segmentStart = shardState.Virtual[i-1].Upper
-			segmentSize = shardState.Virtual[i].Upper - segmentStart
+			segmentStart = shardState.Virtual[vi-1].Upper
+			segmentSize = shardState.Virtual[vi].Upper - segmentStart
 		}
 
 		segments[i] = hashtree.NewSegment(segmentStart, segmentSize)

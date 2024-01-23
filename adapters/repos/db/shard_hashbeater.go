@@ -57,6 +57,7 @@ func (s *Shard) hashBeat() error {
 	replyCh, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, ht, replica.One, "")
 	if err != nil {
 		if errors.Is(err, hashtree.ErrNoMoreDifferences) {
+			s.index.logger.Printf("shard fully replicated %s", s.name)
 			return nil
 		}
 
@@ -131,7 +132,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		remoteLastTokenRead := localLastReadToken
 
-		remoteStaleUpdateTime := make(map[string]int64, len(localDigests))
+		remoteStaleUpdateTime := make(map[string]int64, len(localDigestsByUUID))
 
 		// fetch digests from remote host in order to avoid sending unnecessary objects
 		for remoteLastTokenRead < newLocalLastReadToken {
