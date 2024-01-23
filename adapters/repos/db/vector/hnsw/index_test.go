@@ -96,16 +96,17 @@ func TestHnswIndexGrow(t *testing.T) {
 		id := uint64(5*cache.InitialSize + 1)
 		err := index.Add(id, vector)
 		require.Nil(t, err)
-		// index should grow to 5001
+		// index should grow to 5 * 1024 + 1 = 5121
 		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
-		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
-		// try to add a vector with id: 8001
+		// cache should grow to 8 * 1024 = 8192
+		assert.Equal(t, int32(8*cache.PageSize), index.cache.Len())
+		// try to add a vector with id: 6 * 1024 + 2000 + 1 = 8241
 		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
-		// index should grow to at least 8001
-		assert.GreaterOrEqual(t, len(index.nodes), 8001)
-		assert.GreaterOrEqual(t, index.cache.Len(), int32(8001))
+		// index should grow to at least 8241
+		assert.GreaterOrEqual(t, len(index.nodes), 8241)
+		assert.GreaterOrEqual(t, index.cache.Len(), int32(8241))
 	})
 
 	t.Run("should grow index", func(t *testing.T) {
@@ -128,7 +129,7 @@ func TestHnswIndexGrow(t *testing.T) {
 		err = index.Add(id, vector)
 		require.Nil(t, err)
 		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
-		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
+		assert.Equal(t, int32(23*cache.PageSize), index.cache.Len())
 	})
 }
 

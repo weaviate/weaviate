@@ -13,7 +13,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,8 +43,8 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 }
 
 const (
-	pageSize                = 1024
-	InitialSize             = pageSize
+	PageSize                = 1024
+	InitialSize             = PageSize
 	MinimumIndexGrowthDelta = 2000
 )
 
@@ -72,7 +71,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		deletionInterval: deletionInterval,
 	}
 
-	vc.cache[0] = make([][]float32, pageSize)
+	vc.cache[0] = make([][]float32, PageSize)
 
 	vc.watchForDeletion()
 	return vc
@@ -92,7 +91,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		deletionInterval: deletionInterval,
 	}
 
-	vc.cache[0] = make([][]byte, pageSize)
+	vc.cache[0] = make([][]byte, PageSize)
 
 	vc.watchForDeletion()
 	return vc
@@ -113,7 +112,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	}
 
 	vc.cache = make([][][]uint64, 1)
-	vc.cache[0] = make([][]uint64, pageSize)
+	vc.cache[0] = make([][]uint64, PageSize)
 
 	vc.watchForDeletion()
 	return vc
@@ -138,13 +137,13 @@ func (s *shardedLockCache[T]) All() [][]T {
 // getPageForID returns the page and index of the vector for the given id.
 // This function assumes that the caller holds a read lock on the page.
 func (s *shardedLockCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
-	pageIdx := id / pageSize
+	pageIdx := id / PageSize
 	page = s.cache[pageIdx]
 	if page == nil {
 		return nil, -1
 	}
 
-	return page, int(id % pageSize)
+	return page, int(id % PageSize)
 }
 
 // upsert gets or creates a page and applies an update to it.
@@ -162,8 +161,6 @@ func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int)
 
 	s.pageLock.Lock()
 	defer s.pageLock.Unlock()
-
-	fmt.Println("upsert for page", id/pageSize)
 
 	// try again in case the page was created in the meantime.
 	// this is to avoid acquiring a large number of locks
@@ -187,15 +184,15 @@ func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int)
 	}
 
 	// page doesn't exist yet, create it
-	pageIdx := id / pageSize
-	page = make([][]T, pageSize)
+	pageIdx := id / PageSize
+	page = make([][]T, PageSize)
 	s.cache[pageIdx] = page
-	idx = int(id % pageSize)
+	idx = int(id % PageSize)
 	err := update(page, idx)
 
 	// opportunistically create the next page
 	if len(s.cache) > int(pageIdx)+1 && s.cache[pageIdx+1] == nil {
-		page = make([][]T, pageSize)
+		page = make([][]T, PageSize)
 		s.cache[pageIdx+1] = page
 	}
 
@@ -224,7 +221,7 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
-	if int(id) >= len(s.cache)*pageSize {
+	if int(id) >= len(s.cache)*PageSize {
 		return
 	}
 
@@ -295,7 +292,7 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.maintenanceLock.RLock()
-	if node < uint64(len(s.cache)*pageSize) {
+	if node < uint64(len(s.cache)*PageSize) {
 		s.maintenanceLock.RUnlock()
 		return
 	}
@@ -306,14 +303,14 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 
 	// make sure cache still needs growing
 	// (it could have grown while waiting for maintenance lock)
-	if node < uint64(len(s.cache)*pageSize) {
+	if node < uint64(len(s.cache)*PageSize) {
 		return
 	}
 
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	pages := len(s.cache) + int((node+MinimumIndexGrowthDelta)/pageSize)
+	pages := int((node + MinimumIndexGrowthDelta) / PageSize)
 	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
 
@@ -324,7 +321,7 @@ func (s *shardedLockCache[T]) Len() int32 {
 	s.maintenanceLock.RLock()
 	defer s.maintenanceLock.RUnlock()
 
-	return int32(len(s.cache) * pageSize)
+	return int32(len(s.cache) * PageSize)
 }
 
 func (s *shardedLockCache[T]) CountVectors() int64 {
