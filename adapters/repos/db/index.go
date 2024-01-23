@@ -166,6 +166,8 @@ type Index struct {
 	stopwords                 *stopwords.Detector
 	replicator                *replica.Replicator
 
+	shardState *sharding.State
+
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
@@ -260,10 +262,11 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		logger:                 logger,
 		classSearcher:          cs,
 		vectorIndexUserConfig:  vectorIndexUserConfig,
-		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		invertedIndexConfig:    invertedIndexConfig,
+		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		stopwords:              sd,
 		replicator:             repl,
+		shardState:             shardState,
 		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
@@ -279,7 +282,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	index.initCycleCallbacks()
 
-	if err := index.checkSingleShardMigration(shardState); err != nil {
+	if err := index.checkSingleShardMigration(); err != nil {
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
@@ -287,7 +290,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
-	if err := index.initAndStoreShards(ctx, shardState, class, promMetrics); err != nil {
+	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
 		return nil, err
 	}
 
@@ -299,15 +302,15 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
 // therefore shardCreateLocks are not used here
-func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
+func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
-		for _, shardName := range shardState.AllLocalPhysicalShards() {
-			physical := shardState.Physical[shardName]
+		for _, shardName := range i.shardState.AllLocalPhysicalShards() {
+			physical := i.shardState.Physical[shardName]
 			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 				// do not instantiate inactive shard
 				continue
@@ -333,8 +336,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		return nil
 	}
 
-	for _, shardName := range shardState.AllLocalPhysicalShards() {
-		physical := shardState.Physical[shardName]
+	for _, shardName := range i.shardState.AllLocalPhysicalShards() {
+		physical := i.shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
