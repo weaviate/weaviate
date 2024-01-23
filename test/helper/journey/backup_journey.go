@@ -101,7 +101,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
-		_, err := helper.RestoreBackup(t,  helper.DefaultRestoreConfig(), className, backend, backupID, nodeMapping)
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success
