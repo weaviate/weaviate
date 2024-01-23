@@ -150,34 +150,24 @@ func (s *shardedLockCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
 	return page, int(id % pageSize)
 }
 
-// getOrCreatePage returns the page for the given id, or creates a new page if
-// it doesn't exist yet.
+// upsert gets or creates a page and applies an update to it.
 // No locks must be held when calling this function.
-func (s *shardedLockCache[T]) getOrCreatePage(id uint64) (page [][]T, idx int) {
+func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int) error) error {
 	s.shardedLocks.Lock(id)
-	page, idx = s.getPageForID(id)
-	s.shardedLocks.Unlock(id)
 
-	if page != nil {
-		return
+	page, idx := s.getPageForID(id)
+	if page == nil {
+		// page doesn't exist yet, create it
+		pageIdx := id / pageSize
+		page = make([][]T, pageSize)
+		s.cache[pageIdx] = page
+		idx = int(id % pageSize)
 	}
 
-	s.shardedLocks.Lock(id)
-	// check if page was created while waiting for lock
-	page, idx = s.getPageForID(id)
-	if page != nil {
-		s.shardedLocks.Unlock(id)
-		return
-	}
-
-	// page doesn't exist yet, create it
-	pageIdx := id / pageSize
-	page = make([][]T, pageSize)
-	s.cache[pageIdx] = page
-	idx = int(id % pageSize)
+	err := update(page, idx)
 
 	s.shardedLocks.Unlock(id)
-	return
+	return err
 }
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
@@ -232,13 +222,12 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 
 	atomic.AddInt64(&s.count, 1)
 
-	page, idx := s.getOrCreatePage(id)
+	err = s.upsert(id, func(page [][]T, idx int) error {
+		page[idx] = vec
+		return nil
+	})
 
-	s.shardedLocks.Lock(id)
-	page[idx] = vec
-	s.shardedLocks.Unlock(id)
-
-	return vec, nil
+	return vec, err
 }
 
 func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
@@ -258,20 +247,19 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 }
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
-	page, idx := s.getOrCreatePage(id)
-
-	s.shardedLocks.Lock(id)
-	prefetchFunc(uintptr(unsafe.Pointer(&page[idx])))
-	s.shardedLocks.Unlock(id)
+	s.upsert(id, func(page [][]T, idx int) error {
+		prefetchFunc(uintptr(unsafe.Pointer(&page[idx])))
+		return nil
+	})
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	atomic.AddInt64(&s.count, 1)
-	page, idx := s.getOrCreatePage(id)
 
-	s.shardedLocks.Lock(id)
-	page[idx] = vec
-	s.shardedLocks.Unlock(id)
+	s.upsert(id, func(page [][]T, idx int) error {
+		page[idx] = vec
+		return nil
+	})
 }
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
