@@ -423,10 +423,10 @@ func TestGRPCRequest(t *testing.T) {
 			name: "hybrid move to",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{Query: "query", MoveTo:},
+				HybridSearch: &pb.Hybrid{Query: "query", MoveTo: &pb.Hybrid_Move{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, MoveTo: searchparams.HybridMove{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
