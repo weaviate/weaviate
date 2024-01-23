@@ -769,6 +769,17 @@ type Hybrid struct {
 	Alpha       float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType  Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
 	VectorBytes []byte            `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
+	MoveTo struct {
+		Force float32 `protobuf:"fixed32,1,opt,name=force,proto3" json:"force,omitempty"`
+		Concepts []string `protobuf:"string,2,rep,name=concepts,proto3" json:"concepts,omitempty"`
+		Uuids []string `protobuf:"string,3,rep,name=objects,proto3" json:"objects,omitempty"`
+
+	}
+	MoveAway struct {
+		Concepts []string `protobuf:"string,1,rep,name=concepts,proto3" json:"concepts,omitempty"`
+		Objects []string `protobuf:"string,2,rep,name=objects,proto3" json:"objects,omitempty"`
+		Force float32 `protobuf:"fixed32,3,opt,name=force,proto3" json:"force,omitempty"`
+	}
 }
 
 func (x *Hybrid) Reset() {

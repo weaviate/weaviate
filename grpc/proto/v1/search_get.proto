@@ -44,25 +44,11 @@ message SearchRequest {
   optional NearDepthSearch near_depth = 49;
   optional NearThermalSearch near_thermal = 50;
   optional NearIMUSearch near_imu = 51;
-  optional MoveTo move_to = 52;
-  optional MoveAway move_away = 53;
 
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
-}
-
-message MoveTo {
-  repeated string concepts = 1;
-  repeated uuid objects = 2;
-  repeated float force = 3;
-}
-
-message MoveFrom {
-  repeated string concepts = 1;
-  repeated uuid objects = 2;
-  repeated float force = 3;
 }
 
 message GroupBy {
@@ -115,6 +101,12 @@ message ObjectPropertiesRequest {
 }
 
 message Hybrid {
+    message Move {
+    float force = 1;
+    repeated string concepts = 2;
+    repeated string uuids = 3;
+  }
+
   string query = 1;
   repeated string properties = 2;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
@@ -127,6 +119,8 @@ message Hybrid {
   }
   FusionType fusion_type = 5;
   bytes vector_bytes = 6;
+  optional Move move_to = 7;
+  optional Move move_away = 8;
 }
 
 message NearTextSearch {

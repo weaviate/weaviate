@@ -420,6 +420,19 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "hybrid move to",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{Query: "query", MoveTo:},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
 			name: "bm25",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -988,6 +1001,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
+
 		{
 			name: "near image search",
 			req: &pb.SearchRequest{
