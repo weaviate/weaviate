@@ -304,6 +304,10 @@ func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte
 		return nil
 	}
 
+	return s.upsertObjectHashTree(object, uuidBytes, status)
+}
+
+func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
 	if len(uuidBytes) != 16 {
 		return fmt.Errorf("invalid object uuid")
 	}
