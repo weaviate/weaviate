@@ -51,6 +51,18 @@ message SearchRequest {
   bool uses_123_api = 100 [deprecated = true];
 }
 
+message MoveTo {
+  repeated string concepts = 1;
+  repeated uuid objects = 2;
+  repeated float force = 3;
+}
+
+message MoveFrom {
+  repeated string concepts = 1;
+  repeated uuid objects = 2;
+  repeated float force = 3;
+}
+
 message GroupBy {
   // currently only supports one entry (eg just properties, no refs). But might
   // be extended in the future.
