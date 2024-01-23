@@ -13,6 +13,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,7 +28,6 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	shardedLocks     *common.ShardedLocks
 	cache            [][][]T
 	vectorForID      common.VectorForID[T]
-	normalizeOnRead  bool
 	maxSize          int64
 	count            int64
 	cancel           chan bool
@@ -44,10 +44,9 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 }
 
 const (
-	InitialSize             = 1000
+	pageSize                = 1024
+	InitialSize             = pageSize
 	MinimumIndexGrowthDelta = 2000
-	indexGrowthRate         = 2
-	pageSize                = 4096
 )
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
@@ -65,13 +64,11 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 			return vec, nil
 		},
 		cache:            make([][][]float32, 1),
-		normalizeOnRead:  normalizeOnRead,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewDefaultShardedLocks(),
-		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
 
@@ -87,13 +84,11 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	vc := &shardedLockCache[byte]{
 		vectorForID:      vecForID,
 		cache:            make([][][]byte, 1),
-		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewDefaultShardedLocks(),
-		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
 
@@ -109,13 +104,11 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
 		cache:            make([][][]uint64, 1),
-		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewDefaultShardedLocks(),
-		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
 
@@ -169,6 +162,8 @@ func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int)
 
 	s.pageLock.Lock()
 	defer s.pageLock.Unlock()
+
+	fmt.Println("upsert for page", id/pageSize)
 
 	// try again in case the page was created in the meantime.
 	// this is to avoid acquiring a large number of locks
@@ -318,17 +313,7 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	var growthRate float64
-	if len(s.cache) < 128 {
-		growthRate = 2
-	} else if len(s.cache) < 512 {
-		growthRate = 1.5
-	} else {
-		growthRate = 1.25
-	}
-
-	pages := max(int64(node/pageSize), int64(float64(len(s.cache))*growthRate+1))
-
+	pages := len(s.cache) + int((node+MinimumIndexGrowthDelta)/pageSize)
 	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
 
