@@ -29,6 +29,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -197,6 +198,7 @@ type Shard struct {
 	versioner         *shardVersioner
 
 	hashtree             hashtree.AggregatedHashTree
+	hashtreeInitialized  atomic.Bool
 	hashBeaterCtx        context.Context
 	hashBeaterCancelFunc context.CancelFunc
 
@@ -668,7 +670,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	for i := len(dirEntries) - 1; i >= 0; i-- {
 		dirEntry := dirEntries[i]
 
-		if dirEntry.IsDir() || !strings.HasPrefix(dirEntry.Name(), "hashtree") {
+		if dirEntry.IsDir() || !strings.HasPrefix(dirEntry.Name(), "hashtree-") {
 			continue
 		}
 
@@ -700,8 +702,34 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		// TODO (jeroiraz): create a MultiSegmentHashTree
 		s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
 
-		// TODO (jeroiraz): register missing changes in the hashtree
-		// TODO (jeroiraz): level info should not be provided until it's locally in sync
+		// sync hashtree with current object states
+		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+		go func() {
+			prevContextEvaluation := time.Now()
+
+			err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
+				if time.Since(prevContextEvaluation) > time.Second {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					prevContextEvaluation = time.Now()
+				}
+
+				uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+				if err != nil {
+					return err
+				}
+
+				return s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
+			})
+			if err != nil {
+				s.index.logger.Warnf("iterating objects during hashtree initialization: %v", err)
+				return
+			}
+
+			s.hashtreeInitialized.Store(true)
+		}()
 	}
 
 	return nil
@@ -735,7 +763,7 @@ func (s *Shard) closeHashTree() error {
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	if s.hashtree == nil {
+	if s.hashtree == nil || !s.hashtreeInitialized.Load() {
 		return nil, fmt.Errorf("hashtree was not initialized")
 	}
 
