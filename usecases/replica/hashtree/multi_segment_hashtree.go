@@ -85,13 +85,13 @@ func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHa
 	})
 
 	// validate segments are in increasing order and that there is enough space in between
-	var prevSegmentEnd uint64
+	var minNextSegmentStart uint64
 
-	for _, s := range ownSegments {
+	for i, s := range ownSegments {
 		segmentStart := s.Start()
 		segmentSize := s.Size()
 
-		if segmentStart < prevSegmentEnd {
+		if segmentStart < minNextSegmentStart {
 			panic("illegal segments")
 		}
 
@@ -100,9 +100,17 @@ func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHa
 		}
 
 		if math.MaxUint64-segmentSize < segmentStart {
-			prevSegmentEnd = segmentSize - (math.MaxUint64 - segmentStart) - 1
+			if i != len(ownSegments)-1 {
+				panic("illegal segments")
+			}
+
+			minNextSegmentStart = segmentSize - (math.MaxUint64 - segmentStart)
+
+			if len(ownSegments) > 1 && ownSegments[0].Start() < minNextSegmentStart {
+				panic("illegal segments")
+			}
 		} else {
-			prevSegmentEnd = segmentStart + segmentSize - 1
+			minNextSegmentStart = segmentStart + segmentSize
 		}
 	}
 
@@ -137,7 +145,7 @@ func (ht *MultiSegmentHashTree) mapLeaf(i uint64) uint64 {
 		segmentStart := segment.Start()
 		segmentSize := segment.Size()
 
-		if math.MaxUint64-segmentSize < segmentStart {
+		if math.MaxUint64-segmentSize <= segmentStart {
 			// note there is at most there one segment satisfying this condition
 
 			if i >= segmentStart {
@@ -168,7 +176,7 @@ func (ht *MultiSegmentHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 		if mappedLeaf < offset+segmentSize {
 			// segment was found
 
-			if math.MaxUint64-segmentSize < segmentStart {
+			if math.MaxUint64-segmentSize <= segmentStart {
 				// note there is at most there one segment satisfying this condition
 
 				if mappedLeaf >= offset+(math.MaxUint64-segmentStart) {
