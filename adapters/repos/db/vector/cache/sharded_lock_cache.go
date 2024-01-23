@@ -66,7 +66,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewShardedLocks(pageSize),
+		shardedLocks:     common.NewDefaultShardedLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
@@ -122,9 +122,49 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
+// Lock a page for writing.
+func (s *shardedLockCache[T]) Lock(id uint64) {
+	s.shardedLocks.Lock(id / pageSize)
+}
+
+// Unlock a page for writing.
+func (s *shardedLockCache[T]) Unlock(id uint64) {
+	s.shardedLocks.Unlock(id / pageSize)
+}
+
+// Lock a page for reading.
+func (s *shardedLockCache[T]) RLock(id uint64) {
+	s.shardedLocks.RLock(id / pageSize)
+}
+
+// Unlock a page for reading.
+func (s *shardedLockCache[T]) RUnlock(id uint64) {
+	s.shardedLocks.RUnlock(id / pageSize)
+}
+
+// LockAll locks all pages for writing.
+func (s *shardedLockCache[T]) LockAll() {
+	s.shardedLocks.LockAll()
+}
+
+// UnlockAll unlocks all pages for writing.
+func (s *shardedLockCache[T]) UnlockAll() {
+	s.shardedLocks.UnlockAll()
+}
+
+// RLockAll locks all pages for reading.
+func (s *shardedLockCache[T]) RLockAll() {
+	s.shardedLocks.LockAll()
+}
+
+// RUnlockAll unlocks all pages for reading.
+func (s *shardedLockCache[T]) RUnlockAll() {
+	s.shardedLocks.UnlockAll()
+}
+
 func (s *shardedLockCache[T]) All() [][]T {
-	s.shardedLocks.RLockAll()
-	defer s.shardedLocks.RUnlockAll()
+	s.RLockAll()
+	defer s.RUnlockAll()
 
 	out := make([][]T, 0, s.Len())
 	for _, page := range s.cache {
@@ -153,7 +193,7 @@ func (s *shardedLockCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
 // upsert gets or creates a page and applies an update to it.
 // No locks must be held when calling this function.
 func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int) error) error {
-	s.shardedLocks.Lock(id)
+	s.Lock(id)
 
 	page, idx := s.getPageForID(id)
 	if page == nil {
@@ -166,19 +206,19 @@ func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int)
 
 	err := update(page, idx)
 
-	s.shardedLocks.Unlock(id)
+	s.Unlock(id)
 	return err
 }
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	var vec []T
 
-	s.shardedLocks.RLock(id)
+	s.RLock(id)
 	page, idx := s.getPageForID(id)
 	if page != nil {
 		vec = page[idx]
 	}
-	s.shardedLocks.RUnlock(id)
+	s.RUnlock(id)
 
 	if vec != nil {
 		return vec, nil
@@ -188,8 +228,8 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 }
 
 func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
-	s.shardedLocks.Lock(id)
-	defer s.shardedLocks.Unlock(id)
+	s.Lock(id)
+	defer s.Unlock(id)
 
 	if int(id) >= len(s.cache)*pageSize {
 		return
@@ -279,8 +319,8 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 		return
 	}
 
-	s.shardedLocks.LockAll()
-	defer s.shardedLocks.UnlockAll()
+	s.LockAll()
+	defer s.UnlockAll()
 
 	pages := node/pageSize + 1
 	newCache := make([][][]T, pages)
@@ -307,8 +347,8 @@ func (s *shardedLockCache[T]) Drop() {
 }
 
 func (s *shardedLockCache[T]) deleteAllVectors() {
-	s.shardedLocks.LockAll()
-	defer s.shardedLocks.UnlockAll()
+	s.LockAll()
+	defer s.UnlockAll()
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")
