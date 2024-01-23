@@ -258,7 +258,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 }
 
 // Writes the current state of the tracker to disk.
-func (t *JsonShardMetaData) Flush() error {
+func (t *JsonPropertyLengthTracker) Flush() error {
 	if t == nil {
 		return nil
 	}
@@ -290,7 +290,7 @@ func (t *JsonShardMetaData) Flush() error {
 }
 
 // Closes the tracker and removes the backup file
-func (t *JsonShardMetaData) Close() error {
+func (t *JsonPropertyLengthTracker) Close() error {
 	if t == nil {
 		return nil
 	}
