@@ -37,12 +37,16 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
 	maintenanceLock sync.RWMutex
+
+	// The pageLock makes sure that only one goroutine can create a page at the
+	// same time.
+	pageLock sync.Mutex
 }
 
 const (
 	InitialSize             = 1000
 	MinimumIndexGrowthDelta = 2000
-	indexGrowthRate         = 1.25
+	indexGrowthRate         = 2
 	pageSize                = 4096
 )
 
@@ -122,49 +126,9 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
-// Lock a page for writing.
-func (s *shardedLockCache[T]) Lock(id uint64) {
-	s.shardedLocks.Lock(id / pageSize)
-}
-
-// Unlock a page for writing.
-func (s *shardedLockCache[T]) Unlock(id uint64) {
-	s.shardedLocks.Unlock(id / pageSize)
-}
-
-// Lock a page for reading.
-func (s *shardedLockCache[T]) RLock(id uint64) {
-	s.shardedLocks.RLock(id / pageSize)
-}
-
-// Unlock a page for reading.
-func (s *shardedLockCache[T]) RUnlock(id uint64) {
-	s.shardedLocks.RUnlock(id / pageSize)
-}
-
-// LockAll locks all pages for writing.
-func (s *shardedLockCache[T]) LockAll() {
-	s.shardedLocks.LockAll()
-}
-
-// UnlockAll unlocks all pages for writing.
-func (s *shardedLockCache[T]) UnlockAll() {
-	s.shardedLocks.UnlockAll()
-}
-
-// RLockAll locks all pages for reading.
-func (s *shardedLockCache[T]) RLockAll() {
-	s.shardedLocks.LockAll()
-}
-
-// RUnlockAll unlocks all pages for reading.
-func (s *shardedLockCache[T]) RUnlockAll() {
-	s.shardedLocks.UnlockAll()
-}
-
 func (s *shardedLockCache[T]) All() [][]T {
-	s.RLockAll()
-	defer s.RUnlockAll()
+	s.shardedLocks.RLockAll()
+	defer s.shardedLocks.RUnlockAll()
 
 	out := make([][]T, 0, s.Len())
 	for _, page := range s.cache {
@@ -193,32 +157,66 @@ func (s *shardedLockCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
 // upsert gets or creates a page and applies an update to it.
 // No locks must be held when calling this function.
 func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int) error) error {
-	s.Lock(id)
-
+	// fast path
+	s.shardedLocks.Lock(id)
 	page, idx := s.getPageForID(id)
-	if page == nil {
-		// page doesn't exist yet, create it
-		pageIdx := id / pageSize
-		page = make([][]T, pageSize)
-		s.cache[pageIdx] = page
-		idx = int(id % pageSize)
+	if page != nil {
+		err := update(page, idx)
+		s.shardedLocks.Unlock(id)
+		return err
+	}
+	s.shardedLocks.Unlock(id)
+
+	s.pageLock.Lock()
+	defer s.pageLock.Unlock()
+
+	// try again in case the page was created in the meantime.
+	// this is to avoid acquiring a large number of locks
+	// when multiple goroutines try to create the same page.
+	s.shardedLocks.Lock(id)
+	page, idx = s.getPageForID(id)
+	if page != nil {
+		err := update(page, idx)
+		s.shardedLocks.Unlock(id)
+		return err
+	}
+	s.shardedLocks.Unlock(id)
+
+	// try again, this time with all locks held
+	s.shardedLocks.LockAll()
+	page, idx = s.getPageForID(id)
+	if page != nil {
+		err := update(page, idx)
+		s.shardedLocks.UnlockAll()
+		return err
 	}
 
+	// page doesn't exist yet, create it
+	pageIdx := id / pageSize
+	page = make([][]T, pageSize)
+	s.cache[pageIdx] = page
+	idx = int(id % pageSize)
 	err := update(page, idx)
 
-	s.Unlock(id)
+	// opportunistically create the next page
+	if len(s.cache) > int(pageIdx)+1 && s.cache[pageIdx+1] == nil {
+		page = make([][]T, pageSize)
+		s.cache[pageIdx+1] = page
+	}
+
+	s.shardedLocks.UnlockAll()
 	return err
 }
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	var vec []T
 
-	s.RLock(id)
+	s.shardedLocks.RLock(id)
 	page, idx := s.getPageForID(id)
 	if page != nil {
 		vec = page[idx]
 	}
-	s.RUnlock(id)
+	s.shardedLocks.RUnlock(id)
 
 	if vec != nil {
 		return vec, nil
@@ -228,8 +226,8 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 }
 
 func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
-	s.Lock(id)
-	defer s.Unlock(id)
+	s.shardedLocks.Lock(id)
+	defer s.shardedLocks.Unlock(id)
 
 	if int(id) >= len(s.cache)*pageSize {
 		return
@@ -242,16 +240,6 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 
 	page[idx] = nil
 	atomic.AddInt64(&s.count, -1)
-
-	// check if page is empty
-	for _, v := range page {
-		if v != nil {
-			return
-		}
-	}
-
-	// page is empty, delete it
-	s.cache[id/pageSize] = nil
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
@@ -287,19 +275,27 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 }
 
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
-	s.upsert(id, func(page [][]T, idx int) error {
+	s.shardedLocks.RLock(id)
+	page, idx := s.getPageForID(id)
+	if page != nil {
 		prefetchFunc(uintptr(unsafe.Pointer(&page[idx])))
-		return nil
-	})
+	}
+	s.shardedLocks.RUnlock(id)
 }
 
 func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
-	atomic.AddInt64(&s.count, 1)
+	s.shardedLocks.Lock(id)
 
-	s.upsert(id, func(page [][]T, idx int) error {
-		page[idx] = vec
-		return nil
-	})
+	page, idx := s.getPageForID(id)
+	if page == nil {
+		s.shardedLocks.Unlock(id)
+		return
+	}
+
+	page[idx] = vec
+	s.shardedLocks.Unlock(id)
+
+	atomic.AddInt64(&s.count, 1)
 }
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
@@ -319,12 +315,23 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 		return
 	}
 
-	s.LockAll()
-	defer s.UnlockAll()
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 
-	pages := node/pageSize + 1
+	var growthRate float64
+	if len(s.cache) < 128 {
+		growthRate = 2
+	} else if len(s.cache) < 512 {
+		growthRate = 1.5
+	} else {
+		growthRate = 1.25
+	}
+
+	pages := max(int64(node/pageSize), int64(float64(len(s.cache))*growthRate+1))
+
 	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
+
 	s.cache = newCache
 }
 
@@ -347,8 +354,8 @@ func (s *shardedLockCache[T]) Drop() {
 }
 
 func (s *shardedLockCache[T]) deleteAllVectors() {
-	s.LockAll()
-	defer s.UnlockAll()
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")
