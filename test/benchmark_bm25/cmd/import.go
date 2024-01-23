@@ -103,7 +103,7 @@ var importCmd = &cobra.Command{
 			}
 		}
 
-		if len(c)&BatchSize != 0 {
+		if len(c)%BatchSize != 0 {
 			// we need to send one final batch
 			br, err := batch.Do(context.Background())
 			if err != nil {
