@@ -201,12 +201,12 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
-	if int(id) >= len(s.cache)*pageSize || s.cache[id] == nil {
+	if int(id) >= len(s.cache)*pageSize {
 		return
 	}
 
 	page, idx := s.getPageForID(id)
-	if page == nil {
+	if page == nil || page[idx] == nil {
 		return
 	}
 
@@ -222,7 +222,6 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 
 	// page is empty, delete it
 	s.cache[id/pageSize] = nil
-
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
@@ -295,8 +294,8 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	maxSlot := node/pageSize + 1
-	newCache := make([][][]T, maxSlot)
+	pages := node/pageSize + 1
+	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
 	s.cache = newCache
 }
