@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -28,6 +27,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
@@ -41,7 +41,7 @@ var (
 
 func TestServiceEndpoints(t *testing.T) {
 	ctx := context.Background()
-	m := NewMockStore(t, "Node-1", MustGetFreeTCPPort())
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	m.indexer.On("Open", Anything).Return(nil)
 	m.indexer.On("Close", Anything).Return(nil)
@@ -796,17 +796,4 @@ type MockParser struct {
 func (m *MockParser) ParseClass(class *models.Class) error {
 	args := m.Called(class)
 	return args.Error(0)
-}
-
-func MustGetFreeTCPPort() (port int) {
-	lAddr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		panic(err)
-	}
-	l, err := net.ListenTCP("tcp", lAddr)
-	if err != nil {
-		panic(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
 }

@@ -9,4 +9,15 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package utils
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestFreeTcpPort(t *testing.T) {
+	port := MustGetFreeTCPPort()
+	assert.Greater(t, port, 0)
+}

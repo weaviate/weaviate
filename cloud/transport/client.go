@@ -41,12 +41,12 @@ func NewClient(r rpcAddressResolver) *Client {
 func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
 	addr, err := cl.rpc.Address(leaderAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
@@ -57,12 +57,12 @@ func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeer
 func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
 	addr, err := cl.rpc.Address(rAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
@@ -74,12 +74,12 @@ func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerR
 func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
 	addr, err := cl.rpc.Address(leaderAddress)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
@@ -90,12 +90,12 @@ func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyRes
 	ctx := context.Background()
 	addr, err := cl.rpc.Address(leaderAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
 	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
