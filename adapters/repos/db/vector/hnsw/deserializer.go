@@ -19,7 +19,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 )
 
@@ -85,7 +84,7 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:         make([]*vertex, cache.InitialSize),
+			Nodes:         make([]*vertex, InitialSize),
 			Tombstones:    make(map[uint64]struct{}),
 			LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		}
@@ -140,7 +139,7 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case ResetIndex:
 			out.Entrypoint = 0
 			out.Level = 0
-			out.Nodes = make([]*vertex, cache.InitialSize)
+			out.Nodes = make([]*vertex, InitialSize)
 		case AddPQ:
 			err = d.ReadPQ(fd, out)
 			readThisRound = 9

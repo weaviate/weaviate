@@ -35,6 +35,11 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+const (
+	InitialSize             = 1000
+	MinimumIndexGrowthDelta = 2000
+)
+
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
@@ -234,7 +239,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		levelNormalizer:        1 / math.Log(float64(uc.MaxConnections)),
 		efConstruction:         uc.EFConstruction,
 		flatSearchCutoff:       int64(uc.FlatSearchCutoff),
-		nodes:                  make([]*vertex, cache.InitialSize),
+		nodes:                  make([]*vertex, InitialSize),
 		cache:                  vectorCache,
 		vectorForID:            vectorCache.Get,
 		multiVectorForID:       vectorCache.MultiGet,

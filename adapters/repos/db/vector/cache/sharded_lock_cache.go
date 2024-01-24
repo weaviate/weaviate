@@ -43,9 +43,10 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 }
 
 const (
-	PageSize                = 1024
-	InitialSize             = PageSize
-	MinimumIndexGrowthDelta = 2000
+	// Size of a page in the cache
+	PageSize = 1024
+	// Number of pages to grow the cache by
+	GrowthDelta = 6 * PageSize
 )
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
@@ -310,7 +311,7 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	pages := int((node + MinimumIndexGrowthDelta) / PageSize)
+	pages := int((node + GrowthDelta) / PageSize)
 	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
 

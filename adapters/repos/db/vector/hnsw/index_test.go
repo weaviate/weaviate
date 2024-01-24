@@ -84,7 +84,7 @@ func TestHnswIndexGrow(t *testing.T) {
 		// we get: panic: runtime error: index out of range [25001] with length 25000
 		// in order to avoid this, insertInitialElement method is now able
 		// to grow it's size at initial state
-		err := index.Add(uint64(cache.InitialSize+1), vector)
+		err := index.Add(uint64(InitialSize+1), vector)
 		require.Nil(t, err)
 	})
 
@@ -93,15 +93,15 @@ func TestHnswIndexGrow(t *testing.T) {
 		// in growIndexToAccomodateNode method which was leading to panic:
 		// panic: runtime error: index out of range [170001] with length 170001
 		vector := []float32{0.11, 0.22}
-		id := uint64(5*cache.InitialSize + 1)
+		id := uint64(5*InitialSize + 1)
 		err := index.Add(id, vector)
 		require.Nil(t, err)
 		// index should grow to 5 * 1024 + 1 = 5121
-		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int(id)+MinimumIndexGrowthDelta, len(index.nodes))
 		// cache should grow to 8 * 1024 = 8192
 		assert.Equal(t, int32(8*cache.PageSize), index.cache.Len())
 		// try to add a vector with id: 6 * 1024 + 2000 + 1 = 8241
-		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
+		id = uint64(6*InitialSize + MinimumIndexGrowthDelta + 1)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
 		// index should grow to at least 8241
@@ -113,22 +113,22 @@ func TestHnswIndexGrow(t *testing.T) {
 		// should not increase the nodes size
 		sizeBefore := len(index.nodes)
 		cacheBefore := index.cache.Len()
-		idDontGrowIndex := uint64(6*cache.InitialSize - 1)
+		idDontGrowIndex := uint64(6*InitialSize - 1)
 		err := index.Add(idDontGrowIndex, vector)
 		require.Nil(t, err)
 		assert.Equal(t, sizeBefore, len(index.nodes))
 		assert.Equal(t, cacheBefore, index.cache.Len())
 		// should increase nodes
-		id := uint64(8*cache.InitialSize + 1)
+		id := uint64(8*InitialSize + 1)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
 		assert.GreaterOrEqual(t, len(index.nodes), int(id))
 		assert.GreaterOrEqual(t, index.cache.Len(), int32(id))
 		// should increase nodes when a much greater id is passed
-		id = uint64(20*cache.InitialSize + 22)
+		id = uint64(20*InitialSize + 22)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
-		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int(id)+MinimumIndexGrowthDelta, len(index.nodes))
 		assert.Equal(t, int32(23*cache.PageSize), index.cache.Len())
 	})
 }

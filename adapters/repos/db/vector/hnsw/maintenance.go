@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
@@ -92,9 +91,9 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 
 	var newSize uint64
 
-	if (indexGrowthRate-1)*float64(previousSize) < float64(cache.MinimumIndexGrowthDelta) {
+	if (indexGrowthRate-1)*float64(previousSize) < float64(MinimumIndexGrowthDelta) {
 		// typically grow the index by the delta
-		newSize = previousSize + cache.MinimumIndexGrowthDelta
+		newSize = previousSize + MinimumIndexGrowthDelta
 	} else {
 		newSize = uint64(float64(previousSize) * indexGrowthRate)
 	}
@@ -105,7 +104,7 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		// imports 21 objects, then deletes the first 20,500. When rebuilding the
 		// index from disk the first id to be imported would be 20,501, however the
 		// index default size and default delta would only reach up to 20,000.
-		newSize = id + cache.MinimumIndexGrowthDelta
+		newSize = id + MinimumIndexGrowthDelta
 	}
 
 	newIndex := make([]*vertex, newSize)
