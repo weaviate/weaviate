@@ -23,6 +23,27 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
+// A PaginatedCache is a cache that stores vectors in pages of a fixed size.
+// Pages are created on demand and stored in a slice.
+// Each index in the slice can be either nil or point to a page.
+// The combination of slice and pages represent a virtual one-dimensional array of vectors.
+// Each vector is identified by its index in the virtual array.
+//
+// # Access and locking
+//
+// Reading and writing a single vector to the cache is a O(1) operation.
+// The vector id is used to calculate the page and index.
+// The cache uses a sharded lock to allow concurrent reads and writes,
+// however it is not possible to use the sharded lock to lock a single page.
+// This means that creating a page or increasing the size of the slice
+// requires a complete lock on the cache. This is not a problem in practice,
+// because these are relatively rare operations.
+//
+// # Memory usage and pruning
+//
+// When the cache slice is grown, pages are not allocated immediately.
+// Instead, pages are allocated when they are needed.
+// A pruning operation is run periodically to remove empty pages.
 type paginatedCache[T float32 | byte | uint64] struct {
 	shardedLocks     *common.ShardedLocks
 	cache            [][][]T
@@ -172,8 +193,8 @@ func (s *paginatedCache[T]) upsert(id uint64, update func(page [][]T, idx int) e
 	defer s.pageLock.Unlock()
 
 	// try again in case the page was created in the meantime.
-	// this is to avoid acquiring a large number of locks
-	// when multiple goroutines try to create the same page.
+	// this is to avoid the waiting routines to all acquire a LockAll
+	// lock when multiple goroutines try to create the same page.
 	s.shardedLocks.Lock(id)
 	page, idx = s.getPageForID(id)
 	if page != nil {
