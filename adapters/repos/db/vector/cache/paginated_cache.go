@@ -344,8 +344,10 @@ func (s *paginatedCache[T]) Grow(node uint64) {
 	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
 
-	// allocate the page for the new node
-	newCache[node/PageSize] = make([][]T, PageSize)
+	// allocate new pages
+	for i := len(s.cache); i < pages; i++ {
+		newCache[i] = make([][]T, PageSize)
+	}
 
 	s.cache = newCache
 }
