@@ -349,7 +349,7 @@ func Test_Filters_Int(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(200))
+		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(21))
 
 	type test struct {
 		name                     string
@@ -392,8 +392,8 @@ func Test_Filters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: helpers.NewAllowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16),
-			expectedListAfterUpdate:  helpers.NewAllowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21),
+			expectedListBeforeUpdate: helpers.NewAllowList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21),
+			expectedListAfterUpdate:  helpers.NewAllowList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21),
 		},
 		{
 			name: "exact match - or filter",

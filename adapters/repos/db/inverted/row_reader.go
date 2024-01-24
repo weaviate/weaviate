@@ -14,33 +14,36 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
-	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
-	value    []byte
-	bucket   *lsmkv.Bucket
-	operator filters.Operator
-
-	keyOnly bool
+	value       []byte
+	bucket      *lsmkv.Bucket
+	operator    filters.Operator
+	keyOnly     bool
+	maxIDGetter maxIDGetterFunc
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool,
+	operator filters.Operator, keyOnly bool, maxIDGetter maxIDGetterFunc,
 ) *RowReader {
 	return &RowReader{
-		bucket:   bucket,
-		value:    value,
-		operator: operator,
-		keyOnly:  keyOnly,
+		bucket:      bucket,
+		value:       value,
+		operator:    operator,
+		keyOnly:     keyOnly,
+		maxIDGetter: maxIDGetter,
 	}
 }
 
@@ -58,7 +61,7 @@ func NewRowReader(bucket *lsmkv.Bucket, value []byte,
 // The boolean return argument is a way to stop iteration (e.g. when a limit is
 // reached) without producing an error. In normal operation always return true,
 // if false is returned once, the loop is broken.
-type ReadFn func(k []byte, values [][]byte) (bool, error)
+type ReadFn func(k []byte, values *sroar.Bitmap) (bool, error)
 
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
@@ -98,8 +101,51 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-	_, err = readFn(rr.value, v)
+	_, err = readFn(rr.value, rr.transformToBitmap(v))
 	return err
+}
+
+// notEqual is another special case, as it's the opposite of equal. So instead
+// of reading just one row, we read all but one row.
+func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	v, err := rr.bucket.SetList(rr.value)
+	if err != nil {
+		return err
+	}
+
+	bm := rr.transformToBitmap(v)
+	maxID := rr.maxIDGetter()
+	inverted := roaringset.NewInvertedBitmap(bm, maxID)
+	_, err = readFn(rr.value, inverted)
+	return err
+
+	//c := rr.newCursor()
+	//defer c.Close()
+	//
+	//for k, v := c.First(); k != nil; k, v = c.Next() {
+	//	if err := ctx.Err(); err != nil {
+	//		return err
+	//	}
+	//
+	//	if bytes.Equal(k, rr.value) {
+	//		continue
+	//	}
+	//
+	//	continueReading, err := readFn(k, rr.transformToBitmap(v))
+	//	if err != nil {
+	//		return err
+	//	}
+	//
+	//	if !continueReading {
+	//		break
+	//	}
+	//}
+	//
+	//return nil
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
@@ -119,7 +165,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -150,35 +196,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
-			continue
-		}
-
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -194,7 +212,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
-		return errors.Wrapf(err, "parse like value")
+		return fmt.Errorf("parse like value: %w", err)
 	}
 
 	c := rr.newCursor()
@@ -233,7 +251,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -254,4 +272,12 @@ func (rr *RowReader) newCursor() *lsmkv.CursorSet {
 	}
 
 	return rr.bucket.SetCursor()
+}
+
+func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
+	out := newDocBitmap()
+	for _, asBytes := range ids {
+		out.docIDs.Set(binary.LittleEndian.Uint64(asBytes))
+	}
+	return out.docIDs
 }

@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -192,7 +192,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 ) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
-		return errors.Wrapf(err, "parse like value")
+		return fmt.Errorf("parse like value: %w", err)
 	}
 
 	c := rr.newCursor()
