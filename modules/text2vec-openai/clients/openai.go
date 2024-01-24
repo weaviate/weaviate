@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -46,10 +47,34 @@ type embeddingData struct {
 }
 
 type openAIApiError struct {
-	Message string      `json:"message"`
-	Type    string      `json:"type"`
-	Param   string      `json:"param"`
-	Code    json.Number `json:"code"`
+	Message string     `json:"message"`
+	Type    string     `json:"type"`
+	Param   string     `json:"param"`
+	Code    openAICode `json:"code"`
+}
+
+type openAICode string
+
+func (c *openAICode) String() string {
+	if c == nil {
+		return ""
+	}
+	return string(*c)
+}
+
+func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
+	if number, err := strconv.Atoi(string(data)); err == nil {
+		str := strconv.Itoa(number)
+		*c = openAICode(str)
+		return nil
+	}
+	var str string
+	err = json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	*c = openAICode(str)
+	return nil
 }
 
 func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
