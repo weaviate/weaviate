@@ -91,7 +91,7 @@ func NewPaginatedFloat32Cache(vecForID common.VectorForID[float32], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedLocks(),
+		shardedLocks:     common.NewShardedLocks(PageSize),
 		deletionInterval: deletionInterval,
 		pruneInterval:    DefaultPruneInterval,
 	}
@@ -113,7 +113,7 @@ func NewPaginatedByteCache(vecForID common.VectorForID[byte], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedLocks(),
+		shardedLocks:     common.NewShardedLocks(PageSize),
 		deletionInterval: deletionInterval,
 		pruneInterval:    DefaultPruneInterval,
 	}
@@ -135,7 +135,7 @@ func NewPaginatedUInt64Cache(vecForID common.VectorForID[uint64], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedLocks(),
+		shardedLocks:     common.NewShardedLocks(PageSize),
 		deletionInterval: deletionInterval,
 		pruneInterval:    DefaultPruneInterval,
 	}
@@ -221,9 +221,10 @@ func (s *paginatedCache[T]) upsert(id uint64, update func(page [][]T, idx int) e
 	err := update(page, idx)
 
 	// opportunistically create the next page
-	if len(s.cache) > int(pageIdx)+1 && s.cache[pageIdx+1] == nil {
+	pageIdx++
+	if len(s.cache) > int(pageIdx) && s.cache[pageIdx] == nil {
 		page = make([][]T, PageSize)
-		s.cache[pageIdx+1] = page
+		s.cache[pageIdx] = page
 	}
 
 	s.shardedLocks.UnlockAll()
@@ -337,17 +338,16 @@ func (s *paginatedCache[T]) Grow(node uint64) {
 		return
 	}
 
+	pages := int((node + GrowthDelta) / PageSize)
+	newCache := make([][][]T, pages)
+	// allocate node page
+	pageIdx := node / PageSize
+	newCache[pageIdx] = make([][]T, PageSize)
+
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
-	pages := int((node + GrowthDelta) / PageSize)
-	newCache := make([][][]T, pages)
 	copy(newCache, s.cache)
-
-	// allocate new pages
-	for i := len(s.cache); i < pages; i++ {
-		newCache[i] = make([][]T, PageSize)
-	}
 
 	s.cache = newCache
 }
