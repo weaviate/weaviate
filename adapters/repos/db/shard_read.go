@@ -37,6 +37,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+var maxUUID [16]byte = [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -111,10 +113,12 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 
 	var objs []replica.RepairResponse
 
-	var initialTokenBytes, finalTokenBytes [8]byte
+	var initialTokenBytes, finalTokenBytes [8 + 16]byte
 
 	binary.LittleEndian.PutUint64(initialTokenBytes[:], initialToken)
+
 	binary.LittleEndian.PutUint64(finalTokenBytes[:], finalToken)
+	copy(finalTokenBytes[8:], maxUUID[:])
 
 	lastTokenRead = initialToken
 
