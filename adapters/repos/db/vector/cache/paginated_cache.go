@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-type shardedLockCache[T float32 | byte | uint64] struct {
+type paginatedCache[T float32 | byte | uint64] struct {
 	shardedLocks     *common.ShardedLocks
 	cache            [][][]T
 	vectorForID      common.VectorForID[T]
@@ -51,10 +51,10 @@ const (
 	DefaultPruneInterval = 5 * time.Minute
 )
 
-func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
+func NewPaginatedFloat32Cache(vecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
 ) Cache[float32] {
-	vc := &shardedLockCache[float32]{
+	vc := &paginatedCache[float32]{
 		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
 			vec, err := vecForID(ctx, id)
 			if err != nil {
@@ -82,10 +82,10 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 	return vc
 }
 
-func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
+func NewPaginatedByteCache(vecForID common.VectorForID[byte], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 ) Cache[byte] {
-	vc := &shardedLockCache[byte]{
+	vc := &paginatedCache[byte]{
 		vectorForID:      vecForID,
 		cache:            make([][][]byte, 1),
 		count:            0,
@@ -104,10 +104,10 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	return vc
 }
 
-func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
+func NewPaginatedUInt64Cache(vecForID common.VectorForID[uint64], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
 ) Cache[uint64] {
-	vc := &shardedLockCache[uint64]{
+	vc := &paginatedCache[uint64]{
 		vectorForID:      vecForID,
 		cache:            make([][][]uint64, 1),
 		count:            0,
@@ -127,7 +127,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
-func (s *shardedLockCache[T]) All() [][]T {
+func (s *paginatedCache[T]) All() [][]T {
 	s.shardedLocks.RLockAll()
 	defer s.shardedLocks.RUnlockAll()
 
@@ -145,7 +145,7 @@ func (s *shardedLockCache[T]) All() [][]T {
 
 // getPageForID returns the page and index of the vector for the given id.
 // This function assumes that the caller holds a read lock on the page.
-func (s *shardedLockCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
+func (s *paginatedCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
 	pageIdx := id / PageSize
 	page = s.cache[pageIdx]
 	if page == nil {
@@ -157,7 +157,7 @@ func (s *shardedLockCache[T]) getPageForID(id uint64) (page [][]T, idx int) {
 
 // upsert gets or creates a page and applies an update to it.
 // No locks must be held when calling this function.
-func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int) error) error {
+func (s *paginatedCache[T]) upsert(id uint64, update func(page [][]T, idx int) error) error {
 	// fast path
 	s.shardedLocks.Lock(id)
 	page, idx := s.getPageForID(id)
@@ -209,7 +209,7 @@ func (s *shardedLockCache[T]) upsert(id uint64, update func(page [][]T, idx int)
 	return err
 }
 
-func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
+func (s *paginatedCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	var vec []T
 
 	s.shardedLocks.RLock(id)
@@ -226,7 +226,7 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 	return s.handleCacheMiss(ctx, id)
 }
 
-func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
+func (s *paginatedCache[T]) Delete(ctx context.Context, id uint64) {
 	s.shardedLocks.Lock(id)
 	defer s.shardedLocks.Unlock(id)
 
@@ -243,7 +243,7 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 	atomic.AddInt64(&s.count, -1)
 }
 
-func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
+func (s *paginatedCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
 	vec, err := s.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -259,7 +259,7 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	return vec, err
 }
 
-func (s *shardedLockCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
+func (s *paginatedCache[T]) MultiGet(ctx context.Context, ids []uint64) ([][]T, []error) {
 	out := make([][]T, len(ids))
 	errs := make([]error, len(ids))
 
@@ -275,7 +275,7 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// this function will be overridden for amd64
 }
 
-func (s *shardedLockCache[T]) Prefetch(id uint64) {
+func (s *paginatedCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
 	page, idx := s.getPageForID(id)
 	if page != nil {
@@ -284,7 +284,7 @@ func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RUnlock(id)
 }
 
-func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
+func (s *paginatedCache[T]) Preload(id uint64, vec []T) {
 	s.shardedLocks.Lock(id)
 
 	page, idx := s.getPageForID(id)
@@ -299,7 +299,7 @@ func (s *shardedLockCache[T]) Preload(id uint64, vec []T) {
 	atomic.AddInt64(&s.count, 1)
 }
 
-func (s *shardedLockCache[T]) Grow(node uint64) {
+func (s *paginatedCache[T]) Grow(node uint64) {
 	s.maintenanceLock.RLock()
 	if node < uint64(len(s.cache)*PageSize) {
 		s.maintenanceLock.RUnlock()
@@ -326,23 +326,23 @@ func (s *shardedLockCache[T]) Grow(node uint64) {
 	s.cache = newCache
 }
 
-func (s *shardedLockCache[T]) Len() int32 {
+func (s *paginatedCache[T]) Len() int32 {
 	s.maintenanceLock.RLock()
 	defer s.maintenanceLock.RUnlock()
 
 	return int32(len(s.cache) * PageSize)
 }
 
-func (s *shardedLockCache[T]) CountVectors() int64 {
+func (s *paginatedCache[T]) CountVectors() int64 {
 	return atomic.LoadInt64(&s.count)
 }
 
-func (s *shardedLockCache[T]) Drop() {
+func (s *paginatedCache[T]) Drop() {
 	s.deleteAllVectors()
 	close(s.cancel)
 }
 
-func (s *shardedLockCache[T]) deleteAllVectors() {
+func (s *paginatedCache[T]) deleteAllVectors() {
 	s.shardedLocks.LockAll()
 	defer s.shardedLocks.UnlockAll()
 
@@ -355,7 +355,7 @@ func (s *shardedLockCache[T]) deleteAllVectors() {
 	atomic.StoreInt64(&s.count, 0)
 }
 
-func (s *shardedLockCache[T]) watchForDeletion() {
+func (s *paginatedCache[T]) watchForDeletion() {
 	if s.deletionInterval != 0 {
 		go func() {
 			t := time.NewTicker(s.deletionInterval)
@@ -372,7 +372,7 @@ func (s *shardedLockCache[T]) watchForDeletion() {
 	}
 }
 
-func (s *shardedLockCache[T]) watchForPrune() {
+func (s *paginatedCache[T]) watchForPrune() {
 	if s.pruneInterval != 0 {
 		go func() {
 			t := time.NewTicker(s.pruneInterval)
@@ -389,13 +389,13 @@ func (s *shardedLockCache[T]) watchForPrune() {
 	}
 }
 
-func (s *shardedLockCache[T]) replaceIfFull() {
+func (s *paginatedCache[T]) replaceIfFull() {
 	if atomic.LoadInt64(&s.count) >= atomic.LoadInt64(&s.maxSize) {
 		s.deleteAllVectors()
 	}
 }
 
-func (s *shardedLockCache[T]) prune() {
+func (s *paginatedCache[T]) prune() {
 	var total, deleted, used, unallocated int
 
 	start := time.Now()
@@ -456,11 +456,11 @@ func (s *shardedLockCache[T]) prune() {
 	}
 }
 
-func (s *shardedLockCache[T]) UpdateMaxSize(size int64) {
+func (s *paginatedCache[T]) UpdateMaxSize(size int64) {
 	atomic.StoreInt64(&s.maxSize, size)
 }
 
-func (s *shardedLockCache[T]) CopyMaxSize() int64 {
+func (s *paginatedCache[T]) CopyMaxSize() int64 {
 	sizeCopy := atomic.LoadInt64(&s.maxSize)
 	return sizeCopy
 }

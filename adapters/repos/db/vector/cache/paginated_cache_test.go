@@ -29,7 +29,7 @@ func TestVectorCacheGrowth(t *testing.T) {
 	id := 100_000
 	expectedCount := int64(0)
 
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
+	vectorCache := NewPaginatedFloat32Cache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
 	initialSize := vectorCache.Len()
 	assert.Less(t, int(initialSize), id)
 	assert.Equal(t, expectedCount, vectorCache.CountVectors())
@@ -51,7 +51,7 @@ func TestCache_ParallelGrowth(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	var vecForId common.VectorForID[float32] = func(context.Context, uint64) ([]float32, error) { return nil, nil }
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Second)
+	vectorCache := NewPaginatedFloat32Cache(vecForId, 1_000_000, logger, false, time.Second)
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	count := 10_000
@@ -82,8 +82,8 @@ func TestCacheCleanup(t *testing.T) {
 	sleep := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval)
-		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
+		vectorCache := NewPaginatedFloat32Cache(vecForId, maxSize, logger, false, deletionInterval)
+		shardedLockCache, ok := vectorCache.(*paginatedCache[float32])
 		assert.True(t, ok)
 
 		for i := 0; i < batchSize; i++ {
@@ -101,8 +101,8 @@ func TestCacheCleanup(t *testing.T) {
 	})
 
 	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval)
-		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
+		vectorCache := NewPaginatedFloat32Cache(vecForId, maxSize, logger, false, deletionInterval)
+		shardedLockCache, ok := vectorCache.(*paginatedCache[float32])
 		assert.True(t, ok)
 
 		for b := 0; b < 2; b++ {
@@ -120,7 +120,7 @@ func TestCacheCleanup(t *testing.T) {
 	})
 }
 
-func countCached(c *shardedLockCache[float32]) int {
+func countCached(c *paginatedCache[float32]) int {
 	c.shardedLocks.LockAll()
 	defer c.shardedLocks.UnlockAll()
 

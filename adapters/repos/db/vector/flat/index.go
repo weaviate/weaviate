@@ -85,7 +85,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 	index.initBuckets(context.Background())
 	if uc.BQ.Enabled && uc.BQ.Cache {
-		index.bqCache = cache.NewShardedUInt64LockCache(index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+		index.bqCache = cache.NewPaginatedUInt64Cache(index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
 	return index, nil

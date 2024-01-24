@@ -223,7 +223,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		normalizeOnRead = true
 	}
 
-	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
+	vectorCache := cache.NewPaginatedFloat32Cache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
 
 	var compressedVectorsCache cache.Cache[byte]
@@ -278,7 +278,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 	}
 
 	if uc.PQ.Enabled {
-		index.compressedVectorsCache = cache.NewShardedByteLockCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+		index.compressedVectorsCache = cache.NewPaginatedByteCache(index.getCompressedVectorForID, uc.VectorCacheMaxObjects, cfg.Logger, 0)
 	}
 
 	if err := index.init(cfg); err != nil {

@@ -107,7 +107,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 
 	// compression got enabled in this update
 	if h.compressedVectorsCache == (cache.Cache[byte])(nil) {
-		h.compressedVectorsCache = cache.NewShardedByteLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger, 0)
+		h.compressedVectorsCache = cache.NewPaginatedByteCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger, 0)
 	} else {
 		if h.compressed.Load() {
 			h.compressedVectorsCache.UpdateMaxSize(int64(parsed.VectorCacheMaxObjects))
