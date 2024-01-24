@@ -31,7 +31,7 @@ type Service struct {
 	voter    bool
 
 	client     *transport.Client
-	rpcService *transport.Cluster
+	rpcService *transport.Service
 	logger     *slog.Logger
 }
 
@@ -46,7 +46,7 @@ func New(cfg store.Config) *Service {
 		raftAddr:   fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 		voter:      cfg.Voter,
 		client:     cl,
-		rpcService: transport.NewCluster(&fsm, server, addr, cfg.Logger),
+		rpcService: transport.New(&fsm, server, addr, cfg.Logger),
 		logger:     cfg.Logger,
 	}
 }
