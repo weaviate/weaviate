@@ -129,7 +129,7 @@ func TestHnswIndexGrow(t *testing.T) {
 		err = index.Add(id, vector)
 		require.Nil(t, err)
 		assert.Equal(t, int(id)+MinimumIndexGrowthDelta, len(index.nodes))
-		assert.Equal(t, int32(23*cache.PageSize), index.cache.Len())
+		assert.Equal(t, int32(27*cache.PageSize), index.cache.Len())
 	})
 }
 
