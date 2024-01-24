@@ -208,12 +208,26 @@ func (st *Service) Execute(req *cmd.ApplyRequest) error {
 	if leader == "" {
 		return ErrLeaderNotFound
 	}
-	_, err := st.cl.Apply(leader, req)
+
+	// If we are a follower, ensure we retry up to 3 times requests to the leader with a small delay.
+	// This can help when we have schema inconsistencies or network issues
+	var err error
+	var errCount int
+	for {
+		if _, err := st.cl.Apply(leader, req); err != nil {
+			errCount += 1
+		} else {
+			break
+		}
+
+		if errCount >= 3 {
+			break
+		}
+	}
 	return err
 }
 
 func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
-	// log.Printf("membership.join %v %v %v", id, addr, voter)
 	if s.store.IsLeader() {
 		return s.store.Join(id, addr, voter)
 	}
@@ -227,7 +241,6 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 }
 
 func (s *Service) Remove(ctx context.Context, id string) error {
-	// log.Printf("membership.remove %v ", id)
 	if s.store.IsLeader() {
 		return s.store.Remove(id)
 	}
@@ -241,7 +254,6 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 }
 
 func (s *Service) Stats() map[string]string {
-	// log.Printf("membership.Stats")
 	return s.store.Stats()
 }
 
