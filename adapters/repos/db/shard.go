@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -63,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const IdLockPoolSize = 128
@@ -669,9 +671,16 @@ func (s *Shard) buildHashTree() {
 
 	shardState := s.index.shardState
 
-	virtualNodes := make(map[string]int, len(shardState.Virtual))
-	for i, v := range shardState.Virtual {
-		virtualNodes[v.Name] = i
+	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
+	copy(virtualNodes, shardState.Virtual)
+
+	sort.SliceStable(virtualNodes, func(a, b int) bool {
+		return virtualNodes[a].Upper < virtualNodes[b].Upper
+	})
+
+	virtualNodesPos := make(map[string]int, len(virtualNodes))
+	for i, v := range virtualNodes {
+		virtualNodesPos[v.Name] = i
 	}
 
 	physical := shardState.Physical[s.name]
@@ -682,14 +691,14 @@ func (s *Shard) buildHashTree() {
 		var segmentStart uint64
 		var segmentSize uint64
 
-		vi := virtualNodes[v]
+		vi := virtualNodesPos[v]
 
 		if vi == 0 {
-			segmentStart = shardState.Virtual[len(shardState.Virtual)-1].Upper
-			segmentSize = shardState.Virtual[0].Upper + (math.MaxUint64 - segmentStart)
+			segmentStart = virtualNodes[len(virtualNodes)-1].Upper
+			segmentSize = virtualNodes[0].Upper + (math.MaxUint64 - segmentStart)
 		} else {
-			segmentStart = shardState.Virtual[vi-1].Upper
-			segmentSize = shardState.Virtual[vi].Upper - segmentStart
+			segmentStart = virtualNodes[vi-1].Upper
+			segmentSize = virtualNodes[vi].Upper - segmentStart
 		}
 
 		segments[i] = hashtree.NewSegment(segmentStart, segmentSize)
