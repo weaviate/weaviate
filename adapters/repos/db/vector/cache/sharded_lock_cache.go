@@ -32,6 +32,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	cancel           chan bool
 	logger           logrus.FieldLogger
 	deletionInterval time.Duration
+	pruneInterval    time.Duration
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -46,7 +47,8 @@ const (
 	// Size of a page in the cache
 	PageSize = 1024
 	// Number of pages to grow the cache by
-	GrowthDelta = 6 * PageSize
+	GrowthDelta          = 6 * PageSize
+	DefaultPruneInterval = 5 * time.Minute
 )
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
@@ -70,11 +72,13 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		logger:           logger,
 		shardedLocks:     common.NewDefaultShardedLocks(),
 		deletionInterval: deletionInterval,
+		pruneInterval:    DefaultPruneInterval,
 	}
 
 	vc.cache[0] = make([][]float32, PageSize)
 
 	vc.watchForDeletion()
+	vc.watchForPrune()
 	return vc
 }
 
@@ -90,11 +94,13 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		logger:           logger,
 		shardedLocks:     common.NewDefaultShardedLocks(),
 		deletionInterval: deletionInterval,
+		pruneInterval:    DefaultPruneInterval,
 	}
 
 	vc.cache[0] = make([][]byte, PageSize)
 
 	vc.watchForDeletion()
+	vc.watchForPrune()
 	return vc
 }
 
@@ -110,12 +116,14 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		logger:           logger,
 		shardedLocks:     common.NewDefaultShardedLocks(),
 		deletionInterval: deletionInterval,
+		pruneInterval:    DefaultPruneInterval,
 	}
 
 	vc.cache = make([][][]uint64, 1)
 	vc.cache[0] = make([][]uint64, PageSize)
 
 	vc.watchForDeletion()
+	vc.watchForPrune()
 	return vc
 }
 
@@ -331,9 +339,7 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 
 func (s *shardedLockCache[T]) Drop() {
 	s.deleteAllVectors()
-	if s.deletionInterval != 0 {
-		s.cancel <- true
-	}
+	close(s.cancel)
 }
 
 func (s *shardedLockCache[T]) deleteAllVectors() {
@@ -366,9 +372,87 @@ func (s *shardedLockCache[T]) watchForDeletion() {
 	}
 }
 
+func (s *shardedLockCache[T]) watchForPrune() {
+	if s.pruneInterval != 0 {
+		go func() {
+			t := time.NewTicker(s.pruneInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-s.cancel:
+					return
+				case <-t.C:
+					s.prune()
+				}
+			}
+		}()
+	}
+}
+
 func (s *shardedLockCache[T]) replaceIfFull() {
 	if atomic.LoadInt64(&s.count) >= atomic.LoadInt64(&s.maxSize) {
 		s.deleteAllVectors()
+	}
+}
+
+func (s *shardedLockCache[T]) prune() {
+	var total, deleted, used, unallocated int
+
+	start := time.Now()
+	defer func() {
+		s.logger.WithField("action", "hnsw_prune_vector_cache").
+			WithField("took", time.Since(start)).
+			WithField("deleted_pages", deleted).
+			WithField("used_pages", used).
+			WithField("unallocated_pages", unallocated).
+			WithField("total_pages", total).
+			Debugf("pruned vector cache, took %s", time.Since(start))
+	}()
+
+	var i int
+
+	for {
+		s.maintenanceLock.RLock()
+		total = len(s.cache)
+		s.maintenanceLock.RUnlock()
+
+		if i >= total {
+			return
+		}
+
+		// any lock will do, we just need to make sure that the cache doesn't
+		// change while we're checking the page.
+		s.shardedLocks.RLock(uint64(i))
+		page := s.cache[i]
+		if page == nil {
+			s.shardedLocks.RUnlock(uint64(i))
+			i++
+			unallocated++
+			continue
+		}
+		s.shardedLocks.RUnlock(uint64(i))
+
+		s.shardedLocks.LockAll()
+		page = s.cache[i]
+
+		empty := true
+		for j := range page {
+			if page[j] != nil {
+				empty = false
+				break
+			}
+		}
+
+		if !empty {
+			s.shardedLocks.UnlockAll()
+			used++
+			i++
+			continue
+		}
+
+		s.cache[i] = nil
+		s.shardedLocks.UnlockAll()
+		deleted++
 	}
 }
 
