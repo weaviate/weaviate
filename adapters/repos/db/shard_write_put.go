@@ -435,8 +435,10 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	h.Write(id)
 	token := h.Sum64()
 
-	var tokenBytes [8]byte
+	var tokenBytes [8 + 16]byte
+	// Important: token is suffixed with object uuid because only unique secondary indexes are supported
 	binary.BigEndian.PutUint64(tokenBytes[:], token)
+	copy(tokenBytes[:], id)
 
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
