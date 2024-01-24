@@ -13,7 +13,6 @@ package ollama
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -48,24 +47,31 @@ func (c *ollama) WaitForStartup(initCtx context.Context,
 func (c *ollama) checkReady(initCtx context.Context) error {
 	// spawn a new context (derived on the overall context) which is used to
 	// consider an individual request timed out
-	requestCtx, cancel := context.WithTimeout(initCtx, 500*time.Millisecond)
-	defer cancel()
 
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet,
-		c.getOllamaUrl("/.well-known/ready"), nil)
-	if err != nil {
-		return errors.Wrap(err, "create check ready request")
-	}
+	/* An API to check status would be `/api/show`` */
 
-	res, err := c.httpClient.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send check ready request")
-	}
+	/*
+		// THIS IS HOW STARTUP WORKS IN OTHER LOCAL MODULES SUCH AS RERANKER-TRANSFORMERS
 
-	defer res.Body.Close()
-	if res.StatusCode > 299 {
-		return errors.Errorf("not ready: status %d", res.StatusCode)
-	}
+		requestCtx, cancel := context.WithTimeout(initCtx, 500*time.Millisecond)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(requestCtx, http.MethodGet,
+			c.getOllamaUrl("/.well-known/ready"), nil)
+		if err != nil {
+			return errors.Wrap(err, "create check ready request")
+		}
+
+		res, err := c.httpClient.Do(req)
+		if err != nil {
+			return errors.Wrap(err, "send check ready request")
+		}
+
+		defer res.Body.Close()
+		if res.StatusCode > 299 {
+			return errors.Errorf("not ready: status %d", res.StatusCode)
+		}
+	*/
 
 	return nil
 }

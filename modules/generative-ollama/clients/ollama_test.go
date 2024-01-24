@@ -43,8 +43,8 @@ func TestGetAnswer(t *testing.T) {
 		{
 			name: "when the server has a successful aner",
 			answer: generateResponse{
-				Choices: []Choice{{Message: Message{Content: "John"}}},
-				Error:   nil,
+				Response: "Test test",
+				Error:    nil,
 			},
 			expectedResult: "John",
 		},
@@ -72,7 +72,7 @@ func TestGetAnswer(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
-			c := New("apiKey", test.timeout, nullLogger())
+			c := New("apiKey", "llama2", test.timeout, nullLogger())
 
 			settings := &fakeClassConfig{baseURL: server.URL}
 			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)

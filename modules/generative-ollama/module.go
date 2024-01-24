@@ -69,8 +69,9 @@ func (m *GenerativeOllamaModule) initAdditional(ctx context.Context, timeout tim
 	if uri == "" {
 		return errors.Errorf("required variable OLLAMA_INFERENCE_API is not set.")
 	}
+	model = os.Getenv("OLLAMA_MODEL")
 
-	client := ollama.New(uri, timeout, logger)
+	client := ollama.New(uri, model, timeout, logger)
 
 	m.generative = client
 

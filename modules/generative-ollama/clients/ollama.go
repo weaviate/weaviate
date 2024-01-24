@@ -34,14 +34,16 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type ollama struct {
+	model      string
 	origin     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *ollama {
+func New(origin string, model string, timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	return &ollama{
 		origin: origin,
+		model:  model,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -68,9 +70,11 @@ func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
+	// Marcin! Please take a look at this part!
 	ollamaUrl := v.getOllamaUrl(ctx, settings.BaseURL())
+	model := v.model
 	input := generateInput{
-		Model:  "llama2", // todo
+		Model:  model,
 		Prompt: prompt,
 		Stream: false,
 	}
@@ -125,6 +129,11 @@ func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) string {
 	return fmt.Sprintf("%s/api/generate", passedBaseURL)
 }
 
+func (v *ollama) getOllamaModel(ctx context.Context) string {
+	model := v.getValueFromContext(ctx, "X-Ollama-Model")
+	return model
+}
+
 func (v *ollama) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
@@ -170,17 +179,17 @@ type generateInput struct {
 
 // The entire response for an error ends up looking different, may want to add omitempty everywhere.
 type generateResponse struct {
-	Model              string         `json:"model"`
-	CreatedAt          string         `json:"created_at"`
-	Response           string         `json:"response"`
-	Done               bool           `json:"done"`
-	Context            []int          `json:"context"`
-	TotalDuration      int            `json:"total_duration"`
-	LoadDuration       int            `json:"load_duration"`
-	PromptEvalDuration int            `json:"prompt_eval_duration"`
-	EvalCount          int            `json:"eval_count"`
-	EvalDuration       int            `json:"eval_duration"`
-	Error              ollamaApiError `json:"error"`
+	Model              string          `json:"model"`
+	CreatedAt          string          `json:"created_at"`
+	Response           string          `json:"response"`
+	Done               bool            `json:"done"`
+	Context            []int           `json:"context"`
+	TotalDuration      int             `json:"total_duration"`
+	LoadDuration       int             `json:"load_duration"`
+	PromptEvalDuration int             `json:"prompt_eval_duration"`
+	EvalCount          int             `json:"eval_count"`
+	EvalDuration       int             `json:"eval_duration"`
+	Error              *ollamaApiError `json:"error,omitempty"`
 }
 
 type ollamaApiError struct {
