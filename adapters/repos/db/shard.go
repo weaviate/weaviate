@@ -614,6 +614,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 		// attempt to load hashtree from file
 		s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+		// s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
 		if err != nil {
 			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
 		}
@@ -627,7 +628,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
-	s.buildHashTree()
+	s.buildCompactHashTree()
+	// s.buildMultiSegmentHashTree()
 
 	// sync hashtree with current object states
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -661,14 +663,14 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) buildHashTree() {
-	/*
-		s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
-		if s.hashtree != nil {
-			return
-		}
-	*/
+func (s *Shard) buildCompactHashTree() {
+	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
+	if s.hashtree != nil {
+		return
+	}
+}
 
+func (s *Shard) buildMultiSegmentHashTree() {
 	shardState := s.index.shardState
 
 	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
