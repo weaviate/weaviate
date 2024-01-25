@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -29,6 +30,11 @@ func init() {
 	importCmd.PersistentFlags().IntVarP(&BatchSize, "batch-size", "b", DefaultBatchSize, "number of objects in a single import batch")
 	importCmd.PersistentFlags().IntVarP(&MultiplyProperties, "multiply-properties", "m", DefaultMultiplyProperties, "create artifical copies of real properties by setting a value larger than 1. The properties have identical contents, so it won't alter results, but leads to many more calculations.")
 	importCmd.PersistentFlags().BoolVarP(&Vectorizer, "vectorizer", "v", DefaultVectorizer, "Vectorize import data with default vectorizer")
+	importCmd.PersistentFlags().IntVarP(&QueriesCount, "count", "c", DefaultQueriesCount, "run only the specified amount of queries, negative numbers mean unlimited")
+	importCmd.PersistentFlags().IntVarP(&FilterObjectPercentage, "filter", "f", DefaultFilterObjectPercentage, "The given percentage of objects are filtered out. Off by default, use <=0 to disable")
+	importCmd.PersistentFlags().Float32VarP(&Alpha, "alpha", "a", DefaultAlpha, "Weighting for keyword vs vector search. Alpha = 0 (Default) is pure BM25 search.")
+	importCmd.PersistentFlags().StringVarP(&Ranking, "ranking", "r", DefaultRanking, "Which ranking algorithm should be used for hybrid search, rankedFusion (default) and relativeScoreFusion.")
+	importCmd.PersistentFlags().IntVarP(&QueriesInterval, "query-interval", "i", DefaultQueriesInterval, "run queries every this number of inserts")
 }
 
 type IndexingExperimentResult struct {
@@ -77,6 +83,7 @@ var importCmd = &cobra.Command{
 		}
 
 		experimentResults := make([]IndexingExperimentResult, len(datasets.Datasets))
+		queryResults := make([]*QueryExperimentResult, 0)
 
 		for di, dataset := range datasets.Datasets {
 
@@ -89,6 +96,16 @@ var importCmd = &cobra.Command{
 				WithClass(lib.SchemaFromDataset(dataset, Vectorizer)).
 				Do(context.Background()); err != nil {
 				return fmt.Errorf("create schema for %s: %w", dataset, err)
+			}
+
+			queries := make([]lib.Query, 0)
+			if QueriesInterval != -1 {
+				log.Print("parse queries")
+				queries, err = lib.ParseQueries(dataset, QueriesCount)
+				if err != nil {
+					return err
+				}
+				log.Print("queries parsed")
 			}
 
 			start := time.Now()
@@ -129,6 +146,15 @@ var importCmd = &cobra.Command{
 					startBatch = time.Now()
 					log.Printf("imported %d/%d objects in %.3f, time per 1k objects: %.3f, objects per second: %.0f", i, len(c), totalTimeBatch, totalTime/float64(i)*1000, float64(i)/totalTime)
 				}
+
+				if QueriesInterval > 0 && i != 0 && i%QueriesInterval == 0 {
+					result, err := query(client, queries, dataset)
+					if err != nil {
+						return fmt.Errorf("query: %w", err)
+					}
+					queryResults = append(queryResults, result)
+
+				}
 			}
 
 			if len(c)%BatchSize != 0 {
@@ -144,6 +170,16 @@ var importCmd = &cobra.Command{
 				totalTime := time.Since(start).Seconds()
 				log.Printf("imported finished %d/%d objects in %.3f, time per 1k objects: %.3f, objects per second: %.0f", len(c), len(c), totalTimeBatch, totalTime/float64(len(c))*1000, float64(len(c))/totalTime)
 			}
+
+			if QueriesInterval != -1 {
+				// run queries after full import
+				result, err := query(client, queries, dataset)
+				if err != nil {
+					return fmt.Errorf("query: %w", err)
+				}
+				queryResults = append(queryResults, result)
+			}
+
 			experimentResults[di] = IndexingExperimentResult{
 				Dataset:            dataset.ID,
 				Objects:            len(c),
@@ -155,10 +191,17 @@ var importCmd = &cobra.Command{
 			}
 		}
 		// pretty print results fas TSV
-		fmt.Printf("\nResults:\n")
+		fmt.Printf("\nIndexing Results:\n")
 		fmt.Printf("Dataset\tObjects\tMultiplyProperties\tVectorizer\tImportTime\tImportTimePer1000\tObjectsPerSecond\n")
 		for _, result := range experimentResults {
 			fmt.Printf("%s\t%d\t%d\t%t\t%.3f\t%.3f\t%.0f\n", result.Dataset, result.Objects, result.MultiplyProperties, result.Vectorize, result.ImportTime, result.ImportTimePer1000, result.ObjectsPerSecond)
+		}
+
+		fmt.Printf("\nQuery Results:\n")
+		fmt.Printf("Dataset\tObjects\tQueries\tFilterObjectPercentage\tAlpha\tRanking\tQueryTime\tQueryTimePer1000\tQueriesPerSecond\tQueryTimePer1000000Documents\tMin\tMax\tP50\tP90\tP99\tnDCG\tP@1\tP@5\n")
+		for _, result := range queryResults {
+			ranking, _ := strconv.ParseFloat(result.Ranking, 64) // Convert result.Ranking to float64
+			fmt.Printf("%s\t%d\t%d\t%d\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\n", result.Dataset, result.Objects, result.Queries, result.FilterObjectPercentage, result.Alpha, ranking, result.TotalQueryTime, result.QueryTimePer1000, result.QueriesPerSecond, result.QueryTimePer1000000Documents, float32(result.Min.Milliseconds())/1000.0, float32(result.Max.Milliseconds())/1000.0, float32(result.P50.Milliseconds())/1000.0, float32(result.P90.Milliseconds())/1000.0, float32(result.P99.Milliseconds())/1000.0, result.Scores.CurrentNDCG(), result.Scores.CurrentPrecisionAt1(), result.Scores.CurrentPrecisionAt5())
 		}
 
 		return nil
