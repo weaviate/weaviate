@@ -273,12 +273,14 @@ func (d *Compose) WithSecondWeaviate() *Compose {
 	return d
 }
 
+// WithWeaviateCluster it will starts 3 Node to be able to come to consensus
 func (d *Compose) WithWeaviateCluster() *Compose {
-	return d.With2NodeCluster()
+	return d.With3NodeCluster()
 }
 
+// WithWeaviateClusterWithGRPC it will starts 3 Node to be able to come to consensus
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.With2NodeCluster()
+	d.With3NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
