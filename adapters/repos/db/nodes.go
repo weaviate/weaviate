@@ -45,7 +45,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 
 func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
-		return db.localNodeStatus(className, output), nil
+		return db.LocalNodeStatus(className, output), nil
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, output)
 	if err != nil {
@@ -62,10 +62,10 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, out
 
 // IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
 func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, verbosity string) (*models.NodeStatus, error) {
-	return db.localNodeStatus(className, verbosity), nil
+	return db.LocalNodeStatus(className, verbosity), nil
 }
 
-func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
+func (db *DB) LocalNodeStatus(className, output string) *models.NodeStatus {
 	var (
 		objectCount int64
 		shardCount  int64
