@@ -623,6 +623,12 @@
           "description": "Name of the class as URI relative to the schema URL.",
           "type": "string"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexType": {
           "description": "Name of the vector index to use, eg. (HNSW)",
           "type": "string"
@@ -720,6 +726,23 @@
             "type": "array",
             "x-omitempty": true
           }
+      },
+      "type": "object"
+    },
+    "VectorConfig": {
+      "properties": {
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        }
       },
       "type": "object"
     },
