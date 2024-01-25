@@ -3580,6 +3580,12 @@ func init() {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -4685,6 +4691,23 @@ func init() {
         "name": {
           "description": "name of the tenant",
           "type": "string"
+        }
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
         }
       }
     },
@@ -8795,6 +8818,12 @@ func init() {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -9944,6 +9973,23 @@ func init() {
         "name": {
           "description": "name of the tenant",
           "type": "string"
+        }
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
         }
       }
     },
