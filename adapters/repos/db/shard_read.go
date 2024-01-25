@@ -115,9 +115,9 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 
 	var initialTokenBytes, finalTokenBytes [8 + 16]byte
 
-	binary.LittleEndian.PutUint64(initialTokenBytes[:], initialToken)
+	binary.BigEndian.PutUint64(initialTokenBytes[:], initialToken)
 
-	binary.LittleEndian.PutUint64(finalTokenBytes[:], finalToken)
+	binary.BigEndian.PutUint64(finalTokenBytes[:], finalToken)
 	copy(finalTokenBytes[8:], maxUUID[:])
 
 	lastTokenRead = initialToken
