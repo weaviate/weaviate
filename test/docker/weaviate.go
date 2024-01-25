@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -134,10 +135,17 @@ func startWeaviate(ctx context.Context,
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
-		Reuse:            false,
+		Reuse:            true,
 	})
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "is already in use") {
 		return nil, err
+	}
+	if err != nil && strings.Contains(err.Error(), "is already in use") {
+		return startWeaviate(ctx,
+			enableModules, defaultVectorizerModule,
+			extraEnvSettings, networkName,
+			weaviateImage, fmt.Sprintf("%s-%d", hostname, time.Now().Unix()), exposeGRPCPort,
+		)
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")
 	if err != nil {
