@@ -220,13 +220,13 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 
 			i.getObjectsDigest().ServeHTTP(w, r)
 		case i.regexObjectsDigestsInTokenRange.MatchString(path):
-			if r.Method != http.MethodGet {
+			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			}
 
 			i.getObjectsDigestsInTokenRange().ServeHTTP(w, r)
 		case i.regexObjectsHashTreeLevel.MatchString(path):
-			if r.Method != http.MethodGet {
+			if r.Method != http.MethodPost {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			}
 
