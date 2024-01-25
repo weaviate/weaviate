@@ -142,6 +142,18 @@ func TestGRPCRequest(t *testing.T) {
 		error bool
 	}{
 		{
+			name: "near text wrong uuid format",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearText: &pb.NearTextSearch{
+					Query:  []string{"first"},
+					MoveTo: &pb.NearTextSearch_Move{Force: 0.5, Uuids: []string{"not a uuid"}},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
 			name:  "No classname",
 			req:   &pb.SearchRequest{},
 			out:   dto.GetParams{},
@@ -423,10 +435,13 @@ func TestGRPCRequest(t *testing.T) {
 			name: "hybrid neartext",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{Query: "query", NearText: &pb.NearTextSearch{MoveTo: &pb.NearTextSearch_Move{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}, MoveAway: &pb.NearTextSearch_Move{Force: 0.6, Concepts: []string{"thing1"}, Uuids: []string{"otherthing1"}}}},
+				HybridSearch: &pb.Hybrid{Query: "query", NearText: &pb.NearTextSearch{
+					Query:    []string{"first and", "second", "query"},
+					MoveTo:   &pb.NearTextSearch_Move{Force: 0.5, Concepts: []string{"first", "and second"}, Uuids: []string{UUID3, UUID4}},
+					MoveAway: &pb.NearTextSearch_Move{Force: 0.3, Concepts: []string{"second to last", "really last"}, Uuids: []string{UUID4}}}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, MoveTo: searchparams.HybridMove{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}},
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 			},
@@ -949,18 +964,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
-		{
-			name: "near text wrong uuid format",
-			req: &pb.SearchRequest{
-				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
-				NearText: &pb.NearTextSearch{
-					Query:  []string{"first"},
-					MoveTo: &pb.NearTextSearch_Move{Force: 0.5, Uuids: []string{"not a uuid"}},
-				},
-			},
-			out:   dto.GetParams{},
-			error: true,
-		},
+
 		{
 			name: "near audio search",
 			req: &pb.SearchRequest{

@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
 	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/usecases/modules"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -61,9 +61,13 @@ type denseSearchFunc func(searchVector []float32) (results []*storobj.Object, we
 // which is implemented by doing the reference resolution within a postProcFunc closure.
 type postProcFunc func(hybridResults []*search.Result) (postProcResults []search.Result, err error)
 
+type modulesProvider interface {
+	VectorFromInput(ctx context.Context,
+		className string, input string) ([]float32, error)
+}
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, mods *modules.Provider) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) ([]*search.Result, error) {
 	var (
 		resultSet [][]*search.Result
 		weights   []float64
@@ -85,7 +89,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 
 		if alpha > 0 {
-			res, err := processDenseSearch(ctx, denseSearch, params, mods)
+			res, err := processDenseSearch(ctx, denseSearch, params, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -98,13 +102,13 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		ss := params.SubSearches
 
 		// To catch error if ss is empty
-		_, err := decideSearchVector(ctx, params, mods)
+		_, err := decideSearchVector(ctx, params, modules)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, mods)
+			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -215,8 +219,8 @@ func processSparseSearch(results []*storobj.Object, scores []float32, err error)
 	return out, nil
 }
 
-func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, mods *modules.Provider) ([]*search.Result, error) {
-	vector, err := decideSearchVector(ctx, params, mods)
+func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, error) {
+	vector, err := decideSearchVector(ctx, params, modules)
 	if err != nil {
 		return nil, err
 	}
@@ -235,14 +239,14 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 	return out, nil
 }
 
-func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, mods *modules.Provider) ([]*search.Result, string, float64, error) {
+func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
 	case "sparseSearch":
 		return sparseSubSearch(subsearch, params, sparseSearch)
 	case "nearText":
-		return nearTextSubSearch(ctx, subsearch, denseSearch, params, mods)
+		return nearTextSubSearch(ctx, subsearch, denseSearch, params, modules)
 	case "nearVector":
 		return nearVectorSubSearch(subsearch, denseSearch)
 	default:
@@ -269,13 +273,13 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 	return out, "bm25f", subsearch.Weight, nil
 }
 
-func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, mods *modules.Provider) ([]*search.Result, string, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
-	if mods == nil {
+	if modules == nil {
 		return nil, "", 0, nil
 	}
 
-	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], mods)
+	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], modules)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -313,7 +317,7 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 	return out, "vector,nearVector", subsearch.Weight, nil
 }
 
-func decideSearchVector(ctx context.Context, params *Params, mods *modules.Provider) ([]float32, error) {
+func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {
 	var (
 		vector []float32
 		err    error
@@ -322,8 +326,8 @@ func decideSearchVector(ctx context.Context, params *Params, mods *modules.Provi
 	if params.Vector != nil && len(params.Vector) != 0 {
 		vector = params.Vector
 	} else {
-		if mods != nil {
-			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, mods)
+		if modules != nil {
+			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -333,8 +337,8 @@ func decideSearchVector(ctx context.Context, params *Params, mods *modules.Provi
 	return vector, nil
 }
 
-func vectorFromModuleInput(ctx context.Context, class, input string, mods *modules.Provider) ([]float32, error) {
-	vector, err := mods.VectorFromInput(ctx, class, input)
+func vectorFromModuleInput(ctx context.Context, class, input string, modules modulesProvider) ([]float32, error) {
+	vector, err := modules.VectorFromInput(ctx, class, input)
 	if err != nil {
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
 	}
