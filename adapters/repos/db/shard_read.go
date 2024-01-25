@@ -144,14 +144,15 @@ func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
 
 		h := murmur3.New64()
 		h.Write(uuidBytes)
-		token := h.Sum64()
-
-		var tokenBytes [8]byte
-		binary.BigEndian.PutUint64(tokenBytes[:], token)
-
-		lastTokenRead = binary.BigEndian.Uint64(tokenBytes[:])
+		lastTokenRead = h.Sum64()
 
 		n++
+	}
+
+	if n < limit {
+		return objs, finalToken, nil
+	} else if n == limit {
+		return objs, lastTokenRead, storobj.ErrLimitReached
 	}
 
 	return objs, lastTokenRead, nil
