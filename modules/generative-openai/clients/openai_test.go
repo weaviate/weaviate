@@ -195,11 +195,18 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 				want: "500",
 			},
 			{
-				name: "Error code as string",
+				name: "Error code as string number",
 				args: args{
 					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
 				},
 				want: "500",
+			},
+			{
+				name: "Error code as string text",
+				args: args{
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "invalid_api_key"}`),
+				},
+				want: "invalid_api_key",
 			},
 		}
 		for _, tt := range tests {
