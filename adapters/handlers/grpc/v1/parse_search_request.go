@@ -93,8 +93,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			vector = hs.Vector
 		}
 
-		moveTo := req.HybridSearch.MoveTo
-		moveAway := req.HybridSearch.MoveAway
+		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.NearText)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
 
 		out.HybridSearch = &searchparams.HybridSearch{
 			Query:           hs.Query,
@@ -102,14 +104,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			Vector:          vector,
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
-			MoveTo: searchparams.HybridMove{
-				Force:    moveTo.Force,
-				Uuids:    moveTo.Uuids,
-				Concepts: moveTo.Concepts},
-			MoveAway: searchparams.HybridMove{
-				Force:    moveAway.Force,
-				Uuids:    moveAway.Uuids,
-				Concepts: moveAway.Concepts}}
+
+		}
+		if nearTxt != nil {
+			out.HybridSearch.NearTextParams =   &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
+		}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
@@ -242,30 +241,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Pagination.Limit = 10
 	}
 
+	var nearText *nearText2.NearTextParams
 	if req.NearText != nil {
-		moveAwayOut, err := extractNearTextMove(req.Collection, req.NearText.MoveAway)
-		if err != nil {
-			return dto.GetParams{}, err
-		}
-		moveToOut, err := extractNearTextMove(req.Collection, req.NearText.MoveTo)
-		if err != nil {
-			return dto.GetParams{}, err
-		}
-
-		nearText := &nearText2.NearTextParams{
-			Values:       req.NearText.Query,
-			Limit:        out.Pagination.Limit,
-			MoveAwayFrom: moveAwayOut,
-			MoveTo:       moveToOut,
-		}
-
-		if req.NearText.Certainty != nil {
-			nearText.Certainty = *req.NearText.Certainty
-		}
-		if req.NearText.Distance != nil {
-			nearText.Distance = *req.NearText.Distance
-			nearText.WithDistance = true
-		}
+		nearText, err = extractNearText(out.ClassName, out.Pagination.Limit, req.NearText)
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -376,6 +354,35 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 		rerank.Query = req.Rerank.Query
 	}
 	return &rerank
+}
+
+func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch) (*nearText2.NearTextParams, error) {
+
+	moveAwayOut, err := extractNearTextMove(classname, nearTextIn.MoveAway)
+	if err != nil {
+		return &nearText2.NearTextParams{}, err
+	}
+	moveToOut, err := extractNearTextMove(classname, nearTextIn.MoveTo)
+	if err != nil {
+		return &nearText2.NearTextParams{}, err
+	}
+
+	nearText := &nearText2.NearTextParams{
+		Values:       nearTextIn.Query,
+		Limit:        limit,
+		MoveAwayFrom: moveAwayOut,
+		MoveTo:       moveToOut,
+	}
+
+	if nearTextIn.Certainty != nil {
+		nearText.Certainty = *nearTextIn.Certainty
+	}
+	if nearTextIn.Distance != nil {
+		nearText.Distance = *nearTextIn.Distance
+		nearText.WithDistance = true
+	}
+	return nearText, nil
+
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearText2.ExploreMove, error) {

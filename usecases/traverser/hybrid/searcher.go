@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 
 	"github.com/weaviate/weaviate/entities/autocut"
-
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
@@ -61,13 +61,9 @@ type denseSearchFunc func(searchVector []float32) (results []*storobj.Object, we
 // which is implemented by doing the reference resolution within a postProcFunc closure.
 type postProcFunc func(hybridResults []*search.Result) (postProcResults []search.Result, err error)
 
-type modulesProvider interface {
-	VectorFromInput(ctx context.Context,
-		className string, input string) ([]float32, error)
-}
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, mods *modules.Provider) ([]*search.Result, error) {
 	var (
 		resultSet [][]*search.Result
 		weights   []float64
@@ -89,7 +85,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 
 		if alpha > 0 {
-			res, err := processDenseSearch(ctx, denseSearch, params, modules)
+			res, err := processDenseSearch(ctx, denseSearch, params, mods)
 			if err != nil {
 				return nil, err
 			}
@@ -102,13 +98,13 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		ss := params.SubSearches
 
 		// To catch error if ss is empty
-		_, err := decideSearchVector(ctx, params, modules)
+		_, err := decideSearchVector(ctx, params, mods)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules)
+			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, mods)
 			if err != nil {
 				return nil, err
 			}
@@ -160,6 +156,51 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	return fused, nil
 }
 
+
+
+// Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
+func Do(ctx context.Context, params *Params, resultSet [][]*search.Result, weights   []float64, names     []string, logger logrus.FieldLogger,  postProc postProcFunc) ([]*search.Result, error) {
+	if len(weights) != len(resultSet) {
+		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(resultSet))
+	}
+	if len(weights) != len(names) {
+		return nil, fmt.Errorf("length of weights and names do not match for hybrid search %v vs. %v", len(weights), len(names))
+	}
+
+	var fused []*search.Result
+	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
+		fused = FusionRanked(weights, resultSet, names)
+	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
+		fused = FusionRelativeScore(weights, resultSet, names)
+	} else {
+		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
+	}
+
+	if postProc != nil {
+		sr, err := postProc(fused)
+		if err != nil {
+			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
+		}
+		newResults := make([]*search.Result, len(sr))
+		for i := range sr {
+			if err != nil {
+				return nil, fmt.Errorf("hybrid search post-processing: %w", err)
+			}
+			newResults[i] = &sr[i]
+		}
+		fused = newResults
+	}
+	if params.Autocut > 0 {
+		scores := make([]float32, len(fused))
+		for i := range fused {
+			scores[i] = fused[i].Score
+		}
+		cutOff := autocut.Autocut(scores, params.Autocut)
+		fused = fused[:cutOff]
+	}
+	return fused, nil
+}
+
 func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*search.Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)
@@ -174,8 +215,8 @@ func processSparseSearch(results []*storobj.Object, scores []float32, err error)
 	return out, nil
 }
 
-func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, error) {
-	vector, err := decideSearchVector(ctx, params, modules)
+func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, mods *modules.Provider) ([]*search.Result, error) {
+	vector, err := decideSearchVector(ctx, params, mods)
 	if err != nil {
 		return nil, err
 	}
@@ -194,14 +235,14 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 	return out, nil
 }
 
-func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
+func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, mods *modules.Provider) ([]*search.Result, string, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
 	case "sparseSearch":
 		return sparseSubSearch(subsearch, params, sparseSearch)
 	case "nearText":
-		return nearTextSubSearch(ctx, subsearch, denseSearch, params, modules)
+		return nearTextSubSearch(ctx, subsearch, denseSearch, params, mods)
 	case "nearVector":
 		return nearVectorSubSearch(subsearch, denseSearch)
 	default:
@@ -228,13 +269,13 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 	return out, "bm25f", subsearch.Weight, nil
 }
 
-func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, mods *modules.Provider) ([]*search.Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
-	if modules == nil {
+	if mods == nil {
 		return nil, "", 0, nil
 	}
 
-	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], modules)
+	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], mods)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -272,7 +313,7 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 	return out, "vector,nearVector", subsearch.Weight, nil
 }
 
-func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {
+func decideSearchVector(ctx context.Context, params *Params, mods *modules.Provider) ([]float32, error) {
 	var (
 		vector []float32
 		err    error
@@ -281,8 +322,8 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 	if params.Vector != nil && len(params.Vector) != 0 {
 		vector = params.Vector
 	} else {
-		if modules != nil {
-			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, modules)
+		if mods != nil {
+			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, mods)
 			if err != nil {
 				return nil, err
 			}
@@ -292,8 +333,8 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 	return vector, nil
 }
 
-func vectorFromModuleInput(ctx context.Context, class, input string, modules modulesProvider) ([]float32, error) {
-	vector, err := modules.VectorFromInput(ctx, class, input)
+func vectorFromModuleInput(ctx context.Context, class, input string, mods *modules.Provider) ([]float32, error) {
+	vector, err := mods.VectorFromInput(ctx, class, input)
 	if err != nil {
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
 	}

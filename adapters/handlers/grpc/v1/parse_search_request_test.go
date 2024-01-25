@@ -420,10 +420,10 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "hybrid move to",
+			name: "hybrid neartext",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{Query: "query", MoveTo: &pb.Hybrid_Move{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}},
+				HybridSearch: &pb.Hybrid{Query: "query", NearText: &pb.NearTextSearch{MoveTo: &pb.NearTextSearch_Move{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}, MoveAway: &pb.NearTextSearch_Move{Force: 0.6, Concepts: []string{"thing1"}, Uuids: []string{"otherthing1"}}}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion, MoveTo: searchparams.HybridMove{Force: 0.5, Concepts: []string{"thing"}, Uuids: []string{"otherthing"}}},

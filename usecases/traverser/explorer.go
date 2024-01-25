@@ -139,17 +139,29 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.KeywordRanking != nil {
-		return e.getClassKeywordBased(ctx, params)
+		res, err := e.getClassKeywordBased(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return e.searchResultsToGetResponse(ctx, res, nil, params)
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		return e.getClassVectorSearch(ctx, params)
+		res, searchVector, err := e.getClassVectorSearch(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 	}
 
-	return e.getClassList(ctx, params)
+	res, err := e.getClassList(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return e.searchResultsToGetResponse(ctx, res, nil, params)
 }
 
-func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]interface{}, error) {
+func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		return nil, errors.Errorf("conflict: both near<Media> and keyword-based (bm25) arguments present, choose one")
 	}
@@ -191,15 +203,15 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		}
 	}
 
-	return e.searchResultsToGetResponse(ctx, res, nil, params)
+	return res,nil
 }
 
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]interface{}, error) {
+) ([]search.Result,  []float32, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
 	params.SearchVector = searchVector
@@ -214,7 +226,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	res, err := e.searcher.VectorSearch(ctx, params)
 	if err != nil {
-		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil,errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -229,7 +241,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, errors.Errorf("grouper: %v", err)
+			return nil, nil,errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -239,13 +251,13 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 		if err != nil {
-			return nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil,errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 
 	e.trackUsageGet(res, params)
 
-	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
+	return res, searchVector, nil
 }
 
 func MinInt(ints ...int) int {
@@ -282,53 +294,118 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
 }
 
-func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	sparseSearch := func() ([]*storobj.Object, []float32, error) {
-		params.KeywordRanking = &searchparams.KeywordRanking{
-			Query:      params.HybridSearch.Query,
-			Type:       "bm25",
-			Properties: params.HybridSearch.Properties,
-		}
-
-		if params.Pagination == nil {
-			return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
-		}
-
-		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
-
-		oldLimit := params.Pagination.Limit
-		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
-
-		res, scores, err := e.searcher.SparseObjectSearch(ctx, params)
-		if err != nil {
-			return nil, nil, err
-		}
-		params.Pagination.Limit = oldLimit
-
-		return res, scores, nil
+func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams)  ([]*search.Result, string, error) {
+	params.KeywordRanking = &searchparams.KeywordRanking{
+		Query:      params.HybridSearch.Query,
+		Type:       "bm25",
+		Properties: params.HybridSearch.Properties,
 	}
 
-	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-		var hybridSearchLimit int
-		if baseSearchLimit <= hybrid.DefaultLimit {
-			hybridSearchLimit = hybrid.DefaultLimit
-		} else {
-			hybridSearchLimit = baseSearchLimit
-		}
-		res, dists, err := e.searcher.DenseObjectSearch(ctx,
-			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
-			params.AdditionalProperties, params.Tenant)
-		if err != nil {
-			return nil, nil, err
-		}
+	if params.Pagination == nil {
+		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
+	}
 
-		return res, dists, nil
+	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
+	if err != nil {
+		return nil, "", err
+	}
+
+	enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
+
+	oldLimit := params.Pagination.Limit
+	params.Pagination.Limit = enforcedMin - params.Pagination.Offset
+
+	results, scores, err := e.searcher.SparseObjectSearch(ctx, params)
+	if err != nil {
+		return nil, "", err
+	}
+	params.Pagination.Limit = oldLimit
+
+	out := make([]*search.Result, len(results))
+	for i, obj := range results {
+		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
+		sr.SecondarySortValue = sr.Score
+		out[i] = &sr
+	}
+
+
+	return out, "keyword,dunno", nil
+}
+
+func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+	/* FIXME
+	baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
+	var hybridSearchLimit int
+	if baseSearchLimit <= hybrid.DefaultLimit {
+		hybridSearchLimit = hybrid.DefaultLimit
+	} else {
+		hybridSearchLimit = baseSearchLimit
+	}
+	*/
+	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
+	if err != nil {
+		return nil, "", err
+	}
+
+	results,err := e.searchResultsToGetResponseWithType(ctx, partial_results, vector, params)
+	if err != nil {
+		return nil, "", err
+	}
+
+	out := make([]*search.Result, len(results))
+	for i, sr := range results {
+		sr.SecondarySortValue = 1 - sr.Dist
+		out[i] = &sr
+	}
+
+	return out, "vector,nearVector", nil
+}
+
+func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+
+	subSearchParams := params
+	subSearchParams.ModuleParams["nearText"] = params.HybridSearch.NearTextParams
+	subSearchParams.HybridSearch = nil
+	partial_results, vector, err := e.getClassVectorSearch(ctx, subSearchParams)
+	if err != nil {
+		return nil, "", err
+	}
+	results,err := e.searchResultsToGetResponseWithType(ctx, partial_results, vector, params)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var out []*search.Result
+	for _, res := range results {
+		sr := res
+		sr.SecondarySortValue = 1 - sr.Dist
+		out = append(out, &sr)
+	}
+
+	return out, "vector,nearText", nil
+}
+
+func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	var results [][]*search.Result
+	var weights []float64
+	var names []string
+
+	if params.HybridSearch.NearTextParams != nil {
+		res, name, err := nearTextSubSearch(ctx, e, params)
+		if err != nil {
+			return nil, err
+		}
+		weights = append(weights, params.HybridSearch.Alpha)
+		results = append(results, res)
+		names = append(names, name)
+	} else {
+		res, name, err := denseSearch(ctx, params.SearchVector, e, params)
+		if err != nil {
+			return nil, err
+		}
+		weights = append(weights, params.HybridSearch.Alpha)
+		results = append(results, res)
+		names = append(names, name)
 	}
 
 	postProcess := func(results []*search.Result) ([]search.Result, error) {
@@ -353,12 +430,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return res, nil
 	}
 
-	res, err := hybrid.Search(ctx, &hybrid.Params{
+	res, err := hybrid.Do(ctx, &hybrid.Params{
 		HybridSearch: params.HybridSearch,
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
 		Autocut:      params.Pagination.Autocut,
-	}, e.logger, sparseSearch, denseSearch, postProcess, e.modulesProvider)
+	}, results, weights, names ,e.logger,  postProcess)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +470,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 func (e *Explorer) getClassList(ctx context.Context,
 	params dto.GetParams,
-) ([]interface{}, error) {
+) ([]search.Result, error) {
 	// we will modify the params because of the workaround outlined below,
 	// however, we only want to track what the user actually set for the usage
 	// metrics, not our own workaround, so here's a copy of the original user
@@ -450,14 +527,26 @@ func (e *Explorer) getClassList(ctx context.Context,
 		e.trackUsageGetExplicitVector(res, params)
 	}
 
-	return e.searchResultsToGetResponse(ctx, res, nil, params)
+	return res,nil
 }
 
-func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
+func(e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
+	output := make([]interface{}, 0, len(input))
+	results, err :=  e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
+	if err != nil {
+		return nil, err
+	}
+	for _, result := range results {
+		output = append(output, result.Schema)
+	}
+	return output, nil
+}
+
+func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context,
 	input []search.Result,
 	searchVector []float32, params dto.GetParams,
-) ([]interface{}, error) {
-	output := make([]interface{}, 0, len(input))
+) ([]search.Result, error) {
+	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {
 		return nil, fmt.Errorf("search results to get response: %w", err)
@@ -541,7 +630,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 		e.extractAdditionalPropertiesFromRefs(res.Schema, params.Properties)
 
-		output = append(output, res.Schema)
+		output = append(output, res)
 	}
 
 	return output, nil
