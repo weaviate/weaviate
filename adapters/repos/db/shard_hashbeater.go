@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -88,6 +89,9 @@ func (s *Shard) hashBeat() error {
 				return fmt.Errorf("difference reading: %w", err)
 			}
 
+			// initialToken := uint64(0)
+			// finalToken := uint64(math.MaxUint64)
+
 			_, err = s.stepsTowardsShardConsistency(
 				s.hashBeaterCtx,
 				s.name,
@@ -96,7 +100,7 @@ func (s *Shard) hashBeat() error {
 				finalToken,
 			)
 			if err != nil {
-				s.index.logger.Printf("solving differences for shard %s: %v", s.name, r.Err)
+				s.index.logger.Printf("solving differences for shard %s: %v", s.name, err)
 				continue
 			}
 		}
@@ -126,8 +130,9 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 		}
 
 		if len(localDigestsByUUID) == 0 {
-			// no more local objects need to be propagated
-			return n, nil
+			// no more local objects need to be propagated in this iteration
+			localLastReadToken = newLocalLastReadToken
+			continue
 		}
 
 		remoteLastTokenRead := localLastReadToken
@@ -138,7 +143,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 		for remoteLastTokenRead < newLocalLastReadToken {
 			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
 				shardName, host, remoteLastTokenRead, newLocalLastReadToken, limit)
-			if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
+			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
 				return n, err
 			}
 
@@ -149,8 +154,8 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 			for _, d := range remoteDigests {
 				if len(localDigestsByUUID) == 0 {
-					// no more local objects need to be propagated
-					return n, nil
+					// no more local objects need to be propagated in this iteration
+					break
 				}
 
 				if d.Deleted {
@@ -172,11 +177,17 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			}
 
 			remoteLastTokenRead = newRemoteLastTokenRead
+
+			if len(localDigestsByUUID) == 0 {
+				// no more local objects need to be propagated in this iteration
+				break
+			}
 		}
 
 		if len(localDigestsByUUID) == 0 {
-			// no more local objects need to be propagated
-			return n, nil
+			// no more local objects need to be propagated in this iteration
+			localLastReadToken = newLocalLastReadToken
+			continue
 		}
 
 		uuids := make([]strfmt.UUID, 0, len(localDigestsByUUID))
