@@ -12,11 +12,12 @@
 package multi_tenancy_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -165,10 +166,6 @@ type composeFn func(t *testing.T, ctx context.Context) (
 	restartFn func(t *testing.T, ctx context.Context) *wvt.Client)
 
 func TestActivationDeactivation_Restarts(t *testing.T) {
-	t.Skip(
-		"TODO-RAFT: Currently test is too instable with the multiple restarts. Re-enable once stability with container restart is achieved",
-	)
-
 	t.Run("single node", func(t *testing.T) {
 		composeFn := func(t *testing.T, ctx context.Context) (
 			client *wvt.Client,

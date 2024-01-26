@@ -29,6 +29,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -43,6 +44,9 @@ const (
 	tcpTimeout = 10 * time.Second
 
 	raftDBName = "raft.db"
+
+	peersFileName = "peers.json"
+
 	// logCacheCapacity is the maximum number of logs to cache in-memory.
 	// This is used to reduce disk I/O for the recently committed entries.
 	logCacheCapacity = 512
@@ -88,6 +92,7 @@ type Config struct {
 
 	HeartbeatTimeout  time.Duration
 	ElectionTimeout   time.Duration
+	RecoveryTimeout   time.Duration
 	SnapshotInterval  time.Duration
 	SnapshotThreshold uint64
 
@@ -100,12 +105,14 @@ type Config struct {
 }
 
 type Store struct {
-	raft *raft.Raft
+	raft    *raft.Raft
+	cluster *cluster.State
 
 	open              atomic.Bool
 	raftDir           string
 	raftPort          int
 	bootstrapExpect   int
+	recoveryTimeout   time.Duration
 	heartbeatTimeout  time.Duration
 	electionTimeout   time.Duration
 	snapshotInterval  time.Duration
@@ -132,12 +139,13 @@ type Store struct {
 	dbLoaded atomic.Bool
 }
 
-func New(cfg Config) Store {
+func New(cfg Config, cluster *cluster.State) Store {
 	return Store{
 		raftDir:           cfg.WorkDir,
 		raftPort:          cfg.RaftPort,
 		bootstrapExpect:   cfg.BootstrapExpect,
 		candidates:        make(map[string]string, cfg.BootstrapExpect),
+		recoveryTimeout:   cfg.RecoveryTimeout,
 		heartbeatTimeout:  cfg.HeartbeatTimeout,
 		electionTimeout:   cfg.ElectionTimeout,
 		snapshotInterval:  cfg.SnapshotInterval,
@@ -145,6 +153,7 @@ func New(cfg Config) Store {
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
+		cluster:           cluster,
 		db:                localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
@@ -158,6 +167,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return nil
 	}
 	defer func() { st.open.Store(err == nil) }()
+
+	if err := st.generatePeersFileFromBolt(
+		filepath.Join(st.raftDir, raftDBName),
+		filepath.Join(st.raftDir, peersFileName)); err != nil {
+		return err
+	}
 
 	if err = os.MkdirAll(st.raftDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", st.raftDir, err)
@@ -203,6 +218,36 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	if st.initialLastAppliedIndex == snapshotIndex(snapshotStore) {
 		st.loadDatabase(ctx)
+	}
+
+	existedConfig, err := st.configViaPeers(filepath.Join(st.raftDir, peersFileName))
+	if err != nil {
+		return err
+	}
+
+	if servers, recover := st.recoverable(existedConfig.Servers, st.recoveryTimeout); recover {
+		st.log.Info("recovery: start recovery with",
+			"peers", servers,
+			"snapshot_index", snapshotIndex(snapshotStore),
+			"last_log_index", st.initialLastAppliedIndex)
+
+		if err := raft.RecoverCluster(st.raftConfig(), st, logCache, st.logStore, snapshotStore, st.transport, raft.Configuration{
+			Servers: servers,
+		}); err != nil {
+			return fmt.Errorf("raft recovery failed: %w", err)
+		}
+
+		st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
+		if err != nil {
+			return fmt.Errorf("read log last command: %w", err)
+		}
+
+		// load the database because RecoverCluster will implicitly commits all entries in the Raft log
+		st.loadDatabase(ctx)
+		st.log.Info("recovery: recovered from previous config and will reload database",
+			"peers", servers,
+			"snapshot_index", snapshotIndex(snapshotStore),
+			"last_log_index", st.initialLastAppliedIndex)
 	}
 
 	// raft node
