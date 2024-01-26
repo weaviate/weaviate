@@ -49,9 +49,9 @@ require (
 	github.com/coreos/go-oidc/v3 v3.4.0
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/googleapis/gax-go/v2 v2.12.0
-	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/hashicorp/raft v1.5.0
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
+	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkoukk/tiktoken-go v0.1.6
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
@@ -76,6 +76,7 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
+	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cilium/ebpf v0.11.0 // indirect
