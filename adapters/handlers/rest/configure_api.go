@@ -88,6 +88,7 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -419,6 +420,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
+	telemeter := telemetry.New(appState.DB, appState.Modules, appState.Logger)
+	if err := telemeter.Start(context.Background()); err != nil {
+		appState.Logger.
+			WithField("action", "startup").
+			Fatalf("telemetry failed to start. If the issue persists, set TELEMETRY=false: %s", err.Error())
+	}
+
 	api.ServerShutdown = func() {
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel()
@@ -434,6 +442,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		if err := appState.DB.Shutdown(ctx); err != nil {
+			panic(err)
+		}
+
+		if err := telemeter.Stop(ctx); err != nil {
 			panic(err)
 		}
 	}
