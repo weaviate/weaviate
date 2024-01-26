@@ -132,7 +132,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.Unlock(1)
 
 			close(ch)
@@ -142,7 +142,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -157,7 +157,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.RUnlock(1)
 
 			close(ch)
@@ -167,7 +167,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -182,7 +182,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.Unlock(1)
 
 			close(ch)
@@ -207,7 +207,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.Unlock(1)
 
 			close(ch)
@@ -217,7 +217,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -232,7 +232,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.UnlockAll()
 
 			close(ch)
@@ -242,7 +242,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -257,7 +257,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.UnlockAll()
 
 			close(ch)
@@ -267,7 +267,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -282,7 +282,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.UnlockAll()
 
 			close(ch)
@@ -292,7 +292,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -321,7 +321,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.RUnlockAll()
 
 			close(ch)
@@ -331,7 +331,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 
@@ -357,7 +357,7 @@ func TestShardedLocks(t *testing.T) {
 
 		ch := make(chan struct{})
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			m.RUnlockAll()
 
 			close(ch)
@@ -367,7 +367,7 @@ func TestShardedLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 

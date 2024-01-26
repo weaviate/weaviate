@@ -26,6 +26,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type operationType string
@@ -285,6 +286,10 @@ func (v *aws) getAwsAccessKey(ctx context.Context) (string, error) {
 	if len(v.awsAccessKey) > 0 {
 		return v.awsAccessKey, nil
 	}
+	// try getting header from GRPC if not successful
+	if accessKey := modulecomponents.GetValueFromGRPC(ctx, "X-Aws-Access-Key"); len(accessKey) > 0 && len(accessKey[0]) > 0 {
+		return accessKey[0], nil
+	}
 	return "", errors.New("no access key found " +
 		"neither in request header: X-AWS-Access-Key " +
 		"nor in environment variable under AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY")
@@ -298,6 +303,10 @@ func (v *aws) getAwsAccessSecret(ctx context.Context) (string, error) {
 	}
 	if len(v.awsSecret) > 0 {
 		return v.awsSecret, nil
+	}
+	// try getting header from GRPC if not successful
+	if secretKey := modulecomponents.GetValueFromGRPC(ctx, "X-Aws-Secret-Key"); len(secretKey) > 0 && len(secretKey[0]) > 0 {
+		return secretKey[0], nil
 	}
 	return "", errors.New("no secret found " +
 		"neither in request header: X-AWS-Secret-Key " +

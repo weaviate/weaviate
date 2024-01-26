@@ -101,6 +101,14 @@ func TestGRPCReply(t *testing.T) {
 						{Name: "nums", DataType: schema.DataTypeIntArray.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
+						{
+							Name:     "nested",
+							DataType: schema.DataTypeObject.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "text", DataType: schema.DataTypeText.PropString()},
+								{Name: "text2", DataType: schema.DataTypeText.PropString()},
+							},
+						},
 					},
 				},
 				{
@@ -483,6 +491,102 @@ func TestGRPCReply(t *testing.T) {
 												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
 														"name":  {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
+														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+													},
+												},
+											}},
+											"objs": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+												Values: []*pb.Value{{Kind: &pb.Value_ObjectValue{
+													ObjectValue: &pb.Properties{
+														Fields: map[string]*pb.Value{
+															"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
+														},
+													},
+												}}},
+											}}},
+										},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
+			name: "nested object properties with missing values",
+			res: []interface{}{
+				map[string]interface{}{
+					"something": map[string]interface{}{
+						"name":  "Bob",
+						"names": []string{"Jo", "Jill"},
+						"else": map[string]interface{}{
+							"names": []string{"Jo", "Jill"},
+						},
+						"objs": []interface{}{
+							map[string]interface{}{"name": "Bill"},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: objClass,
+				Properties: search.SelectProperties{{
+					Name:        "something",
+					IsPrimitive: false,
+					IsObject:    true,
+					Props: []search.SelectProperty{
+						{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "names",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "else",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{
+								{
+									Name:        "name",
+									IsPrimitive: true,
+								},
+								{
+									Name:        "names",
+									IsPrimitive: true,
+								},
+							},
+						},
+						{
+							Name:        "objs",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{{
+								Name:        "name",
+								IsPrimitive: true,
+							}},
+						},
+					},
+				}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: objClass,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"something": {Kind: &pb.Value_ObjectValue{
+									ObjectValue: &pb.Properties{
+										Fields: map[string]*pb.Value{
+											"name":  {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
+											"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+											"else": {Kind: &pb.Value_ObjectValue{
+												ObjectValue: &pb.Properties{
+													Fields: map[string]*pb.Value{
 														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
 													},
 												},
