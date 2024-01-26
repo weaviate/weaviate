@@ -202,12 +202,12 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		}
 	}
 
-	return res,nil
+	return res, nil
 }
 
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]search.Result,  []float32, error) {
+) ([]search.Result, []float32, error) {
 	searchVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
@@ -225,7 +225,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	res, err := e.searcher.VectorSearch(ctx, params)
 	if err != nil {
-		return nil, nil,errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -240,7 +240,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, nil,errors.Errorf("grouper: %v", err)
+			return nil, nil, errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -250,7 +250,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 		if err != nil {
-			return nil, nil,errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 
@@ -352,12 +352,12 @@ func (e *Explorer) getClassList(ctx context.Context,
 		e.trackUsageGetExplicitVector(res, params)
 	}
 
-	return res,nil
+	return res, nil
 }
 
-func(e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
+func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
-	results, err :=  e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
+	results, err := e.searchResultsToGetResponseWithType(ctx, input, searchVector, params)
 	if err != nil {
 		return nil, err
 	}
@@ -809,7 +809,9 @@ func (e *Explorer) trackUsageGet(res search.Results, params dto.GetParams) {
 	}
 
 	op := e.usageOperationFromGetParams(params)
-	e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
+	if e.metrics != nil {
+		e.metrics.AddUsageDimensions(params.ClassName, "get_graphql", op, res[0].Dims)
+	}
 }
 
 func (e *Explorer) trackUsageGetExplicitVector(res search.Results, params dto.GetParams) {
