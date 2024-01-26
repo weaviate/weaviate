@@ -99,5 +99,6 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		DeploymentID: settings.DeploymentID(),
 		BaseURL:      settings.BaseURL(),
 		IsAzure:      settings.IsAzure(),
+		Dimensions:   settings.Dimensions(),
 	}
 }
