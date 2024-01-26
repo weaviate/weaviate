@@ -49,6 +49,7 @@ func NewProvider() *Provider {
 	return &Provider{
 		registered: map[string]modulecapabilities.Module{},
 		altNames:   map[string]string{},
+
 	}
 }
 

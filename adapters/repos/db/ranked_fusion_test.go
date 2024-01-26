@@ -15,10 +15,12 @@ package db
 
 import (
 	"context"
+	"time"
 	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
+	"net/http"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -38,6 +40,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
 type TestDoc struct {
@@ -204,6 +208,7 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
+		Vectorizer: 		"test-vectoriser",
 		Properties: []*models.Property{
 			{
 				Name:         "title",
@@ -426,6 +431,10 @@ func TestRFJourney(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
@@ -459,6 +468,11 @@ func TestRFJourney(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("Elephant Parade", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
@@ -493,6 +507,11 @@ func TestRFJourney(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("Elephant Parade", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 
 		log, _ := test.NewNullLogger()
@@ -530,6 +549,11 @@ func TestRFJourney(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("Elephant Parade", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
@@ -650,6 +674,10 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
@@ -676,6 +704,10 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
@@ -712,6 +744,10 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
@@ -956,6 +992,10 @@ func TestHybridOverSearch(t *testing.T) {
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", journeyVector())
+		prov.Register(testerModule)
 
 
 		log, _ := test.NewNullLogger()
@@ -966,4 +1006,83 @@ func TestHybridOverSearch(t *testing.T) {
 		require.Equal(t, strfmt.UUID("9889a225-3b28-477d-b8fc-5f6071bb4731"), hybridResults[0].ID)
 		// require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
 	})
+}
+
+
+
+
+
+type TesterModule struct {
+	vectors map[string][]float32
+	graphqlProvider              modulecapabilities.GraphQLArguments
+	searcher                     modulecapabilities.Searcher
+	nearTextTransformer          modulecapabilities.TextTransform
+	logger                       logrus.FieldLogger
+	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+}
+
+
+
+func (m *TesterModule) Name() string {
+	return "test-vectoriser"
+}
+
+func (m *TesterModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
+func (m *TesterModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams,
+) error {
+	return nil
+}
+
+func (m *TesterModule) InitExtension(modules []modulecapabilities.Module) error {
+	return nil
+}
+
+func (m *TesterModule) initVectorizer(ctx context.Context, timeout time.Duration,
+	logger logrus.FieldLogger,
+) error {
+	return nil
+}
+
+func (m *TesterModule) initAdditionalPropertiesProvider() error {
+	return nil
+}
+
+func (m *TesterModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
+	return nil
+}
+
+func (m *TesterModule) VectorizeObject(ctx context.Context,
+	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+) error {
+	return nil
+}
+
+func (m *TesterModule) MetaInfo() (map[string]interface{}, error) {
+	return nil, nil
+}
+
+func (m *TesterModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return nil
+}
+
+func (m *TesterModule) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	vec, ok := m.vectors[input]
+	if !ok {
+		return nil, fmt.Errorf("vector not found")
+	}
+	return vec, nil
+}
+
+func (m *TesterModule) AddVector(text string, vector []float32) error {
+	if m.vectors == nil {
+		m.vectors = map[string][]float32{}
+	}
+	m.vectors[text] = vector
 }
