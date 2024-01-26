@@ -430,6 +430,11 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 
@@ -462,6 +467,11 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with negative limit ---")
@@ -475,7 +485,7 @@ func TestRFJourney(t *testing.T) {
 		require.True(t, len(hybridResults) > 0)
 	})
 
-	t.Run("Hybrid with offset", func(t *testing.T) {
+	t.Run("Hybrid with offset 1", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
@@ -495,6 +505,11 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 2 ---")
@@ -510,7 +525,7 @@ func TestRFJourney(t *testing.T) {
 		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
 	})
 
-	t.Run("Hybrid with offset", func(t *testing.T) {
+	t.Run("Hybrid with offset 2", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
@@ -530,6 +545,11 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 4 ---")
@@ -649,6 +669,11 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(hybridResults))
@@ -674,6 +699,11 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
@@ -709,6 +739,11 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))

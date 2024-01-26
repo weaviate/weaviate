@@ -73,7 +73,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	// either nearObject or nearVector or module search param has to be set,
 	// so if we land here, something has gone very wrong
-	panic("vectorFromParams was called without any known params present")
+	return []float32{}, errors.Errorf("vectorFromParams was called without any known params present")
 }
 
 func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,

@@ -2699,7 +2699,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Foo",
 					"_additional": map[string]interface{}{
-						"vector": []float32(nil),
+
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
 								{
@@ -2724,7 +2724,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Bar",
 					"_additional": map[string]interface{}{
-						"vector": []float32(nil),
+						
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
 								{

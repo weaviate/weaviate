@@ -639,7 +639,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	panic("VectorFromSearchParam was called without any known params present")
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
@@ -664,7 +664,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	panic("CrossClassVectorFromSearchParam was called without any known params present")
 }
 
 func (p *Provider) VectorFromInput(ctx context.Context,
