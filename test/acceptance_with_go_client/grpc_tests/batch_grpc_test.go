@@ -77,17 +77,17 @@ func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T
 		t.Run("create schema", func(t *testing.T) {
 			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 			require.NoError(t, err)
-			// Leave time for schema sync to apply from leader to follower node
-			time.Sleep(3 * time.Second)
 		})
 		t.Run("grpc batch import", func(t *testing.T) {
 			objects := []*models.Object{
 				{
 					Class: className,
 					ID:    strfmt.UUID(id1),
-					Properties: map[string]interface{}{
-						"objectProperty": properties,
-					},
+					// These properties slightly differ from the one defined in the class. We are laying them all out as
+					// "base" properties and not as nested properties.
+					// This will cause auto schema to kick in and will make the follower have eventual consistency on the
+					// schema changes. With proper internal retry mechanism this will be transparent to the client.
+					Properties: properties,
 				},
 			}
 			resp, err := client.Batch().ObjectsBatcher().WithObjects(objects...).Do(ctx)
@@ -103,11 +103,10 @@ func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T
 			require.NotNil(t, objs)
 			require.Len(t, objs, 1)
 			assert.Equal(t, className, objs[0].Class)
-			objectProperty, ok := objs[0].Properties.(map[string]interface{})
+			// We check that the properties are layed out and not nested. This indicates auto schema did it's job.
+			objectProperties, ok := objs[0].Properties.(map[string]interface{})
 			require.True(t, ok)
-			nestedProperties, ok := objectProperty["objectProperty"].(map[string]interface{})
-			require.True(t, ok)
-			require.Equal(t, len(properties), len(nestedProperties))
+			require.Equal(t, len(properties), len(objectProperties))
 		})
 	}
 }
