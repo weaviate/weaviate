@@ -421,10 +421,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
 	telemeter := telemetry.New(appState.DB, appState.Modules, appState.Logger)
-	if err := telemeter.Start(context.Background()); err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			Fatalf("telemetry failed to start. If the issue persists, set TELEMETRY=false: %s", err.Error())
+	if telemetryEnabled(appState) {
+		if err := telemeter.Start(context.Background()); err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				Errorf("telemetry failed to start: %s", err.Error())
+		}
 	}
 
 	api.ServerShutdown = func() {
@@ -445,8 +447,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			panic(err)
 		}
 
-		if err := telemeter.Stop(ctx); err != nil {
-			panic(err)
+		if telemetryEnabled(appState) {
+			if err := telemeter.Stop(ctx); err != nil {
+				panic(err)
+			}
 		}
 	}
 
@@ -936,4 +940,8 @@ func limitResources(appState *state.State) {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES=true")
 	}
+}
+
+func telemetryEnabled(state *state.State) bool {
+	return state.ServerConfig.Config.Telemetry
 }

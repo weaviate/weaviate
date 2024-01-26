@@ -50,6 +50,7 @@ type Telemeter struct {
 	modulesProvider   modulesProvider
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
+	failedToStart     bool
 }
 
 // New creates a new Telemetry instance
@@ -68,6 +69,7 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 // Start begins telemetry for the node
 func (tel *Telemeter) Start(ctx context.Context) error {
 	if err := tel.Push(ctx, PayloadType.Init); err != nil {
+		tel.failedToStart = true
 		return fmt.Errorf("push: %w", err)
 	}
 	go func() {
@@ -105,6 +107,10 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 
 // Stop shuts down the telemeter
 func (tel *Telemeter) Stop(ctx context.Context) error {
+	if tel.failedToStart {
+		return nil
+	}
+
 	waitForShutdown := make(chan struct{})
 	go func() {
 		tel.shutdown <- struct{}{}
