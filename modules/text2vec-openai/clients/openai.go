@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -30,8 +31,9 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input []string `json:"input"`
-	Model string   `json:"model,omitempty"`
+	Input      []string `json:"input"`
+	Model      string   `json:"model,omitempty"`
+	Dimensions *int64   `json:"dimensions,omitempty"`
 }
 
 type embedding struct {
@@ -130,7 +132,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
-	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure))
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
@@ -208,11 +210,11 @@ func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAz
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *vectorizer) getEmbeddingsRequest(input []string, model string, isAzure bool) embeddingsRequest {
+func (v *vectorizer) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
 	if isAzure {
 		return embeddingsRequest{Input: input}
 	}
-	return embeddingsRequest{Input: input, Model: model}
+	return embeddingsRequest{Input: input, Model: model, Dimensions: dimensions}
 }
 
 func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
@@ -271,10 +273,13 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 }
 
 func (v *vectorizer) getModelString(docType, model, action, version string) string {
+	if strings.HasPrefix(model, "text-embedding-3") {
+		// indicates that we handle v3 models
+		return model
+	}
 	if version == "002" {
 		return v.getModel002String(model)
 	}
-
 	return v.getModel001String(docType, model, action)
 }
 
