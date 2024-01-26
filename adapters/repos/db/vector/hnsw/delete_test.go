@@ -14,17 +14,14 @@ package hnsw
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -1324,80 +1321,72 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 	})
 }
 
-func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
-	return func(x, y []float32) float32 {
-		dist, _, _ := provider.SingleDist(x, y)
-		return dist
-	}
-}
-
-func TestDelete_WithOptimisedCleaningUpTombstonesOnce(t *testing.T) {
+func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T) {
 	// there is a single bulk clean event after all the deletes
-	vectors_size := 300000
-	queries_size := 100
-	vectors, _ := testinghelpers.ReadVecs(vectors_size, queries_size, 128, "sift", "../diskAnn/testdata")
-	//k := 10
-	distancer := distancer.NewL2SquaredProvider()
-	//truths := testinghelpers.BuildTruths(queries_size, vectors_size, queries, vectors, k, distanceWrapper(distancer), "../diskAnn/testdata/gist/cosine")
-	deleteRate := 0.05
-
+	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
 
-	t.Run("import the test vectors", func(t *testing.T) {
-		index, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "delete-test",
-			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer,
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return vectors[int(id)%vectors_size], nil
-			},
-			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		}, ent.UserConfig{
-			MaxConnections: 30,
-			EFConstruction: 128,
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "delete-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+	}, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
 
-			// The actual size does not matter for this test, but if it defaults to
-			// zero it will constantly think it's full and needs to be deleted - even
-			// after just being deleted, so make sure to use a positive number here.
-			VectorCacheMaxObjects: 100000,
-		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-			cyclemanager.NewCallbackGroupNoop(), store)
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	vectorIndex = index
+
+	for i, vec := range vectors {
+		err := vectorIndex.Add(uint64(i), vec)
 		require.Nil(t, err)
-		vectorIndex = index
+	}
 
-		compressionhelpers.Concurrently(uint64(vectors_size), func(i uint64) {
-			vec := vectors[i%uint64(vectors_size)]
-			err := vectorIndex.Add(i, vec)
-			require.Nil(t, err)
-		})
-	})
+	require.Equal(t, 60, index.maximumConnectionsLayerZero)
+	some := false
+	for _, node := range index.nodes {
+		if node == nil {
+			continue
+		}
+		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
+		some = some || len(node.connections[0]) > index.maximumConnections
+	}
+	require.True(t, some)
 
-	t.Run("deleting elements", func(t *testing.T) {
-		compressionhelpers.Concurrently(uint64(vectors_size), func(i uint64) {
-			if rand.Float64() > deleteRate {
-				return
-			}
+	for i := range vectors {
+		if i%2 != 0 {
+			continue
+		}
 
-			err := vectorIndex.Delete(uint64(i))
-			require.Nil(t, err)
-			vectorIndex.Add(uint64(vectors_size)+i, vectors[int(i)%vectors_size])
-		})
-	})
-
-	t.Run("running the cleanup", func(t *testing.T) {
-		before := time.Now()
-		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
-		ellapsed := time.Since(before).Milliseconds()
+		err := vectorIndex.Delete(uint64(i))
 		require.Nil(t, err)
-		require.LessOrEqual(t, ellapsed, int64(1))
-	})
+	}
 
-	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
-	})
+	err = vectorIndex.CleanUpTombstonedNodes(neverStop)
+	require.Nil(t, err)
+	require.Equal(t, 60, index.maximumConnectionsLayerZero)
+	some = false
+	for _, node := range index.nodes {
+		if node == nil {
+			continue
+		}
+		require.Less(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
+		some = some || len(node.connections[0]) > index.maximumConnections
+	}
+	require.True(t, some)
 
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
