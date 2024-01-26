@@ -17,8 +17,10 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	cloud_utils "github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -166,34 +168,46 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	if _, ok := fieldsToKeep["lastUpdateTimeUnix"]; ok {
 		object.LastUpdateTimeUnix = now
 	}
-	class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
-	ec.Add(err)
-	if class == nil {
-		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
-	} else {
-		err = validation.New(b.vectorRepo.Exists, b.config, repl).
-			Object(ctx, class, object, nil)
-		ec.Add(err)
 
-		if err == nil {
-			compFactory := func() (moduletools.VectorizablePropsComparator, error) {
-				searchObj, err := b.vectorRepo.Object(ctx, object.Class, id, nil, additional.Properties{}, repl, object.Tenant)
-				if err != nil {
-					return nil, err
-				}
-				if searchObj != nil {
-					prevObj := searchObj.Object()
-					return moduletools.NewVectorizablePropsComparator(class.Properties,
-						object.Properties, prevObj.Properties, prevObj.Vector, prevObj.Vectors), nil
-				}
-				return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
-			}
-
-			// update vector only if we passed validation
-			err = b.modulesProvider.UpdateVector(ctx, object, class, compFactory, b.findObject, b.logger)
-			ec.Add(err)
+	// Batch together the GetClass and the validation function as the validation function will create/update the class
+	// if it already exists to match the object.
+	err = backoff.Retry(func() error {
+		class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
+		if err != nil {
+			return err
 		}
-	}
+
+		if class == nil {
+			return fmt.Errorf("class '%s' not present in schema", object.Class)
+		}
+
+		err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil)
+		if err != nil {
+			return err
+		}
+
+		compFactory := func() (moduletools.VectorizablePropsComparator, error) {
+			searchObj, err := b.vectorRepo.Object(ctx, object.Class, id, nil, additional.Properties{}, repl, object.Tenant)
+			if err != nil {
+				return nil, err
+			}
+			if searchObj != nil {
+				prevObj := searchObj.Object()
+				return moduletools.NewVectorizablePropsComparator(class.Properties,
+					object.Properties, prevObj.Properties, prevObj.Vector, prevObj.Vectors), nil
+			}
+			return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
+		}
+
+		// update vector only if we passed validation
+		err = b.modulesProvider.UpdateVector(ctx, object, class, compFactory, b.findObject, b.logger)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, cloud_utils.NewBackoff())
+	ec.Add(err)
 
 	*resultsC <- BatchObject{
 		UUID:          id,
