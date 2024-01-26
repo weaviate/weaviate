@@ -301,7 +301,7 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
-	networkName := "weaviate-module-acceptance-tests"
+	networkName := fmt.Sprintf("weaviate-module-acceptance-tests-%d", time.Now().Unix())
 	network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
 		NetworkRequest: testcontainers.NetworkRequest{
 			Name:     networkName,

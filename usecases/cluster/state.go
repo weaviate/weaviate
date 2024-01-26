@@ -133,6 +133,9 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -143,6 +146,19 @@ func (s *State) AllHostnames() []string {
 	}
 
 	return out
+}
+
+// Alive detects if the specified node is a member and in Alive state, including self.
+func (s *State) Alive(addr string) bool {
+	if s.list == nil {
+		return false
+	}
+	for _, m := range s.list.Members() {
+		if m.Addr.String() == addr && m.State == memberlist.StateAlive {
+			return true
+		}
+	}
+	return false
 }
 
 // All node names (not their hostnames!) for live members, including self.

@@ -127,7 +127,7 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 2)
+			require.Nil(t, compose.StartAt(ctx, 2))
 		})
 	})
 
@@ -219,7 +219,7 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			compose.StartAt(ctx, 2)
+			require.Nil(t, compose.StartAt(ctx, 2))
 		})
 	})
 
@@ -259,7 +259,7 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 2)
+			require.Nil(t, compose.StartAt(ctx, 2))
 		})
 	})
 }

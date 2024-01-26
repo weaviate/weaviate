@@ -29,6 +29,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -675,19 +676,24 @@ type MockStore struct {
 	indexer *MockIndexer
 	parser  *MockParser
 	logger  MockSLog
+	cluster *MockState
 	cfg     Config
 	store   *Store
+}
+
+type MockState struct {
+	mock.Mock
 }
 
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := &MockIndexer{}
 	parser := &MockParser{}
 	logger := NewMockSLog(t)
-
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
 		logger:  logger,
+		cluster: &MockState{},
 		cfg: Config{
 			WorkDir:  t.TempDir(),
 			NodeID:   nodeID,
@@ -704,7 +710,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Logger:            logger.Logger,
 		},
 	}
-	s := New(ms.cfg)
+	s := New(ms.cfg, &cluster.State{})
 	ms.store = &s
 	return ms
 }
