@@ -297,9 +297,12 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	defer h.resetLock.Unlock()
 
 	compressionhelpers.Concurrently(uint64(size), func(deletedID uint64) {
+		h.Lock()
 		if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
+			h.Unlock()
 			return
 		}
+		h.Unlock()
 		h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
 	})
 
