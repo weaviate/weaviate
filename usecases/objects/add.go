@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
