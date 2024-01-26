@@ -466,18 +466,11 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 				want: "",
 			},
 			{
-				name: "Error code: as int",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
-				},
-				want: "500",
-			},
-			{
 				name: "Error code as string",
 				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
+					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "model_not_found"}`),
 				},
-				want: "500",
+				want: "model_not_found",
 			},
 		}
 		for _, tt := range tests {
@@ -486,7 +479,7 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 				err := json.Unmarshal(tt.args.response, &got)
 				require.NoError(t, err)
 
-				if got.Code.String() != tt.want {
+				if got.Code != tt.want {
 					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
 				}
 			})
