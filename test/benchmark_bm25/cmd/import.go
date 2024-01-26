@@ -118,6 +118,7 @@ var importCmd = &cobra.Command{
 					"modulo_100":  i % 100,
 					"modulo_1000": i % 1000,
 				}
+				indexCount := i + 1
 
 				for key, value := range corp {
 					props[key] = value
@@ -129,10 +130,10 @@ var importCmd = &cobra.Command{
 					Properties: props,
 				})
 
-				if i != 0 && i%BatchSize == 0 {
+				if indexCount%BatchSize == 0 {
 					br, err := batch.Do(context.Background())
 					if err != nil {
-						return fmt.Errorf("batch %d: %w", i, err)
+						return fmt.Errorf("batch %d: %w", indexCount, err)
 					}
 
 					if err := lib.HandleBatchResponse(br); err != nil {
@@ -140,14 +141,14 @@ var importCmd = &cobra.Command{
 					}
 				}
 
-				if i != 0 && i%1000 == 0 {
+				if indexCount%1000 == 0 {
 					totalTimeBatch := time.Since(startBatch).Seconds()
 					totalTime := time.Since(start).Seconds()
 					startBatch = time.Now()
-					log.Printf("imported %d/%d objects in %.3f, time per 1k objects: %.3f, objects per second: %.0f", i, len(c), totalTimeBatch, totalTime/float64(i)*1000, float64(i)/totalTime)
+					log.Printf("imported %d/%d objects in %.3f, time per 1k objects: %.3f, objects per second: %.0f", indexCount, len(c), totalTimeBatch, totalTime/float64(indexCount)*1000, float64(indexCount)/totalTime)
 				}
 
-				if QueriesInterval > 0 && i != 0 && i%QueriesInterval == 0 {
+				if QueriesInterval > 0 && indexCount%QueriesInterval == 0 {
 					result, err := query(client, queries, dataset)
 					if err != nil {
 						return fmt.Errorf("query: %w", err)
@@ -171,7 +172,7 @@ var importCmd = &cobra.Command{
 				log.Printf("imported finished %d/%d objects in %.3f, time per 1k objects: %.3f, objects per second: %.0f", len(c), len(c), totalTimeBatch, totalTime/float64(len(c))*1000, float64(len(c))/totalTime)
 			}
 
-			if QueriesInterval != -1 {
+			if QueriesInterval != -1 && len(c)%BatchSize != 0 {
 				// run queries after full import
 				result, err := query(client, queries, dataset)
 				if err != nil {
