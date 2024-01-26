@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - 'stable/v*'
     tags:
       - '**'
   pull_request:
