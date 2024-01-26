@@ -106,7 +106,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level int) error {
+func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
 	var pending []uint64
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
@@ -130,15 +130,15 @@ func (n *neighborFinderConnector) processRecursively(source, from uint64, result
 		if err != nil {
 			return err
 		}
-		if results.Len() >= n.graph.efConstruction && dist < results.Top().Dist {
+		if results.Len() >= top && dist < results.Top().Dist {
 			results.Pop()
 			results.Insert(id, dist)
-		} else if results.Len() < n.graph.efConstruction {
+		} else if results.Len() < top {
 			results.Insert(id, dist)
 		}
 	}
 	for _, id := range pending {
-		if results.Len() >= n.graph.efConstruction {
+		if results.Len() >= top {
 			dist, err := n.processNode(id)
 			if err != nil {
 				return err
@@ -147,7 +147,7 @@ func (n *neighborFinderConnector) processRecursively(source, from uint64, result
 				continue
 			}
 		}
-		err := n.processRecursively(from, id, results, visited, level)
+		err := n.processRecursively(from, id, results, visited, level, top)
 		if err != nil {
 			return err
 		}
@@ -159,19 +159,42 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	before := time.Now()
 
 	var results *priorityqueue.Queue[any]
+	var extraIDs []uint64 = nil
+	var total int = 0
 	if n.afterCleanUpTombstonedNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
 		n.graph.pools.visitedListsLock.Lock()
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.Unlock()
-		err := n.processRecursively(n.node.id, n.node.id, results, visited, level)
+		n.node.Lock()
+		connections := make([]uint64, len(n.node.connections[level]))
+		copy(connections, n.node.connections[level])
+		n.node.Unlock()
+		visited.Visit(n.node.id)
+		top := n.graph.efConstruction
+		var pending []uint64 = nil
+
+		for _, id := range connections {
+			visited.Visit(id)
+			if n.denyList.Contains(id) {
+				pending = append(pending, id)
+				continue
+			}
+			extraIDs = append(extraIDs, id)
+			top--
+			total++
+		}
+		for _, id := range pending {
+			visited.Visit(id)
+			err := n.processRecursively(id, id, results, visited, level, top)
+			if err != nil {
+				return err
+			}
+		}
 		n.graph.pools.visitedListsLock.Lock()
 		n.graph.pools.visitedLists.Return(visited)
 		n.graph.pools.visitedListsLock.Unlock()
-		if err != nil {
-			return err
-		}
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}
@@ -193,9 +216,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		before = time.Now()
 	}
 
-	// max := n.maximumConnections(level)
-	max := n.graph.maximumConnections
-	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
+	max := n.maximumConnections(level)
+	if err := n.graph.selectNeighborsHeuristic(results, max-total, n.denyList); err != nil {
 		return errors.Wrap(err, "heuristic")
 	}
 
@@ -205,7 +227,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
 
-	neighbors := make([]uint64, 0, results.Len())
+	neighbors := make([]uint64, total, total+results.Len())
+	copy(neighbors, extraIDs)
 	for results.Len() > 0 {
 		id := results.Pop().ID
 		neighbors = append(neighbors, id)
