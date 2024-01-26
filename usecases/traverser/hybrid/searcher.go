@@ -15,12 +15,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-
-	"github.com/weaviate/weaviate/entities/autocut"
-
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -67,11 +65,14 @@ type modulesProvider interface {
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc,
+	denseSearch denseSearchFunc, postProc postProcFunc,
+	modules modulesProvider,
+) ([]*search.Result, error) {
 	var (
-		resultSet [][]*search.Result
-		weights   []float64
-		names     []string
+		found   [][]*search.Result
+		weights []float64
+		names   []string
 	)
 
 	if params.Query != "" {
@@ -83,7 +84,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				return nil, err
 			}
 
-			resultSet = append(resultSet, res)
+			found = append(found, res)
 			weights = append(weights, 1-alpha)
 			names = append(names, "keyword")
 		}
@@ -94,11 +95,22 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				return nil, err
 			}
 
-			resultSet = append(resultSet, res)
+			found = append(found, res)
 			weights = append(weights, alpha)
 			names = append(names, "vector")
 		}
-	} else {
+	} else if params.Vector != nil {
+		// Perform a plain vector search, no keyword query provided
+		res, err := processDenseSearch(ctx, denseSearch, params, modules)
+		if err != nil {
+			return nil, err
+		}
+
+		found = append(found, res)
+		// weight is irrelevant here, we're doing vector search only
+		weights = append(weights, 1)
+		names = append(names, "vector")
+	} else if params.SubSearches != nil {
 		ss := params.SubSearches
 
 		// To catch error if ss is empty
@@ -117,20 +129,24 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 				continue
 			}
 
-			resultSet = append(resultSet, res)
+			found = append(found, res)
 			weights = append(weights, weight)
 			names = append(names, name)
 		}
+	} else {
+		// This should not happen, as it should be caught at the validation level,
+		// but just in case it does, we catch it here.
+		return nil, fmt.Errorf("no query, search vector, or sub-searches provided")
 	}
-	if len(weights) != len(resultSet) {
-		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(resultSet))
+	if len(weights) != len(found) {
+		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
 	}
 
 	var fused []*search.Result
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
-		fused = FusionRanked(weights, resultSet, names)
+		fused = FusionRanked(weights, found, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, resultSet, names)
+		fused = FusionRelativeScore(weights, found, names)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
