@@ -1167,6 +1167,7 @@ func TestGRPCReply(t *testing.T) {
 						Id:                string(UUID1),
 						Generative:        refClass1,
 						GenerativePresent: true,
+						IdAsBytes:         idByte(UUID1.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -1175,6 +1176,7 @@ func TestGRPCReply(t *testing.T) {
 						Id:                string(UUID2),
 						Generative:        refClass2,
 						GenerativePresent: true,
+						IdAsBytes:         idByte(UUID2.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -1245,13 +1247,15 @@ func TestGRPCReply(t *testing.T) {
 			outSearch: []*pb.SearchResult{
 				{
 					Metadata: &pb.MetadataResult{
-						Id: string(UUID1),
+						Id:        string(UUID1),
+						IdAsBytes: idByte(UUID1.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
 				{
 					Metadata: &pb.MetadataResult{
-						Id: string(UUID2),
+						Id:        string(UUID2),
+						IdAsBytes: idByte(UUID2.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -1356,6 +1360,7 @@ func TestGRPCReply(t *testing.T) {
 						Id:                 string(UUID1),
 						RerankScore:        someFloat64,
 						RerankScorePresent: true,
+						IdAsBytes:          idByte(UUID1.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
