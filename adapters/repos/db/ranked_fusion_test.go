@@ -528,7 +528,7 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		require.Nil(t, err)
-		require.True(t, len(hybridResults) == 1)
+		require.Equal(t, 1, len(hybridResults))
 		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
 	})
 
@@ -1085,4 +1085,5 @@ func (m *TesterModule) AddVector(text string, vector []float32) error {
 		m.vectors = map[string][]float32{}
 	}
 	m.vectors[text] = vector
+	return nil
 }
