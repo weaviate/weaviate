@@ -65,6 +65,7 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 
 	params.Pagination.Offset = 0
 
+
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
 	if err != nil {
 		return nil, "", err
@@ -133,6 +134,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		} else {
 			params.SearchVector = params.HybridSearch.Vector
 		}
+
 		res, name, err := denseSearch(ctx, params.SearchVector, e, params)
 		if err != nil {
 			return nil, err
