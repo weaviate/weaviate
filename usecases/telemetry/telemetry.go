@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ type modulesProvider interface {
 
 // Telemeter is responsible for managing
 type Telemeter struct {
-	MachineID         strfmt.UUID
+	machineID         strfmt.UUID
 	nodesStatusGetter nodesStatusGetter
 	modulesProvider   modulesProvider
 	logger            logrus.FieldLogger
@@ -75,7 +76,7 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 	logger logrus.FieldLogger, opts ...telemetryOpt,
 ) *Telemeter {
 	tel := &Telemeter{
-		MachineID:         strfmt.UUID(uuid.NewString()),
+		machineID:         strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter: nodesStatusGetter,
 		modulesProvider:   modulesProvider,
 		logger:            logger,
@@ -91,7 +92,7 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 
 // Start begins telemetry for the node
 func (tel *Telemeter) Start(ctx context.Context) error {
-	_, err := tel.push(ctx, PayloadType.Init)
+	payload, err := tel.push(ctx, PayloadType.Init)
 	if err != nil {
 		tel.failedToStart = true
 		return fmt.Errorf("push: %w", err)
@@ -101,30 +102,28 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-tel.shutdown:
-				payload, err := tel.push(ctx, PayloadType.Terminate)
-				if err != nil {
-					tel.logger.
-						WithField("action", "telemetry_push").
-						WithField("payload", fmt.Sprintf("%+v", payload)).
-						Error(err.Error())
-				}
 				return
 			case <-t.C:
-				payload, err := tel.push(ctx, PayloadType.Update)
+				payload, err = tel.push(ctx, PayloadType.Update)
 				if err != nil {
 					tel.logger.
 						WithField("action", "telemetry_push").
 						WithField("payload", fmt.Sprintf("%+v", payload)).
 						WithField("retry_at", time.Now().Add(tel.pushInterval).Format(time.RFC3339)).
 						Error(err.Error())
+					return
 				}
+				tel.logger.
+					WithField("action", "telemetry_push").
+					WithField("payload", fmt.Sprintf("%+v", payload)).
+					Info("telemetry update")
 			}
 		}
 	}()
 
 	tel.logger.
-		WithField("action", "telemetry_start").
-		WithField("machine_id", tel.MachineID).
+		WithField("action", "telemetry_push").
+		WithField("payload", fmt.Sprintf("%+v", payload)).
 		Info("telemetry started")
 	return nil
 }
@@ -145,10 +144,18 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("shutdown telemetry: %w", ctx.Err())
 	case <-waitForShutdown:
+		payload, err := tel.push(ctx, PayloadType.Terminate)
+		if err != nil {
+			tel.logger.
+				WithField("action", "telemetry_push").
+				WithField("payload", fmt.Sprintf("%+v", payload)).
+				Error(err.Error())
+			return err
+		}
 		tel.logger.
-			WithField("action", "shutdown").
-			WithField("machine_id", tel.MachineID).
-			Info("telemetry stopped")
+			WithField("action", "telemetry_push").
+			WithField("payload", fmt.Sprintf("%+v", payload)).
+			Info("telemetry terminated")
 		return nil
 	}
 }
@@ -187,11 +194,13 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		return nil, fmt.Errorf("get object count: %w", err)
 	}
 	return &Payload{
-		MachineID:  tel.MachineID,
+		MachineID:  tel.machineID,
 		Type:       payloadType,
 		Version:    config.ServerVersion,
 		Modules:    mods,
 		NumObjects: objs,
+		OS:         runtime.GOOS,
+		Arch:       runtime.GOARCH,
 	}, nil
 }
 
