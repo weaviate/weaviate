@@ -59,10 +59,11 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 	}
 	*/
 
-	e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query)
 	params.NearVector = &searchparams.NearVector{
 		Vector: vec,
 	}
+
+	params.Pagination.Offset = 0
 
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
 	if err != nil {
@@ -123,6 +124,15 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			names = append(names, name)
 		}
 	} else {
+		if len(params.HybridSearch.Vector) == 0 {
+			var err error
+			params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			params.SearchVector = params.HybridSearch.Vector
+		}
 		res, name, err := denseSearch(ctx, params.SearchVector, e, params)
 		if err != nil {
 			return nil, err
@@ -134,7 +144,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 	}
 
-	sparseResults , name, err := sparseSearch(ctx, e, params)
+	sparseResults, name, err := sparseSearch(ctx, e, params)
 	if err != nil {
 		return nil, err
 		e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")

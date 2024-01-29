@@ -529,7 +529,7 @@ func TestRFJourney(t *testing.T) {
 
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
-		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
+		require.Equal(t, hybridResults[0].ID, "00000000-0000-0000-0000-000000000001")
 	})
 
 	t.Run("Hybrid with offset 2", func(t *testing.T) {
@@ -569,7 +569,7 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		require.Nil(t, err)
-		require.True(t, len(hybridResults) == 0)
+		require.Equal(t, len(hybridResults) , 0)
 	})
 }
 
