@@ -33,4 +33,6 @@ type Payload struct {
 	Version    string      `json:"version"`
 	Modules    string      `json:"modules"`
 	NumObjects int64       `json:"objs"`
+	OS         string      `json:"os"`
+	Arch       string      `json:"arch"`
 }

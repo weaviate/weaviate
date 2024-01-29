@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 	"time"
 
@@ -47,11 +48,13 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 				})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
 			assert.Nil(t, err)
-			assert.Equal(t, tel.MachineID, payload.MachineID)
+			assert.Equal(t, tel.machineID, payload.MachineID)
 			assert.Equal(t, PayloadType.Init, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
 			assert.Equal(t, "module-1,module-2", payload.Modules)
 			assert.Equal(t, int64(100), payload.NumObjects)
+			assert.Equal(t, runtime.GOOS, payload.OS)
+			assert.Equal(t, runtime.GOARCH, payload.Arch)
 		})
 
 		t.Run("on update", func(t *testing.T) {
@@ -65,11 +68,13 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			mp.On("GetMeta").Return(map[string]interface{}{}, nil)
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
-			assert.Equal(t, tel.MachineID, payload.MachineID)
+			assert.Equal(t, tel.machineID, payload.MachineID)
 			assert.Equal(t, PayloadType.Update, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
 			assert.Equal(t, "", payload.Modules)
 			assert.Equal(t, int64(1000), payload.NumObjects)
+			assert.Equal(t, runtime.GOOS, payload.OS)
+			assert.Equal(t, runtime.GOARCH, payload.Arch)
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
@@ -83,11 +88,13 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			mp.On("GetMeta").Return(nil, nil)
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, err)
-			assert.Equal(t, tel.MachineID, payload.MachineID)
+			assert.Equal(t, tel.machineID, payload.MachineID)
 			assert.Equal(t, PayloadType.Terminate, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
 			assert.Equal(t, "", payload.Modules)
 			assert.Equal(t, int64(300_000_000_000), payload.NumObjects)
+			assert.Equal(t, runtime.GOOS, payload.OS)
+			assert.Equal(t, runtime.GOARCH, payload.Arch)
 		})
 	})
 
@@ -173,8 +180,6 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 		}
 	}()
 	<-wait
-	// Without a small sleep, the test exits too quickly to see the TERMINATE payload
-	time.Sleep(time.Millisecond)
 }
 
 func newTestTelemeter(opts ...telemetryOpt,
@@ -210,6 +215,8 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(h.t, config.ServerVersion, payload.Version)
 	assert.NotEmpty(h.t, payload.Modules)
 	assert.NotZero(h.t, payload.NumObjects)
+	assert.Equal(h.t, runtime.GOOS, payload.OS)
+	assert.Equal(h.t, runtime.GOARCH, payload.Arch)
 
 	h.t.Logf("request body: %s", string(b))
 	w.WriteHeader(http.StatusOK)
