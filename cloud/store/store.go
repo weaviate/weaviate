@@ -106,7 +106,7 @@ type Config struct {
 
 type Store struct {
 	raft    *raft.Raft
-	cluster *cluster.State
+	cluster cluster.Reader
 
 	open              atomic.Bool
 	raftDir           string
@@ -139,7 +139,7 @@ type Store struct {
 	dbLoaded atomic.Bool
 }
 
-func New(cfg Config, cluster *cluster.State) Store {
+func New(cfg Config, cluster cluster.Reader) Store {
 	return Store{
 		raftDir:           cfg.WorkDir,
 		raftPort:          cfg.RaftPort,
@@ -168,7 +168,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 	defer func() { st.open.Store(err == nil) }()
 
-	if err := st.generatePeersFileFromBolt(
+	if err := st.genPeersFileFromBolt(
 		filepath.Join(st.raftDir, raftDBName),
 		filepath.Join(st.raftDir, peersFileName)); err != nil {
 		return err
@@ -225,11 +225,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return err
 	}
 
-	if servers, recover := st.recoverable(existedConfig.Servers, st.recoveryTimeout); recover {
+	if servers, recover := st.recoverable(existedConfig.Servers); recover {
 		st.log.Info("recovery: start recovery with",
 			"peers", servers,
 			"snapshot_index", snapshotIndex(snapshotStore),
-			"last_log_index", st.initialLastAppliedIndex)
+			"last_applied_log_index", st.initialLastAppliedIndex)
 
 		if err := raft.RecoverCluster(st.raftConfig(), st, logCache, st.logStore, snapshotStore, st.transport, raft.Configuration{
 			Servers: servers,
@@ -237,17 +237,16 @@ func (st *Store) Open(ctx context.Context) (err error) {
 			return fmt.Errorf("raft recovery failed: %w", err)
 		}
 
-		st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
-		if err != nil {
-			return fmt.Errorf("read log last command: %w", err)
+		// load the database if <= because RecoverCluster() will implicitly
+		// commits all entries in the previous Raft log before starting
+		if st.initialLastAppliedIndex <= snapshotIndex(snapshotStore) {
+			st.loadDatabase(ctx)
 		}
 
-		// load the database because RecoverCluster will implicitly commits all entries in the Raft log
-		st.loadDatabase(ctx)
-		st.log.Info("recovery: recovered from previous config and will reload database",
+		st.log.Info("recovery: succeeded from previous configuration",
 			"peers", servers,
 			"snapshot_index", snapshotIndex(snapshotStore),
-			"last_log_index", st.initialLastAppliedIndex)
+			"last_applied_log_index", st.initialLastAppliedIndex)
 	}
 
 	// raft node

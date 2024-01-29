@@ -36,7 +36,7 @@ type Service struct {
 	logger     *slog.Logger
 }
 
-func New(cfg store.Config, cluster *cluster.State) *Service {
+func New(cfg store.Config, cluster cluster.Reader) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort))
 	fsm := store.New(cfg, cluster)

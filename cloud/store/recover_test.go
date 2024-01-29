@@ -14,6 +14,7 @@ package store
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/raft"
@@ -22,36 +23,15 @@ import (
 	"github.com/vmihailenco/msgpack"
 )
 
-func testBoltStore(t *testing.T, raftdbpath string) *raftbolt.BoltStore {
-	fh, err := os.Create(raftdbpath)
-	if err != nil {
-		t.Fatalf("err: %s", err)
-	}
-
-	// Successfully creates and returns a store
-	store, err := raftbolt.NewBoltStore(fh.Name())
-	assert.Nil(t, err)
-
-	return store
-}
-
-func testRaftLog(idx int, data []byte) *raft.Log {
-	return &raft.Log{
-		Data:  data,
-		Index: uint64(idx),
-	}
-}
-
 func TestGeneratePeersFileFromBoltBad(t *testing.T) {
 	raftpath := fmt.Sprintf("%s/raft.db", t.TempDir())
 	store := testBoltStore(t, raftpath)
-	err := store.StoreLogs([]*raft.Log{testRaftLog(1, []byte(""))})
+	err := store.StoreLogs([]*raft.Log{testRaftLog(raft.LogConfiguration, 1, []byte(""))})
 	assert.Nil(t, err)
 	store.Close()
 
-	logger := NewMockSLog(t)
-	s := &Store{log: logger.Logger}
-	err = s.generatePeersFileFromBolt(raftpath, fmt.Sprintf("%s/peers.json", t.TempDir()))
+	m := NewMockStore(t, "Node-1", 8080)
+	err = m.store.genPeersFileFromBolt(raftpath, fmt.Sprintf("%s/peers.json", t.TempDir()))
 	assert.Nil(t, err)
 
 	// didn't create file because there was no server
@@ -86,18 +66,129 @@ func TestGeneratePeersFileFromBoltGood(t *testing.T) {
 	cfgByte, err := msgpack.Marshal(existedRaftCfg)
 	assert.Nil(t, err)
 
-	err = store.StoreLogs([]*raft.Log{testRaftLog(1, cfgByte)})
+	err = store.StoreLogs([]*raft.Log{
+		testRaftLog(raft.LogConfiguration, 1, cfgByte),
+		testRaftLog(raft.LogCommand, 2, cfgByte),
+	})
 	assert.Nil(t, err)
 	store.Close()
 
 	peers := fmt.Sprintf("%s/peers.json", t.TempDir())
-	logger := NewMockSLog(t)
-	s := &Store{log: logger.Logger}
-	err = s.generatePeersFileFromBolt(raftpath, peers)
+	m := NewMockStore(t, "Node-1", 8080)
+	err = m.store.genPeersFileFromBolt(raftpath, peers)
 	assert.Nil(t, err)
 
 	configuration, err := raft.ReadConfigJSON(peers)
 	assert.Nil(t, err)
 
 	assert.Equal(t, existedRaftCfg.Servers, configuration.Servers)
+}
+
+func TestRecoverable(t *testing.T) {
+	m := NewMockStore(t, "Node-1", 8080)
+	tcs := []struct {
+		existedServer   []raft.Server
+		expectedServers []raft.Server
+		recoverable     bool
+	}{
+		{
+			existedServer:   []raft.Server{},
+			expectedServers: nil,
+			recoverable:     false,
+		},
+		{
+			existedServer: []raft.Server{
+				{
+					ID:       raft.ServerID("1"),
+					Suffrage: raft.Voter,
+					Address:  raft.ServerAddress("localhost:8001"),
+				},
+				{
+					ID:       raft.ServerID("2"),
+					Suffrage: raft.Voter,
+					Address:  raft.ServerAddress("localhost:8002"),
+				},
+				{
+					ID:       raft.ServerID("3"),
+					Suffrage: raft.Nonvoter,
+					Address:  raft.ServerAddress("localhost:8003"),
+				},
+			},
+			expectedServers: []raft.Server{
+				{
+					ID:       raft.ServerID("1"),
+					Suffrage: raft.Voter,
+					Address:  raft.ServerAddress("localhost:8001"),
+				},
+				{
+					ID:       raft.ServerID("2"),
+					Suffrage: raft.Voter,
+					Address:  raft.ServerAddress("localhost:8002"),
+				},
+				{
+					ID:       raft.ServerID("3"),
+					Suffrage: raft.Nonvoter,
+					Address:  raft.ServerAddress("localhost:8003"),
+				},
+			},
+			recoverable: true,
+		},
+		{
+			existedServer:   []raft.Server{},
+			expectedServers: nil,
+			recoverable:     false,
+		},
+	}
+
+	for _, tc := range tcs {
+		m.store.cluster = NewMockCluster(tc.existedServer)
+		resServers, recoverable := m.store.recoverable(tc.existedServer)
+		assert.Equal(t, tc.expectedServers, resServers)
+		assert.Equal(t, tc.recoverable, recoverable)
+	}
+}
+
+func testBoltStore(t *testing.T, raftdbpath string) *raftbolt.BoltStore {
+	fh, err := os.Create(raftdbpath)
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	// Successfully creates and returns a store
+	store, err := raftbolt.NewBoltStore(fh.Name())
+	assert.Nil(t, err)
+
+	return store
+}
+
+func testRaftLog(lt raft.LogType, idx int, data []byte) *raft.Log {
+	return &raft.Log{
+		Type:  lt,
+		Data:  data,
+		Index: uint64(idx),
+	}
+}
+
+type MockCluster struct {
+	list map[string]bool
+}
+
+func NewMockCluster(servers []raft.Server) *MockCluster {
+	list := map[string]bool{}
+	for _, s := range servers {
+		list[strings.Split(string(s.ID), ":")[0]] = true
+	}
+	return &MockCluster{list}
+}
+
+func (m *MockCluster) AllHostnames() []string {
+	ks := []string{}
+	for k := range m.list {
+		ks = append(ks, k)
+	}
+	return ks
+}
+
+func (m *MockCluster) Alive(ip string) bool {
+	return m.list[ip]
 }
