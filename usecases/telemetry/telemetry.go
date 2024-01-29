@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	consumerURL  = "https://us-central1-semi-production.cloudfunctions.net/weaviate-telemetry"
-	pushInterval = 2*time.Hour + 30*time.Minute
+	defaultConsumerURL  = "https://us-central1-semi-production.cloudfunctions.net/weaviate-telemetry"
+	defaultPushInterval = 24 * time.Hour
 )
 
 type nodesStatusGetter interface {
@@ -51,47 +51,71 @@ type Telemeter struct {
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
 	failedToStart     bool
+	consumerURL       string
+	pushInterval      time.Duration
+}
+
+// Really just for testing
+type telemetryOpt func(*Telemeter)
+
+func withConsumerURL(url string) telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.consumerURL = url
+	}
+}
+
+func withPushInterval(interval time.Duration) telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.pushInterval = interval
+	}
 }
 
 // New creates a new Telemetry instance
 func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, opts ...telemetryOpt,
 ) *Telemeter {
-	return &Telemeter{
+	tel := &Telemeter{
 		MachineID:         strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter: nodesStatusGetter,
 		modulesProvider:   modulesProvider,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
+		consumerURL:       defaultConsumerURL,
+		pushInterval:      defaultPushInterval,
 	}
+	for _, opt := range opts {
+		opt(tel)
+	}
+	return tel
 }
 
 // Start begins telemetry for the node
 func (tel *Telemeter) Start(ctx context.Context) error {
-	if err := tel.Push(ctx, PayloadType.Init); err != nil {
+	_, err := tel.push(ctx, PayloadType.Init)
+	if err != nil {
 		tel.failedToStart = true
 		return fmt.Errorf("push: %w", err)
 	}
 	go func() {
-		t := time.NewTicker(pushInterval)
+		t := time.NewTicker(tel.pushInterval)
 		for {
 			select {
 			case <-tel.shutdown:
-				if err := tel.Push(ctx, PayloadType.Terminate); err != nil {
+				payload, err := tel.push(ctx, PayloadType.Terminate)
+				if err != nil {
 					tel.logger.
 						WithField("action", "telemetry_push").
-						WithField("type", PayloadType.Terminate).
-						WithField("machine_id", tel.MachineID).
+						WithField("payload", fmt.Sprintf("%+v", payload)).
 						Error(err.Error())
 				}
 				return
 			case <-t.C:
-				if err := tel.Push(ctx, PayloadType.Update); err != nil {
+				payload, err := tel.push(ctx, PayloadType.Update)
+				if err != nil {
 					tel.logger.
 						WithField("action", "telemetry_push").
-						WithField("type", PayloadType.Update).
-						WithField("machine_id", tel.MachineID).
-						WithField("retry_at", time.Now().Add(pushInterval).Format(time.RFC3339)).
+						WithField("payload", fmt.Sprintf("%+v", payload)).
+						WithField("retry_at", time.Now().Add(tel.pushInterval).Format(time.RFC3339)).
 						Error(err.Error())
 				}
 			}
@@ -129,28 +153,28 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 	}
 }
 
-// Push sends telemetry data to the consumer url
-func (tel *Telemeter) Push(ctx context.Context, payloadType string) error {
+// push sends telemetry data to the consumer url
+func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, error) {
 	payload, err := tel.buildPayload(ctx, payloadType)
 	if err != nil {
-		return fmt.Errorf("build payload: %w", err)
+		return nil, fmt.Errorf("build payload: %w", err)
 	}
 
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
+		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	resp, err := http.Post(consumerURL, "application/json", bytes.NewReader(b))
+	resp, err := http.Post(tel.consumerURL, "application/json", bytes.NewReader(b))
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("request unsuccessful, status code: %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("request unsuccessful, status code: %d, body: %s", resp.StatusCode, string(body))
 	}
-	return nil
+	return payload, nil
 }
 
 func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Payload, error) {
