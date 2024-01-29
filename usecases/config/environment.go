@@ -151,6 +151,10 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if !config.Authentication.AnyAuthMethodSelected() {
+		config.Authentication = DefaultAuthentication
+	}
+
 	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
 		config.AvoidMmap = true
 	}
@@ -163,6 +167,10 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
 		config.Persistence.DataPath = v
+	} else {
+		if config.Persistence.DataPath == "" {
+			config.Persistence.DataPath = DefaultPersistenceDataPath
+		}
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
@@ -188,6 +196,10 @@ func FromEnv(config *Config) error {
 		}
 
 		config.QueryDefaults.Limit = int64(asInt)
+	} else {
+		if config.QueryDefaults.Limit == 0 {
+			config.QueryDefaults.Limit = DefaultQueryDefaultsLimit
+		}
 	}
 
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
