@@ -260,26 +260,26 @@ func (s *State) initPhysical(names []string, replFactor int64) error {
 
 	s.Physical = map[string]Physical{}
 
+	shards := make(map[string]bool)
 	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
 		shard := Physical{Name: name}
-		node := it.Next()
-		shard.BelongsToNodes = []string{node}
-		if replFactor > 1 {
-			// create a second node iterator and start after the already assigned
-			// one, this way we can identify our next n right neighbors without
-			// affecting the root iterator which will determine the next shard
-			replicationIter, err := cluster.NewNodeIterator(names, cluster.StartAfter)
-			if err != nil {
-				return fmt.Errorf("assign replication nodes: %w", err)
+		for { // select shard
+			node := it.Next()
+			if len(shards) == len(names) { // this is a new round
+				for k := range shards {
+					delete(shards, k)
+				}
 			}
+			if !shards[node] {
+				shards[node] = true
+				shard.BelongsToNodes = []string{node}
+				break
+			}
+		}
 
-			replicationIter.SetStartNode(node)
-			// the first node is already assigned, we only need to assign the
-			// additional nodes
-			for i := replFactor; i > 1; i-- {
-				shard.BelongsToNodes = append(shard.BelongsToNodes, replicationIter.Next())
-			}
+		for i := replFactor; i > 1; i-- {
+			shard.BelongsToNodes = append(shard.BelongsToNodes, it.Next())
 		}
 
 		s.Physical[name] = shard

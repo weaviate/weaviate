@@ -141,6 +141,12 @@ func TestInitState(t *testing.T) {
 			shards:            4,
 			ok:                false,
 		},
+		{
+			nodes:             []string{"node1", "node2", "node3", "node4", "node5", "node6", "node7", "node8", "node9", "node10", "node11", "node12"},
+			replicationFactor: 3,
+			shards:            4,
+			ok:                true,
+		},
 	}
 
 	for _, test := range tests {
@@ -168,6 +174,8 @@ func TestInitState(t *testing.T) {
 						actual++
 					}
 				}
+
+				assert.Equal(t, len(nodeCounter), len(test.nodes))
 
 				// assert that total no of associations is correct
 				desired := test.shards * test.replicationFactor
