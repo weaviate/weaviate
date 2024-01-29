@@ -22,6 +22,31 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+const serviceConfig = `
+{
+	"methodConfig": [
+		{
+			"name": [
+				{
+					"service": "weaviate.cloud.internal.cluster.ClusterService", "method": "Apply"
+				}
+			],
+			"retryPolicy": {
+				"MaxAttempts": 4,
+				"BackoffMultiplier": 2,
+				"InitialBackoff": "0.5s",
+				"MaxBackoff": "2s",
+				"RetryableStatusCodes": [
+					"ABORTED",
+					"RESOURCE_EXHAUSTED",
+					"INTERNAL",
+					"UNAVAILABLE"
+				]
+			}
+		}
+	]
+}`
+
 type rpcAddressResolver interface {
 	// Address returns the RPC address corresponding to the given Raft address.
 	Address(raftAddress string) (string, error)
@@ -93,7 +118,10 @@ func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyRes
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(serviceConfig))
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
