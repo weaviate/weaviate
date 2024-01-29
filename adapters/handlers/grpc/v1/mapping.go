@@ -158,6 +158,11 @@ func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, s
 	}
 	x := &pb.Properties{Fields: make(map[string]*pb.Value, len(v))}
 	for _, selectProp := range selectProp.Props {
+		val, ok := v[selectProp.Name]
+		if !ok {
+			continue
+		}
+
 		dt, err := schema.GetNestedPropertyDataType(parent, selectProp.Name)
 		if err != nil {
 			return nil, errors.Wrapf(err, "getting data type of nested property %s", selectProp.Name)
@@ -167,12 +172,12 @@ func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, s
 			if err != nil {
 				return nil, errors.Wrapf(err, "getting nested property %s", selectProp.Name)
 			}
-			x.Fields[selectProp.Name], err = NewNestedValue(v[selectProp.Name], *dt, &NestedProperty{NestedProperty: nested}, selectProp)
+			x.Fields[selectProp.Name], err = NewNestedValue(val, *dt, &NestedProperty{NestedProperty: nested}, selectProp)
 			if err != nil {
 				return nil, errors.Wrapf(err, "creating nested object value %s", selectProp.Name)
 			}
 		} else {
-			x.Fields[selectProp.Name], err = NewPrimitiveValue(v[selectProp.Name], *dt)
+			x.Fields[selectProp.Name], err = NewPrimitiveValue(val, *dt)
 			if err != nil {
 				return nil, errors.Wrapf(err, "creating nested primitive value %s", selectProp.Name)
 			}
