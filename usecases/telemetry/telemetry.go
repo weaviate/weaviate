@@ -44,7 +44,7 @@ type modulesProvider interface {
 	GetMeta() (map[string]interface{}, error)
 }
 
-// Telemeter is responsible for managing
+// Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
 	machineID         strfmt.UUID
 	nodesStatusGetter nodesStatusGetter
@@ -71,7 +71,7 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 	}
 }
 
-// New creates a new Telemetry instance
+// New creates a new Telemeter instance
 func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 	logger logrus.FieldLogger, opts ...telemetryOpt,
 ) *Telemeter {
