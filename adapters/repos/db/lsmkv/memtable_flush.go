@@ -89,6 +89,10 @@ func (m *Memtable) flush() error {
 		return err
 	}
 
+	if err := f.Sync(); err != nil {
+		return err
+	}
+
 	if err := f.Close(); err != nil {
 		return err
 	}
