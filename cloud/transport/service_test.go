@@ -101,7 +101,9 @@ func TestService(t *testing.T) {
 	})
 
 	t.Run("Apply", func(t *testing.T) {
-		executor.err = store.ErrLeaderNotFound
+		executor.ef = func() error {
+			return store.ErrLeaderNotFound
+		}
 		_, err := client.Apply(addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		assert.NotNil(t, err)
 		st, ok := status.FromError(err)
@@ -109,9 +111,22 @@ func TestService(t *testing.T) {
 		assert.Equal(t, st.Code(), codes.Internal)
 		assert.ErrorContains(t, st.Err(), store.ErrLeaderNotFound.Error())
 
-		executor.err = nil
+		executor.ef = nil
 		_, err = client.Apply(addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		assert.Nil(t, err)
+
+		n := 0
+		executor.ef = func() error {
+			n++
+			if n < 2 {
+				return store.ErrLeaderNotFound
+			}
+			return nil
+		}
+
+		_, err = client.Apply(addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+		assert.Nil(t, err)
+		assert.Greater(t, n, 1)
 	})
 }
 
@@ -207,11 +222,14 @@ func (m *MockMembers) Leader() string {
 }
 
 type MockExecutor struct {
-	err error
+	ef func() error
 }
 
 func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) error {
-	return m.err
+	if m.ef != nil {
+		return m.ef()
+	}
+	return nil
 }
 
 type MockSLog struct {
