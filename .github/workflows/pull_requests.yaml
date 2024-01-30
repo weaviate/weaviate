@@ -63,7 +63,7 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests  
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules-acceptance-tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     strategy:
       fail-fast: false
       matrix:
@@ -93,10 +93,18 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
+      # Most of the time is spent downloading module docker images.
+      # Cache them in GHA cache to speed up subsequent runs
+      - name: Cache Docker images.
+        uses: ScribeMD/docker-cache@0.3.7
+        with:
+          # We don't have a Dockerfile or docker-compose.yml file where we specify these images, instead they are specified
+          # in a go file where we use test containers. Use this file as hash for the cache.
+          key: docker-${{ runner.os }}-${{ matrix.test }}-${{ hashFiles('test/docker/compose.go') }}
       - name: Acceptance tests (modules)
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
-    name: acceptance-tests  
+    name: acceptance-tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
