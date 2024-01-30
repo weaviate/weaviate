@@ -683,11 +683,11 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := &MockIndexer{}
 	parser := &MockParser{}
 	logger := NewMockSLog(t)
-
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
 		logger:  logger,
+
 		cfg: Config{
 			WorkDir:  t.TempDir(),
 			NodeID:   nodeID,
@@ -695,8 +695,9 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			RaftPort: raftPort,
 			// RPCPort:           9092,
 			BootstrapExpect:   1,
-			HeartbeatTimeout:  1000 * time.Millisecond,
-			ElectionTimeout:   1000 * time.Millisecond,
+			HeartbeatTimeout:  1 * time.Second,
+			ElectionTimeout:   1 * time.Second,
+			RecoveryTimeout:   500 * time.Millisecond,
 			SnapshotInterval:  2 * time.Second,
 			SnapshotThreshold: 125,
 			DB:                indexer,
@@ -704,7 +705,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Logger:            logger.Logger,
 		},
 	}
-	s := New(ms.cfg)
+	s := New(ms.cfg, NewMockCluster(nil))
 	ms.store = &s
 	return ms
 }
