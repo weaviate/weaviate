@@ -300,6 +300,7 @@ type Raft struct {
 	Join              []string
 	SnapshotThreshold uint64
 	HeartbeatTimeout  time.Duration
+	RecoveryTimeout   time.Duration
 	ElectionTimeout   time.Duration
 	SnapshotInterval  time.Duration
 
