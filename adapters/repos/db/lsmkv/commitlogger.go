@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"sync/atomic"
 
@@ -157,6 +158,10 @@ func (cl *commitLogger) close() error {
 		return err
 	}
 
+	if err := cl.file.Sync(); err != nil {
+		return err
+	}
+
 	return cl.file.Close()
 }
 
@@ -173,5 +178,17 @@ func (cl *commitLogger) delete() error {
 }
 
 func (cl *commitLogger) flushBuffers() error {
-	return cl.writer.Flush()
+	err := cl.writer.Flush()
+	if err != nil {
+		return fmt.Errorf("flushing WAL %q: %w", cl.path, err)
+	}
+
+	// Note: syncing at this point may penalize single object insertion too much
+	/*
+		err = cl.file.Sync()
+		if err != nil {
+			return fmt.Errorf("syncing WAL %q: %w", cl.path, err)
+		}*/
+
+	return nil
 }
