@@ -219,7 +219,7 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			compose.StartAt(ctx, 2)
+			startNodeAt(ctx, t, compose, 2)
 		})
 	})
 
