@@ -444,6 +444,15 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	); err != nil {
 		return cfg, err
 	}
+
+	if err := parsePositiveInt(
+		"RAFT_RECOVERY_TIMEOUT",
+		func(val int) { cfg.RecoveryTimeout = time.Second * time.Duration(val) },
+		3,
+	); err != nil {
+		return cfg, err
+	}
+
 	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },

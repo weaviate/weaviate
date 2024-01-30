@@ -374,6 +374,9 @@ func (db *DB) DigestObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	index := db.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return nil, fmt.Errorf("index for class %v not found locally", index)
+	}
 	return index.digestObjects(ctx, shardName, ids)
 }
 
