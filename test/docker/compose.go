@@ -612,6 +612,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
 	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.size)
+	settings["RAFT_RECOVERY_TIMEOUT"] = "2"
 
 	// first node
 	config1 := copySettings(settings)

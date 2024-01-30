@@ -58,6 +58,7 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.6
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
+	github.com/vmihailenco/msgpack v4.0.4+incompatible
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
@@ -99,6 +100,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/fatih/color v1.13.0 // indirect
+	github.com/fatih/color v1.16.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-openapi/analysis v0.21.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect

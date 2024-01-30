@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/cloud/transport"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -35,10 +36,10 @@ type Service struct {
 	logger     *slog.Logger
 }
 
-func New(cfg store.Config) *Service {
+func New(cfg store.Config, cluster cluster.Reader) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort))
-	fsm := store.New(cfg)
+	fsm := store.New(cfg, cluster)
 	server := store.NewService(&fsm, cl)
 	return &Service{
 		Service:    server,

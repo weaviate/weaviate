@@ -11,7 +11,9 @@
 
 package replication
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestReplication(t *testing.T) {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
