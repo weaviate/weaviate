@@ -47,7 +47,7 @@ func (m *Memtable) flush() error {
 		return err
 	}
 
-	w := bufio.NewWriterSize(f, int(float64(m.size)*1.3)) // calculate 30% overhead for disk representation
+	w := bufio.NewWriter(f)
 
 	var keys []segmentindex.Key
 	switch m.strategy {
