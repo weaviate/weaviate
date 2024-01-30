@@ -202,7 +202,11 @@ func (b *BM25Searcher) wand(
 					defer func() {
 						p := recover()
 						if p != nil {
-							b.logger.Errorf("panic: %v", p)
+							b.logger.
+								WithField("query_term", queryTerms[j]).
+								WithField("prop_names", propNames).
+								WithField("has_filter", filterDocIds != nil).
+								Errorf("panic: %v", p)
 							debug.PrintStack()
 							err = fmt.Errorf("an internal error occurred during BM25 search")
 						}
