@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,15 +198,25 @@ func (b *BM25Searcher) wand(
 				j := i
 				k := i + offset
 
-				eg.Go(func() error {
-					termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+				eg.Go(func() (err error) {
+					defer func() {
+						p := recover()
+						if p != nil {
+							b.logger.Errorf("panic: %v", p)
+							debug.PrintStack()
+							err = fmt.Errorf("an internal error occurred during BM25 search")
+						}
+					}()
+
+					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
-					if err != nil {
-						return err
+					if termErr != nil {
+						err = termErr
+						return
 					}
 					results[k] = termResult
 					indices[k] = docIndices
-					return nil
+					return
 				})
 			}
 			offset += len(queryTerms)
