@@ -108,7 +108,6 @@ func startWeaviate(ctx context.Context,
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},
 		},
-		Name:         containerName,
 		ExposedPorts: exposedPorts,
 		Env:          env,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
