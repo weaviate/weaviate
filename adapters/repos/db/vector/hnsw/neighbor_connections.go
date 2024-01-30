@@ -106,7 +106,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(source, from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
 	var pending []uint64
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
@@ -147,7 +147,7 @@ func (n *neighborFinderConnector) processRecursively(source, from uint64, result
 				continue
 			}
 		}
-		err := n.processRecursively(from, id, results, visited, level, top)
+		err := n.processRecursively(id, results, visited, level, top)
 		if err != nil {
 			return err
 		}
@@ -187,7 +187,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		}
 		for _, id := range pending {
 			visited.Visit(id)
-			err := n.processRecursively(id, id, results, visited, level, top)
+			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
 				return err
 			}

@@ -42,6 +42,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -138,6 +139,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -226,10 +228,6 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
-	})
-
 	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
 		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
 		require.Nil(t, err)
@@ -244,6 +242,10 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		assert.Equal(t, control, res)
 	})
 
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
@@ -254,6 +256,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	vectors := vectorsForDeleteTest()
 	var vectorIndex *hnsw
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -327,10 +330,6 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
-	})
-
 	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
 		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
 		require.Nil(t, err)
@@ -343,6 +342,10 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		}
 
 		assert.Equal(t, control, res)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
 	})
 
 	t.Run("delete the remaining elements", func(t *testing.T) {
@@ -373,6 +376,8 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
+
+	store.Shutdown(context.Background())
 }
 
 func createIndexImportAllVectorsAndDeleteEven(t *testing.T, vectors [][]float32, store *lsmkv.Store) (index *hnsw, remainingResult []uint64) {
@@ -461,6 +466,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	var controlRemainingResult []uint64
 	var controlRemainingResultAfterCleanup []uint64
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	t.Run("create control index", func(t *testing.T) {
 		index, controlRemainingResult = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
@@ -554,6 +560,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -651,10 +658,6 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
-		assert.Len(t, vectorIndex.tombstones, 0)
-	})
-
 	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
 		res, _, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
 		require.Nil(t, err)
@@ -668,6 +671,10 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 		recall := float32(testinghelpers.MatchesInLists(res, control)) / float32(len(control))
 		assert.True(t, recall > 0.6)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -694,6 +701,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 	)
 
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1280,6 +1288,7 @@ func Test_DeleteEPVecInUnderlyingObjectStore(t *testing.T) {
 		nil,
 	}
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -1335,6 +1344,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	var vectorIndex *hnsw
 
 	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
 
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
@@ -1399,4 +1409,69 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 	t.Run("destroy the index", func(t *testing.T) {
 		require.Nil(t, vectorIndex.Drop(context.Background()))
 	})
+}
+
+func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+	store := testinghelpers.NewDummyStore(t)
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "delete-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+	}, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), store)
+	require.Nil(t, err)
+	vectorIndex = index
+
+	for i, vec := range vectors {
+		err := vectorIndex.Add(uint64(i), vec)
+		require.Nil(t, err)
+	}
+
+	for i := range vectors {
+		if i%2 != 0 {
+			continue
+		}
+
+		err := vectorIndex.Delete(uint64(i))
+		require.Nil(t, err)
+	}
+
+	err = vectorIndex.CleanUpTombstonedNodes(neverStop)
+	require.Nil(t, err)
+
+	for i, node := range vectorIndex.nodes {
+		if node == nil {
+			continue
+		}
+		assert.NotEqual(t, 0, i%2)
+		for level, connections := range node.connections {
+			for _, id := range connections {
+				assert.NotEqual(t, uint64(0), id%2)
+				if id%2 == 0 {
+					fmt.Println("at: ", vectorIndex.entryPointID, i, level, id)
+				}
+			}
+		}
+	}
+
+	require.Nil(t, vectorIndex.Drop(context.Background()))
+	store.Shutdown(context.Background())
+
 }

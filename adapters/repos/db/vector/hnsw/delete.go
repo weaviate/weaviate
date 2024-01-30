@@ -391,8 +391,8 @@ func (h *hnsw) reassignNeighbor(
 			// reset connections according to level
 			neighborNode.connections = make([][]uint64, level+1)
 			neighborNode.Unlock()
+			neighborLevel = level
 		}
-		neighborLevel = level
 		entryPointID = alternative
 	}
 
