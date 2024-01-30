@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -188,9 +189,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		className := s.index.Config.ClassName
 		bm25Config := s.index.getInvertedIndexConfig().BM25
+		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.index.classSearcher,
-			s.GetPropertyLengthTracker(), s.index.logger, s.versioner.Version())
+			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
 		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
 		if err != nil {
 			return nil, nil, err
