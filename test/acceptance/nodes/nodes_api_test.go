@@ -43,9 +43,7 @@ func Test_NodesAPI(t *testing.T) {
 			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 			assert.Equal(t, meta.Payload.Version, nodeStatus.Version)
 			assert.Empty(t, nodeStatus.Shards)
-			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(0), nodeStatus.Stats.ObjectCount)
-			assert.Equal(t, int64(0), nodeStatus.Stats.ShardCount)
+			require.Nil(t, nodeStatus.Stats)
 		}
 
 		testStatusResponse(t, assertions, nil, "")
@@ -66,9 +64,6 @@ func Test_NodesAPI(t *testing.T) {
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 			assert.True(t, len(nodeStatus.Name) > 0)
 			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
-			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 		}
 
 		verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
@@ -77,6 +72,9 @@ func Test_NodesAPI(t *testing.T) {
 			assert.True(t, len(shard.Name) > 0)
 			assert.Equal(t, booksClass.Class, shard.Class)
 			assert.Equal(t, int64(3), shard.ObjectCount)
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 		}
 
 		testStatusResponse(t, minimalAssertions, verboseAssertions, "")
@@ -97,9 +95,6 @@ func Test_NodesAPI(t *testing.T) {
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 			assert.True(t, len(nodeStatus.Name) > 0)
 			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
-			assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
 		}
 
 		verboseAsssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
@@ -108,6 +103,9 @@ func Test_NodesAPI(t *testing.T) {
 				assert.True(t, len(shard.Name) > 0)
 				assert.Equal(t, multiShardClass.Class, shard.Class)
 				assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
+				require.NotNil(t, nodeStatus.Stats)
+				assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
+				assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
 			}
 		}
 
@@ -125,13 +123,14 @@ func Test_NodesAPI(t *testing.T) {
 				helper.AssertGetObjectEventually(t, book.Class, book.ID)
 			}
 
-			assertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {}
+			verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
 				require.NotNil(t, nodeStatus.Stats)
 				assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 			}
 
-			testStatusResponse(t, assertions, nil, "")
+			testStatusResponse(t, minimalAssertions, verboseAssertions, "")
 		})
 
 		t.Run("insert and check documents", func(t *testing.T) {
@@ -152,12 +151,12 @@ func Test_NodesAPI(t *testing.T) {
 				assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 				assert.True(t, len(nodeStatus.Name) > 0)
 				assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-				require.NotNil(t, nodeStatus.Stats)
-				assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
-				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 			}
 
 			verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+				require.NotNil(t, nodeStatus.Stats)
+				assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
+				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 				assert.Len(t, nodeStatus.Shards, 1)
 				shard := nodeStatus.Shards[0]
 				assert.True(t, len(shard.Name) > 0)
@@ -207,12 +206,13 @@ func Test_NodesAPI(t *testing.T) {
 			}), nil)
 		require.Nil(t, err)
 
-		assertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {}
+		verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
 			require.NotNil(t, nodeStatus.Stats)
 			assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
 		}
 
-		testStatusResponse(t, assertions, nil, "")
+		testStatusResponse(t, minimalAssertions, verboseAssertions, "")
 	})
 
 	t.Run("validate flat compression status", func(t *testing.T) {
