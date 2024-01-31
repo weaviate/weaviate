@@ -439,18 +439,21 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
+		if telemetryEnabled(appState) {
+			// must be shutdown before the db, to ensure the
+			// termination payload contains the correct
+			// object count
+			if err := telemeter.Stop(ctx); err != nil {
+				panic(err)
+			}
+		}
+
 		if err := appState.SchemaManager.Shutdown(ctx); err != nil {
 			panic(err)
 		}
 
 		if err := appState.DB.Shutdown(ctx); err != nil {
 			panic(err)
-		}
-
-		if telemetryEnabled(appState) {
-			if err := telemeter.Stop(ctx); err != nil {
-				panic(err)
-			}
 		}
 	}
 
@@ -943,5 +946,5 @@ func limitResources(appState *state.State) {
 }
 
 func telemetryEnabled(state *state.State) bool {
-	return state.ServerConfig.Config.Telemetry
+	return !state.ServerConfig.Config.DisableTelemetry
 }

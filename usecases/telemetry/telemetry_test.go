@@ -182,13 +182,31 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	<-wait
 }
 
+type telemetryOpt func(*Telemeter)
+
+func withConsumerURL(url string) telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.consumerURL = url
+	}
+}
+
+func withPushInterval(interval time.Duration) telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.pushInterval = interval
+	}
+}
+
 func newTestTelemeter(opts ...telemetryOpt,
 ) (*Telemeter, *fakeNodesStatusGetter, *fakeModulesProvider,
 ) {
 	sg := &fakeNodesStatusGetter{}
 	mp := &fakeModulesProvider{}
 	logger, _ := test.NewNullLogger()
-	return New(sg, mp, logger, opts...), sg, mp
+	tel := New(sg, mp, logger)
+	for _, opt := range opts {
+		opt(tel)
+	}
+	return tel, sg, mp
 }
 
 type testConsumer struct {
