@@ -115,10 +115,6 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		if ok {
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, fmt.Errorf("delete corrupt segment %s: %w", entry.Name(), err)
-			}
-
 			logger.WithField("action", "lsm_segment_init").
 				WithField("path", filepath.Join(sg.dir, entry.Name())).
 				WithField("wal_path", potentialWALFileName).

@@ -18,7 +18,6 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 )
 
@@ -66,7 +65,7 @@ func newCommitLogger(path string) (*commitLogger, error) {
 		path: path + ".wal",
 	}
 
-	f, err := os.Create(out.path)
+	f, err := os.OpenFile(out.path, os.O_CREATE|os.O_RDWR, 0o666)
 	if err != nil {
 		return nil, err
 	}
@@ -150,16 +149,14 @@ func (cl *commitLogger) Size() int64 {
 }
 
 func (cl *commitLogger) close() error {
-	if cl.paused {
-		return errors.Errorf("attempting to close a paused commit logger")
-	}
+	if !cl.paused {
+		if err := cl.writer.Flush(); err != nil {
+			return err
+		}
 
-	if err := cl.writer.Flush(); err != nil {
-		return err
-	}
-
-	if err := cl.file.Sync(); err != nil {
-		return err
+		if err := cl.file.Sync(); err != nil {
+			return err
+		}
 	}
 
 	return cl.file.Close()

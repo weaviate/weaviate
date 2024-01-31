@@ -15,14 +15,13 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 type commitloggerParser struct {
-	path         string
+	r            io.Reader
 	strategy     string
 	memtable     *Memtable
 	reader       io.Reader
@@ -30,11 +29,11 @@ type commitloggerParser struct {
 	replaceCache map[string]segmentReplaceNode
 }
 
-func newCommitLoggerParser(path string, activeMemtable *Memtable,
+func newCommitLoggerParser(r io.Reader, activeMemtable *Memtable,
 	strategy string, metrics *Metrics,
 ) *commitloggerParser {
 	return &commitloggerParser{
-		path:         path,
+		r:            r,
 		memtable:     activeMemtable,
 		strategy:     strategy,
 		metrics:      metrics,
@@ -58,12 +57,7 @@ func (p *commitloggerParser) Do() error {
 // doReplace parsers all entries into a cache for deduplication first and only
 // imports unique entries into the actual memtable as a final step.
 func (p *commitloggerParser) doReplace() error {
-	f, err := os.Open(p.path)
-	if err != nil {
-		return err
-	}
-
-	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
+	metered := diskio.NewMeteredReader(p.r, p.metrics.TrackStartupReadWALDiskIO)
 	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
 
 	// errUnexpectedLength indicates that we could not read the commit log to the
@@ -74,7 +68,7 @@ func (p *commitloggerParser) doReplace() error {
 		var commitType CommitType
 
 		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 
@@ -89,7 +83,6 @@ func (p *commitloggerParser) doReplace() error {
 				break
 			}
 		} else {
-			f.Close()
 			return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
 		}
 	}
@@ -109,11 +102,10 @@ func (p *commitloggerParser) doReplace() error {
 	}
 
 	if errUnexpectedLength != nil {
-		f.Close()
 		return errUnexpectedLength
 	}
 
-	return f.Close()
+	return nil
 }
 
 // parseReplaceNode only parses into the deduplication cache, not into the
