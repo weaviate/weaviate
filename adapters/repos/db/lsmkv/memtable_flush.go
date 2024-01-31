@@ -42,7 +42,7 @@ func (m *Memtable) flush() error {
 		return nil
 	}
 
-	f, err := os.Create(m.path + ".db")
+	f, err := os.OpenFile(m.path+".db", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}

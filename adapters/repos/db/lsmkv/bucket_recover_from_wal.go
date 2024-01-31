@@ -12,16 +12,19 @@
 package lsmkv
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 )
 
-func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
+func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
 
@@ -47,27 +50,78 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
-		if filepath.Join(b.dir, fileInfo.Name()) == b.active.path+".wal" {
-			// this is the new one which was just created
+		segmentFileName := strings.TrimSuffix(fileInfo.Name(), ".wal") + ".db"
+		ok, err := fileExists(filepath.Join(b.dir, segmentFileName))
+		if err != nil {
+			return fmt.Errorf("check for presence of segment file for wal %s: %w", fileInfo.Name(), err)
+		}
+
+		if !ok {
+			// Note (jeroiraz): deletion may not be needed when integrity checking of wal files is incorporated
+			if err := os.Remove(filepath.Join(b.dir, fileInfo.Name())); err != nil {
+				return fmt.Errorf("delete potentially corrupt wal file %s: %w", fileInfo.Name(), err)
+			}
+
+			b.logger.WithField("action", "lsm_recover_from_active_wal").
+				WithField("path", filepath.Join(b.dir, fileInfo.Name())).
+				WithField("segment_path", segmentFileName).
+				Info("Discarded (potentially corrupted) WAL file, because no segment file for " +
+					"the same WAL file was found.")
+
 			continue
 		}
 
 		walFileNames = append(walFileNames, fileInfo.Name())
 	}
 
-	if len(walFileNames) == 0 {
-		// nothing to recover from
-		return nil
-	}
-
 	// recover from each log
 	for _, fname := range walFileNames {
+		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
+
+		cl, err := newCommitLogger(path)
+		if err != nil {
+			return errors.Wrap(err, "init commit logger")
+		}
+		defer cl.close()
+
+		cl.pause()
+
+		mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
+		if err != nil {
+			return err
+		}
+
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
-			WithField("path", filepath.Join(b.dir, fname)).
+			WithField("path", path).
 			Warning("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
 
-		if err := b.parseWALIntoMemtable(filepath.Join(b.dir, fname)); err != nil {
+		err = newCommitLoggerParser(bufio.NewReader(cl.file), mt, b.strategy, b.metrics).Do()
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			// we need to check for both EOF or UnexpectedEOF, as we don't know where
+			// the commit log got corrupted, a field ending that weset a longer
+			// encoding for would return EOF, whereas a field read with binary.Read
+			// with a fixed size would return UnexpectedEOF. From our perspective both
+			// are unexpected.
+
+			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
+				WithField("path", filepath.Join(b.dir, fname)).
+				Error("write-ahead-log ended abruptly, some elements may not have been recovered")
+		} else if err != nil {
 			return errors.Wrapf(err, "ingest wal %q", fname)
+		}
+
+		if err := mt.flush(); err != nil {
+			return errors.Wrap(err, "flush memtable after WAL recovery")
+		}
+
+		if err := b.disk.add(path + ".db"); err != nil {
+			return err
+		}
+
+		if b.strategy == StrategyReplace && b.monitorCount {
+			// having just flushed the memtable we now have the most up2date count which
+			// is a good place to update the metric
+			b.metrics.ObjectCount(b.disk.count())
 		}
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
@@ -75,43 +129,5 @@ func (b *Bucket) recoverFromCommitLogs(ctx context.Context) error {
 			Info("successfully recovered from write-ahead-log")
 	}
 
-	if b.active.size > 0 {
-		if err := b.FlushAndSwitch(); err != nil {
-			return errors.Wrap(err, "flush memtable after WAL recovery")
-		}
-	}
-
-	// delete the commit logs as we can now be sure that they are part of a disk
-	// segment
-	for _, fname := range walFileNames {
-		if err := os.RemoveAll(filepath.Join(b.dir, fname)); err != nil {
-			return errors.Wrap(err, "clean up commit log")
-		}
-	}
-
 	return nil
-}
-
-func (b *Bucket) parseWALIntoMemtable(fname string) error {
-	// pause commit logging while reading the old log to avoid creating a
-	// duplicate of the log
-	b.active.commitlog.pause()
-	defer b.active.commitlog.unpause()
-
-	err := newCommitLoggerParser(fname, b.active, b.strategy, b.metrics).Do()
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		// we need to check for both EOF or UnexpectedEOF, as we don't know where
-		// the commit log got corrupted, a field ending that weset a longer
-		// encoding for would return EOF, whereas a field read with binary.Read
-		// with a fixed size would return UnexpectedEOF. From our perspective both
-		// are unexpected.
-
-		b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
-			WithField("path", filepath.Join(b.dir, fname)).
-			Error("write-ahead-log ended abruptly, some elements may not have been recovered")
-
-		return nil
-	}
-
-	return err
 }

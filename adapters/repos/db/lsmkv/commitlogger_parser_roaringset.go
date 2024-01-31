@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
@@ -23,39 +22,31 @@ import (
 )
 
 func (p *commitloggerParser) doRoaringSet() error {
-	f, err := os.Open(p.path)
-	if err != nil {
-		return err
-	}
-
-	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
+	metered := diskio.NewMeteredReader(p.r, p.metrics.TrackStartupReadWALDiskIO)
 	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
 
 	for {
 		var commitType CommitType
 
 		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 
 		if err != nil {
-			f.Close()
 			return errors.Wrap(err, "read commit type")
 		}
 
 		if CommitTypeRoaringSet.Is(commitType) {
 			if err := p.parseRoaringSetNode(); err != nil {
-				f.Close()
 				return errors.Wrap(err, "read collection node")
 			}
 		} else {
-			f.Close()
 			return errors.Errorf("found a %s commit on collection bucket", commitType.String())
 		}
 	}
 
-	return f.Close()
+	return nil
 }
 
 func (p *commitloggerParser) parseRoaringSetNode() error {
