@@ -56,24 +56,9 @@ type Telemeter struct {
 	pushInterval      time.Duration
 }
 
-// Really just for testing
-type telemetryOpt func(*Telemeter)
-
-func withConsumerURL(url string) telemetryOpt {
-	return func(tel *Telemeter) {
-		tel.consumerURL = url
-	}
-}
-
-func withPushInterval(interval time.Duration) telemetryOpt {
-	return func(tel *Telemeter) {
-		tel.pushInterval = interval
-	}
-}
-
 // New creates a new Telemeter instance
 func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
-	logger logrus.FieldLogger, opts ...telemetryOpt,
+	logger logrus.FieldLogger,
 ) *Telemeter {
 	tel := &Telemeter{
 		machineID:         strfmt.UUID(uuid.NewString()),
@@ -83,9 +68,6 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 		shutdown:          make(chan struct{}),
 		consumerURL:       defaultConsumerURL,
 		pushInterval:      defaultPushInterval,
-	}
-	for _, opt := range opts {
-		opt(tel)
 	}
 	return tel
 }
