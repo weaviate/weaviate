@@ -1473,5 +1473,4 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 
 	require.Nil(t, vectorIndex.Drop(context.Background()))
 	store.Shutdown(context.Background())
-
 }
