@@ -103,6 +103,19 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 	return results, generativeGroupResultsReturn, nil
 }
 
+func idToByte(idRaw interface{}) ([]byte, string, error) {
+	idStrfmt, ok := idRaw.(strfmt.UUID)
+	if !ok {
+		return nil, "", errors.New("could not extract format id in additional prop")
+	}
+	idStrfmtStr := idStrfmt.String()
+	hexInteger, success := new(big.Int).SetString(strings.Replace(idStrfmtStr, "-", "", -1), 16)
+	if !success {
+		return nil, "", fmt.Errorf("failed to parse hex string to integer")
+	}
+	return hexInteger.Bytes(), idStrfmtStr, nil
+}
+
 func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
@@ -114,16 +127,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			return nil, "", errors.New("could not extract get id in additional prop")
 		}
 
-		idStrfmt, ok := idRaw.(strfmt.UUID)
-		if !ok {
-			return nil, "", errors.New("could not extract format id in additional prop")
+		idToBytes, idAsString, err := idToByte(idRaw)
+		if err != nil {
+			return nil, "", errors.Wrap(err, "could not extract format id in additional prop")
 		}
-		metadata.Id = idStrfmt.String()
-		hexInteger, success := new(big.Int).SetString(strings.Replace(metadata.Id, "-", "", -1), 16)
-		if !success {
-			return nil, "", fmt.Errorf("failed to parse hex string to integer")
-		}
-		metadata.IdAsBytes = hexInteger.Bytes()
+		metadata.Id = idAsString
+		metadata.IdAsBytes = idToBytes
 	}
 	_, ok := asMap["_additional"]
 	if !ok {
@@ -148,11 +157,12 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			return nil, "", errors.New("could not extract get id generative in additional prop")
 		}
 
-		idStrfmt, ok := idRaw.(strfmt.UUID)
-		if !ok {
-			return nil, "", errors.New("could not format id generative in additional prop")
+		idToBytes, idAsString, err := idToByte(idRaw)
+		if err != nil {
+			return nil, "", errors.Wrap(err, "could not extract format id in additional prop")
 		}
-		metadata.Id = idStrfmt.String()
+		metadata.Id = idAsString
+		metadata.IdAsBytes = idToBytes
 	}
 
 	if generativeSearchEnabled {
