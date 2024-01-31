@@ -16,6 +16,11 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -144,4 +149,71 @@ func TestValidator_extractAndValidateProperty(t *testing.T) {
 
 func getDataType(dataType schema.DataType) *schema.DataType {
 	return &dataType
+}
+
+func TestProperties(t *testing.T) {
+	const myBeacon = "weaviate://localhost/things/8e555f0d-8590-48c2-a9a6-70772ed14c0a"
+	myJournalClass := &models.Class{
+		Properties: []*models.Property{{Name: "inJournal", DataType: []string{"Journal"}}},
+	}
+	specs := map[string]struct {
+		class     *models.Class
+		obj       *models.Object
+		expErr    bool
+		expBeacon strfmt.URI
+	}{
+		"incorrect cref body - example from issue #1253": {
+			class: myJournalClass,
+			obj: &models.Object{
+				Properties: map[string]any{"inJournal": []any{map[string]any{
+					"beacon": map[string]any{"beacon": myBeacon},
+				}}},
+			},
+			expErr: true,
+		},
+		"complete beacon": {
+			class: myJournalClass,
+			obj: &models.Object{
+				Properties: map[string]any{"inJournal": []any{map[string]any{
+					"beacon": myBeacon,
+				}}},
+			},
+			expBeacon: myBeacon,
+		},
+		"beacon without class": {
+			class: myJournalClass,
+			obj: &models.Object{
+				Properties: map[string]any{"inJournal": []any{map[string]any{
+					"beacon": "weaviate://foo/8e555f0d-8590-48c2-a9a6-70772ed14c0a",
+				}}},
+			},
+			expBeacon: "weaviate://localhost/Journal/8e555f0d-8590-48c2-a9a6-70772ed14c0a",
+		},
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			validator := &Validator{exists: func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
+				return true, nil
+			}}
+			gotErr := validator.properties(context.Background(), spec.class, spec.obj, nil)
+			if spec.expErr {
+				require.Error(t, gotErr)
+				return
+			}
+			require.NoError(t, gotErr)
+			props := spec.obj.Properties
+			gotBeacon := extractBeacon(t, props)
+			assert.Equal(t, spec.expBeacon, gotBeacon)
+		})
+	}
+}
+
+func extractBeacon(t *testing.T, props models.PropertySchema) strfmt.URI {
+	require.IsType(t, map[string]any{}, props)
+	require.Contains(t, props.(map[string]any), "inJournal")
+	journalProp := props.(map[string]any)["inJournal"]
+	require.IsType(t, models.MultipleRef{}, journalProp)
+	require.Len(t, journalProp.(models.MultipleRef), 1)
+	gotBeacon := journalProp.(models.MultipleRef)[0].Beacon
+	return gotBeacon
 }
