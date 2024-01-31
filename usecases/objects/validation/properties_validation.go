@@ -100,9 +100,13 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 			for i := range propertyValueSlice {
 				propertyValueMap, ok := propertyValueSlice[i].(map[string]interface{})
 				if !ok {
-					return fmt.Errorf("reference property is not a map %v", propertyValueMap)
+					return fmt.Errorf("reference property is not a map: %T", propertyValueMap)
 				}
-				beacon := propertyValueMap["beacon"].(string)
+				beacon, ok := propertyValueMap["beacon"].(string)
+				if !ok {
+					return fmt.Errorf("beacon property is not a string: %T", propertyValueMap["beacon"])
+				}
+
 				beaconParsed, err := crossref.Parse(beacon)
 				if err != nil {
 					return err
@@ -118,7 +122,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 					}
 					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
 					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
-					propertyValue.([]interface{})[i].(map[string]interface{})["beacon"] = toBeacon
+					propertyValueMap["beacon"] = toBeacon
 				}
 			}
 		}
