@@ -16,25 +16,38 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"golang.org/x/sync/errgroup"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
+	eg := errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
 	for i, nodeName := range db.schemaGetter.Nodes() {
-		status, err := db.getNodeStatus(ctx, nodeName, className, verbosity)
-		if err != nil {
-			return nil, fmt.Errorf("node: %v: %w", nodeName, err)
-		}
-		if status.Status == nil {
-			return nil, enterrors.NewErrNotFound(
-				fmt.Errorf("class %q not found", className))
-		}
-		nodeStatuses[i] = status
+		i, nodeName := i, nodeName
+		eg.Go(func() error {
+			status, err := db.getNodeStatus(ctx, nodeName, className, verbosity)
+			if err != nil {
+				return fmt.Errorf("node: %v: %w", nodeName, err)
+			}
+			if status.Status == nil {
+				return enterrors.NewErrNotFound(
+					fmt.Errorf("class %q not found", className))
+			}
+			nodeStatuses[i] = status
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	sort.Slice(nodeStatuses, func(i, j int) bool {
@@ -45,12 +58,20 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 
 func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
-		return db.localNodeStatus(className, output), nil
+		return db.localNodeStatus(ctx, className, output), nil
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, output)
 	if err != nil {
-		switch err.(type) {
-		case enterrors.ErrOpenHttpRequest, enterrors.ErrSendHttpRequest:
+		switch typed := err.(type) {
+		case enterrors.ErrSendHttpRequest:
+			if errors.Is(typed.Unwrap(), context.DeadlineExceeded) {
+				nodeTimeout := models.NodeStatusStatusTIMEOUT
+				return &models.NodeStatus{Name: nodeName, Status: &nodeTimeout}, nil
+			}
+
+			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
+			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
+		case enterrors.ErrOpenHttpRequest:
 			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
 			return &models.NodeStatus{Name: nodeName, Status: &nodeUnavailable}, nil
 		default:
@@ -62,10 +83,10 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, out
 
 // IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
 func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, verbosity string) (*models.NodeStatus, error) {
-	return db.localNodeStatus(className, verbosity), nil
+	return db.localNodeStatus(ctx, className, verbosity), nil
 }
 
-func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
+func (db *DB) localNodeStatus(ctx context.Context, className, output string) *models.NodeStatus {
 	var (
 		objectCount int64
 		shardCount  int64
@@ -78,9 +99,9 @@ func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 	}
 
 	if className == "" {
-		objectCount, shardCount = db.localNodeStatusAll(&shards, output)
+		objectCount, shardCount = db.localNodeStatusAll(ctx, &shards, output)
 	} else {
-		objectCount, shardCount = db.localNodeStatusForClass(&shards, className, output)
+		objectCount, shardCount = db.localNodeStatusForClass(ctx, &shards, className, output)
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
@@ -114,7 +135,9 @@ func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 	return &status
 }
 
-func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus, output string) (totalCount, shardCount int64) {
+func (db *DB) localNodeStatusAll(ctx context.Context, status *[]*models.NodeShardStatus,
+	output string,
+) (totalCount, shardCount int64) {
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
 	for name, idx := range db.indices {
@@ -123,13 +146,13 @@ func (db *DB) localNodeStatusAll(status *[]*models.NodeShardStatus, output strin
 				Warningf("no resource found for index %q", name)
 			continue
 		}
-		total, shard := idx.getShardsNodeStatus(status, output)
+		total, shard := idx.getShardsNodeStatus(ctx, status, output)
 		totalCount, shardCount = totalCount+total, shardCount+shard
 	}
 	return
 }
 
-func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
+func (db *DB) localNodeStatusForClass(ctx context.Context, status *[]*models.NodeShardStatus,
 	className, output string,
 ) (totalCount, shardCount int64) {
 	idx := db.GetIndex(schema.ClassName(className))
@@ -138,11 +161,16 @@ func (db *DB) localNodeStatusForClass(status *[]*models.NodeShardStatus,
 			Warningf("no index found for class %q", className)
 		return 0, 0
 	}
-	return idx.getShardsNodeStatus(status, output)
+	return idx.getShardsNodeStatus(ctx, status, output)
 }
 
-func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus, output string) (totalCount, shardCount int64) {
+func (i *Index) getShardsNodeStatus(ctx context.Context,
+	status *[]*models.NodeShardStatus, output string,
+) (totalCount, shardCount int64) {
 	i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		objectCount := int64(shard.ObjectCount())
 		totalCount += objectCount
 		if output == verbosity.OutputVerbose {
