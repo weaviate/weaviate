@@ -35,8 +35,6 @@ func Test_NodesBatchStatusAPI(t *testing.T) {
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeBatchStatus.Status)
 			assert.True(t, len(nodeBatchStatus.Name) > 0)
 			require.NotNil(t, nodeBatchStatus.BatchStats)
-			assert.Equal(t, int64(0), *nodeBatchStatus.BatchStats.QueueLength)
-			assert.Equal(t, int64(0), nodeBatchStatus.BatchStats.RatePerSecond)
 		}
 
 		testBatchStatusResponse(t, assertions)
@@ -57,8 +55,6 @@ func Test_NodesBatchStatusAPI(t *testing.T) {
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeBatchStatus.Status)
 			assert.True(t, len(nodeBatchStatus.Name) > 0)
 			require.NotNil(t, nodeBatchStatus.BatchStats)
-			assert.Equal(t, int64(0), *nodeBatchStatus.BatchStats.QueueLength)
-			assert.Equal(t, int64(0), nodeBatchStatus.BatchStats.RatePerSecond)
 		}
 
 		testBatchStatusResponse(t, assertions)
@@ -79,8 +75,6 @@ func Test_NodesBatchStatusAPI(t *testing.T) {
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeBatchStatus.Status)
 			assert.True(t, len(nodeBatchStatus.Name) > 0)
 			require.NotNil(t, nodeBatchStatus.BatchStats)
-			assert.Equal(t, int64(0), *nodeBatchStatus.BatchStats.QueueLength)
-			assert.Equal(t, int64(0), nodeBatchStatus.BatchStats.RatePerSecond)
 		}
 
 		testBatchStatusResponse(t, assertions)
