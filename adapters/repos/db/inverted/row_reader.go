@@ -92,11 +92,7 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.bucket.SetList(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
@@ -108,44 +104,16 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.bucket.SetList(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
 
-	bm := rr.transformToBitmap(v)
-	maxID := rr.maxIDGetter()
-	inverted := roaringset.NewInvertedBitmap(bm, maxID)
+	// Invert the Equal results for an efficient NotEqual
+	inverted := roaringset.NewInvertedBitmap(
+		rr.transformToBitmap(v), rr.maxIDGetter())
 	_, err = readFn(rr.value, inverted)
 	return err
-
-	//c := rr.newCursor()
-	//defer c.Close()
-	//
-	//for k, v := c.First(); k != nil; k, v = c.Next() {
-	//	if err := ctx.Err(); err != nil {
-	//		return err
-	//	}
-	//
-	//	if bytes.Equal(k, rr.value) {
-	//		continue
-	//	}
-	//
-	//	continueReading, err := readFn(k, rr.transformToBitmap(v))
-	//	if err != nil {
-	//		return err
-	//	}
-	//
-	//	if !continueReading {
-	//		break
-	//	}
-	//}
-	//
-	//return nil
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
@@ -280,4 +248,16 @@ func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
 		out.docIDs.Set(binary.LittleEndian.Uint64(asBytes))
 	}
 	return out.docIDs
+}
+
+func (rr *RowReader) equalHelper(ctx context.Context) ([][]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	v, err := rr.bucket.SetList(rr.value)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
 }

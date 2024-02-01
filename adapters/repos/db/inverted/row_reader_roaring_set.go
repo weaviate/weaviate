@@ -99,11 +99,7 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn RoaringSetReadFn
 func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	readFn RoaringSetReadFn,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.getter(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
@@ -117,11 +113,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	readFn RoaringSetReadFn,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.getter(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
@@ -240,4 +232,12 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context) (*sroar.Bitmap, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	return rr.getter(rr.value)
 }

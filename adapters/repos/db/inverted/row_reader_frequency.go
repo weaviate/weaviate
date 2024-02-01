@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -70,26 +71,10 @@ func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
-	if err := ctx.Err(); err != nil {
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
 		return err
 	}
-
-	var v []lsmkv.MapPair
-	var err error
-	if rr.shardVersion < 2 {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(),
-			lsmkv.MapListLegacySortingRequired())
-		if err != nil {
-			return err
-		}
-	} else {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
-		if err != nil {
-			return err
-		}
-	}
-	// TODO: don't we need to check here if this is a doc id vs a object search?
-	// Or is this not a problem because the latter removes duplicates anyway?
 
 	_, err = readFn(rr.value, rr.transformToBitmap(v))
 	return err
@@ -98,29 +83,16 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
-			continue
-		}
-
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
+		return err
 	}
 
-	return nil
+	// Invert the Equal results for an efficient NotEqual
+	inverted := roaringset.NewInvertedBitmap(
+		rr.transformToBitmap(v), rr.maxIDGetter())
+	_, err = readFn(rr.value, inverted)
+	return err
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
@@ -269,4 +241,24 @@ func (rr *RowReaderFrequency) transformToBitmap(pairs []lsmkv.MapPair) *sroar.Bi
 		}
 	}
 	return out.docIDs
+}
+
+func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPair, err error) {
+	if err = ctx.Err(); err != nil {
+		return
+	}
+
+	if rr.shardVersion < 2 {
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(),
+			lsmkv.MapListLegacySortingRequired())
+		if err != nil {
+			return
+		}
+	} else {
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
+		if err != nil {
+			return
+		}
+	}
+	return
 }

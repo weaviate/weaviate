@@ -78,9 +78,6 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
-
-	// Resolve to real objects
-
 	return out, nil
 }
 
