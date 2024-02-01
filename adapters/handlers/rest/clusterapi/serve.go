@@ -42,7 +42,7 @@ func Serve(appState *state.State) {
 			classifications.Transactions()))
 
 	mux.Handle("/nodes/", nodes.Nodes())
-	mux.Handle("/nodes/_batchStatus", nodes.NodesBatchStatus())
+	mux.Handle("/nodes/batch-status", nodes.NodesBatchStatus())
 	mux.Handle("/indices/", indices.Indices())
 	mux.Handle("/replicas/indices/", replicatedIndices.Indices())
 
