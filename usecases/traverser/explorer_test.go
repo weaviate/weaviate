@@ -2757,7 +2757,7 @@ type fakeModulesProvider struct {
 	customC11yModule *fakeText2vecContextionaryModule
 }
 
-func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	panic("not implemented")
 }
 
