@@ -425,7 +425,7 @@ type fakeModuleProvider struct {
 	vector []float32
 }
 
-func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	return f.vector, nil
 }
 

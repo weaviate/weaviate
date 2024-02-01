@@ -47,6 +47,11 @@ type GraphQLArgument struct {
 	ValidateFunction           ValidateFn
 }
 
+// TODO[named-vectors]: think of something that will indicate that we are dealing with named vectors
+type GraphQLArgumentGeneric interface {
+	IsGeneric() bool
+}
+
 // GraphQLArguments defines the capabilities of modules to add their
 // arguments to graphql API
 type GraphQLArguments interface {
