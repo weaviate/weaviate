@@ -64,9 +64,11 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.Certainty = certainty
 	}
 
+	// TODO[named-vector]: pass a targetVector from GraphQL
 	if params.Hybrid != nil && params.Hybrid.Vector == nil && params.Hybrid.Query != "" {
+		targetVector := ""
 		vec, err := t.nearParamsVector.modulesProvider.
-			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query)
+			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query, targetVector)
 		if err != nil {
 			return nil, err
 		}
