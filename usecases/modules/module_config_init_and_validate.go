@@ -35,7 +35,7 @@ func (p *Provider) SetClassDefaults(class *models.Class) {
 		return
 	}
 
-	cfg := NewClassBasedModuleConfig(class, class.Vectorizer, "")
+	cfg := NewClassBasedModuleConfig(class, class.Vectorizer, "", "")
 
 	p.setPerClassConfigDefaults(class, cfg, cc)
 	p.setPerPropertyConfigDefaults(class, cfg, cc)
@@ -122,6 +122,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 		return nil
 	}
 
+	// TODO[named-vector]: add support for named vectors
 	moduleConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {
 		return nil
@@ -134,7 +135,8 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 			return nil
 		}
 
-		cfg := NewClassBasedModuleConfig(class, key, "")
+		// TODO[named-vector]: add support for named targetVector param
+		cfg := NewClassBasedModuleConfig(class, key, "", "")
 		err := cc.ValidateClass(ctx, class, cfg)
 		if err != nil {
 			return errors.Wrapf(err, "module '%s'", key)

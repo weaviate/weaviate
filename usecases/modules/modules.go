@@ -257,6 +257,13 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 	moduleType modulecapabilities.ModuleType,
 ) bool {
 	if p.isVectorizerModule(moduleType) {
+		for _, vectorConfig := range class.VectorConfig {
+			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+				if _, ok := vectorizer[module]; ok {
+					return true
+				}
+			}
+		}
 		return class.Vectorizer == module
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
@@ -290,6 +297,14 @@ func (p *Provider) shouldIncludeArgument(schema *models.Schema, module string,
 	return false
 }
 
+// func (p *Provider) getTargetVectors(class *models.Class) []string {
+// 	targetVectors := []string{}
+// 	for vectorName := range class.VectorConfig {
+// 		targetVectors = append(targetVectors, vectorName)
+// 	}
+// 	return targetVectors
+// }
+
 // GetArguments provides GraphQL Get arguments
 func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
@@ -298,7 +313,17 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.GetArgumentsFunction != nil {
-						arguments[name] = argument.GetArgumentsFunction(class.Class)
+						if len(class.VectorConfig) > 0 && p.isVectorizerModule(module.Type()) {
+							// TODO[named-vectors]: this check should be run only for vectorizers
+							for vectorName := range class.VectorConfig {
+								// TODO[named-vectors]: gather all of the targetVector names here
+								// if there's a class.VectorConfig it means that the module should return
+								// a generic nearText argument
+								arguments[fmt.Sprintf("%s_%s", name, vectorName)] = argument.GetArgumentsFunction(class.Class)
+							}
+						} else {
+							arguments[name] = argument.GetArgumentsFunction(class.Class)
+						}
 					}
 				}
 			}
@@ -315,7 +340,17 @@ func (p *Provider) AggregateArguments(class *models.Class) map[string]*graphql.A
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.AggregateArgumentsFunction != nil {
-						arguments[name] = argument.AggregateArgumentsFunction(class.Class)
+						if len(class.VectorConfig) > 0 && p.isVectorizerModule(module.Type()) {
+							// TODO[named-vectors]: this check should be run only for vectorizers
+							for vectorName := range class.VectorConfig {
+								// TODO[named-vectors]: gather all of the targetVector names here
+								// if there's a class.VectorConfig it means that the module should return
+								// a generic nearText argument
+								arguments[fmt.Sprintf("%s_%s", name, vectorName)] = argument.AggregateArgumentsFunction(class.Class)
+							}
+						} else {
+							arguments[name] = argument.AggregateArgumentsFunction(class.Class)
+						}
 					}
 				}
 			}
@@ -332,6 +367,8 @@ func (p *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.ExploreArgumentsFunction != nil {
+						// TODO[named-vectors]: this step should not be applicable for named vectors
+						// but it would be great to test it
 						arguments[name] = argument.ExploreArgumentsFunction()
 					}
 				}
@@ -507,7 +544,8 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
-			cfg := NewClassBasedModuleConfig(class, "", "")
+			// TODO[named-vector]: add support for named targetVector param
+			cfg := NewClassBasedModuleConfig(class, "", "", "")
 			for name, value := range moduleParams {
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
@@ -628,7 +666,8 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 			}
 			if vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					cfg := NewClassBasedModuleConfig(class, moduleName, tenant)
+					// TODO[named-vector]: add support for named targetVector param
+					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, "")
 					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 					if err != nil {
 						return nil, errors.Errorf("vectorize params: %v", err)
@@ -667,20 +706,36 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	panic("VectorFromParams was called without any known params present")
 }
 
+func (p *Provider) getModuleNameForTargetVector(class *models.Class, targetVector string) string {
+	if len(class.VectorConfig) > 0 {
+		if vectorConfig, ok := class.VectorConfig[targetVector]; ok {
+			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(vectorizer) == 1 {
+				for moduleName := range vectorizer {
+					return moduleName
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (p *Provider) VectorFromInput(ctx context.Context,
-	className string, input string,
+	className, input, targetVector string,
 ) ([]float32, error) {
 	class, err := p.getClass(className)
 	if err != nil {
 		return nil, err
 	}
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
-			if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
-				// does not access any objects, therefore tenant is irrelevant
-				cfg := NewClassBasedModuleConfig(class, mod.Name(), "")
-				return vectorizer.VectorizeInput(ctx, input, cfg)
+		if targetModule == "" || targetModule == mod.Name() {
+			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+				if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
+					// does not access any objects, therefore tenant is irrelevant
+					cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector)
+					return vectorizer.VectorizeInput(ctx, input, cfg)
+				}
 			}
 		}
 	}

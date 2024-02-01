@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/fatih/camelcase"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
@@ -27,7 +29,9 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 }
 
-type ObjectVectorizer struct{}
+type ObjectVectorizer struct {
+	vectorsLock sync.RWMutex
+}
 
 func New() *ObjectVectorizer {
 	return &ObjectVectorizer{}
@@ -123,4 +127,22 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 	}
 
 	return sb.String()
+}
+
+func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
+	vector []float32, cfg moduletools.ClassConfig,
+) *models.Object {
+	if cfg.TargetVector() == "" {
+		object.Vector = vector
+		return object
+	}
+	if object.Vectors == nil {
+		// TODO[named-vectors]: think about adding a per class lock?
+		// this seems unefficient
+		v.vectorsLock.Lock()
+		object.Vectors = models.Vectors{}
+		v.vectorsLock.Unlock()
+	}
+	object.Vectors[cfg.TargetVector()] = vector
+	return object
 }

@@ -87,7 +87,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 		return err
 	}
 
-	object.Vector = vec
+	object = v.objectVectorizer.AddVectorToObject(object, vec, cfg)
 
 	if object.Additional == nil {
 		object.Additional = models.AdditionalProperties{}
