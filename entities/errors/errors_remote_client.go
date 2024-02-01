@@ -11,7 +11,9 @@
 
 package errors
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type ErrOpenHttpRequest struct {
 	err error
@@ -31,6 +33,12 @@ type ErrSendHttpRequest struct {
 
 func (e ErrSendHttpRequest) Error() string {
 	return e.err.Error()
+}
+
+// Unwrap returns the original inner error, so it can be
+// used with errors.Is and errors.As
+func (e ErrSendHttpRequest) Unwrap() error {
+	return e.err
 }
 
 func NewErrSendHttpRequest(err error) ErrSendHttpRequest {
