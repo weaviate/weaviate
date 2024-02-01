@@ -103,3 +103,7 @@ func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 func (f fakeClassConfig) Tenant() string {
 	return ""
 }
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
