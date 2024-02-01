@@ -38,6 +38,10 @@ func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
 type fakeObjectsRepo struct {
 	mock.Mock
 }

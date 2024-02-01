@@ -263,3 +263,7 @@ func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interfa
 func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
 }
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
