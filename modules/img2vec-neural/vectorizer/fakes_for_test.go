@@ -56,6 +56,10 @@ func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
