@@ -14,6 +14,7 @@ package verbosity
 import "fmt"
 
 const (
+	OutputBatch   = "batchStatus"
 	OutputMinimal = "minimal"
 	OutputVerbose = "verbose"
 )
@@ -23,7 +24,7 @@ const (
 func ParseOutput(output *string) (string, error) {
 	if output != nil {
 		switch *output {
-		case OutputMinimal, OutputVerbose:
+		case OutputMinimal, OutputVerbose, OutputBatch:
 			return *output, nil
 		default:
 			return "", fmt.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,

@@ -72,6 +72,27 @@ func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 		shards      []*models.NodeShardStatus
 	)
 
+	db.batchMonitorLock.Lock()
+	rate := db.ratePerSecond
+	db.batchMonitorLock.Unlock()
+	// return minimal status for batch mode
+	if output == verbosity.OutputBatch {
+		status := models.NodeStatus{
+			Name:    db.schemaGetter.NodeName(),
+			Version: db.config.ServerVersion,
+			GitHash: db.config.GitHash,
+			BatchStats: &models.BatchStats{
+				RatePerSecond: int64(rate),
+			},
+		}
+		if !asyncEnabled() {
+			ql := int64(len(db.jobQueueCh))
+			status.BatchStats.QueueLength = &ql
+		}
+
+		return &status
+	}
+
 	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
 		// class not found
 		return &models.NodeStatus{}
@@ -87,9 +108,6 @@ func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 	if db.schemaGetter.ClusterHealthScore() > 0 {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
-	db.batchMonitorLock.Lock()
-	rate := db.ratePerSecond
-	db.batchMonitorLock.Unlock()
 
 	status := models.NodeStatus{
 		Name:    db.schemaGetter.NodeName(),
