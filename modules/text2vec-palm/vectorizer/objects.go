@@ -20,15 +20,18 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 type Vectorizer struct {
-	client Client
+	client           Client
+	objectVectorizer *objectsvectorizer.ObjectVectorizer
 }
 
 func New(client Client) *Vectorizer {
 	return &Vectorizer{
-		client: client,
+		client:           client,
+		objectVectorizer: objectsvectorizer.New(),
 	}
 }
 
@@ -58,6 +61,8 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 		return err
 	}
 
+	// TODO[named-vectors]: move the vectorizer code to use a generic method to
+	// object = v.objectVectorizer.AddVectorToObject(object, vec, settings)
 	object.Vector = vec
 	return nil
 }
