@@ -87,85 +87,85 @@ func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, verbosity st
 }
 
 func (db *DB) localNodeStatus(ctx context.Context, className, output string) *models.NodeStatus {
-	var (
-		objectCount int64
-		shardCount  int64
-		shards      []*models.NodeShardStatus
-	)
-
 	if className != "" && db.GetIndex(schema.ClassName(className)) == nil {
 		// class not found
 		return &models.NodeStatus{}
 	}
 
-	if className == "" {
-		objectCount, shardCount = db.localNodeStatusAll(ctx, &shards, output)
-	} else {
-		objectCount, shardCount = db.localNodeStatusForClass(ctx, &shards, className, output)
+	var (
+		shards    []*models.NodeShardStatus
+		nodeStats *models.NodeStats
+	)
+	if output == verbosity.OutputVerbose {
+		nodeStats = db.localNodeShardStats(ctx, &shards, className)
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
 	if db.schemaGetter.ClusterHealthScore() > 0 {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
-	db.batchMonitorLock.Lock()
-	rate := db.ratePerSecond
-	db.batchMonitorLock.Unlock()
 
 	status := models.NodeStatus{
-		Name:    db.schemaGetter.NodeName(),
-		Version: db.config.ServerVersion,
-		GitHash: db.config.GitHash,
-		Status:  &clusterHealthStatus,
-		Shards:  shards,
-		Stats: &models.NodeStats{
-			ShardCount:  shardCount,
-			ObjectCount: objectCount,
-		},
-		BatchStats: &models.BatchStats{
-			RatePerSecond: int64(rate),
-		},
-	}
-
-	if !asyncEnabled() {
-		ql := int64(len(db.jobQueueCh))
-		status.BatchStats.QueueLength = &ql
+		Name:       db.schemaGetter.NodeName(),
+		Version:    db.config.ServerVersion,
+		GitHash:    db.config.GitHash,
+		Status:     &clusterHealthStatus,
+		Shards:     shards,
+		Stats:      nodeStats,
+		BatchStats: db.localNodeBatchStats(),
 	}
 
 	return &status
 }
 
-func (db *DB) localNodeStatusAll(ctx context.Context, status *[]*models.NodeShardStatus,
-	output string,
-) (totalCount, shardCount int64) {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-	for name, idx := range db.indices {
-		if idx == nil {
-			db.logger.WithField("action", "local_node_status_for_all").
-				Warningf("no resource found for index %q", name)
-			continue
+func (db *DB) localNodeShardStats(ctx context.Context,
+	status *[]*models.NodeShardStatus, className string,
+) *models.NodeStats {
+	var objectCount, shardCount int64
+	if className == "" {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		for name, idx := range db.indices {
+			if idx == nil {
+				db.logger.WithField("action", "local_node_status_for_all").
+					Warningf("no resource found for index %q", name)
+				continue
+			}
+			objects, shards := idx.getShardsNodeStatus(ctx, status)
+			objectCount, shardCount = objectCount+objects, shardCount+shards
 		}
-		total, shard := idx.getShardsNodeStatus(ctx, status, output)
-		totalCount, shardCount = totalCount+total, shardCount+shard
+		return &models.NodeStats{
+			ObjectCount: objectCount,
+			ShardCount:  shardCount,
+		}
 	}
-	return
-}
-
-func (db *DB) localNodeStatusForClass(ctx context.Context, status *[]*models.NodeShardStatus,
-	className, output string,
-) (totalCount, shardCount int64) {
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
-		return 0, 0
+		return nil
 	}
-	return idx.getShardsNodeStatus(ctx, status, output)
+	objectCount, shardCount = idx.getShardsNodeStatus(ctx, status)
+	return &models.NodeStats{
+		ObjectCount: objectCount,
+		ShardCount:  shardCount,
+	}
+}
+
+func (db *DB) localNodeBatchStats() *models.BatchStats {
+	db.batchMonitorLock.Lock()
+	rate := db.ratePerSecond
+	db.batchMonitorLock.Unlock()
+	stats := &models.BatchStats{RatePerSecond: int64(rate)}
+	if !asyncEnabled() {
+		ql := int64(len(db.jobQueueCh))
+		stats.QueueLength = &ql
+	}
+	return stats
 }
 
 func (i *Index) getShardsNodeStatus(ctx context.Context,
-	status *[]*models.NodeShardStatus, output string,
+	status *[]*models.NodeShardStatus,
 ) (totalCount, shardCount int64) {
 	i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := ctx.Err(); err != nil {
@@ -173,17 +173,15 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 		objectCount := int64(shard.ObjectCount())
 		totalCount += objectCount
-		if output == verbosity.OutputVerbose {
-			shardStatus := &models.NodeShardStatus{
-				Name:                 name,
-				Class:                shard.Index().Config.ClassName.String(),
-				ObjectCount:          objectCount,
-				VectorIndexingStatus: shard.GetStatus().String(),
-				VectorQueueLength:    shard.Queue().Size(),
-				Compressed:           shard.VectorIndex().Compressed(),
-			}
-			*status = append(*status, shardStatus)
+		shardStatus := &models.NodeShardStatus{
+			Name:                 name,
+			Class:                shard.Index().Config.ClassName.String(),
+			ObjectCount:          objectCount,
+			VectorIndexingStatus: shard.GetStatus().String(),
+			VectorQueueLength:    shard.Queue().Size(),
+			Compressed:           shard.VectorIndex().Compressed(),
 		}
+		*status = append(*status, shardStatus)
 		shardCount++
 		return nil
 	})
