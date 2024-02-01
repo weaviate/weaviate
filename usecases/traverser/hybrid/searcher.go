@@ -61,7 +61,7 @@ type postProcFunc func(hybridResults []*search.Result) (postProcResults []search
 
 type modulesProvider interface {
 	VectorFromInput(ctx context.Context,
-		className string, input string) ([]float32, error)
+		className, input, targetVector string) ([]float32, error)
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
@@ -250,7 +250,9 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 		return nil, "", 0, nil
 	}
 
-	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], modules)
+	// TODO[named-vector]: targetVector needs to be passed from GraphQL
+	targetVector := ""
+	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], targetVector, modules)
 	if err != nil {
 		return nil, "", 0, err
 	}
@@ -298,7 +300,9 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 		vector = params.Vector
 	} else {
 		if modules != nil {
-			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, modules)
+			// TODO[named-vector]: targetVector needs to be passed from GraphQL
+			targetVector := ""
+			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, targetVector, modules)
 			if err != nil {
 				return nil, err
 			}
@@ -308,8 +312,8 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 	return vector, nil
 }
 
-func vectorFromModuleInput(ctx context.Context, class, input string, modules modulesProvider) ([]float32, error) {
-	vector, err := modules.VectorFromInput(ctx, class, input)
+func vectorFromModuleInput(ctx context.Context, class, input, targetVector string, modules modulesProvider) ([]float32, error) {
+	vector, err := modules.VectorFromInput(ctx, class, input, targetVector)
 	if err != nil {
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
 	}
