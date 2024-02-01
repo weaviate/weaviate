@@ -25,7 +25,7 @@ import (
 
 type nodesManager interface {
 	GetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error)
-	GetNodeBatchStatus() *models.BatchStats
+	GetNodeBatchStatus(ctx context.Context) (*models.NodeBatchStatus, error)
 }
 
 type nodes struct {
@@ -39,6 +39,7 @@ func NewNodes(manager nodesManager, auth auth) *nodes {
 
 var (
 	regxNodes      = regexp.MustCompile(`/status`)
+	regxNodesBatch = regexp.MustCompile(`/status/batch-status`)
 	regxNodesClass = regexp.MustCompile(`/status/(` + entschema.ClassNameRegexCore + `)`)
 )
 
@@ -113,7 +114,7 @@ func (s *nodes) nodesBatchStatusHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		switch {
-		case regxNodes.MatchString(path) || regxNodesClass.MatchString(path):
+		case regxNodesBatch.MatchString(path):
 			if r.Method != http.MethodGet {
 				msg := fmt.Sprintf("/nodes api path %q not found", path)
 				http.Error(w, msg, http.StatusMethodNotAllowed)
@@ -133,10 +134,15 @@ func (s *nodes) incomingNodeBatchStatus() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		nodeStatus := s.nodesManager.GetNodeBatchStatus()
+		nodeStatus, err := s.nodesManager.GetNodeBatchStatus(r.Context())
+		if err != nil {
+			http.Error(w, "/nodes/batch-status fulfill request: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
 		nodeStatusBytes, err := json.Marshal(nodeStatus)
 		if err != nil {
-			http.Error(w, "/nodes marshal response: "+err.Error(),
+			http.Error(w, "/nodes/batch-status marshal response: "+err.Error(),
 				http.StatusInternalServerError)
 		}
 

@@ -19,7 +19,7 @@ import (
 
 type RemoteNodeIncomingRepo interface {
 	IncomingGetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error)
-	IncomingGetNodeBatchStatus() *models.BatchStats
+	IncomingGetNodeBatchStatus(ctx context.Context) (*models.NodeBatchStatus, error)
 }
 
 type RemoteNodeIncoming struct {
@@ -36,6 +36,6 @@ func (rni *RemoteNodeIncoming) GetNodeStatus(ctx context.Context, className, out
 	return rni.repo.IncomingGetNodeStatus(ctx, className, output)
 }
 
-func (rni *RemoteNodeIncoming) GetNodeBatchStatus() *models.BatchStats {
-	return rni.repo.IncomingGetNodeBatchStatus()
+func (rni *RemoteNodeIncoming) GetNodeBatchStatus(ctx context.Context) (*models.NodeBatchStatus, error) {
+	return rni.repo.IncomingGetNodeBatchStatus(ctx)
 }

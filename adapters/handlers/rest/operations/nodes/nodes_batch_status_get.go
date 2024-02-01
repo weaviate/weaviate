@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NodesBatchStatusGetClassHandlerFunc turns a function with the right signature into a nodes batch status get class handler
-type NodesBatchStatusGetClassHandlerFunc func(NodesBatchStatusGetClassParams, *models.Principal) middleware.Responder
+// NodesBatchStatusGetHandlerFunc turns a function with the right signature into a nodes batch status get handler
+type NodesBatchStatusGetHandlerFunc func(NodesBatchStatusGetParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn NodesBatchStatusGetClassHandlerFunc) Handle(params NodesBatchStatusGetClassParams, principal *models.Principal) middleware.Responder {
+func (fn NodesBatchStatusGetHandlerFunc) Handle(params NodesBatchStatusGetParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// NodesBatchStatusGetClassHandler interface for that can handle valid nodes batch status get class params
-type NodesBatchStatusGetClassHandler interface {
-	Handle(NodesBatchStatusGetClassParams, *models.Principal) middleware.Responder
+// NodesBatchStatusGetHandler interface for that can handle valid nodes batch status get params
+type NodesBatchStatusGetHandler interface {
+	Handle(NodesBatchStatusGetParams, *models.Principal) middleware.Responder
 }
 
-// NewNodesBatchStatusGetClass creates a new http.Handler for the nodes batch status get class operation
-func NewNodesBatchStatusGetClass(ctx *middleware.Context, handler NodesBatchStatusGetClassHandler) *NodesBatchStatusGetClass {
-	return &NodesBatchStatusGetClass{Context: ctx, Handler: handler}
+// NewNodesBatchStatusGet creates a new http.Handler for the nodes batch status get operation
+func NewNodesBatchStatusGet(ctx *middleware.Context, handler NodesBatchStatusGetHandler) *NodesBatchStatusGet {
+	return &NodesBatchStatusGet{Context: ctx, Handler: handler}
 }
 
 /*
-	NodesBatchStatusGetClass swagger:route GET /nodes/_batch_status nodes nodesBatchStatusGetClass
+	NodesBatchStatusGet swagger:route GET /nodes/batch-status nodes nodesBatchStatusGet
 
-Returns status of Weaviate DB.
+Returns batch status of Weaviate DB nodes.
 */
-type NodesBatchStatusGetClass struct {
+type NodesBatchStatusGet struct {
 	Context *middleware.Context
-	Handler NodesBatchStatusGetClassHandler
+	Handler NodesBatchStatusGetHandler
 }
 
-func (o *NodesBatchStatusGetClass) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *NodesBatchStatusGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewNodesBatchStatusGetClassParams()
+	var Params = NewNodesBatchStatusGetParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

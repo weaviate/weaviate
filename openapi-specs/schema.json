@@ -1036,6 +1036,43 @@
         }
       }
     },
+    "NodesBatchStatusResponse": {
+      "description": "The batch statuses of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeBatchStatus"
+          }
+        }
+      }
+    },
+    "NodeBatchStatus": {
+      "description": "The batch statuses of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE"
+          ]
+        },
+        "batchStats": {
+          "description": "Weaviate batch statistics for the node.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -4712,12 +4749,12 @@
         }
       }
     },
-    "/nodes/_batch_status": {
+    "/nodes/batch-status": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
-        "operationId": "nodes.batch_status.get.class",
+        "description": "Returns batch status of Weaviate DB nodes.",
+        "operationId": "nodes.batch_status.get",
         "x-serviceIds": [
-          "weaviate.nodes.batch_status.status.get.class"
+          "weaviate.nodes.batch_status.get"
         ],
         "tags": [
           "nodes"
@@ -4725,9 +4762,9 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "Nodes batch status successfully returned",
+            "description": "Nodes batch stats successfully returned",
             "schema": {
-              "$ref": "#/definitions/BatchStats"
+              "$ref": "#/definitions/NodesBatchStatusResponse"
             }
           },
           "401": {

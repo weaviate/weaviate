@@ -23,19 +23,19 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 )
 
-// NewNodesBatchStatusGetClassParams creates a new NodesBatchStatusGetClassParams object
+// NewNodesBatchStatusGetParams creates a new NodesBatchStatusGetParams object
 //
 // There are no default values defined in the spec.
-func NewNodesBatchStatusGetClassParams() NodesBatchStatusGetClassParams {
+func NewNodesBatchStatusGetParams() NodesBatchStatusGetParams {
 
-	return NodesBatchStatusGetClassParams{}
+	return NodesBatchStatusGetParams{}
 }
 
-// NodesBatchStatusGetClassParams contains all the bound params for the nodes batch status get class operation
+// NodesBatchStatusGetParams contains all the bound params for the nodes batch status get operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters nodes.batch_status.get.class
-type NodesBatchStatusGetClassParams struct {
+// swagger:parameters nodes.batch_status.get
+type NodesBatchStatusGetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -44,8 +44,8 @@ type NodesBatchStatusGetClassParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewNodesBatchStatusGetClassParams() beforehand.
-func (o *NodesBatchStatusGetClassParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewNodesBatchStatusGetParams() beforehand.
+func (o *NodesBatchStatusGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r

@@ -25,6 +25,7 @@ type authorizer interface {
 
 type db interface {
 	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
+	GetNodeBatchStatus(ctx context.Context) ([]*models.NodeBatchStatus, error)
 }
 
 type Manager struct {
@@ -47,4 +48,13 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		return nil, err
 	}
 	return m.db.GetNodeStatus(ctx, className, verbosity)
+}
+
+func (m *Manager) GetNodeBatchStatus(ctx context.Context,
+	principal *models.Principal,
+) ([]*models.NodeBatchStatus, error) {
+	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
+		return nil, err
+	}
+	return m.db.GetNodeBatchStatus(ctx)
 }

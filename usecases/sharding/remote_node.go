@@ -20,6 +20,7 @@ import (
 
 type RemoteNodeClient interface {
 	GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error)
+	GetNodeBatchStatus(ctx context.Context, hostName string) (*models.NodeBatchStatus, error)
 }
 
 type RemoteNode struct {
@@ -40,4 +41,12 @@ func (rn *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, ou
 		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
 	}
 	return rn.client.GetNodeStatus(ctx, host, className, output)
+}
+
+func (rn *RemoteNode) GetNodeBatchStatus(ctx context.Context, nodeName string) (*models.NodeBatchStatus, error) {
+	host, ok := rn.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
+	return rn.client.GetNodeBatchStatus(ctx, host)
 }

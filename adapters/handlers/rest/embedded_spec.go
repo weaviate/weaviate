@@ -927,18 +927,18 @@ func init() {
         ]
       }
     },
-    "/nodes/_batch_status": {
+    "/nodes/batch-status": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
+        "description": "Returns batch status of Weaviate DB nodes.",
         "tags": [
           "nodes"
         ],
-        "operationId": "nodes.batch_status.get.class",
+        "operationId": "nodes.batch_status.get",
         "responses": {
           "200": {
-            "description": "Nodes batch status successfully returned",
+            "description": "Nodes batch stats successfully returned",
             "schema": {
-              "$ref": "#/definitions/BatchStats"
+              "$ref": "#/definitions/NodesBatchStatusResponse"
             }
           },
           "401": {
@@ -958,7 +958,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.nodes.batch_status.status.get.class"
+          "weaviate.nodes.batch_status.get"
         ]
       }
     },
@@ -4015,6 +4015,31 @@ func init() {
         }
       }
     },
+    "NodeBatchStatus": {
+      "description": "The batch statuses of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics for the node.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -4110,6 +4135,18 @@ func init() {
         "version": {
           "description": "The version of Weaviate.",
           "type": "string"
+        }
+      }
+    },
+    "NodesBatchStatusResponse": {
+      "description": "The batch statuses of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeBatchStatus"
+          }
         }
       }
     },
@@ -5887,18 +5924,18 @@ func init() {
         ]
       }
     },
-    "/nodes/_batch_status": {
+    "/nodes/batch-status": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
+        "description": "Returns batch status of Weaviate DB nodes.",
         "tags": [
           "nodes"
         ],
-        "operationId": "nodes.batch_status.get.class",
+        "operationId": "nodes.batch_status.get",
         "responses": {
           "200": {
-            "description": "Nodes batch status successfully returned",
+            "description": "Nodes batch stats successfully returned",
             "schema": {
-              "$ref": "#/definitions/BatchStats"
+              "$ref": "#/definitions/NodesBatchStatusResponse"
             }
           },
           "401": {
@@ -5918,7 +5955,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.nodes.batch_status.status.get.class"
+          "weaviate.nodes.batch_status.get"
         ]
       }
     },
@@ -9240,6 +9277,31 @@ func init() {
         }
       }
     },
+    "NodeBatchStatus": {
+      "description": "The batch statuses of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "batchStats": {
+          "description": "Weaviate batch statistics for the node.",
+          "type": "object",
+          "$ref": "#/definitions/BatchStats"
+        },
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE"
+          ]
+        }
+      }
+    },
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
@@ -9335,6 +9397,18 @@ func init() {
         "version": {
           "description": "The version of Weaviate.",
           "type": "string"
+        }
+      }
+    },
+    "NodesBatchStatusResponse": {
+      "description": "The batch statuses of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NodeBatchStatus"
+          }
         }
       }
     },

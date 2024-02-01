@@ -72,6 +72,20 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
+func (n *nodesHandlers) getNodesBatchStatus(params nodes.NodesBatchStatusGetParams, principal *models.Principal) middleware.Responder {
+	batchStatuses, err := n.manager.GetNodeBatchStatus(params.HTTPRequest.Context(), principal)
+	if err != nil {
+		return n.handleGetNodesError(err)
+	}
+
+	status := &models.NodesBatchStatusResponse{
+		Nodes: batchStatuses,
+	}
+
+	n.metricRequestsTotal.logOk("")
+	return nodes.NewNodesBatchStatusGetOK().WithPayload(status)
+}
+
 func (n *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
 	n.metricRequestsTotal.logError("", err)
 	if errors.As(err, &enterrors.ErrNotFound{}) {
@@ -101,6 +115,8 @@ func setupNodesHandlers(api *operations.WeaviateAPI,
 		NodesGetHandlerFunc(h.getNodesStatus)
 	api.NodesNodesGetClassHandler = nodes.
 		NodesGetClassHandlerFunc(h.getNodesStatusByClass)
+	api.NodesNodesBatchStatusGetHandler = nodes.
+		NodesBatchStatusGetHandlerFunc(h.getNodesBatchStatus)
 }
 
 type nodesRequestsTotal struct {
