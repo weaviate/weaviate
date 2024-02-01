@@ -25,6 +25,7 @@ import (
 
 type nodesManager interface {
 	GetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error)
+	GetNodeBatchStatus() *models.BatchStats
 }
 
 type nodes struct {
@@ -94,6 +95,45 @@ func (s *nodes) incomingNodeStatus() http.Handler {
 			return
 		}
 
+		nodeStatusBytes, err := json.Marshal(nodeStatus)
+		if err != nil {
+			http.Error(w, "/nodes marshal response: "+err.Error(),
+				http.StatusInternalServerError)
+		}
+
+		w.Write(nodeStatusBytes)
+	})
+}
+
+func (s *nodes) NodesBatchStatus() http.Handler {
+	return s.auth.handleFunc(s.nodesBatchStatusHandler())
+}
+
+func (s *nodes) nodesBatchStatusHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case regxNodes.MatchString(path) || regxNodesClass.MatchString(path):
+			if r.Method != http.MethodGet {
+				msg := fmt.Sprintf("/nodes api path %q not found", path)
+				http.Error(w, msg, http.StatusMethodNotAllowed)
+				return
+			}
+
+			s.incomingNodeBatchStatus().ServeHTTP(w, r)
+			return
+		default:
+			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+	}
+}
+
+func (s *nodes) incomingNodeBatchStatus() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		nodeStatus := s.nodesManager.GetNodeBatchStatus()
 		nodeStatusBytes, err := json.Marshal(nodeStatus)
 		if err != nil {
 			http.Error(w, "/nodes marshal response: "+err.Error(),

@@ -4712,6 +4712,42 @@
         }
       }
     },
+    "/nodes/_batch_status": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "operationId": "nodes.batch_status.get.class",
+        "x-serviceIds": [
+          "weaviate.nodes.batch_status.status.get.class"
+        ],
+        "tags": [
+          "nodes"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Nodes batch status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BatchStats"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/nodes/{className}": {
       "get": {
         "description": "Returns status of Weaviate DB.",

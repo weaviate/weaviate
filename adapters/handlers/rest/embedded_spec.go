@@ -927,6 +927,41 @@ func init() {
         ]
       }
     },
+    "/nodes/_batch_status": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes.batch_status.get.class",
+        "responses": {
+          "200": {
+            "description": "Nodes batch status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BatchStats"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.nodes.batch_status.status.get.class"
+        ]
+      }
+    },
     "/nodes/{className}": {
       "get": {
         "description": "Returns status of Weaviate DB.",
@@ -5849,6 +5884,41 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.nodes.status.get"
+        ]
+      }
+    },
+    "/nodes/_batch_status": {
+      "get": {
+        "description": "Returns status of Weaviate DB.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes.batch_status.get.class",
+        "responses": {
+          "200": {
+            "description": "Nodes batch status successfully returned",
+            "schema": {
+              "$ref": "#/definitions/BatchStats"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.nodes.batch_status.status.get.class"
         ]
       }
     },

@@ -161,3 +161,20 @@ func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus, output st
 	})
 	return
 }
+
+// IncomingGetNodeBatchStatus returns the index if it exists or nil if it doesn't
+func (db *DB) IncomingGetNodeBatchStatus() *models.BatchStats {
+	db.batchMonitorLock.Lock()
+	rate := db.ratePerSecond
+	db.batchMonitorLock.Unlock()
+
+	batchStats := &models.BatchStats{
+		RatePerSecond: int64(rate),
+	}
+
+	if !asyncEnabled() {
+		ql := int64(len(db.jobQueueCh))
+		batchStats.QueueLength = &ql
+	}
+	return batchStats
+}

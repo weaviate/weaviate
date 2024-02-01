@@ -105,6 +105,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
 		}),
+		NodesNodesBatchStatusGetClassHandler: nodes.NodesBatchStatusGetClassHandlerFunc(func(params nodes.NodesBatchStatusGetClassParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation nodes.NodesBatchStatusGetClass has not yet been implemented")
+		}),
 		NodesNodesGetHandler: nodes.NodesGetHandlerFunc(func(params nodes.NodesGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation nodes.NodesGet has not yet been implemented")
 		}),
@@ -294,6 +297,8 @@ type WeaviateAPI struct {
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
+	// NodesNodesBatchStatusGetClassHandler sets the operation handler for the nodes batch status get class operation
+	NodesNodesBatchStatusGetClassHandler nodes.NodesBatchStatusGetClassHandler
 	// NodesNodesGetHandler sets the operation handler for the nodes get operation
 	NodesNodesGetHandler nodes.NodesGetHandler
 	// NodesNodesGetClassHandler sets the operation handler for the nodes get class operation
@@ -490,6 +495,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
+	}
+	if o.NodesNodesBatchStatusGetClassHandler == nil {
+		unregistered = append(unregistered, "nodes.NodesBatchStatusGetClassHandler")
 	}
 	if o.NodesNodesGetHandler == nil {
 		unregistered = append(unregistered, "nodes.NodesGetHandler")
@@ -754,6 +762,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/meta"] = meta.NewMetaGet(o.context, o.MetaMetaGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/nodes/_batch_status"] = nodes.NewNodesBatchStatusGetClass(o.context, o.NodesNodesBatchStatusGetClassHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
