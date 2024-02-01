@@ -60,40 +60,6 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, out
 	return status, nil
 }
 
-// GetNodeStatus returns the batch stats of all Weaviate nodes.
-func (db *DB) GetNodeBatchStatus(ctx context.Context) ([]*models.NodeBatchStatus, error) {
-	statuses := make([]*models.NodeBatchStatus, len(db.schemaGetter.Nodes()))
-	for i, nodeName := range db.schemaGetter.Nodes() {
-		status, err := db.getNodeBatchStatus(ctx, nodeName)
-		if err != nil {
-			return nil, fmt.Errorf("node: %v: %w", nodeName, err)
-		}
-		statuses[i] = status
-	}
-
-	sort.Slice(statuses, func(i, j int) bool {
-		return statuses[i].Name < statuses[j].Name
-	})
-	return statuses, nil
-}
-
-func (db *DB) getNodeBatchStatus(ctx context.Context, nodeName string) (*models.NodeBatchStatus, error) {
-	if db.schemaGetter.NodeName() == nodeName {
-		return db.localNodeBatchStatus(), nil
-	}
-	status, err := db.remoteNode.GetNodeBatchStatus(ctx, nodeName)
-	if err != nil {
-		switch err.(type) {
-		case enterrors.ErrOpenHttpRequest, enterrors.ErrSendHttpRequest:
-			nodeUnavailable := models.NodeStatusStatusUNAVAILABLE
-			return &models.NodeBatchStatus{Name: nodeName, Status: &nodeUnavailable}, nil
-		default:
-			return nil, err
-		}
-	}
-	return status, nil
-}
-
 // IncomingGetNodeStatus returns the index if it exists or nil if it doesn't
 func (db *DB) IncomingGetNodeStatus(ctx context.Context, className, verbosity string) (*models.NodeStatus, error) {
 	return db.localNodeStatus(className, verbosity), nil
@@ -196,9 +162,13 @@ func (i *Index) getShardsNodeStatus(status *[]*models.NodeShardStatus, output st
 	return
 }
 
-// IncomingGetNodeBatchStatus returns the index if it exists or nil if it doesn't
-func (db *DB) IncomingGetNodeBatchStatus(ctx context.Context) (*models.NodeBatchStatus, error) {
-	return db.localNodeBatchStatus(), nil
+// GetNodeStatus returns the batch stats of the current node as a list.
+// This is a temporary solution in order for clients to use the results optimally.
+// In future we can extend to return the batch stats of all nodes.
+func (db *DB) GetNodeBatchStatus(ctx context.Context) ([]*models.NodeBatchStatus, error) {
+	statuses := make([]*models.NodeBatchStatus, 1)
+	statuses[0] = db.localNodeBatchStatus()
+	return statuses, nil
 }
 
 func (db *DB) localNodeBatchStatus() *models.NodeBatchStatus {
@@ -225,4 +195,9 @@ func (db *DB) localNodeBatchStatus() *models.NodeBatchStatus {
 		Status:     &clusterHealthStatus,
 		BatchStats: batchStats,
 	}
+}
+
+// IncomingGetNodeBatchStatus returns the index if it exists or nil if it doesn't
+func (db *DB) IncomingGetNodeBatchStatus(ctx context.Context) (*models.NodeBatchStatus, error) {
+	return db.localNodeBatchStatus(), nil
 }
