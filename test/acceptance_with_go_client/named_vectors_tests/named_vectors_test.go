@@ -20,14 +20,16 @@ import (
 )
 
 func TestNamedVectors_SingleNode(t *testing.T) {
-	ctx := context.Background()
-	compose, err := createSingleNodeEnvironment(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	endpoint := compose.GetWeaviate().URI()
+	// ctx := context.Background()
+	// compose, err := createSingleNodeEnvironment(ctx)
+	// require.NoError(t, err)
+	// defer func() {
+	// 	require.NoError(t, compose.Terminate(ctx))
+	// }()
+	// endpoint := compose.GetWeaviate().URI()
+	endpoint := "localhost:8080"
 	t.Run("schema", testCreateSchema(t, endpoint))
+	t.Run("object", testCreateObject(t, endpoint))
 }
 
 func TestNamedVectors_Cluster(t *testing.T) {
