@@ -263,6 +263,10 @@ func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, clas
 	return &models.NodeStatus{}, nil
 }
 
+func (f *fakeRemoteNodeClient) GetNodeBatchStatus(ctx context.Context, hostName string) (*models.NodeBatchStatus, error) {
+	return &models.NodeBatchStatus{}, nil
+}
+
 type fakeReplicationClient struct{}
 
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
