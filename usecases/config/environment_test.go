@@ -127,6 +127,59 @@ func TestEnvironmentFlushConflictingValues(t *testing.T) {
 	assert.Equal(t, 17, conf.Persistence.FlushIdleMemtablesAfter)
 }
 
+func TestEnvironmentPersistence_dataPath(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		config   Config
+		expected string
+	}{
+		{
+			name:     "given",
+			value:    []string{"/var/lib/weaviate"},
+			config:   Config{},
+			expected: "/var/lib/weaviate",
+		},
+		{
+			name:  "given with config set",
+			value: []string{"/var/lib/weaviate"},
+			config: Config{
+				Persistence: Persistence{
+					DataPath: "/var/data/weaviate",
+				},
+			},
+			expected: "/var/lib/weaviate",
+		},
+		{
+			name:     "not given",
+			value:    []string{},
+			config:   Config{},
+			expected: DefaultPersistenceDataPath,
+		},
+		{
+			name:  "not given with config set",
+			value: []string{},
+			config: Config{
+				Persistence: Persistence{
+					DataPath: "/var/data/weaviate",
+				},
+			},
+			expected: "/var/data/weaviate",
+		},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_DATA_PATH", tt.value[0])
+			}
+			conf := tt.config
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Persistence.DataPath)
+		})
+	}
+}
+
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -583,6 +636,116 @@ func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
 			} else {
 				require.Equal(t, tt.expected, conf.Replication.MinimumFactor)
 			}
+		})
+	}
+}
+
+func TestEnvironmentQueryDefaults_Limit(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		config   Config
+		expected int64
+	}{
+		{
+			name:     "Valid",
+			value:    []string{"3"},
+			config:   Config{},
+			expected: 3,
+		},
+		{
+			name:  "Valid with config already set",
+			value: []string{"3"},
+			config: Config{
+				QueryDefaults: QueryDefaults{
+					Limit: 20,
+				},
+			},
+			expected: 3,
+		},
+		{
+			name:  "not given with config set",
+			value: []string{},
+			config: Config{
+				QueryDefaults: QueryDefaults{
+					Limit: 20,
+				},
+			},
+			expected: 20,
+		},
+		{
+			name:     "not given with config set",
+			value:    []string{},
+			config:   Config{},
+			expected: DefaultQueryDefaultsLimit,
+		},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("QUERY_DEFAULTS_LIMIT", tt.value[0])
+			}
+			conf := tt.config
+			err := FromEnv(&conf)
+
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.QueryDefaults.Limit)
+		})
+	}
+}
+
+func TestEnvironmentAuthentication(t *testing.T) {
+	factors := []struct {
+		name         string
+		auth_env_var []string
+		expected     Authentication
+	}{
+		{
+			name:         "Valid API Key",
+			auth_env_var: []string{"AUTHENTICATION_APIKEY_ENABLED"},
+			expected: Authentication{
+				APIKey: APIKey{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name:         "Valid Anonymous Access",
+			auth_env_var: []string{"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"},
+			expected: Authentication{
+				AnonymousAccess: AnonymousAccess{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name:         "Valid OIDC Auth",
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
+			expected: Authentication{
+				OIDC: OIDC{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name:         "not given",
+			auth_env_var: []string{},
+			expected: Authentication{
+				AnonymousAccess: AnonymousAccess{
+					Enabled: true,
+				},
+			},
+		},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.auth_env_var) == 1 {
+				t.Setenv(tt.auth_env_var[0], "true")
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Authentication)
 		})
 	}
 }
