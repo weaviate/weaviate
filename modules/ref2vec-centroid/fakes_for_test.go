@@ -35,6 +35,10 @@ func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
+func (f fakeClassConfig) TargetVector() string {
+	return ""
+}
+
 func newFakeStorageProvider(t *testing.T) *fakeStorageProvider {
 	dirName := t.TempDir()
 	return &fakeStorageProvider{dirName}
