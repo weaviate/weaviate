@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -35,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -501,28 +503,33 @@ func indexID(class schema.ClassName) string {
 }
 
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
-	className := i.Config.ClassName.String()
-	if tenant != "" {
-		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
-			if status == models.TenantActivityStatusHOT {
-				return shard, nil
+	var shard, status string
+	err := backoff.Retry(func() error {
+		className := i.Config.ClassName.String()
+		if tenant != "" {
+			if shard, status = i.getSchema.TenantShard(className, tenant); shard != "" {
+				if status == models.TenantActivityStatusHOT {
+					return nil
+				}
+				return objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 			}
-			return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+			return objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 		}
-		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
-	}
 
-	uuid, err := uuid.Parse(id.String())
-	if err != nil {
-		return "", fmt.Errorf("parse uuid: %q", id.String())
-	}
+		uuid, err := uuid.Parse(id.String())
+		if err != nil {
+			return fmt.Errorf("parse uuid: %q", id.String())
+		}
 
-	uuidBytes, err := uuid.MarshalBinary() // cannot error
-	if err != nil {
-		return "", fmt.Errorf("marshal uuid: %q", id.String())
-	}
+		uuidBytes, err := uuid.MarshalBinary() // cannot error
+		if err != nil {
+			return fmt.Errorf("marshal uuid: %q", id.String())
+		}
+		shard = i.getSchema.ShardFromUUID(className, uuidBytes)
+		return nil
+	}, utils.ConstantBackoff(10, 200*time.Millisecond))
 
-	return i.getSchema.ShardFromUUID(className, uuidBytes), nil
+	return shard, err
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -1017,44 +1024,46 @@ func wrapIDsInMulti(in []strfmt.UUID) []multi.Identifier {
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	replProps *additional.ReplicationProperties, tenant string,
-) (bool, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return false, err
-	}
-
-	shardName, err := i.determineObjectShard(id, tenant)
-	if err != nil {
-		switch err.(type) {
-		case objects.ErrMultiTenancy:
-			return false, objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
-		default:
-			return false, objects.NewErrInvalidUserInput("determine shard: %v", err)
+) (exists bool, err error) {
+	return exists, backoff.Retry(func() error {
+		if err := i.validateMultiTenancy(tenant); err != nil {
+			return err
 		}
-	}
 
-	var exists bool
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency()
-		}
-		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		return i.replicator.Exists(ctx, cl, shardName, id)
-
-	}
-
-	if shard := i.localShard(shardName); shard != nil {
-		exists, err = shard.Exists(ctx, id)
+		shardName, err := i.determineObjectShard(id, tenant)
 		if err != nil {
-			err = fmt.Errorf("exists locally: shard=%q: %w", shardName, err)
+			switch err.(type) {
+			case objects.ErrMultiTenancy:
+				return objects.NewErrMultiTenancy(fmt.Errorf("determine shard: %w", err))
+			default:
+				return objects.NewErrInvalidUserInput("determine shard: %v", err)
+			}
 		}
-	} else {
-		owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
-		exists, err = i.remote.Exists(ctx, shardName, id)
-		if err != nil {
-			err = fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
+
+		if i.replicationEnabled() {
+			if replProps == nil {
+				replProps = defaultConsistency()
+			}
+			cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+			exists, err = i.replicator.Exists(ctx, cl, shardName, id)
+			return err
+
 		}
-	}
-	return exists, err
+
+		if shard := i.localShard(shardName); shard != nil {
+			exists, err = shard.Exists(ctx, id)
+			if err != nil {
+				return fmt.Errorf("exists locally: shard=%q: %w", shardName, err)
+			}
+		} else {
+			owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
+			exists, err = i.remote.Exists(ctx, shardName, id)
+			if err != nil {
+				return fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
+			}
+		}
+		return err
+	}, utils.ConstantBackoff(3, 200*time.Millisecond))
 }
 
 func (i *Index) IncomingExists(ctx context.Context, shardName string,
@@ -1327,20 +1336,28 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(tenant string) ([]string, error) {
-	className := i.Config.ClassName.String()
-	if !i.partitioningEnabled {
-		shardingState := i.getSchema.CopyShardingState(className)
-		return shardingState.AllPhysicalShards(), nil
-	}
-	if tenant != "" {
+	var names []string
+	err := backoff.Retry(func() error {
+		className := i.Config.ClassName.String()
+		if !i.partitioningEnabled {
+			shardingState := i.getSchema.CopyShardingState(className)
+			names = shardingState.AllPhysicalShards()
+			return nil
+		}
+		if tenant == "" {
+			return objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
+		}
 		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
 			if status == models.TenantActivityStatusHOT {
-				return []string{shard}, nil
+				names = []string{shard}
+				return nil
 			}
-			return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+			return objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 		}
-	}
-	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+		return objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	}, utils.ConstantBackoff(3, 200*time.Millisecond))
+
+	return names, err
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1540,7 +1557,14 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) localShard(name string) ShardLike {
-	return i.shards.Load(name)
+	var sl ShardLike
+	backoff.Retry(func() error {
+		if sl = i.shards.Load(name); sl == nil {
+			return fmt.Errorf("does not exists")
+		}
+		return nil
+	}, utils.ConstantBackoff(3, 200*time.Millisecond))
+	return sl
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,

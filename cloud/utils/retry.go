@@ -27,3 +27,9 @@ func NewBackoff() backoff.BackOff {
 	expBackoff.MaxElapsedTime = 3 * time.Second
 	return backoff.WithMaxRetries(expBackoff, 3)
 }
+
+// ConstantBackoff is a backoff configuration used to handle getters
+// retry for eventual consistency handling
+func ConstantBackoff(maxrtry int, interval time.Duration) backoff.BackOff {
+	return backoff.WithMaxRetries(backoff.NewConstantBackOff(interval), uint64(maxrtry))
+}

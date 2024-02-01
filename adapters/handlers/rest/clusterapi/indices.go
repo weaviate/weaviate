@@ -358,8 +358,8 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	index := i.db.GetIndexForIncoming(entschema.ClassName(class))
-	if index == nil {
+	index, err := i.db.GetIndexForIncoming(entschema.ClassName(class))
+	if err != nil {
 		http.Error(w, "index not found", http.StatusInternalServerError)
 		return
 	}

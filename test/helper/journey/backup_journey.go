@@ -64,24 +64,28 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	t.Run("create backup", func(t *testing.T) {
 		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
+
 		// wait for create success
-		createTime := time.Now()
+		ticker := time.NewTicker(90 * time.Second)
+
+	wait:
 		for {
-			if time.Now().After(createTime.Add(time.Minute)) {
-				break
-			}
+			select {
+			case <-ticker.C:
+				break wait
+			default:
+				resp, err := helper.CreateBackupStatus(t, backend, backupID)
+				helper.AssertRequestOk(t, resp, err, func() {
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.Payload)
+					require.NotNil(t, resp.Payload.Status)
+				})
 
-			resp, err := helper.CreateBackupStatus(t, backend, backupID)
-			helper.AssertRequestOk(t, resp, err, func() {
-				require.NotNil(t, resp)
-				require.NotNil(t, resp.Payload)
-				require.NotNil(t, resp.Payload.Status)
-			})
-
-			if *resp.Payload.Status == string(backup.Success) {
-				break
+				if *resp.Payload.Status == string(backup.Success) {
+					break wait
+				}
+				time.Sleep(1 * time.Second)
 			}
-			time.Sleep(time.Second * 1)
 		}
 
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
@@ -105,24 +109,25 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success
-		restoreTime := time.Now()
+		ticker := time.NewTicker(90 * time.Second)
+	wait:
 		for {
-			if time.Now().After(restoreTime.Add(time.Minute)) {
-				break
+			select {
+			case <-ticker.C:
+				break wait
+			default:
+				resp, err := helper.RestoreBackupStatus(t, backend, backupID)
+				helper.AssertRequestOk(t, resp, err, func() {
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.Payload)
+					require.NotNil(t, resp.Payload.Status)
+				})
+
+				if *resp.Payload.Status == string(backup.Success) {
+					break wait
+				}
+				time.Sleep(1 * time.Second)
 			}
-
-			resp, err := helper.RestoreBackupStatus(t, backend, backupID)
-			helper.AssertRequestOk(t, resp, err, func() {
-				require.NotNil(t, resp)
-				require.NotNil(t, resp.Payload)
-				require.NotNil(t, resp.Payload.Status)
-			})
-
-			if *resp.Payload.Status == string(backup.Success) {
-				break
-			}
-
-			time.Sleep(time.Second)
 		}
 
 		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID)
@@ -132,7 +137,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			require.NotNil(t, statusResp.Payload.Status)
 		})
 
-		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+		require.Equal(t, string(backup.Success), *statusResp.Payload.Status)
 	})
 
 	// assert class exists again it its entirety
@@ -157,6 +162,10 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 }
 
 func addTestClass(t *testing.T, className string, multiTenant bool) {
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	helper.DeleteClass(t, className)
+
 	class := &models.Class{
 		Class: className,
 		ModuleConfig: map[string]interface{}{
@@ -210,6 +219,5 @@ func addTestObjects(t *testing.T, className string, tenantNames []string) {
 			batch[j] = &obj
 		}
 		helper.CreateObjectsBatch(t, batch)
-
 	}
 }
