@@ -68,7 +68,7 @@ type ModulesProvider interface {
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
-	VectorFromInput(ctx context.Context, className string, input string) ([]float32, error)
+	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
 }
 
 type objectsSearcher interface {
