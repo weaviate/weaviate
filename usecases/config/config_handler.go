@@ -103,7 +103,7 @@ type Config struct {
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
-	DisableTelemetry                    bool                     `json:"telemetry" yaml:"telemetry"`
+	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 }
 
 type moduleProvider interface {
