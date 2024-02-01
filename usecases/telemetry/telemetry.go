@@ -158,8 +158,8 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("request unsuccessful, status code: %d, body: %s", resp.StatusCode, string(body))
 	}
