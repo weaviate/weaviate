@@ -97,6 +97,7 @@ func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
 			Type:            "hybrid",
 			Alpha:           0.5,
 			Query:           "some query",
+			TargetVectors:   []string{"default"},
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 		},
 		Class: class,
@@ -303,6 +304,7 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 	class := "HybridClass"
 	params := &Params{
 		HybridSearch: &searchparams.HybridSearch{
+			TargetVectors:   []string{"default"},
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			SubSearches: []searchparams.WeightedSearchResult{
@@ -349,6 +351,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 	class := "HybridClass"
 	params := &Params{
 		HybridSearch: &searchparams.HybridSearch{
+			TargetVectors:   []string{"default"},
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			SubSearches: []searchparams.WeightedSearchResult{
@@ -396,6 +399,7 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 	class := "HybridClass"
 	params := &Params{
 		HybridSearch: &searchparams.HybridSearch{
+			TargetVectors:   []string{"default"},
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			SubSearches: []searchparams.WeightedSearchResult{

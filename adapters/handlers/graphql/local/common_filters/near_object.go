@@ -47,5 +47,10 @@ func ExtractNearObject(source map[string]interface{}) (searchparams.NearObject, 
 			fmt.Errorf("cannot provide distance and certainty")
 	}
 
+	targetVectors, ok := source["targetVectors"]
+	if ok {
+		args.TargetVectors = targetVectors.([]string)
+	}
+
 	return args, nil
 }
