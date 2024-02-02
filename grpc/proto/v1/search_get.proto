@@ -113,6 +113,7 @@ message Hybrid {
   }
   FusionType fusion_type = 5;
   bytes vector_bytes = 6;
+  repeated string target_vectors = 7;
 }
 
 message NearTextSearch {
