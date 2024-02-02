@@ -37,7 +37,11 @@ var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
 	if resourceName != "" && deploymentID != "" {
-		host := "https://" + resourceName + ".openai.azure.com"
+		host := baseURL
+		if host == "" || host == "https://api.openai.com" {
+			// Fall back to old assumption
+			host = "https://" + resourceName + ".openai.azure.com"
+		}
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
 		queryParam := "api-version=2023-03-15-preview"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
