@@ -72,9 +72,8 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	// Marcin! Please take a look at this part!
 	ollamaUrl := v.getOllamaUrl(ctx, settings.BaseURL())
-	model := v.model
 	input := generateInput{
-		Model:  model,
+		Model:  settings.Model(),
 		Prompt: prompt,
 		Stream: false,
 	}

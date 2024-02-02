@@ -22,12 +22,12 @@ const (
 )
 
 var availableOllamaModels = []string{
-	"llama2",
+	"mistarl", "mixtral", "llama2", "codellama", "orca-mini",
 }
 
 // note we might want to separate the baseURL and completions URL in the future. Fine-tuned models also use this URL. 12/3/23
 var (
-	DefaultOllamaModel = "llama2"
+	DefaultOllamaModel = "mistral"
 )
 
 type classSettings struct {
