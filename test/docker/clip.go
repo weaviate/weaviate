@@ -37,6 +37,7 @@ func startM2VClip(ctx context.Context, networkName, clipImage string) (*DockerCo
 			NetworkAliases: map[string][]string{
 				networkName: {Multi2VecCLIP},
 			},
+			Name:         Multi2VecCLIP,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -48,6 +49,7 @@ func startM2VClip(ctx context.Context, networkName, clipImage string) (*DockerCo
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
+		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

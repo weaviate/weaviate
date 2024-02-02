@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
 	"github.com/stretchr/testify/require"
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
@@ -248,6 +247,32 @@ func TestHybridWithPureVectorSearch(t *testing.T) {
 	require.Len(t, result, 4)
 }
 
+func TestHybridWithOnlyVectorSearch(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+
+	className := "HybridVectorOnlySearch"
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		Vectorizer: "text2vec-contextionary",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	creator := c.Data().Creator()
+	model, err := creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
+	require.Nil(t, err)
+
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{vector:%v}){text}}}", className, model.Object.Vector)).Do(ctx)
+	require.Nil(t, err)
+	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+	require.Len(t, result, 1)
+}
+
 func TestNearVectorAndObjectAutocut(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
@@ -302,6 +327,65 @@ func TestNearVectorAndObjectAutocut(t *testing.T) {
 				require.Len(t, result, tt.numResults)
 			})
 		}
+	})
+}
+
+func TestHybridExplainScore(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "ParagraphWithManyWords"
+
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
+	creator := c.Data().Creator()
+	creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"contents": []string{
+			"specific",
+			"hybrid",
+			"search",
+			"object",
+		}, "num": 4}).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	t.Run("hybrid explainscore 1", func(t *testing.T) {
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain nice\", fusionType: rankedFusion, alpha: 0.5, properties: [\"contents\"]}){num _additional { score explainScore id }}}}", className)).Do(ctx)
+
+		require.Nil(t, err)
+		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+		require.Len(t, result, 5)
+		for _, r := range result {
+			score := r.(map[string]interface{})["_additional"].(map[string]interface{})["score"]
+			require.NotNil(t, score)
+		}
+		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
+		require.Contains(t, explainScore, "contributed 0.008064516129032258 to the score")
+		require.Contains(t, explainScore, "contributed 0.00819672131147541 to the score")
+	})
+	t.Run("hybrid explainscore 2", func(t *testing.T) {
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\",fusionType: rankedFusion, properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
+		require.Nil(t, err)
+		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+		require.Len(t, result, 5)
+		for _, r := range result {
+			score := r.(map[string]interface{})["_additional"].(map[string]interface{})["score"]
+			require.NotNil(t, score)
+		}
+		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
+		require.Contains(t, explainScore, "contributed 0.004098360655737705 to the score")
+		require.Contains(t, explainScore, "contributed 0.012295081967213115 to the score")
+	})
+	t.Run("hybrid explainscore relative score fusion", func(t *testing.T) {
+		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\", fusionType: relativeScoreFusion, properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
+		require.Nil(t, err)
+		result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+		require.Len(t, result, 5)
+		for _, r := range result {
+			score := r.(map[string]interface{})["_additional"].(map[string]interface{})["score"]
+			require.NotNil(t, score)
+		}
+		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
+		require.Contains(t, explainScore, "normalized score: 0.75")
+		require.Contains(t, explainScore, "normalized score: 0.25")
 	})
 }
 

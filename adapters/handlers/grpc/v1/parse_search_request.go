@@ -26,6 +26,10 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -179,6 +183,39 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			out.ModuleParams = make(map[string]interface{})
 		}
 		out.ModuleParams["nearVideo"] = nearVideoOut
+	}
+
+	if nd := req.NearDepth; nd != nil {
+		nearDepthOut, err := parseNearDepth(nd)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearDepth"] = nearDepthOut
+	}
+
+	if nt := req.NearThermal; nt != nil {
+		nearThermalOut, err := parseNearThermal(nt)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearThermal"] = nearThermalOut
+	}
+
+	if ni := req.NearImu; ni != nil {
+		nearIMUOut, err := parseNearIMU(ni)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		if out.ModuleParams == nil {
+			out.ModuleParams = make(map[string]interface{})
+		}
+		out.ModuleParams["nearIMU"] = nearIMUOut
 	}
 
 	out.Pagination = &filters.Pagination{Offset: int(req.Offset), Autocut: int(req.Autocut)}
@@ -680,74 +717,146 @@ func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P)
 	return props, nil
 }
 
-func parseNearImage(ni *pb.NearImageSearch) (*nearImage.NearImageParams, error) {
-	nearImageOut := &nearImage.NearImageParams{
-		Image: ni.Image,
+func parseNearImage(n *pb.NearImageSearch) (*nearImage.NearImageParams, error) {
+	out := &nearImage.NearImageParams{
+		Image: n.Image,
 	}
 
 	// The following business logic should not sit in the API. However, it is
 	// also part of the GraphQL API, so we need to duplicate it in order to get
 	// the same behavior
-	if ni.Distance != nil && ni.Certainty != nil {
+	if n.Distance != nil && n.Certainty != nil {
 		return nil, fmt.Errorf("near_image: cannot provide distance and certainty")
 	}
 
-	if ni.Certainty != nil {
-		nearImageOut.Certainty = *ni.Certainty
+	if n.Certainty != nil {
+		out.Certainty = *n.Certainty
 	}
 
-	if ni.Distance != nil {
-		nearImageOut.Distance = *ni.Distance
-		nearImageOut.WithDistance = true
+	if n.Distance != nil {
+		out.Distance = *n.Distance
+		out.WithDistance = true
 	}
 
-	return nearImageOut, nil
+	return out, nil
 }
 
-func parseNearAudio(na *pb.NearAudioSearch) (*nearAudio.NearAudioParams, error) {
-	nearAudioOut := &nearAudio.NearAudioParams{
-		Audio: na.Audio,
+func parseNearAudio(n *pb.NearAudioSearch) (*nearAudio.NearAudioParams, error) {
+	out := &nearAudio.NearAudioParams{
+		Audio: n.Audio,
 	}
 
 	// The following business logic should not sit in the API. However, it is
 	// also part of the GraphQL API, so we need to duplicate it in order to get
 	// the same behavior
-	if na.Distance != nil && na.Certainty != nil {
+	if n.Distance != nil && n.Certainty != nil {
 		return nil, fmt.Errorf("near_audio: cannot provide distance and certainty")
 	}
 
-	if na.Certainty != nil {
-		nearAudioOut.Certainty = *na.Certainty
+	if n.Certainty != nil {
+		out.Certainty = *n.Certainty
 	}
 
-	if na.Distance != nil {
-		nearAudioOut.Distance = *na.Distance
-		nearAudioOut.WithDistance = true
+	if n.Distance != nil {
+		out.Distance = *n.Distance
+		out.WithDistance = true
 	}
 
-	return nearAudioOut, nil
+	return out, nil
 }
 
-func parseNearVideo(nv *pb.NearVideoSearch) (*nearVideo.NearVideoParams, error) {
-	nearVideoOut := &nearVideo.NearVideoParams{
-		Video: nv.Video,
+func parseNearVideo(n *pb.NearVideoSearch) (*nearVideo.NearVideoParams, error) {
+	out := &nearVideo.NearVideoParams{
+		Video: n.Video,
 	}
 
 	// The following business logic should not sit in the API. However, it is
 	// also part of the GraphQL API, so we need to duplicate it in order to get
 	// the same behavior
-	if nv.Distance != nil && nv.Certainty != nil {
+	if n.Distance != nil && n.Certainty != nil {
 		return nil, fmt.Errorf("near_video: cannot provide distance and certainty")
 	}
 
-	if nv.Certainty != nil {
-		nearVideoOut.Certainty = *nv.Certainty
+	if n.Certainty != nil {
+		out.Certainty = *n.Certainty
 	}
 
-	if nv.Distance != nil {
-		nearVideoOut.Distance = *nv.Distance
-		nearVideoOut.WithDistance = true
+	if n.Distance != nil {
+		out.Distance = *n.Distance
+		out.WithDistance = true
 	}
 
-	return nearVideoOut, nil
+	return out, nil
+}
+
+func parseNearDepth(n *pb.NearDepthSearch) (*neardepth.NearDepthParams, error) {
+	out := &neardepth.NearDepthParams{
+		Depth: n.Depth,
+	}
+
+	// The following business logic should not sit in the API. However, it is
+	// also part of the GraphQL API, so we need to duplicate it in order to get
+	// the same behavior
+	if n.Distance != nil && n.Certainty != nil {
+		return nil, fmt.Errorf("near_depth: cannot provide distance and certainty")
+	}
+
+	if n.Certainty != nil {
+		out.Certainty = *n.Certainty
+	}
+
+	if n.Distance != nil {
+		out.Distance = *n.Distance
+		out.WithDistance = true
+	}
+
+	return out, nil
+}
+
+func parseNearThermal(n *pb.NearThermalSearch) (*nearthermal.NearThermalParams, error) {
+	out := &nearthermal.NearThermalParams{
+		Thermal: n.Thermal,
+	}
+
+	// The following business logic should not sit in the API. However, it is
+	// also part of the GraphQL API, so we need to duplicate it in order to get
+	// the same behavior
+	if n.Distance != nil && n.Certainty != nil {
+		return nil, fmt.Errorf("near_thermal: cannot provide distance and certainty")
+	}
+
+	if n.Certainty != nil {
+		out.Certainty = *n.Certainty
+	}
+
+	if n.Distance != nil {
+		out.Distance = *n.Distance
+		out.WithDistance = true
+	}
+
+	return out, nil
+}
+
+func parseNearIMU(n *pb.NearIMUSearch) (*nearimu.NearIMUParams, error) {
+	out := &nearimu.NearIMUParams{
+		IMU: n.Imu,
+	}
+
+	// The following business logic should not sit in the API. However, it is
+	// also part of the GraphQL API, so we need to duplicate it in order to get
+	// the same behavior
+	if n.Distance != nil && n.Certainty != nil {
+		return nil, fmt.Errorf("near_imu: cannot provide distance and certainty")
+	}
+
+	if n.Certainty != nil {
+		out.Certainty = *n.Certainty
+	}
+
+	if n.Distance != nil {
+		out.Distance = *n.Distance
+		out.WithDistance = true
+	}
+
+	return out, nil
 }

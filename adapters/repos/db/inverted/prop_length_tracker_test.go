@@ -76,7 +76,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				tracker, err := NewJsonShardMetaData(trackerPath+test.name, l)
+				tracker, err := NewJsonPropertyLengthTracker(trackerPath+test.name, l)
 				require.Nil(t, err)
 
 				actualMean := float32(0)
@@ -100,7 +100,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	})
 
 	t.Run("test untrack", func(t *testing.T) {
-		tracker, err := NewJsonShardMetaData(trackerPath, l)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		tracker.TrackProperty("test-prop", 1)
@@ -156,7 +156,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		}
 
 		// This time we use a single tracker
-		tracker, err := NewJsonShardMetaData(trackerPath, l)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		for _, prop := range props {
@@ -183,7 +183,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 	t.Run("with more properties that can fit on one page", func(t *testing.T) {
 		// This time we use a single tracker
-		tracker, err := NewJsonShardMetaData(trackerPath, l)
+		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
 		require.Nil(t, err)
 
 		create20PropsAndVerify(t, tracker)
@@ -192,7 +192,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	})
 }
 
-func create20PropsAndVerify(t *testing.T, tracker *JsonShardMetaData) {
+func create20PropsAndVerify(t *testing.T, tracker *JsonPropertyLengthTracker) {
 	type prop struct {
 		values   []float32
 		propName string
@@ -244,11 +244,11 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 
 	path := path.Join(dirName, "my_test_shard")
 
-	var tracker *JsonShardMetaData
+	var tracker *JsonPropertyLengthTracker
 	l := logrus.New()
 
 	t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
-		tr, err := NewJsonShardMetaData(path, l)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		tracker = tr
 	})
@@ -265,9 +265,9 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 		require.Nil(t, tracker.Close())
 	})
 
-	var secondTracker *JsonShardMetaData
+	var secondTracker *JsonPropertyLengthTracker
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonShardMetaData(path, l)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		secondTracker = tr
 	})
@@ -313,11 +313,11 @@ func TestFormatConversion(t *testing.T) {
 		require.Nil(t, tracker.Close())
 	})
 
-	var newTracker *JsonShardMetaData
+	var newTracker *JsonPropertyLengthTracker
 	l := logrus.New()
 
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonShardMetaData(path, l)
+		tr, err := NewJsonPropertyLengthTracker(path, l)
 		require.Nil(t, err)
 		newTracker = tr
 	})
@@ -641,50 +641,4 @@ func Test_PropertyLengthTracker_Overflow(t *testing.T) {
 	require.NotNil(t, err)
 
 	require.Nil(t, tracker.Close())
-}
-
-// Test that object racking works
-func Test_PropertyLengthTracker_ObjectTracking(t *testing.T) {
-	dirName := t.TempDir()
-
-	path := path.Join(dirName, "my_test_shard")
-
-	var tracker *JsonShardMetaData
-
-	l := logrus.New()
-
-	t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
-		tr, err := NewJsonShardMetaData(path, l)
-		require.Nil(t, err)
-		tracker = tr
-	})
-
-	t.Run("test object tracking", func(t *testing.T) {
-		start := tracker.ObjectTally()
-		require.Equal(t, start, 0)
-
-		tracker.TrackObjects(1)
-		require.Equal(t, tracker.ObjectTally(), 1)
-
-		tracker.TrackObjects(1)
-		require.Equal(t, tracker.ObjectTally(), 2)
-
-		tracker.TrackObjects(-1)
-		require.Equal(t, tracker.ObjectTally(), 1)
-
-		tracker.TrackObjects(-1)
-		require.Equal(t, tracker.ObjectTally(), 0)
-
-		tracker.TrackObjects(2)
-		require.Equal(t, tracker.ObjectTally(), 2)
-
-		err := tracker.Close()
-		require.Nil(t, err)
-
-		tr, err := NewJsonShardMetaData(path, l)
-		require.Nil(t, err)
-		tracker = tr
-
-		require.Equal(t, tracker.ObjectTally(), 2)
-	})
 }

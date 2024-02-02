@@ -43,6 +43,7 @@ message ObjectPropertiesValue {
   repeated BooleanArrayProperties boolean_array_properties = 5;
   repeated ObjectProperties object_properties = 6;
   repeated ObjectArrayProperties object_array_properties = 7;
+  repeated string empty_list_props = 10;
 }
 
 message ObjectArrayProperties {
@@ -119,11 +120,16 @@ message FilterReferenceMultiTarget {
   string target_collection = 3;
 }
 
+message FilterReferenceCount {
+  string on = 1;
+}
+
 message FilterTarget {
   oneof target{
     string property = 1;
     FilterReferenceSingleTarget single_target = 2;
     FilterReferenceMultiTarget multi_target = 3;
+    FilterReferenceCount count = 4;
   };
 }
 

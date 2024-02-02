@@ -289,7 +289,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, nil)
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -356,7 +356,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics,
 ) (ShardLike, error) {
 	if i.Config.DisableLazyLoadShards {
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, nil)
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -796,6 +796,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 			return duplicateErr(err, len(objects))
 		}
 	}
+
 	return localShard.PutObjectBatch(ctx, objects)
 }
 
@@ -1115,12 +1116,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if keywordRanking != nil && keywordRanking.Type == "bm25" {
 			for ii := range outObjects {
 				oo := outObjects[ii]
-				os := outScores[ii]
 
 				if oo.AdditionalProperties() == nil {
 					oo.Object.Additional = make(map[string]interface{})
 				}
-				oo.Object.Additional["score"] = os
+
+				// Additional score is filled in by the top level function
 
 				// Collect all keys starting with "BM25F" and add them to the Additional
 				if keywordRanking.AdditionalExplanations {

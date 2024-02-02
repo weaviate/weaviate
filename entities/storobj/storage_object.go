@@ -48,14 +48,13 @@ type Object struct {
 	BelongsToNode     string        `json:"-"`
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
-
-	docID uint64
+	DocID             uint64
 }
 
 func New(docID uint64) *Object {
 	return &Object{
 		MarshallerVersion: 1,
-		docID:             docID,
+		DocID:             docID,
 	}
 }
 
@@ -99,7 +98,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 
 	ko.MarshallerVersion = version
 
-	ko.docID = rw.ReadUint64()
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // ignore kind-byte
 	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
 	if err != nil {
@@ -128,7 +127,7 @@ func FromBinaryOptional(data []byte,
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", ko.MarshallerVersion)
 	}
-	ko.docID = rw.ReadUint64()
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // ignore kind-byte
 	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
 	if err != nil {
@@ -261,26 +260,15 @@ func (ko *Object) Class() schema.ClassName {
 }
 
 func (ko *Object) SetDocID(id uint64) {
-	ko.docID = id
+	ko.DocID = id
 }
 
-func (ko *Object) DocID() uint64 {
-	return ko.docID
+func (ko *Object) GetDocID() uint64 {
+	return ko.DocID
 }
 
 func (ko *Object) CreationTimeUnix() int64 {
 	return ko.Object.CreationTimeUnix
-}
-
-func (ko *Object) Score() float32 {
-	props := ko.AdditionalProperties()
-	if props != nil {
-		iface := props["score"]
-		if iface != nil {
-			return iface.(float32)
-		}
-	}
-	return 0
 }
 
 func (ko *Object) ExplainScore() string {
@@ -388,6 +376,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 
 	return &search.Result{
 		ID:        ko.ID(),
+		DocID:     &ko.DocID,
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
@@ -396,10 +385,10 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
-		Score:                ko.Score(),
-		ExplainScore:         ko.ExplainScore(),
-		IsConsistent:         ko.IsConsistent,
-		Tenant:               tenant, // not part of the binary
+		// Score is filled in later
+		ExplainScore: ko.ExplainScore(),
+		IsConsistent: ko.IsConsistent,
+		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
 }
@@ -408,6 +397,12 @@ func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32)
 	res := ko.SearchResult(addl, "")
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	return *res
+}
+
+func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
+	res := ko.SearchResult(addl, "")
+	res.Score = score
 	return *res
 }
 
@@ -518,7 +513,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
 	rw.WriteByte(ko.MarshallerVersion)
-	rw.WriteUint64(ko.docID)
+	rw.WriteUint64(ko.DocID)
 	rw.WriteByte(kindByte)
 
 	rw.CopyBytesToBuffer(idBytes)
@@ -653,7 +648,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	ko.MarshallerVersion = version
 
 	rw := byteops.NewReadWriter(data, byteops.WithPosition(1))
-	ko.docID = rw.ReadUint64()
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
 	uuidParsed, err := uuid.FromBytes(data[rw.Position : rw.Position+16])
@@ -834,7 +829,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 func (ko *Object) DeepCopyDangerous() *Object {
 	return &Object{
 		MarshallerVersion: ko.MarshallerVersion,
-		docID:             ko.docID,
+		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
 	}

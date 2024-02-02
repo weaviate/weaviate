@@ -16,13 +16,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/entities/autocut"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -32,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
@@ -304,13 +303,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		oldLimit := params.Pagination.Limit
 		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
 
-		res, dists, err := e.searcher.SparseObjectSearch(ctx, params)
+		res, scores, err := e.searcher.SparseObjectSearch(ctx, params)
 		if err != nil {
 			return nil, nil, err
 		}
 		params.Pagination.Limit = oldLimit
 
-		return res, dists, nil
+		return res, scores, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
@@ -331,15 +330,19 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return res, dists, nil
 	}
 
-	postProcess := func(results hybrid.Results) ([]search.Result, error) {
-		res1 := results.SearchResults()
+	postProcess := func(results []*search.Result) ([]search.Result, error) {
 		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(res1) > totalLimit {
-			res1 = res1[:totalLimit]
+		if len(results) > totalLimit {
+			results = results[:totalLimit]
+		}
+
+		res1 := make([]search.Result, 0, len(results))
+		for _, res := range results {
+			res1 = append(res1, *res)
 		}
 
 		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, params.Tenant)
@@ -359,7 +362,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-	var out hybrid.Results
+	var pointerResultList hybrid.Results
 
 	if params.Pagination.Limit <= 0 {
 		params.Pagination.Limit = hybrid.DefaultLimit
@@ -370,16 +373,21 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
-		out = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
+		pointerResultList = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
 	}
 	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
-		out = res[params.Pagination.Offset:]
+		pointerResultList = res[params.Pagination.Offset:]
 	}
 	if len(res) <= params.Pagination.Offset {
-		out = hybrid.Results{}
+		pointerResultList = hybrid.Results{}
 	}
 
-	return out.SearchResults(), nil
+	out := make([]search.Result, len(pointerResultList))
+	for i := range pointerResultList {
+		out[i] = *pointerResultList[i]
+	}
+
+	return out, nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
