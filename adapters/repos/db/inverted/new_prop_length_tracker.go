@@ -278,7 +278,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
 
-	err = os.WriteFile(tempfile, bytes, 0o666)
+	err = WriteAndSyncFile(tempfile, bytes, 0o666)
 	if err != nil {
 		return err
 	}
@@ -289,6 +289,21 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	}
 
 	return nil
+}
+
+func WriteAndSyncFile(name string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(data)
+	if err != nil {
+		return err
+	}
+
+	return f.Sync()
 }
 
 // Closes the tracker and removes the backup file
