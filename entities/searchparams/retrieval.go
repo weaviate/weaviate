@@ -12,10 +12,11 @@
 package searchparams
 
 type NearVector struct {
-	Vector       []float32 `json:"vector"`
-	Certainty    float64   `json:"certainty"`
-	Distance     float64   `json:"distance"`
-	WithDistance bool      `json:"-"`
+	Vector        []float32 `json:"vector"`
+	Certainty     float64   `json:"certainty"`
+	Distance      float64   `json:"distance"`
+	WithDistance  bool      `json:"-"`
+	TargetVectors []string  `json:"targetVectors"`
 }
 
 type KeywordRanking struct {
@@ -38,15 +39,17 @@ type HybridSearch struct {
 	Query           string      `json:"query"`
 	Vector          []float32   `json:"vector"`
 	Properties      []string    `json:"properties"`
+	TargetVectors   []string    `json:"targetVectors"`
 	FusionAlgorithm int         `json:"fusionalgorithm"`
 }
 
 type NearObject struct {
-	ID           string  `json:"id"`
-	Beacon       string  `json:"beacon"`
-	Certainty    float64 `json:"certainty"`
-	Distance     float64 `json:"distance"`
-	WithDistance bool    `json:"-"`
+	ID            string   `json:"id"`
+	Beacon        string   `json:"beacon"`
+	Certainty     float64  `json:"certainty"`
+	Distance      float64  `json:"distance"`
+	WithDistance  bool     `json:"-"`
+	TargetVectors []string `json:"targetVectors"`
 }
 
 type ObjectMove struct {

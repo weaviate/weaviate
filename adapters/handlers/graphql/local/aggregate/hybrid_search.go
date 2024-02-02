@@ -54,6 +54,14 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Vector search",
 			Type:        graphql.NewList(graphql.Float),
 		},
+		"targetVectors": &graphql.InputObjectFieldConfig{
+			Description: "Target vectors",
+			Type:        graphql.NewList(graphql.String),
+		},
+		"properties": &graphql.InputObjectFieldConfig{
+			Description: "Target vectors",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {

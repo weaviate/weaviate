@@ -582,19 +582,16 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
-var (
-	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-	file_v1_properties_proto_goTypes  = []interface{}{
-		(*Properties)(nil),      // 0: weaviate.v1.Properties
-		(*Value)(nil),           // 1: weaviate.v1.Value
-		(*ListValue)(nil),       // 2: weaviate.v1.ListValue
-		(*GeoCoordinate)(nil),   // 3: weaviate.v1.GeoCoordinate
-		(*PhoneNumber)(nil),     // 4: weaviate.v1.PhoneNumber
-		nil,                     // 5: weaviate.v1.Properties.FieldsEntry
-		(structpb.NullValue)(0), // 6: google.protobuf.NullValue
-	}
-)
-
+var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_v1_properties_proto_goTypes = []interface{}{
+	(*Properties)(nil),      // 0: weaviate.v1.Properties
+	(*Value)(nil),           // 1: weaviate.v1.Value
+	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
+	(*GeoCoordinate)(nil),   // 3: weaviate.v1.GeoCoordinate
+	(*PhoneNumber)(nil),     // 4: weaviate.v1.PhoneNumber
+	nil,                     // 5: weaviate.v1.Properties.FieldsEntry
+	(structpb.NullValue)(0), // 6: google.protobuf.NullValue
+}
 var file_v1_properties_proto_depIdxs = []int32{
 	5, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0, // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties
