@@ -72,7 +72,7 @@ func TestGetAnswer(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
-			c := New("apiKey", "llama2", test.timeout, nullLogger())
+			c := New("localhost", test.timeout, nullLogger())
 
 			settings := &fakeClassConfig{baseURL: server.URL}
 			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)

@@ -34,16 +34,14 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type ollama struct {
-	model      string
 	origin     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, model string, timeout time.Duration, logger logrus.FieldLogger) *ollama {
+func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	return &ollama{
 		origin: origin,
-		model:  model,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},

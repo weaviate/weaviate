@@ -69,15 +69,10 @@ func (m *GenerativeOllamaModule) initAdditional(ctx context.Context, timeout tim
 	if uri == "" {
 		return errors.Errorf("required variable OLLAMA_INFERENCE_API is not set.")
 	}
-	model := os.Getenv("OLLAMA_MODEL")
 
-	client := ollama.New(uri, model, timeout, logger)
+	client := ollama.New(uri, timeout, logger)
 
 	m.generative = client
-
-	if err := client.WaitForStartup(ctx, 1*time.Second); err != nil {
-		return errors.Wrap(err, "init remote sum module")
-	}
 
 	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(client)
 	return nil
