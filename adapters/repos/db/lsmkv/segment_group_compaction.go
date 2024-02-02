@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -103,6 +104,11 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 	return sg.segments[pos]
 }
 
+func segmentID(path string) string {
+	filename := filepath.Base(path)
+	return strings.TrimSuffix(strings.TrimPrefix(filename, "segment-"), ".db")
+}
+
 func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
@@ -116,23 +122,27 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, nil
 	}
 
-	path := fmt.Sprintf("%s.tmp", sg.segmentAtPos(pair[1]).path)
+	leftSegment := sg.segmentAtPos(pair[0])
+	rightSegment := sg.segmentAtPos(pair[1])
+
+	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
+
 	f, err := os.Create(path)
 	if err != nil {
 		return false, err
 	}
 
-	scratchSpacePath := sg.segmentAtPos(pair[1]).path + "compaction.scratch.d"
+	scratchSpacePath := rightSegment.path + "compaction.scratch.d"
 
 	// the assumption is that the first element is older, and/or a higher level
-	level := sg.segmentAtPos(pair[0]).level
-	secondaryIndices := sg.segmentAtPos(pair[0]).secondaryIndexCount
+	level := leftSegment.level
+	secondaryIndices := leftSegment.secondaryIndexCount
 
-	if level == sg.segmentAtPos(pair[1]).level {
+	if level == rightSegment.level {
 		level = level + 1
 	}
 
-	strategy := sg.segmentAtPos(pair[0]).strategy
+	strategy := leftSegment.strategy
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
 	pathLabel := "n/a"
@@ -144,8 +154,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
-		c := newCompactorReplace(f, sg.segmentAtPos(pair[0]).newCursor(),
-			sg.segmentAtPos(pair[1]).newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+		c := newCompactorReplace(f, leftSegment.newCursor(),
+			rightSegment.newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -156,8 +166,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategySetCollection:
-		c := newCompactorSetCollection(f, sg.segmentAtPos(pair[0]).newCollectionCursor(),
-			sg.segmentAtPos(pair[1]).newCollectionCursor(), level, secondaryIndices,
+		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
+			rightSegment.newCollectionCursor(), level, secondaryIndices,
 			scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
@@ -170,8 +180,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f,
-			sg.segmentAtPos(pair[0]).newCollectionCursorReusable(),
-			sg.segmentAtPos(pair[1]).newCollectionCursorReusable(),
+			leftSegment.newCollectionCursorReusable(),
+			rightSegment.newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones)
 
 		if sg.metrics != nil {
@@ -183,9 +193,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategyRoaringSet:
-		leftSegment := sg.segmentAtPos(pair[0])
-		rightSegment := sg.segmentAtPos(pair[1])
-
 		leftCursor := leftSegment.newRoaringSetCursor()
 		rightCursor := rightSegment.newRoaringSetCursor()
 
@@ -203,6 +210,10 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
+	}
+
+	if err := f.Sync(); err != nil {
+		return false, errors.Wrap(err, "fsync compacted segment file")
 	}
 
 	if err := f.Close(); err != nil {
@@ -234,19 +245,22 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
-	if err := sg.segments[old1].close(); err != nil {
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
+
+	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
 	}
 
-	if err := sg.segments[old2].close(); err != nil {
+	if err := rightSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
 	}
 
-	if err := sg.segments[old1].drop(); err != nil {
+	if err := leftSegment.drop(); err != nil {
 		return errors.Wrap(err, "drop disk segment")
 	}
 
-	if err := sg.segments[old2].drop(); err != nil {
+	if err := rightSegment.drop(); err != nil {
 		return errors.Wrap(err, "drop disk segment")
 	}
 
@@ -258,7 +272,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	// extension from the new segment itself and the pre-computed files which
 	// carried the name of the second old segment
 	for i, path := range precomputedFiles {
-		updated, err := sg.stripTmpExtension(path)
+		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
 		if err != nil {
 			return errors.Wrap(err, "strip .tmp extension of new segment")
 		}
@@ -282,12 +296,14 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	return nil
 }
 
-func (sg *SegmentGroup) stripTmpExtension(oldPath string) (string, error) {
+func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, error) {
 	ext := filepath.Ext(oldPath)
 	if ext != ".tmp" {
 		return "", errors.Errorf("segment %q did not have .tmp extension", oldPath)
 	}
 	newPath := oldPath[:len(oldPath)-len(ext)]
+
+	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
 
 	if err := os.Rename(oldPath, newPath); err != nil {
 		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
