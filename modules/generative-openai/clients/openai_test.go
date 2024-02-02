@@ -55,12 +55,16 @@ func TestBuildUrlFn(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2023-03-15-preview", url)
 	})
-
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
 		url, err := buildUrlFn(false, "", "", "https://foobar.some.proxy")
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/chat/completions", url)
 		os.Unsetenv("OPENAI_BASE_URL")
+	})
+	t.Run("buildUrlFn returns Azure Client with custom baseURL", func(t *testing.T) {
+		url, err := buildUrlFn(false, "resourceID", "deploymentID", "customBaseURL")
+		assert.Nil(t, err)
+		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2023-03-15-preview", url)
 	})
 }
 
