@@ -155,7 +155,8 @@ func tokenizeWordWithWildcards(in string) []string {
 	return lowercase(terms)
 }
 
-// tokenizetrigram splits on any non-alphanumerical and lowercases the words, joins them together, then groups them into trigrams
+// tokenizetrigramWithWildcards splits on any non-alphanumerical and lowercases the words, applies any wildcards, then joins them together, then groups them into trigrams
+// this is unlikely to be useful, but is included for completeness
 func tokenizetrigramWithWildcards(in string) []string {
 	terms := tokenizeWordWithWildcards(in)
 	inputString := strings.Join(terms, "")
