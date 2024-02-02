@@ -64,6 +64,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Algorithm used for fusing results from vector and keyword search",
 			Type:        fusionEnum,
 		},
+		"targetVectors": &graphql.InputObjectFieldConfig{
+			Description: "Target vectors",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {
