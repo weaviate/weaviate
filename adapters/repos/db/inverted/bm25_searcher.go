@@ -114,21 +114,14 @@ func (b *BM25Searcher) wand(
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND
-	tokenizationsOrdered := []string{
-		models.PropertyTokenizationWord,
-		models.PropertyTokenizationLowercase,
-		models.PropertyTokenizationWhitespace,
-		models.PropertyTokenizationField,
-		models.PropertyTokenizationTrigram,
-		models.PropertyTokenizationGse,
-	}
+
 
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	for _, tokenization := range tokenizationsOrdered {
+	for _, tokenization := range helpers.Tokenizations {
 		queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
 
 		// stopword filtering for word tokenization
@@ -189,7 +182,7 @@ func (b *BM25Searcher) wand(
 	eg.SetLimit(_NUMCPU)
 	offset := 0
 
-	for _, tokenization := range tokenizationsOrdered {
+	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms := queryTermsByTokenization[tokenization]
