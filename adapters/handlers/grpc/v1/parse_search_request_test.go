@@ -394,6 +394,19 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "hybrid targetvectors",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{TargetVectors: []string{"testname"}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{TargetVectors: []string{"testname"}, Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
 			name: "hybrid relative",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},

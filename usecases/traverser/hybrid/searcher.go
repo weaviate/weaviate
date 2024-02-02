@@ -250,8 +250,8 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 		return nil, "", 0, nil
 	}
 
-	// TODO[named-vector]: targetVector needs to be passed from GraphQL
-	targetVector := ""
+	targetVector := params.TargetVectors[0] // TODO[named-vector]: support multiple target vectors
+
 	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], targetVector, modules)
 	if err != nil {
 		return nil, "", 0, err
@@ -300,8 +300,7 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 		vector = params.Vector
 	} else {
 		if modules != nil {
-			// TODO[named-vector]: targetVector needs to be passed from GraphQL
-			targetVector := ""
+			targetVector := params.TargetVectors[0] // TODO[named-vector]: support multiple target vectors
 			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, targetVector, modules)
 			if err != nil {
 				return nil, err
