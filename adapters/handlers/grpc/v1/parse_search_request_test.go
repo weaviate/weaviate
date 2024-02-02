@@ -15,6 +15,9 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
@@ -678,6 +681,116 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "count filter single target ref old",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
+					On:        []string{"ref"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "count filter single target ref new",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
+					Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Count{Count: &pb.FilterReferenceCount{On: "ref"}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "ref",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "count filter multi target ref old",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
+					On:        []string{"multiRef"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "multiRef",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "count filter multi target ref new",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_LESS_THAN,
+					TestValue: &pb.Filters_ValueInt{ValueInt: 3},
+					Target: &pb.FilterTarget{Target: &pb.FilterTarget_Count{Count: &pb.FilterReferenceCount{
+						On: "multiRef",
+					}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Class:    schema.ClassName(classname),
+							Property: "multiRef",
+						},
+						Operator: filters.OperatorLessThan,
+						Value:    &filters.Value{Value: 3, Type: schema.DataTypeInt},
+					},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "length filter",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -890,6 +1003,66 @@ func TestGRPCRequest(t *testing.T) {
 				ModuleParams: map[string]interface{}{
 					"nearImage": &nearImage.NearImageParams{
 						Image: "image file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near depth search",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearDepth: &pb.NearDepthSearch{
+					Depth: "depth file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ModuleParams: map[string]interface{}{
+					"nearDepth": &neardepth.NearDepthParams{
+						Depth: "depth file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near thermal search",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearThermal: &pb.NearThermalSearch{
+					Thermal: "thermal file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ModuleParams: map[string]interface{}{
+					"nearThermal": &nearthermal.NearThermalParams{
+						Thermal: "thermal file",
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near IMU search",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearImu: &pb.NearIMUSearch{
+					Imu: "IMU file",
+				},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ModuleParams: map[string]interface{}{
+					"nearIMU": &nearimu.NearIMUParams{
+						IMU: "IMU file",
 					},
 				},
 			},

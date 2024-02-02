@@ -63,6 +63,7 @@ var (
 
 var availableAWSServices = []string{
 	DefaultService,
+	"sagemaker",
 }
 
 var availableBedrockModels = []string{
