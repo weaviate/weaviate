@@ -1859,6 +1859,8 @@ func TestHybridWithSort(t *testing.T) {
 	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
 }
 
+
+
 func TestNearObjectNoModules(t *testing.T) {
 	t.Parallel()
 
