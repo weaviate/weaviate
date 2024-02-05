@@ -77,9 +77,8 @@ func (h *hnsw) Delete(ids ...uint64) error {
 			defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
 
 			denyList := h.tombstonesAsDenyList()
-			if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
-				return errors.Wrap(err, "reset index")
-			} else if !onlyNode {
+			onlyNode := h.resetIfOnlyNode(node, denyList)
+			if !onlyNode {
 				if err := h.deleteEntrypoint(node, denyList); err != nil {
 					return errors.Wrap(err, "delete entrypoint")
 				}
@@ -114,7 +113,7 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	return false, nil
 }
 
-func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (onlyNode bool, err error) {
+func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (onlyNode bool) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 	h.Lock()
@@ -133,9 +132,10 @@ func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (only
 		h.shardedNodeLocks.LockAll()
 		defer h.shardedNodeLocks.UnlockAll()
 
-		return true, h.resetUnlocked()
+		h.resetUnlocked()
+		return true
 	}
-	return false, nil
+	return false
 }
 
 func (h *hnsw) resetUnlocked() error {
@@ -149,7 +149,8 @@ func (h *hnsw) resetUnlocked() error {
 	h.initialInsertOnce = &sync.Once{}
 	h.nodes = make([]*vertex, cache.InitialSize)
 
-	return h.commitLog.Reset()
+	h.commitLog.Reset()
+	return nil
 }
 
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
@@ -431,9 +432,7 @@ func (h *hnsw) reassignNeighbor(
 			neighborNode.connections = make([][]uint64, neighborLevel+1)
 			neighborNode.Unlock()
 
-			if err := h.commitLog.ClearLinks(neighbor); err != nil {
-				return false, err
-			}
+			h.commitLog.ClearLinks(neighbor)
 			return true, nil
 		}
 
@@ -499,9 +498,7 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 	h.entryPointID = newEntrypoint
 	h.currentMaximumLayer = level
 	h.Unlock()
-	if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
-		return err
-	}
+	h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level)
 
 	return nil
 }
@@ -653,9 +650,7 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 	for _, id := range ids {
 		h.metrics.AddTombstone()
 		h.tombstones[id] = struct{}{}
-		if err := h.commitLog.AddTombstone(id); err != nil {
-			return err
-		}
+		h.commitLog.AddTombstone(id)
 	}
 	return nil
 }
@@ -678,16 +673,11 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			} else {
 				h.cache.Delete(context.TODO(), id)
 			}
-			if err := h.commitLog.DeleteNode(id); err != nil {
-				h.resetLock.Unlock()
-				return false, err
-			}
+			h.commitLog.DeleteNode(id)
 		}
 		h.resetLock.Unlock()
 
-		if err := h.commitLog.RemoveTombstone(id); err != nil {
-			return false, err
-		}
+		h.commitLog.RemoveTombstone(id)
 	}
 
 	return true, nil

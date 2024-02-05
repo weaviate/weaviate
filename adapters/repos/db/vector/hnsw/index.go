@@ -171,27 +171,27 @@ type hnsw struct {
 
 type CommitLogger interface {
 	ID() string
-	AddNode(node *vertex) error
-	SetEntryPointWithMaxLayer(id uint64, level int) error
-	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
-	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
-	AddTombstone(nodeid uint64) error
-	RemoveTombstone(nodeid uint64) error
-	DeleteNode(nodeid uint64) error
-	ClearLinks(nodeid uint64) error
-	ClearLinksAtLevel(nodeid uint64, level uint16) error
-	Reset() error
+	AddNode(node *vertex)
+	SetEntryPointWithMaxLayer(id uint64, level int)
+	AddLinkAtLevel(nodeid uint64, level int, target uint64)
+	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64)
+	AddTombstone(nodeid uint64)
+	RemoveTombstone(nodeid uint64)
+	DeleteNode(nodeid uint64)
+	ClearLinks(nodeid uint64)
+	ClearLinksAtLevel(nodeid uint64, level uint16)
+	Reset()
 	Drop(ctx context.Context) error
 	Flush() error
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQ(compressionhelpers.PQData) error
+	AddPQ(compressionhelpers.PQData)
 }
 
 type BufferedLinksLogger interface {
-	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
-	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
+	AddLinkAtLevel(nodeid uint64, level int, target uint64)
+	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64)
 	Close() error // Close should Flush and Close
 }
 
