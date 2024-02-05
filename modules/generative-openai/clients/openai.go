@@ -43,7 +43,7 @@ func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL string) (stri
 			host = "https://" + resourceName + ".openai.azure.com"
 		}
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
-		queryParam := "api-version=2023-03-15-preview"
+		queryParam := "api-version=2023-05-15"
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
 	path := "/v1/chat/completions"
