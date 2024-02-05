@@ -108,9 +108,7 @@ func (h *hnsw) Compress(cfg ent.PQConfig) error {
 			h.storeCompressedVector(index, encoded)
 			h.compressedVectorsCache.Preload(index, encoded)
 		})
-	if err := h.commitLog.AddPQ(h.pq.ExposeFields()); err != nil {
-		return fmt.Errorf("add PQ to commit logger: %w", err)
-	}
+	h.commitLog.AddPQ(h.pq.ExposeFields())
 
 	h.compressed.Store(true)
 	h.cache.Drop()
