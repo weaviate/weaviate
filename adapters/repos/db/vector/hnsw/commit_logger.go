@@ -33,8 +33,10 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
-const defaultCommitLogSize = 500 * 1024 * 1024
-const defaultShardsNumber = 128
+const (
+	defaultCommitLogSize = 500 * 1024 * 1024
+	defaultShardsNumber  = 128
+)
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
