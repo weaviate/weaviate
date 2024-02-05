@@ -373,7 +373,6 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"word": "word",
-					"age":  nil,
 				},
 			},
 			searchParams: dto.GetParams{
