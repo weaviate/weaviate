@@ -118,7 +118,8 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-transformers \
       TRANSFORMERS_INFERENCE_API="http://localhost:8000" \
-      ENABLE_MODULES="text2vec-transformers" \
+      ENABLE_MODULES="text2vec-transformers,backup-filesystem" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -399,6 +400,8 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=none \
+      ENABLE_MODULES=backup-filesystem \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

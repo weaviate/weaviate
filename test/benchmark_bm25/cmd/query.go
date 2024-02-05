@@ -112,10 +112,10 @@ var queryCmd = &cobra.Command{
 					return err
 				}
 				logMsg += fmt.Sprintf("nDCG score: %.04f", scores.CurrentNDCG())
+			} else {
+				logMsg += fmt.Sprintf("results: %v\n", result)
 			}
-			if i%1000 == 0 && i > 0 {
 				log.Printf(logMsg)
-			}
 		}
 
 		meta, err := client.GraphQL().Aggregate().WithClassName(lib.ClassNameFromDatasetID(ds.ID)).
