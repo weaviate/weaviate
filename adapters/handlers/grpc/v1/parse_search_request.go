@@ -93,7 +93,14 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			vector = hs.Vector
 		}
 
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType}
+		targetVectors := [][]float32{}
+		for _, targetVector := range hs.TargetVectors {
+			targetVectors = append(targetVectors, byteops.Float32FromByteVector(targetVector))
+		}
+
+
+
+		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType, TargetVectors: targetVectors}
 	}
 
 	if bm25 := req.Bm25Search; bm25 != nil {
