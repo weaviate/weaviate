@@ -30,10 +30,13 @@ func hybridArgument(classObject *graphql.Object,
 				Name:        fmt.Sprintf("%sHybridInpObj", prefix),
 				Fields:      hybridOperands(classObject, class, modulesProvider, fusionEnum),
 				Description: "Hybrid search",
+
 			},
 		),
 	}
 }
+
+
 
 func hybridOperands(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider, fusionEnum *graphql.Enum,
@@ -64,6 +67,10 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Algorithm used for fusing results from vector and keyword search",
 			Type:        fusionEnum,
 		},
+		"targetVectors": &graphql.InputObjectFieldConfig{
+			Description: "Target vectors",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {
@@ -75,6 +82,7 @@ func hybridOperands(classObject *graphql.Object,
 
 	return fieldMap
 }
+
 
 func hybridSubSearch(classObject *graphql.Object,
 	class *models.Class, modulesProvider ModulesProvider,
@@ -107,6 +115,25 @@ func hybridSubSearch(classObject *graphql.Object,
 					Description: descriptions.GetWhereInpObj,
 				},
 			),
+		},
+	}
+}
+
+
+
+func targetVectors(classObject *graphql.Object,
+	class *models.Class, modulesProvider ModulesProvider,
+) graphql.InputObjectConfigFieldMap {
+	prefixName := class.Class + "TargetVectors"
+
+	return graphql.InputObjectConfigFieldMap{
+		"vector1": &graphql.InputObjectFieldConfig{
+			Description: prefixName+"includevector1",
+			Type:        graphql.Boolean,
+		},
+		"vector2": &graphql.InputObjectFieldConfig{
+			Description: prefixName+"includevector2",
+			Type:        graphql.Boolean,
 		},
 	}
 }
