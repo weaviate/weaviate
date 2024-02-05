@@ -291,7 +291,7 @@ func NewPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
 	}}
 }
 
-// NewBoolValue constructs a new boolean Value.
+// NewNilValue constructs a new nil Value.
 func NewNilValue() *pb.Value {
 	return &pb.Value{Kind: &pb.Value_NullValue{}}
 }
