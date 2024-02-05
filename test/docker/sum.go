@@ -24,7 +24,7 @@ import (
 const SUMTransformers = "sum-transformers"
 
 func startSUMTransformers(ctx context.Context, networkName, sumImage string) (*DockerContainer, error) {
-	image := "semitechnologies/sum-transformers:facebook-bart-large-cnn"
+	image := "semitechnologies/sum-transformers:facebook-bart-large-cnn-1.2.1"
 	if len(sumImage) > 0 {
 		image = sumImage
 	}

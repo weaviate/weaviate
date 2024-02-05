@@ -24,7 +24,7 @@ import (
 const QnATransformers = "qna-transformers"
 
 func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*DockerContainer, error) {
-	image := "semitechnologies/qna-transformers:distilbert-base-uncased-distilled-squad"
+	image := "semitechnologies/qna-transformers:distilbert-base-uncased-distilled-squad-1.5.1"
 	if len(qnaImage) > 0 {
 		image = qnaImage
 	}
@@ -49,7 +49,6 @@ func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*D
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err
