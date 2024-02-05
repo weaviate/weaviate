@@ -86,17 +86,22 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	}
 
 	var it docIDsIterator
-	if len(sort) > 0 {
-		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
-		if err != nil {
-			return nil, fmt.Errorf("sort doc ids: %w", err)
+	if filter.Root.Operator != filters.OperatorNotEqual {
+		if len(sort) > 0 {
+			docIDs, err := s.sort(ctx, limit, sort, allowList, className)
+			if err != nil {
+				return nil, fmt.Errorf("sort doc ids: %w", err)
+			}
+			it = newSliceDocIDsIterator(docIDs)
+		} else {
+			it = allowList.LimitedIterator(limit)
 		}
-		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		it = allowList.LimitedIterator(limit)
+		// TODO: handle sort
+		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional)
+	return s.objectsByDocID(it, additional, filter.Root.Operator, limit)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -109,8 +114,8 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties,
+func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties,
+	op filters.Operator, limit int,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -144,6 +149,12 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 
 		out[i] = unmarshalled
 		i++
+
+		if op == filters.OperatorNotEqual {
+			if i >= limit {
+				break
+			}
+		}
 	}
 
 	return out[:i], nil

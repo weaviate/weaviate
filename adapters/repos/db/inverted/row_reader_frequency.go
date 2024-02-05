@@ -76,7 +76,7 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-	_, err = readFn(rr.value, rr.transformToBitmap(v))
+	_, err = readFn(rr.value, rr.transformToBitmap(v), rr.operator)
 	return err
 }
 
@@ -91,7 +91,7 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error
 	// Invert the Equal results for an efficient NotEqual
 	inverted := roaringset.NewInvertedBitmap(
 		rr.transformToBitmap(v), rr.maxIDGetter())
-	_, err = readFn(rr.value, inverted)
+	_, err = readFn(rr.value, inverted, rr.operator)
 	return err
 }
 
@@ -112,7 +112,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := readFn(k, rr.transformToBitmap(v), rr.operator)
 		if err != nil {
 			return err
 		}
@@ -143,7 +143,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := readFn(k, rr.transformToBitmap(v), rr.operator)
 		if err != nil {
 			return err
 		}
@@ -200,7 +200,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := readFn(k, rr.transformToBitmap(v), rr.operator)
 		if err != nil {
 			return err
 		}
@@ -243,6 +243,7 @@ func (rr *RowReaderFrequency) transformToBitmap(pairs []lsmkv.MapPair) *sroar.Bi
 	return out.docIDs
 }
 
+// equalHelper exists, because the Equal and NotEqual operators share this functionality
 func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPair, err error) {
 	if err = ctx.Err(); err != nil {
 		return

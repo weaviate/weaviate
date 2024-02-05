@@ -61,7 +61,7 @@ func NewRowReader(bucket *lsmkv.Bucket, value []byte,
 // The boolean return argument is a way to stop iteration (e.g. when a limit is
 // reached) without producing an error. In normal operation always return true,
 // if false is returned once, the loop is broken.
-type ReadFn func(k []byte, values *sroar.Bitmap) (bool, error)
+type ReadFn func(k []byte, values *sroar.Bitmap, op filters.Operator) (bool, error)
 
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
@@ -97,7 +97,7 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-	_, err = readFn(rr.value, rr.transformToBitmap(v))
+	_, err = readFn(rr.value, rr.transformToBitmap(v), rr.operator)
 	return err
 }
 
@@ -112,7 +112,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 	// Invert the Equal results for an efficient NotEqual
 	inverted := roaringset.NewInvertedBitmap(
 		rr.transformToBitmap(v), rr.maxIDGetter())
-	_, err = readFn(rr.value, inverted)
+	_, err = readFn(rr.value, inverted, rr.operator)
 	return err
 }
 
@@ -133,7 +133,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := readFn(k, rr.transformToBitmap(v), rr.operator)
 		if err != nil {
 			return err
 		}
@@ -164,7 +164,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := readFn(k, rr.transformToBitmap(v), rr.operator)
 		if err != nil {
 			return err
 		}
@@ -219,7 +219,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		continueReading, err := readFn(k, rr.transformToBitmap(v), rr.operator)
 		if err != nil {
 			return err
 		}
@@ -250,6 +250,7 @@ func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
 	return out.docIDs
 }
 
+// equalHelper exists, because the Equal and NotEqual operators share this functionality
 func (rr *RowReader) equalHelper(ctx context.Context) ([][]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

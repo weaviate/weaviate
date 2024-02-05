@@ -315,6 +315,7 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	bucket := store.Bucket(bucketName)
+	maxDocID := uint64(21)
 
 	defer store.Shutdown(context.Background())
 
@@ -349,7 +350,7 @@ func Test_Filters_Int(t *testing.T) {
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(21))
+		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(maxDocID))
 
 	type test struct {
 		name                     string
@@ -392,6 +393,7 @@ func Test_Filters_Int(t *testing.T) {
 					},
 				},
 			},
+			// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
 			expectedListBeforeUpdate: helpers.NewAllowList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21),
 			expectedListAfterUpdate:  helpers.NewAllowList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21),
 		},
