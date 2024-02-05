@@ -542,7 +542,11 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 	class := scheme.GetClass(schema.ClassName(className))
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
+
 		if !ok {
+			if prop.IsPrimitive || prop.IsObject {
+				nonRefProps.Fields[prop.Name] = nil
+			}
 			continue
 		}
 		if prop.IsPrimitive {
