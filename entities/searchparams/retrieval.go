@@ -38,7 +38,7 @@ type HybridSearch struct {
 	Query           string      `json:"query"`
 	Vector          []float32   `json:"vector"`
 	Properties      []string    `json:"properties"`
-	TargetVectors   [][]float32    `json:"targetVectors"`
+	TargetVectors   []string    `json:"targetVectors"`
 	FusionAlgorithm int         `json:"fusionalgorithm"`
 }
 

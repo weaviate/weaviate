@@ -93,9 +93,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			vector = hs.Vector
 		}
 
-		targetVectors := [][]float32{}
+		targetVectors := []string{}
 		for _, targetVector := range hs.TargetVectors {
-			targetVectors = append(targetVectors, byteops.Float32FromByteVector(targetVector))
+			targetVectors = append(targetVectors, targetVector)
 		}
 
 
