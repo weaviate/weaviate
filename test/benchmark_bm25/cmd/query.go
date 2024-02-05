@@ -72,6 +72,10 @@ func init() {
 
 func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset) (*QueryExperimentResult, error) {
 	propNameWithId := lib.SanitizePropName(ds.Queries.PropertyWithId)
+	propertiesToMatch := ds.Queries.PropertiesToMatch
+	for i := 0; i < len(propertiesToMatch); i++ {
+		propertiesToMatch[i] = lib.SanitizePropName(propertiesToMatch[i])
+	}
 	className := lib.ClassNameFromDatasetID(ds.ID)
 	times := []time.Duration{}
 	scores := lib.Scores{}
@@ -81,11 +85,13 @@ func query(client *weaviate.Client, q lib.Queries, ds lib.Dataset) (*QueryExperi
 		if Alpha == 0 {
 			bm25 := &graphql.BM25ArgumentBuilder{}
 			bm25.WithQuery(query.Query)
+			bm25.WithProperties(propertiesToMatch...)
 			queryBuilder.WithBM25(bm25)
 		} else {
 			hybrid := &graphql.HybridArgumentBuilder{}
 			ranking := graphql.FusionType(Ranking)
 			hybrid.WithQuery(query.Query).WithAlpha(Alpha).WithFusionType(ranking)
+			hybrid.WithProperties(propertiesToMatch)
 			queryBuilder.WithHybrid(hybrid)
 		}
 		if FilterObjectPercentage > 0 {
