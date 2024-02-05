@@ -36,6 +36,9 @@ func parseArray[T float64 | bool | string](v interface{}, innerDt schema.DataTyp
 }
 
 func NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
+	if v == nil {
+		return NewNilValue(), nil
+	}
 	innerDt, ok := schema.IsArrayType(dt)
 	if ok {
 		switch dt {
@@ -286,4 +289,9 @@ func NewPhoneNumberValue(v *models.PhoneNumber) *pb.Value {
 			Valid:                  v.Valid,
 		},
 	}}
+}
+
+// NewBoolValue constructs a new boolean Value.
+func NewNilValue() *pb.Value {
+	return &pb.Value{Kind: &pb.Value_NullValue{}}
 }
