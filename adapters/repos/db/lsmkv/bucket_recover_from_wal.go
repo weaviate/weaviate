@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,27 +46,6 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	for _, fileInfo := range list {
 		if filepath.Ext(fileInfo.Name()) != ".wal" {
 			// skip, this could be disk segments, etc.
-			continue
-		}
-
-		segmentFileName := strings.TrimSuffix(fileInfo.Name(), ".wal") + ".db"
-		ok, err := fileExists(filepath.Join(b.dir, segmentFileName))
-		if err != nil {
-			return fmt.Errorf("check for presence of segment file for wal %s: %w", fileInfo.Name(), err)
-		}
-
-		if !ok {
-			// Note (jeroiraz): deletion may not be needed when integrity checking of wal files is incorporated
-			if err := os.Remove(filepath.Join(b.dir, fileInfo.Name())); err != nil {
-				return fmt.Errorf("delete potentially corrupt wal file %s: %w", fileInfo.Name(), err)
-			}
-
-			b.logger.WithField("action", "lsm_recover_from_active_wal").
-				WithField("path", filepath.Join(b.dir, fileInfo.Name())).
-				WithField("segment_path", segmentFileName).
-				Info("Discarded (potentially corrupted) WAL file, because no segment file for " +
-					"the same WAL file was found.")
-
 			continue
 		}
 
@@ -112,6 +90,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
+		}
+
+		if mt.Size() == 0 {
+			continue
 		}
 
 		if err := b.disk.add(path + ".db"); err != nil {
