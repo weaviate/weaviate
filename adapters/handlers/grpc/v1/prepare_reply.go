@@ -545,7 +545,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 
 		if !ok {
 			if prop.IsPrimitive || prop.IsObject {
-				nonRefProps.Fields[prop.Name] = nil
+				nonRefProps.Fields[prop.Name] = NewNilValue()
 			}
 			continue
 		}
