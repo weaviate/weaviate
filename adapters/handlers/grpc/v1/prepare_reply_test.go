@@ -369,6 +369,36 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
+			name: "request property with nil value",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+					"age":  nil,
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName:  className,
+				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"age":  {Kind: &pb.Value_NullValue{}},
+							},
+						},
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
+					},
+				},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
 			name: "array properties",
 			res: []interface{}{
 				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
