@@ -840,6 +840,7 @@ func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
 				require.Nil(t, err)
 				require.NotNil(t, objects)
 				require.Len(t, objects, 1)
+				require.NotNil(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"])
 				assert.Len(t, objects[0].Properties.(map[string]interface{})["relatedToPizza"].([]interface{}),
 					len(pizzaIds))
 			}
