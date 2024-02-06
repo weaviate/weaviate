@@ -918,7 +918,6 @@ func deepCopyVectors[V []float32 | models.Vector](orig map[string]V) map[string]
 }
 
 func deepCopyObject(orig models.Object) models.Object {
-
 	return models.Object{
 		Class:              orig.Class,
 		ID:                 orig.ID,

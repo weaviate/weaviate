@@ -25,6 +25,7 @@ type Properties struct {
 	Classification     bool                   `json:"classification"`
 	RefMeta            bool                   `json:"refMeta"`
 	Vector             bool                   `json:"vector"`
+	Vectors            []string               `json:"vectors"`
 	Certainty          bool                   `json:"certainty"`
 	ID                 bool                   `json:"id"`
 	CreationTimeUnix   bool                   `json:"creationTimeUnix"`
