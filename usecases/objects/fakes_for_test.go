@@ -356,6 +356,23 @@ func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.O
 	}
 }
 
+func (p *fakeModulesProvider) BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object, findObjectFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger) (map[int]error, error) {
+	args := p.Called(objects)
+	switch vec := args.Get(0).(type) {
+	case models.C11yVector:
+		for i := range objects {
+			objects[i].Vector = vec
+		}
+	case []float32:
+		for i := range objects {
+			objects[i].Vector = vec
+		}
+	default:
+	}
+
+	return nil, nil
+}
+
 func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
 	args := p.Called(className)
 	return args.String(0), args.Error(1)

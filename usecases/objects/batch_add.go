@@ -110,13 +110,20 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		object.LastUpdateTimeUnix = now
 		object.CreationTimeUnix = now
 
+		object.Class = obj.Class
 		object.Vector = obj.Vector
 		object.Tenant = obj.Tenant
+		object.Properties = obj.Properties
+		if object.Properties == nil {
+			object.Properties = map[string]interface{}{}
+		}
+
+		batchObjects[i].UUID = object.ID
 
 		// no need to send this to the vectorizer if there is already a vector
 		if obj.Vector != nil {
 			batchObjects[i].OriginalIndex = i
-			batchObjects[i].Object = obj
+			batchObjects[i].Object = object
 			continue
 		}
 
@@ -124,7 +131,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			objectsPerClass[obj.Class] = make([]*models.Object, 0)
 			originalIndexPerClass[obj.Class] = make([]int, 0)
 		}
-		objectsPerClass[obj.Class] = append(objectsPerClass[obj.Class], objects[i])
+		objectsPerClass[obj.Class] = append(objectsPerClass[obj.Class], object)
 		originalIndexPerClass[obj.Class] = append(originalIndexPerClass[obj.Class], i)
 	}
 

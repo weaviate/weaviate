@@ -103,8 +103,9 @@ func TestClient(t *testing.T) {
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
+			Errors:     []error{nil},
 		}
-		res, err := c.Vectorize(context.Background(), "This is my text",
+		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
 				Type:  "text",
 				Model: "ada",
@@ -125,7 +126,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -142,7 +143,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		_, err := c.Vectorize(context.Background(), "This is my text",
+		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
@@ -163,9 +164,10 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Errors:     []error{nil},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, "This is my text",
+		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
 				Type:  "text",
 				Model: "ada",
@@ -186,7 +188,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -205,7 +207,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, "This is my text",
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
 				Type:  "text",
 				Model: "ada",

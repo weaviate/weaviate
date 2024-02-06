@@ -70,9 +70,9 @@ func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	return nil
 }
 
-func (m *dummyText2VecModuleNoCapabilities) BatchVectorizeObject(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+func (m dummyText2VecModuleNoCapabilities) BatchVectorizeObject(ctx context.Context, objects []*models.Object, cfg moduletools.ClassConfig) map[int]error {
 	errs := make(map[int]error, 0)
-	for _, obj := range objs {
+	for _, obj := range objects {
 		obj.Vector = []float32{1, 2, 3}
 	}
 	return errs

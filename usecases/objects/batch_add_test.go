@@ -251,8 +251,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
-				Return(nil, nil)
+			modulesProvider.On("BatchUpdateVector", mock.Anything).Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
@@ -324,8 +323,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
-				Return(expectedVector, nil)
+			modulesProvider.On("BatchUpdateVector", mock.Anything).Return(expectedVector, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
@@ -360,8 +358,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
-				Return(nil, nil)
+			modulesProvider.On("BatchUpdateVector", mock.Anything).Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
@@ -390,8 +387,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
-				Return(nil, nil)
+			modulesProvider.On("BatchUpdateVector", mock.Anything).Return(nil, nil)
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
@@ -419,8 +415,8 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 
 					Properties: []*models.Property{
 						{
-							Name:         "strings",
-							DataType:     schema.DataTypeTextArray.PropString(),
+							Name:         "name",
+							DataType:     schema.DataTypeText.PropString(),
 							Tokenization: models.PropertyTokenizationWhitespace,
 						},
 					},
@@ -461,8 +457,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 
 	ctx := context.Background()
 	for range objects {
-		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
-			Return(nil, nil)
+		modulesProvider.On("BatchUpdateVector", mock.Anything).Return(nil, nil)
 	}
 	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
 	assert.Nil(t, err)
