@@ -465,6 +465,15 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
 
+	// catch special case where there are no results and would panic termResult.data[0].id
+	// related to #4125
+	if len(termResult.data) == 0 {
+		termResult.posPointer = 0
+		termResult.idPointer = 0
+		termResult.exhausted = true
+		return termResult, docMapPairsIndices, nil
+	}
+
 	termResult.posPointer = 0
 	termResult.idPointer = termResult.data[0].id
 	return termResult, docMapPairsIndices, nil
