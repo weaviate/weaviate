@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,7 +165,12 @@ func createClass(t *testing.T, client *wvt.Client, className string) *models.Cla
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(ctx)
-	require.NoError(t, err)
+
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	if err != nil && !strings.Contains(err.Error(), "exists") {
+		require.NoError(t, err)
+	}
 
 	return class
 }
