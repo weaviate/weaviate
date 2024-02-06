@@ -119,9 +119,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
+		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
+		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -155,9 +155,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
+		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
+		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -193,9 +193,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
+		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
+		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -313,7 +313,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	t.Run("with objects without IDs", func(t *testing.T) {
 		reset()
 		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
-		expectedVector := []float32{0, 1, 2}
+		expectedVector := models.C11yVector{0, 1, 2}
 		objects := []*models.Object{
 			{
 				Class: "Foo",
