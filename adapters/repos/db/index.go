@@ -1907,9 +1907,14 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var res []strfmt.UUID
 
 		if err = backoff.Retry(func() error {
-			if shard := i.localShard(shardName); shard != nil {
+			shard := i.localShard(shardName)
+			if shard == nil {
+				return fmt.Errorf("shard not dound")
+			}
+			if shard != nil {
 				res, err = shard.FindUUIDs(ctx, filters)
 			}
+
 			return err
 		}, utils.NewBackoff()); err == nil {
 			results[shardName] = res
