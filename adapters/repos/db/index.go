@@ -1909,7 +1909,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		if err = backoff.Retry(func() error {
 			shard := i.localShard(shardName)
 			if shard == nil {
-				return fmt.Errorf("shard not dound")
+				return fmt.Errorf("shard not found")
 			}
 			if shard != nil {
 				res, err = shard.FindUUIDs(ctx, filters)
