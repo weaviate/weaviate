@@ -14,7 +14,10 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"time"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"golang.org/x/sync/errgroup"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -289,6 +293,16 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	return true, nil
 }
 
+func tombstoneDeletionConcurrency() int {
+	if v := os.Getenv("TOMBSTONE_DELETION_CONCURRENCY"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err == nil && asInt > 0 {
+			return asInt
+		}
+	}
+	return runtime.GOMAXPROCS(0) / 2
+}
+
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.RLock()
 	size := len(h.nodes)
@@ -296,17 +310,37 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	compressionhelpers.Concurrently(uint64(size), func(deletedID uint64) {
-		h.Lock()
-		if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
-			h.Unlock()
-			return
-		}
-		h.Unlock()
-		h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
-	})
+	g, ctx := errgroup.WithContext(context.TODO())
+	ch := make(chan uint64)
 
-	return true, nil
+	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
+		g.Go(func() error {
+			select {
+			case <-ctx.Done():
+				return nil
+			case deletedID, ok := <-ch:
+				if !ok {
+					return nil
+				}
+				h.Lock()
+				if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
+					h.Unlock()
+					return nil
+				}
+				h.Unlock()
+				h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+			}
+			return nil
+		})
+	}
+
+	for i := 0; i < size; i++ {
+		ch <- uint64(i)
+	}
+	close(ch)
+
+	err = g.Wait()
+	return true, err
 }
 
 func (h *hnsw) reassignNeighbor(
