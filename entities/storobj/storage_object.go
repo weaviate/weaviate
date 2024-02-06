@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 var bufPool *bufferPool
@@ -49,6 +50,7 @@ type Object struct {
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
+	TargetVectors	 map[string][]float32
 }
 
 func New(docID uint64) *Object {
@@ -473,6 +475,9 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // n          | []byte    | meta as json
 // 2          | uint32    | length of vectorweights json
 // n          | []byte    | vectorweights as json
+// 4          | uint32    | length of packed targetvectors
+// n		  | []byte    | packed targetvectors
+
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -509,7 +514,15 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
+	targetVectors    , err := msgpack.Marshal(ko.TargetVectors)
+    if err != nil {
+        panic(err)
+    }
+
+	targetVectorsLength := uint32(len(targetVectors))
+
+
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength + 4 + targetVectorsLength
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
 	rw.WriteByte(ko.MarshallerVersion)
@@ -547,6 +560,12 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	err = rw.CopyBytesToBuffer(vectorWeights)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	rw.WriteUint32(targetVectorsLength)
+	err = rw.CopyBytesToBuffer(targetVectors)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy targetVectors")
 	}
 
 	return byteBuffer, nil
