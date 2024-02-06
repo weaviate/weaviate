@@ -47,3 +47,41 @@ func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []stri
 
 	return ids
 }
+
+func GetVectors(t *testing.T, resp *models.GraphQLResponse, className string, targetVectors ...string) map[string][]float32 {
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Data)
+	require.Empty(t, resp.Errors)
+
+	classMap, ok := resp.Data["Get"].(map[string]interface{})
+	require.True(t, ok)
+
+	class, ok := classMap[className].([]interface{})
+	require.True(t, ok)
+
+	targetVectorsMap := make(map[string][]float32)
+	for i := range class {
+		resultMap, ok := class[i].(map[string]interface{})
+		require.True(t, ok)
+
+		additional, ok := resultMap["_additional"].(map[string]interface{})
+		require.True(t, ok)
+
+		vectors, ok := additional["vectors"].(map[string]interface{})
+		require.True(t, ok)
+
+		for _, targetVector := range targetVectors {
+			vector, ok := vectors[targetVector].([]interface{})
+			require.True(t, ok)
+
+			vec := make([]float32, len(vector))
+			for i := range vector {
+				vec[i] = float32(vector[i].(float64))
+			}
+
+			targetVectorsMap[targetVector] = vec
+		}
+	}
+
+	return targetVectorsMap
+}

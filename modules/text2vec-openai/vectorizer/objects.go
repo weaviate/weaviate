@@ -62,7 +62,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 		return err
 	}
 
-	object = v.objectVectorizer.AddVectorToObject(object, vec, cfg)
+	v.objectVectorizer.AddVectorToObject(object, vec, cfg)
 	return nil
 }
 

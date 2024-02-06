@@ -13,11 +13,16 @@ package named_vectors_tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -43,6 +48,7 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 			text2vecContextionaryName2 := "c11y2"
 			text2vecContextionaryName3 := "c11y3"
 			text2vecContextionary := "text2vec-contextionary"
+			id1 := "00000000-0000-0000-0000-000000000001"
 
 			t.Run("create schema", func(t *testing.T) {
 				class := &models.Class{
@@ -100,7 +106,6 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 			})
 
 			t.Run("create object", func(t *testing.T) {
-				id1 := "00000000-0000-0000-0000-000000000001"
 				objWrapper, err := client.Data().Creator().
 					WithClassName(className).
 					WithID(id1).
@@ -120,6 +125,33 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, objs, 1)
 				require.NotNil(t, objs[0])
+				assert.Len(t, objs[0].Vectors, 3)
+			})
+
+			t.Run("GraphQL get vectors", func(t *testing.T) {
+				where := filters.Where().
+					WithPath([]string{"id"}).
+					WithOperator(filters.Equal).
+					WithValueText(id1)
+				field := graphql.Field{
+					Name: "_additional",
+					Fields: []graphql.Field{
+						{Name: "id"},
+						{Name: fmt.Sprintf("vectors{%s}", text2vecContextionaryName1)},
+					},
+				}
+				resp, err := client.GraphQL().Get().
+					WithClassName(className).
+					WithWhere(where).
+					WithFields(field).
+					Do(ctx)
+				require.NoError(t, err)
+
+				ids := acceptance_with_go_client.GetIds(t, resp, className)
+				require.ElementsMatch(t, ids, []string{id1})
+
+				resultVectors := acceptance_with_go_client.GetVectors(t, resp, className, text2vecContextionaryName1)
+				require.NotEmpty(t, resultVectors[text2vecContextionaryName1])
 			})
 		})
 	}
