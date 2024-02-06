@@ -22,6 +22,7 @@ type Sorter interface {
 		limit int, sort []filters.Sort) ([]*storobj.Object, []float32, error)
 }
 
+// TODO: Refactor objectSorter to get an interface for schemaGetter instead of the schema itself
 type objectsSorter struct {
 	schema schema.Schema
 }
