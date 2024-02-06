@@ -44,6 +44,7 @@ func (h *hnsw) findAndConnectNeighborsAfterCleanUpTombstonedNodes(node *vertex,
 }
 
 type neighborFinderConnector struct {
+	ctx             context.Context
 	graph           *hnsw
 	node            *vertex
 	entryPointID    uint64
@@ -62,6 +63,7 @@ func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	denyList helpers.AllowList, afterCleanUpTombstonedNodes bool,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
+		ctx:                         graph.shutdownCtx,
 		graph:                       graph,
 		node:                        node,
 		entryPointID:                entryPointID,
@@ -107,6 +109,10 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 }
 
 func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+	if err := n.ctx.Err(); err != nil {
+		return err
+	}
+
 	var pending []uint64
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
