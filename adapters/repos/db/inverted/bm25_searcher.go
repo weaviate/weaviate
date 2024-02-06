@@ -302,6 +302,10 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			for j, result := range results {
 				if termIndice, ok := indices[j][res.ID]; ok {
 					queryTerm := result.queryTerm
+					if len(result.data) <= termIndice {
+						b.logger.Warnf("Skipping object explanation in BM25: termIndice %v is out of range for queryTerm %v, len() %d, res.ID %v", termIndice, queryTerm, len(result.data), res.ID)
+						continue
+					}
 					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
 					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
 				}
