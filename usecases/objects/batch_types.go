@@ -33,7 +33,6 @@ type BatchObject struct {
 	Err           error
 	Object        *models.Object
 	UUID          strfmt.UUID
-	Vector        []float32
 }
 
 // BatchObjects groups many Object items together. The order matches the
