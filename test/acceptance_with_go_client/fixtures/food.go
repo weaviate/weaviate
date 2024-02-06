@@ -14,6 +14,7 @@ package fixtures
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -131,6 +132,12 @@ func createSchema(t *testing.T, client *weaviate.Client, class *models.Class) {
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(context.Background())
+
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	if err != nil && strings.Contains(err.Error(), "exists") {
+		return
+	}
 
 	require.Nil(t, err)
 }
