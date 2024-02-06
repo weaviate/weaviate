@@ -268,6 +268,10 @@ func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return sg.sch
 }
 
+func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {
+	return sg.sch.GetClass(class)
+}
+
 func (sg *fakeMigrationSchemaGetter) Nodes() []string {
 	return nil
 }
