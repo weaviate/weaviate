@@ -237,38 +237,28 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
-	start := time.Now()
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		fmt.Println("reassignNeighborsOf err", err)
 		return executed, err
 	} else if !ok {
-		fmt.Println("reassignNeighborsOf not ok")
 		return executed, nil
 	}
-	fmt.Println("1- reassignNeighborsOf took", time.Since(start))
 
-	start = time.Now()
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
-	fmt.Println("2- replaceDeletedEntrypoint took", time.Since(start))
 
-	start = time.Now()
 	if ok, err := h.removeTombstonesAndNodes(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
-	fmt.Println("3- removeTombstonesAndNodes took", time.Since(start))
 
-	start = time.Now()
 	if _, err := h.resetIfEmpty(); err != nil {
 		return executed, err
 	}
-	fmt.Println("4- resetIfEmpty took", time.Since(start))
 
 	return executed, nil
 }
