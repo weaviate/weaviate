@@ -12,12 +12,13 @@
 package commitlog
 
 import (
+	"bufio"
 	"os"
 )
 
 type Logger struct {
 	file *os.File
-	bufw *bufWriter
+	bufw *bufio.Writer
 }
 
 func NewLogger(fileName string) *Logger {
@@ -26,11 +27,11 @@ func NewLogger(fileName string) *Logger {
 		panic(err)
 	}
 
-	return &Logger{file: file, bufw: NewWriter(file)}
+	return &Logger{file: file, bufw: bufio.NewWriterSize(file, 32*1024)}
 }
 
 func NewLoggerWithFile(file *os.File) *Logger {
-	return &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
+	return &Logger{file: file, bufw: bufio.NewWriterSize(file, 32*1024)}
 }
 
 func (l *Logger) Write(p []byte) (n int, err error) {
