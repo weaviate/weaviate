@@ -37,6 +37,7 @@ type Result struct {
 	VectorWeights        map[string]string
 	IsConsistent         bool
 	Tenant               string
+	Vectors              map[string][]float32
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int
