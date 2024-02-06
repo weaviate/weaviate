@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -127,9 +126,6 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 			helper.AssertRequestOk(t, res, err, nil)
 		}
 	})
-
-	// wait for index refresh
-	time.Sleep(2 * time.Second) // TODO: improve through polling
 
 	t.Run("checking which refs were set", func(t *testing.T) {
 		source := assertGetObject(t, sourceID)
