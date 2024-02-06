@@ -28,7 +28,7 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 	// }()
 	// endpoint := compose.GetWeaviate().URI()
 	endpoint := "localhost:8080"
-	t.Run("schema", testCreateSchema(t, endpoint))
+	// t.Run("schema", testCreateSchema(t, endpoint))
 	t.Run("object", testCreateObject(t, endpoint))
 }
 

@@ -71,6 +71,12 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 
 	if includeVector {
 		t.Vector = r.Vector
+		// TODO[named-vectors]: test that it works
+		vectors := make(models.Vectors)
+		for name, vector := range r.Vectors {
+			vectors[name] = vector
+		}
+		t.Vectors = vectors
 	}
 
 	return t

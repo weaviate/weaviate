@@ -45,7 +45,7 @@ func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearc
 
 func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
-	moduleParams map[string]interface{}, className string, tenant string,
+	moduleParams map[string]interface{}, className, tenant string,
 ) ([]float32, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
