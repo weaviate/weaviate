@@ -35,8 +35,8 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
-	endpoint, err := buildUrlFn(isLegacy, resourceName, deploymentID, baseURL)
+func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+	endpoint, err := buildUrlFn(isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 	if err != nil {
 		return "", err
 	}
@@ -46,23 +46,23 @@ func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, b
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "", "", config.DefaultOpenAIBaseURL)
+		url, err := buildUrlFn(false, "", "", config.DefaultOpenAIBaseURL, config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/chat/completions", url)
 	})
 	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "resourceID", "deploymentID", "")
+		url, err := buildUrlFn(false, "resourceID", "deploymentID", "", config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2023-05-15", url)
 	})
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
-		url, err := buildUrlFn(false, "", "", "https://foobar.some.proxy")
+		url, err := buildUrlFn(false, "", "", "https://foobar.some.proxy", config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/chat/completions", url)
 		os.Unsetenv("OPENAI_BASE_URL")
 	})
 	t.Run("buildUrlFn returns Azure Client with custom baseURL", func(t *testing.T) {
-		url, err := buildUrlFn(false, "resourceID", "deploymentID", "customBaseURL")
+		url, err := buildUrlFn(false, "resourceID", "deploymentID", "customBaseURL", config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2023-05-15", url)
 	})
@@ -87,8 +87,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL)
+		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
 		expected := generativemodels.GenerateResponse{
@@ -113,8 +113,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL)
+		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
@@ -243,6 +243,7 @@ type fakeClassSettings struct {
 	deploymentID     string
 	isAzure          bool
 	baseURL          string
+	apiVersion       string
 }
 
 func (s *fakeClassSettings) IsLegacy() bool {
@@ -295,4 +296,8 @@ func (s *fakeClassSettings) Validate(class *models.Class) error {
 
 func (s *fakeClassSettings) BaseURL() string {
 	return s.baseURL
+}
+
+func (s *fakeClassSettings) ApiVersion() string {
+	return s.apiVersion
 }
