@@ -661,10 +661,9 @@ func (i *Index) parseDateFieldsInProps(props interface{}) error {
 		return nil
 	}
 
-	schemaModel := i.getSchema.GetSchemaSkipAuth().Objects
-	c, err := schema.GetClassByName(schemaModel, i.Config.ClassName.String())
-	if err != nil {
-		return err
+	c := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+	if c == nil {
+		return fmt.Errorf("class %s not found in schema", i.Config.ClassName)
 	}
 
 	for _, prop := range c.Properties {
@@ -1126,11 +1125,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// If the request is a BM25F with no properties selected, use all possible properties
 	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
-		cl, err := schema.GetClassByName(
-			i.getSchema.GetSchemaSkipAuth().Objects,
-			i.Config.ClassName.String())
-		if err != nil {
-			return nil, nil, err
+		cl := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+		if cl == nil {
+			return nil, nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
 		}
 
 		propHash := cl.Properties

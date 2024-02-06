@@ -56,6 +56,7 @@ type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 type SchemaGetter interface {
 	// TODO: GetSchemaSkipAuth shall return Schema pointer
 	GetSchemaSkipAuth() schema.Schema
+	ReadOnlyClass(string) *models.Class
 	Nodes() []string
 	NodeName() string
 	ClusterHealthScore() int
