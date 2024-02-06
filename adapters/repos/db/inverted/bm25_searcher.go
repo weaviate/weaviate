@@ -648,6 +648,7 @@ func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
+// TODO: Refactor this function to receive the class directly to avoid sending the whole schema
 func PropertyHasSearchableIndex(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
 	propertyName := strings.Split(tentativePropertyName, "^")[0]
 	c, err := schema.GetClassByName(schemaDefinition, string(className))

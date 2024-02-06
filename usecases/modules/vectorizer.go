@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -513,9 +512,7 @@ func (p *Provider) VectorizerName(className string) (string, error) {
 }
 
 func (p *Provider) getClassVectorizer(className string) (string, interface{}, error) {
-	sch := p.schemaGetter.GetSchemaSkipAuth()
-
-	class := sch.FindClassByName(schema.ClassName(className))
+	class := p.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		// this should be impossible by the time this method gets called, but let's
 		// be 100% certain
