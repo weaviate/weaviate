@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"runtime"
 	"runtime/debug"
@@ -22,9 +23,11 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -203,37 +206,38 @@ type Config struct {
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
+// by default it will retry 3 times between 0-150 ms to get the index
+// to handle the eventual consistency.
 func (db *DB) GetIndex(className schema.ClassName) *Index {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
+	var (
+		index  *Index
+		exists bool
+	)
+	backoff.Retry(func() error {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
 
-	id := indexID(className)
-	index, ok := db.indices[id]
-	if !ok {
+		index, exists = db.indices[indexID(className)]
+		if !exists {
+			return fmt.Errorf("index for class %v not found locally", index)
+		}
 		return nil
-	}
+	}, utils.NewBackoff())
 
 	return index
 }
 
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
-	id := indexID(className)
-	_, ok := db.indices[id]
-	return ok
+	return db.GetIndex(className) != nil
 }
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
+// by default it will retry 3 times between 0-150 ms to get the index
+// to handle the eventual consistency.
 func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
-	id := indexID(className)
-	index, ok := db.indices[id]
-	if !ok {
+	index := db.GetIndex(className)
+	if index == nil {
 		return nil
 	}
 
@@ -242,25 +246,26 @@ func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInd
 
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
-	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
-
-	// Get index
-	id := indexID(className)
-	index := db.indices[id]
+	index := db.GetIndex(className)
 	if index == nil {
 		return nil
 	}
 
-	// Drop index
+	// drop index
+	db.indexLock.Lock()
+	defer db.indexLock.Unlock()
+
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {
 		db.logger.WithField("action", "delete_index").WithField("class", className).Error(err)
 	}
-	delete(db.indices, id)
 
-	db.promMetrics.DeleteClass(className.String())
+	delete(db.indices, indexID(className))
+
+	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
+		db.logger.Error("can't delete prometheus metrics", err)
+	}
 	return nil
 }
 

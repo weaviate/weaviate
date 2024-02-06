@@ -17,7 +17,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cenkalti/backoff/v4"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
@@ -66,20 +68,22 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
 	if exists {
 		return errClassExists
 	}
+
 	s.Classes[cls.Class] = &metaClass{*cls, *ss}
 	return nil
 }
 
-func (s *schema) updateClass(u *models.Class, ss *sharding.State) error {
+func (s *schema) updateClass(cls *models.Class, ss *sharding.State) error {
 	s.Lock()
 	defer s.Unlock()
 
-	info := s.Classes[u.Class]
+	info := s.Classes[cls.Class]
 	if info == nil {
 		return errClassNotFound
 	}
-	if u != nil {
-		info.Class = *u
+
+	if cls != nil {
+		info.Class = *cls
 	}
 	if ss != nil {
 		info.Sharding = *ss
@@ -114,7 +118,6 @@ func (s *schema) addProperty(class string, p models.Property) error {
 
 func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
-
 	s.Lock()
 	defer s.Unlock()
 
@@ -149,6 +152,7 @@ func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) 
 	if info == nil {
 		return errClassNotFound
 	}
+
 	for _, name := range req.Tenants {
 		info.Sharding.DeletePartition(name)
 	}
@@ -163,6 +167,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 	if info == nil {
 		return 0, errClassNotFound
 	}
+
 	missingShards := []string{}
 	ps := info.Sharding.Physical
 	for i, u := range req.Tenants {
@@ -233,6 +238,7 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 	if i == nil {
 		return
 	}
+
 	ci.Exists = true
 	ci.Properties = len(i.Class.Properties)
 	ci.MultiTenancy = parseMultiTenancyConfig(i)
@@ -245,9 +251,8 @@ func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 }
 
 func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
-	s.RLock()
-	defer s.RUnlock()
-	return parseMultiTenancyConfig(s.Classes[class])
+	info, _ := s.ReadMetaClass(class)
+	return parseMultiTenancyConfig(info)
 }
 
 func parseMultiTenancyConfig(class *metaClass) (cfg models.MultiTenancyConfig) {
@@ -260,26 +265,45 @@ func parseMultiTenancyConfig(class *metaClass) (cfg models.MultiTenancyConfig) {
 
 // Read
 func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
-	s.RLock()
-	defer s.RUnlock()
-
-	info := s.Classes[class]
-	if info == nil {
+	info, err := s.ReadMetaClass(class)
+	if err != nil {
 		return errClassNotFound
 	}
+
+	s.Lock()
+	defer s.Unlock()
 
 	return reader(&info.Class, &info.Sharding)
 }
 
-func (s *schema) ReadOnlyClass(class string) *models.Class {
-	s.RLock()
-	defer s.RUnlock()
-	info := s.Classes[class]
+func (s *schema) ReadMetaClass(class string) (*metaClass, error) {
+	var (
+		info   *metaClass
+		exists bool
+	)
+	backoff.Retry(func() error {
+		s.RLock()
+		defer s.RUnlock()
+
+		info, exists = s.Classes[class]
+		if !exists {
+			return fmt.Errorf("class %s not found locally", class)
+		}
+		return nil
+	}, utils.NewBackoff())
+
 	if info == nil {
+		return nil, fmt.Errorf("class %s not found locally", class)
+	}
+	return info, nil
+}
+
+func (s *schema) ReadOnlyClass(class string) *models.Class {
+	info, err := s.ReadMetaClass(class)
+	if err != nil {
 		return nil
 	}
-	cp := info.Class
-	return &cp
+	return &info.Class
 }
 
 // ReadOnlySchema returns a read only schema
@@ -308,11 +332,8 @@ func (s *schema) ReadOnlySchema() models.Schema {
 
 // ShardOwner returns the node owner of the specified shard
 func (s *schema) ShardOwner(class, shard string) (string, error) {
-	s.RLock()
-	defer s.RUnlock()
-
-	i := s.Classes[class]
-	if i == nil {
+	i, err := s.ReadMetaClass(class)
+	if err != nil {
 		return "", errClassNotFound
 	}
 
@@ -328,10 +349,8 @@ func (s *schema) ShardOwner(class, shard string) (string, error) {
 
 // ShardFromUUID returns shard name of the provided uuid
 func (s *schema) ShardFromUUID(class string, uuid []byte) string {
-	s.RLock()
-	defer s.RUnlock()
-	i := s.Classes[class]
-	if i == nil {
+	i, err := s.ReadMetaClass(class)
+	if err != nil {
 		return ""
 	}
 	return i.Sharding.PhysicalShard(uuid)
@@ -339,14 +358,12 @@ func (s *schema) ShardFromUUID(class string, uuid []byte) string {
 
 // ShardOwner returns the node owner of the specified shard
 func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
-	s.RLock()
-	defer s.RUnlock()
-
-	i := s.Classes[class]
-	if i == nil {
+	info, err := s.ReadMetaClass(class)
+	if err != nil {
 		return nil, errClassNotFound
 	}
-	x, ok := i.Sharding.Physical[shard]
+
+	x, ok := info.Sharding.Physical[shard]
 	if !ok {
 		return nil, errShardNotFound
 	}
@@ -355,30 +372,32 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
 
 // TenantShard returns shard name for the provided tenant and its activity status
 func (s *schema) TenantShard(class, tenant string) (string, string) {
-	s.RLock()
-	defer s.RUnlock()
-
-	i := s.Classes[class]
-	if i == nil || !i.Sharding.PartitioningEnabled {
-		return "", ""
+	var exTenant, status string
+	info, err := s.ReadMetaClass(class)
+	if err != nil || !info.Sharding.PartitioningEnabled {
+		return exTenant, status
 	}
 
-	if physical, ok := i.Sharding.Physical[tenant]; ok {
-		return tenant, physical.ActivityStatus()
-	}
-	return "", ""
+	backoff.Retry(func() error {
+		physical, ok := info.Sharding.Physical[tenant]
+		if !ok {
+			return fmt.Errorf("doesn't exists")
+		}
+		exTenant = tenant
+		status = physical.ActivityStatus()
+		return nil
+	}, utils.NewBackoff())
+
+	return exTenant, status
 }
 
 func (s *schema) CopyShardingState(class string) *sharding.State {
-	s.RLock()
-	defer s.RUnlock()
-
-	i := s.Classes[class]
-	if i == nil {
+	info, err := s.ReadMetaClass(class)
+	if err != nil {
 		return nil
 	}
 
-	st := i.Sharding.DeepCopy()
+	st := info.Sharding.DeepCopy()
 	return &st
 }
 
