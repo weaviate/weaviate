@@ -53,6 +53,10 @@ type hnsw struct {
 	resetCtx       context.Context
 	resetCtxCancel context.CancelFunc
 
+	// indicates the index is shutting down
+	shutdownCtx       context.Context
+	shutdownCtxCancel context.CancelFunc
+
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
 	// empty graph
@@ -221,6 +225,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
+	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -245,6 +250,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		resetLock:         &sync.Mutex{},
 		resetCtx:          resetCtx,
 		resetCtxCancel:    resetCtxCancel,
+		shutdownCtx:       shutdownCtx,
+		shutdownCtxCancel: shutdownCtxCancel,
 		initialInsertOnce: &sync.Once{},
 
 		ef:       int64(uc.EF),
@@ -629,6 +636,8 @@ func (h *hnsw) Drop(ctx context.Context) error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
+	h.shutdownCtxCancel()
+
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}

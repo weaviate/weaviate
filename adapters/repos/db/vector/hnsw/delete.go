@@ -310,7 +310,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	g, ctx := errgroup.WithContext(context.TODO())
+	g, ctx := errgroup.WithContext(h.shutdownCtx)
 	ch := make(chan uint64)
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
