@@ -440,6 +440,13 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 				ind, ok := docMapPairsIndices[key]
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+
+				if (ind >= len(docMapPairs) || docMapPairs[ind].id != key) && ok {
+					// the index is not valid anymore, but the key is still in the map
+					b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, len() %d.", ind, key, len(docMapPairs))
+					continue
+				}
+
 				if ok {
 					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
 					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
