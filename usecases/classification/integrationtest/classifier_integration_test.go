@@ -77,7 +77,6 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				bt[i] = objects.BatchObject{
 					OriginalIndex: i,
 					UUID:          elem.ID,
-					Vector:        elem.Vector,
 					Object:        elem.Object(),
 				}
 			}
@@ -95,7 +94,6 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				bt[i] = objects.BatchObject{
 					OriginalIndex: i,
 					UUID:          elem.ID,
-					Vector:        elem.Vector,
 					Object:        elem.Object(),
 				}
 			}
@@ -212,7 +210,6 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 				bt[i] = objects.BatchObject{
 					OriginalIndex: i,
 					UUID:          elem.ID,
-					Vector:        elem.Vector,
 					Object:        elem.Object(),
 				}
 			}
