@@ -50,14 +50,14 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
+	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
-	if err := b.validateObjectForm(classes); err != nil {
+	if err := b.validateObjectForm(objects); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateObjectsConcurrently(ctx, principal, classes, fields, repl)
+	batchObjects := b.validateAndGetVector(ctx, principal, objects, repl)
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var (
@@ -72,6 +72,108 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	}
 
 	return res, nil
+}
+
+func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
+	objects []*models.Object, repl *additional.ReplicationProperties,
+) BatchObjects {
+	now := unixNow()
+	batchObjects := make(BatchObjects, len(objects))
+
+	objectsPerClass := make(map[string][]*models.Object)
+	originalIndexPerClass := make(map[string][]int)
+
+	for i, obj := range objects {
+		object := &models.Object{}
+		if err := b.autoSchemaManager.autoSchema(ctx, principal, obj, true); err != nil {
+			batchObjects[i].Err = err
+		}
+
+		if obj.ID == "" {
+			// Generate UUID for the new object
+			uid, err := generateUUID()
+			object.ID = uid
+			batchObjects[i].Err = err
+		} else {
+			if _, err := uuid.Parse(obj.ID.String()); err != nil {
+				batchObjects[i].Err = err
+			}
+			object.ID = obj.ID
+		}
+
+		if batchObjects[i].Err != nil {
+			batchObjects[i].OriginalIndex = i
+			batchObjects[i].Object = obj
+			continue
+		}
+
+		object.LastUpdateTimeUnix = now
+		object.CreationTimeUnix = now
+
+		object.Vector = obj.Vector
+		object.Tenant = obj.Tenant
+
+		// no need to send this to the vectorizer if there is already a vector
+		if obj.Vector != nil {
+			batchObjects[i].OriginalIndex = i
+			batchObjects[i].Object = obj
+			continue
+		}
+
+		if objectsPerClass[obj.Class] == nil {
+			objectsPerClass[obj.Class] = make([]*models.Object, 0)
+			originalIndexPerClass[obj.Class] = make([]int, 0)
+		}
+		objectsPerClass[obj.Class] = append(objectsPerClass[obj.Class], objects[i])
+		originalIndexPerClass[obj.Class] = append(originalIndexPerClass[obj.Class], i)
+	}
+
+	for className, objectsForClass := range objectsPerClass {
+		class, err := b.schemaManager.GetClass(ctx, principal, className)
+		if err != nil {
+			for i, obj := range objectsForClass {
+				origIndex := originalIndexPerClass[className][i]
+				batchObjects[origIndex].Err = err
+				batchObjects[origIndex].OriginalIndex = origIndex
+				batchObjects[origIndex].Object = obj
+			}
+			continue
+		}
+
+		validator := validation.New(b.vectorRepo.Exists, b.config, repl)
+		for i, obj := range objectsForClass {
+			err = validator.Object(ctx, class, obj, nil)
+			if err != nil {
+				origIndex := originalIndexPerClass[className][i]
+				batchObjects[origIndex].Err = err
+				batchObjects[origIndex].OriginalIndex = origIndex
+				batchObjects[origIndex].Object = obj
+			}
+		}
+		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class, objectsForClass, b.findObject, b.logger)
+		if err != nil {
+			for i, obj := range objectsForClass {
+				origIndex := originalIndexPerClass[className][i]
+				batchObjects[origIndex].Err = err
+				batchObjects[origIndex].OriginalIndex = origIndex
+				batchObjects[origIndex].Object = obj
+			}
+		}
+		for i, obj := range objectsForClass {
+			origIndex := originalIndexPerClass[className][i]
+			batchObjects[origIndex].OriginalIndex = origIndex
+			batchObjects[origIndex].Object = obj
+			batchObjects[origIndex].UUID = obj.ID
+			for j, err := range errorsPerObj {
+				if i == j {
+					batchObjects[origIndex].Err = err
+				}
+			}
+
+		}
+	}
+
+	return batchObjects
 }
 
 func (b *BatchManager) validateObjectForm(classes []*models.Object) error {

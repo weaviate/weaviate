@@ -133,6 +133,19 @@ func (m *PalmModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
+func (m *PalmModule) BatchVectorizeObject(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	icheck := config.NewClassSettings(cfg)
+
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		err := m.vectorizer.Object(ctx, obj, nil, icheck)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *PalmModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }

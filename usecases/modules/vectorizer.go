@@ -81,6 +81,64 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 	return false
 }
 
+func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+	findObjectFn modulecapabilities.FindObjectFn,
+	logger logrus.FieldLogger,
+) (map[int]error, error) {
+	hnswConfig, okHnsw := class.VectorIndexConfig.(hnsw.UserConfig)
+	_, okFlat := class.VectorIndexConfig.(flat.UserConfig)
+	if !(okHnsw || okFlat) {
+		return nil, fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+	}
+
+	if class.Vectorizer == config.VectorizerModuleNone {
+		if hnswConfig.Skip && len(objects[0].Vector) > 0 {
+			logger.WithField("className", class.Class).
+				Warningf(warningSkipVectorProvided)
+		}
+
+		return nil, nil
+	}
+
+	if hnswConfig.Skip {
+		logger.WithField("className", class.Class).
+			WithField("vectorizer", class.Vectorizer).
+			Warningf(warningSkipVectorGenerated, class.Vectorizer)
+	}
+
+	modConfig, ok := class.ModuleConfig.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("moduleconfig for %v not present", class.Class)
+	}
+	var found modulecapabilities.Module
+	for modName := range modConfig {
+		if err := p.ValidateVectorizer(modName); err == nil {
+			found = p.GetByName(modName)
+			break
+		}
+	}
+
+	if found == nil {
+		return nil, fmt.Errorf(
+			"no vectorizer found for class %q", class.Class)
+	}
+
+	cfg := NewClassBasedModuleConfig(class, found.Name(), "")
+
+	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
+		return vectorizer.BatchVectorizeObject(ctx, objects, cfg), nil
+	} else {
+		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
+		errs := make(map[int]error, 0)
+		for i, obj := range objects {
+			if err := refVectorizer.VectorizeObject(ctx, obj, cfg, findObjectFn); err != nil {
+				errs[i] = fmt.Errorf("update reference vector: %w", err)
+			}
+		}
+		return errs, nil
+	}
+}
+
 func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,

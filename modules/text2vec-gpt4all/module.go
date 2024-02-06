@@ -131,6 +131,17 @@ func (m *GPT4AllModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
 }
 
+func (m *GPT4AllModule) BatchVectorizeObject(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		err := m.vectorizer.Object(ctx, obj, nil, cfg)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *GPT4AllModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }

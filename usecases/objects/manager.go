@@ -120,6 +120,9 @@ type ModulesProvider interface {
 	UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
 		objectDiff *moduletools.ObjectDiff, repo modulecapabilities.FindObjectFn,
 		logger logrus.FieldLogger) error
+	BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+		findObjectFn modulecapabilities.FindObjectFn,
+		logger logrus.FieldLogger) (map[int]error, error)
 	VectorizerName(className string) (string, error)
 }
 

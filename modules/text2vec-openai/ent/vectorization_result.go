@@ -15,4 +15,5 @@ type VectorizationResult struct {
 	Text       []string
 	Dimensions int
 	Vector     [][]float32
+	Errors     []error
 }

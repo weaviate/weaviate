@@ -43,9 +43,9 @@ type embedding struct {
 }
 
 type embeddingData struct {
-	Object    string    `json:"object"`
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
+	Object    string          `json:"object"`
+	Embedding []float32       `json:"embedding"`
+	Error     *openAIApiError `json:"error,omitempty"`
 }
 
 type openAIApiError struct {
@@ -119,10 +119,8 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, []string{input}, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
+func (v *vectorizer) Vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
@@ -179,15 +177,20 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
+	openAIerror := make([]error, len(resBody.Data))
 	for i := range resBody.Data {
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
+		if resBody.Data[i].Error != nil {
+			openAIerror[i] = v.getError(res.StatusCode, resBody.Data[i].Error, config.IsAzure)
+		}
 	}
 
 	return &ent.VectorizationResult{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
+		Errors:     openAIerror,
 	}, nil
 }
 

@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -34,8 +35,7 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	Vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 	VectorizeQuery(ctx context.Context, input []string,
 		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
@@ -67,15 +67,15 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+	properties interface{}, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, NewClassSettings(cfg))
+	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, properties, objDiff, NewClassSettings(cfg))
 	if vector != nil {
 		// dont' re-vectorize
 		return vector, nil
 	}
 	// vectorize text
-	res, err := v.client.Vectorize(ctx, text, v.getVectorizationConfig(cfg))
+	res, err := v.client.Vectorize(ctx, []string{text}, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -98,4 +98,30 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		IsAzure:      settings.IsAzure(),
 		Dimensions:   settings.Dimensions(),
 	}
+}
+
+func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, cfg moduletools.ClassConfig,
+) map[int]error {
+	texts := make([]string, len(objects))
+	errs := make(map[int]error, 0)
+	for i, obj := range objects {
+		text, _ := v.objectVectorizer.TextsOrVector(ctx, obj.Class, obj.Properties, nil, NewClassSettings(cfg))
+		texts[i] = text
+	}
+	res, err := v.client.Vectorize(ctx, texts, v.getVectorizationConfig(cfg))
+	if err != nil {
+		for i := range objects {
+			errs[i] = err
+		}
+	}
+	fmt.Println(res.Errors, len(objects))
+	for i := range objects {
+		if res.Errors[i] != nil {
+			errs[i] = res.Errors[i]
+		} else {
+			objects[i].Vector = res.Vector[i]
+		}
+	}
+
+	return errs
 }

@@ -46,6 +46,7 @@ type OpenAIModule struct {
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
 		cfg moduletools.ClassConfig) error
+	ObjectBatch(ctx context.Context, objects []*models.Object, cfg moduletools.ClassConfig) map[int]error
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
 }
@@ -125,6 +126,10 @@ func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) error {
 	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+}
+
+func (m *OpenAIModule) BatchVectorizeObject(ctx context.Context, objects []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	return m.vectorizer.ObjectBatch(ctx, objects, cfg)
 }
 
 func (m *OpenAIModule) MetaInfo() (map[string]interface{}, error) {

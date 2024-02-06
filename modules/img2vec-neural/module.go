@@ -96,6 +96,18 @@ func (m *ImageModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
+func (m *ImageModule) BatchVectorizeObject(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	icheck := vectorizer.NewClassSettings(cfg)
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		err := m.vectorizer.Object(ctx, obj, nil, icheck)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{}, nil
 }

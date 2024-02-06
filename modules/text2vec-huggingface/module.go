@@ -124,6 +124,19 @@ func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
 }
 
+func (m *HuggingFaceModule) BatchVectorizeObject(ctx context.Context,
+	objs []*models.Object, cfg moduletools.ClassConfig,
+) map[int]error {
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		err := m.vectorizer.Object(ctx, obj, nil, cfg)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }

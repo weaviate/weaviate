@@ -27,6 +27,7 @@ type Vectorizer interface {
 	// information as part of _additional properties
 	VectorizeObject(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
 		cfg moduletools.ClassConfig) error
+	BatchVectorizeObject(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error
 }
 
 type FindObjectFn = func(ctx context.Context, class string, id strfmt.UUID,

@@ -170,6 +170,18 @@ func (m *BindModule) VectorizeObject(ctx context.Context,
 	return m.bindVectorizer.Object(ctx, obj, objDiff, icheck)
 }
 
+func (m *BindModule) BatchVectorizeObject(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	icheck := vectorizer.NewClassSettings(cfg)
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		err := m.bindVectorizer.Object(ctx, obj, nil, icheck)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaClient.MetaInfo()
 }
