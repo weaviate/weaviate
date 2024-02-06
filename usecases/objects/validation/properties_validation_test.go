@@ -13,14 +13,17 @@ package validation
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -216,4 +219,485 @@ func extractBeacon(t *testing.T, props models.PropertySchema) strfmt.URI {
 	require.Len(t, journalProp.(models.MultipleRef), 1)
 	gotBeacon := journalProp.(models.MultipleRef)[0].Beacon
 	return gotBeacon
+}
+
+func TestValidator_ValuesCasting(t *testing.T) {
+	t.Run("int(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue float64
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         json.Number("123"),
+				expectedValue: float64(123),
+				expectedErr:   false,
+			},
+			{
+				value:         int64(123),
+				expectedValue: float64(123),
+				expectedErr:   false,
+			},
+			{
+				value:         float64(123),
+				expectedValue: float64(123),
+				expectedErr:   false,
+			},
+
+			{
+				value:         json.Number("123.5"),
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+			{
+				value:         float64(123.5),
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+			{
+				value:         "123.5",
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+			{
+				value:         "something",
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+			{
+				value:         true,
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("int #%d", i), func(t *testing.T) {
+				value, err := intVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("ints (single) #%d", i), func(t *testing.T) {
+				value, err := intArrayVal(tc.value)
+
+				assert.Error(t, err)
+				assert.Nil(t, value)
+			})
+			t.Run(fmt.Sprintf("ints (array) #%d", i), func(t *testing.T) {
+				value, err := intArrayVal([]interface{}{tc.value})
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+					assert.Nil(t, value)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, []float64{tc.expectedValue}, value)
+				}
+			})
+		}
+	})
+
+	t.Run("number(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue float64
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         json.Number("123"),
+				expectedValue: float64(123),
+				expectedErr:   false,
+			},
+			{
+				value:         int64(123),
+				expectedValue: float64(123),
+				expectedErr:   false,
+			},
+			{
+				value:         float64(123),
+				expectedValue: float64(123),
+				expectedErr:   false,
+			},
+			{
+				value:         json.Number("123.5"),
+				expectedValue: float64(123.5),
+				expectedErr:   false,
+			},
+			{
+				value:         float64(123.5),
+				expectedValue: float64(123.5),
+				expectedErr:   false,
+			},
+
+			{
+				value:         "123.5",
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+			{
+				value:         "something",
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+			{
+				value:         true,
+				expectedValue: float64(0),
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("number #%d", i), func(t *testing.T) {
+				value, err := numberVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("numbers (single) #%d", i), func(t *testing.T) {
+				value, err := numberArrayVal(tc.value)
+
+				assert.Error(t, err)
+				assert.Nil(t, value)
+			})
+			t.Run(fmt.Sprintf("numbers (array) #%d", i), func(t *testing.T) {
+				value, err := numberArrayVal([]interface{}{tc.value})
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+					assert.Nil(t, value)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, []float64{tc.expectedValue}, value)
+				}
+			})
+		}
+	})
+
+	t.Run("string(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue string
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         "123.5",
+				expectedValue: "123.5",
+				expectedErr:   false,
+			},
+			{
+				value:         "something",
+				expectedValue: "something",
+				expectedErr:   false,
+			},
+
+			{
+				value:         json.Number("123"),
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			{
+				value:         int64(123),
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			{
+				value:         float64(123),
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			{
+				value:         []byte("something"),
+				expectedValue: "",
+				expectedErr:   true,
+			},
+			{
+				value:         true,
+				expectedValue: "",
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("string #%d", i), func(t *testing.T) {
+				value, err := stringVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("strings (single) #%d", i), func(t *testing.T) {
+				value, err := stringArrayVal(tc.value, "text")
+
+				assert.Error(t, err)
+				assert.Nil(t, value)
+			})
+			t.Run(fmt.Sprintf("strings (array) #%d", i), func(t *testing.T) {
+				value, err := stringArrayVal([]interface{}{tc.value}, "text")
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+					assert.Nil(t, value)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, []string{tc.expectedValue}, value)
+				}
+			})
+		}
+	})
+
+	t.Run("bool(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue bool
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         true,
+				expectedValue: true,
+				expectedErr:   false,
+			},
+			{
+				value:         false,
+				expectedValue: false,
+				expectedErr:   false,
+			},
+
+			{
+				value:         float64(1),
+				expectedValue: false,
+				expectedErr:   true,
+			},
+			{
+				value:         int64(1),
+				expectedValue: false,
+				expectedErr:   true,
+			},
+			{
+				value:         "1",
+				expectedValue: false,
+				expectedErr:   true,
+			},
+			{
+				value:         "true",
+				expectedValue: false,
+				expectedErr:   true,
+			},
+			{
+				value:         "something",
+				expectedValue: false,
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("bool #%d", i), func(t *testing.T) {
+				value, err := boolVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("bools (single) #%d", i), func(t *testing.T) {
+				value, err := boolArrayVal(tc.value)
+
+				assert.Error(t, err)
+				assert.Nil(t, value)
+			})
+			t.Run(fmt.Sprintf("bools (array) #%d", i), func(t *testing.T) {
+				value, err := boolArrayVal([]interface{}{tc.value})
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+					assert.Nil(t, value)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, []bool{tc.expectedValue}, value)
+				}
+			})
+		}
+	})
+
+	t.Run("uuid(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue uuid.UUID
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         "e780b0a4-8d0e-4c09-898e-19d6b81e1e63",
+				expectedValue: uuid.MustParse("e780b0a4-8d0e-4c09-898e-19d6b81e1e63"),
+				expectedErr:   false,
+			},
+			{
+				value:         "e780b0a48d0e4c09898e19d6b81e1e63",
+				expectedValue: uuid.MustParse("e780b0a4-8d0e-4c09-898e-19d6b81e1e63"),
+				expectedErr:   false,
+			},
+
+			{
+				value:         float64(123),
+				expectedValue: [16]byte{},
+				expectedErr:   true,
+			},
+			{
+				value:         int64(123),
+				expectedValue: [16]byte{},
+				expectedErr:   true,
+			},
+			{
+				value:         "123",
+				expectedValue: [16]byte{},
+				expectedErr:   true,
+			},
+			{
+				value:         "something",
+				expectedValue: [16]byte{},
+				expectedErr:   true,
+			},
+			{
+				value:         true,
+				expectedValue: [16]byte{},
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("uuid #%d", i), func(t *testing.T) {
+				value, err := uuidVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("uuids (single) #%d", i), func(t *testing.T) {
+				value, err := uuidArrayVal(tc.value)
+
+				assert.Error(t, err)
+				assert.Nil(t, value)
+			})
+			t.Run(fmt.Sprintf("uuids (array) #%d", i), func(t *testing.T) {
+				value, err := uuidArrayVal([]interface{}{tc.value})
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+					assert.Nil(t, value)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, []uuid.UUID{tc.expectedValue}, value)
+				}
+			})
+		}
+	})
+
+	t.Run("date(s)", func(t *testing.T) {
+		type testCase struct {
+			value         interface{}
+			expectedValue time.Time
+			expectedErr   bool
+		}
+
+		testCases := []testCase{
+			{
+				value:         "2024-01-02T03:04:05.00Z",
+				expectedValue: time.Unix(1704164645, 0).UTC(),
+				expectedErr:   false,
+			},
+
+			{
+				value:         float64(123),
+				expectedValue: time.Time{},
+				expectedErr:   true,
+			},
+			{
+				value:         int64(123),
+				expectedValue: time.Time{},
+				expectedErr:   true,
+			},
+			{
+				value:         "123",
+				expectedValue: time.Time{},
+				expectedErr:   true,
+			},
+			{
+				value:         "something",
+				expectedValue: time.Time{},
+				expectedErr:   true,
+			},
+			{
+				value:         true,
+				expectedValue: time.Time{},
+				expectedErr:   true,
+			},
+		}
+
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("date #%d", i), func(t *testing.T) {
+				value, err := dateVal(tc.value)
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, tc.expectedValue, value)
+			})
+		}
+		for i, tc := range testCases {
+			t.Run(fmt.Sprintf("dates (single) #%d", i), func(t *testing.T) {
+				value, err := dateArrayVal(tc.value)
+
+				assert.Error(t, err)
+				assert.Nil(t, value)
+			})
+			t.Run(fmt.Sprintf("dates (array) #%d", i), func(t *testing.T) {
+				value, err := dateArrayVal([]interface{}{tc.value})
+
+				if tc.expectedErr {
+					assert.Error(t, err)
+					assert.Nil(t, value)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, []time.Time{tc.expectedValue}, value)
+				}
+			})
+		}
+	})
 }
