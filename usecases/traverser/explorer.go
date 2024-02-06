@@ -688,12 +688,8 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, "", errors.New("no modules defined")
 }
 
-func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
-	s := e.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects == nil {
-		return errors.Errorf("failed to get schema")
-	}
-	class := s.GetClass(schema.ClassName(params.ClassName))
+func (e *Explorer) checkCertaintyCompatibility(className string) error {
+	class := e.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
@@ -713,13 +709,13 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 	if e.schemaGetter == nil {
 		return false, fmt.Errorf("schemaGetter not set")
 	}
-	sch := e.schemaGetter.GetSchemaSkipAuth()
-	cls := sch.GetClass(params.ClassName)
-	if cls == nil {
+
+	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+	if class == nil {
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}
 
-	return cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > 1, nil
+	return class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1, nil
 }
 
 func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDistance bool) {
