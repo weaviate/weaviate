@@ -123,11 +123,11 @@ func tokenizeGSE(in string) []string {
 	gseTokenizerLock.Lock()
 	defer gseTokenizerLock.Unlock()
 	if gseTokenizer == nil {
-		seg, err := gse.New("ja,zh")
+		seg, err := gse.New()
 		if err != nil {
 			return []string{}
 		}
-		seg.LoadDict()
+		seg.LoadDictEmbed("ja")
 		gseTokenizer = &seg
 	}
 	segments := gseTokenizer.Segment([]byte(in))
