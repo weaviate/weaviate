@@ -254,12 +254,12 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 	ob.batchStartTime = time.Now()
 
 	for i, object := range ob.objects {
-		if ob.shouldSkipInAdditionalStorage(i) {
+		status := ob.statuses[object.ID()]
+		if ob.shouldSkipInAdditionalStorage(i, status) {
 			continue
 		}
 
 		ob.wg.Add(1)
-		status := ob.statuses[object.ID()]
 		ob.shard.addJobToQueue(job{
 			object:  object,
 			status:  status,
@@ -281,13 +281,12 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 	vectors := make([]vectorDescriptor, 0, len(ob.objects))
-	for i := range ob.objects {
-		object := ob.objects[i]
-		if ob.shouldSkipInAdditionalStorage(i) {
+	for i, object := range ob.objects {
+		status := ob.statuses[object.ID()]
+
+		if ob.shouldSkipInAdditionalStorage(i, status) {
 			continue
 		}
-
-		status := ob.statuses[object.ID()]
 
 		if shouldGeoIndex {
 			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
@@ -296,6 +295,8 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			}
 		}
 
+		// skip vector update, as vector was not changed
+		// https://github.com/weaviate/weaviate/issues/3948
 		if status.docIDPreserved {
 			continue
 		}
@@ -318,9 +319,15 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	}
 }
 
-func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
+func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int, status objectInsertStatus) bool {
 	if ok := ob.hasErrorAtIndex(i); ok {
 		// had an error prior, ignore
+		return true
+	}
+
+	// object was not changed, skip further updates
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.skipUpsert {
 		return true
 	}
 
