@@ -35,7 +35,7 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error) {
+func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
 	if resourceName != "" && deploymentID != "" {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
@@ -43,7 +43,7 @@ func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL string) (stri
 			host = "https://" + resourceName + ".openai.azure.com"
 		}
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
-		queryParam := "api-version=2023-05-15"
+		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
 	path := "/v1/chat/completions"
@@ -57,7 +57,7 @@ type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL string) (string, error)
+	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
@@ -171,7 +171,7 @@ func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettin
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
-	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL)
+	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL, settings.ApiVersion())
 }
 
 func (v *openai) generateInput(prompt string, settings config.ClassSettings) (generateInput, error) {
