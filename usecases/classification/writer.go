@@ -88,8 +88,8 @@ func (r *batchWriter) storeObject(item search.Result) error {
 		UUID:          item.ID,
 		Object:        item.Object(),
 		OriginalIndex: r.batchIndex,
-		Vector:        item.Vector,
 	}
+	batchObject.Object.Vector = item.Vector
 	r.batchItemsCount++
 	r.batchIndex++
 	r.batchObjects = append(r.batchObjects, batchObject)
