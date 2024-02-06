@@ -709,7 +709,9 @@
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "trigram",
+            "gse"
           ]
         },
         "nestedProperties": {
