@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 
@@ -274,7 +275,11 @@ func setPropertyDefaultTokenization(prop *models.Property) {
 		}
 	case schema.DataTypeText, schema.DataTypeTextArray:
 		if prop.Tokenization == "" {
-			prop.Tokenization = models.PropertyTokenizationWord
+			if os.Getenv("DEFAULT_TOKENIZATION") != "" {
+				prop.Tokenization = os.Getenv("DEFAULT_TOKENIZATION")
+			} else {
+				prop.Tokenization = models.PropertyTokenizationWord
+			}
 		}
 	default:
 		// tokenization not supported for other data types
@@ -562,7 +567,7 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
 			}
 		default:
@@ -576,6 +581,10 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 
 	if tokenization == "" {
 		return nil
+	}
+
+	if propertyDataType.IsNested() {
+		return fmt.Errorf("Tokenization is not allowed for object/object[] data types")
 	}
 	return fmt.Errorf("Tokenization is not allowed for reference data type")
 }
