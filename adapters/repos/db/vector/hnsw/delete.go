@@ -237,28 +237,38 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
+	start := time.Now()
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
+		fmt.Println("reassignNeighborsOf err", err)
 		return executed, err
 	} else if !ok {
+		fmt.Println("reassignNeighborsOf not ok")
 		return executed, nil
 	}
+	fmt.Println("1- reassignNeighborsOf took", time.Since(start))
 
+	start = time.Now()
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
+	fmt.Println("2- replaceDeletedEntrypoint took", time.Since(start))
 
+	start = time.Now()
 	if ok, err := h.removeTombstonesAndNodes(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
+	fmt.Println("3- removeTombstonesAndNodes took", time.Since(start))
 
+	start = time.Now()
 	if _, err := h.resetIfEmpty(); err != nil {
 		return executed, err
 	}
+	fmt.Println("4- resetIfEmpty took", time.Since(start))
 
 	return executed, nil
 }
@@ -315,31 +325,43 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
-			select {
-			case <-ctx.Done():
-				return nil
-			case deletedID, ok := <-ch:
-				if !ok {
+			for {
+				select {
+				case <-ctx.Done():
 					return nil
-				}
-				h.Lock()
-				if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
+				case deletedID, ok := <-ch:
+					if !ok {
+						return nil
+					}
+					h.Lock()
+					if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
+						h.Unlock()
+						continue
+					}
 					h.Unlock()
-					return nil
+					h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
 				}
-				h.Unlock()
-				h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
 			}
-			return nil
 		})
 	}
 
+LOOP:
 	for i := 0; i < size; i++ {
-		ch <- uint64(i)
+		select {
+		case ch <- uint64(i):
+		case <-ctx.Done():
+			break LOOP
+		}
 	}
+
 	close(ch)
 
 	err = g.Wait()
+	if errors.Is(err, context.Canceled) {
+		h.logger.Errorf("class %s: tombstone cleanup canceled", h.className)
+		return false, nil
+	}
+
 	return true, err
 }
 
