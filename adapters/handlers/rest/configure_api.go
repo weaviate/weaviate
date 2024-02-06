@@ -75,6 +75,7 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
+	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -565,6 +566,12 @@ func registerModules(appState *state.State) error {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
 	}
+
+	appState.Modules.Register(modt2vbigram.New())
+	appState.Logger.
+		WithField("action", "startup").
+		WithField("module", "text2vec-bigram").
+		Debug("enabled module")
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
