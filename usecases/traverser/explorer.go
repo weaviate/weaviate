@@ -519,6 +519,14 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			additionalProperties["vector"] = res.Vector
 		}
 
+		if len(params.AdditionalProperties.Vectors) > 0 {
+			vectors := make(map[string][]float32)
+			for _, targetVector := range params.AdditionalProperties.Vectors {
+				vectors[targetVector] = res.Vectors[targetVector]
+			}
+			additionalProperties["vectors"] = vectors
+		}
+
 		if params.AdditionalProperties.CreationTimeUnix {
 			additionalProperties["creationTimeUnix"] = res.Created
 		}
@@ -618,6 +626,10 @@ func (e *Explorer) extractAdditionalPropertiesFromRef(ref interface{},
 				}
 				if refClass.AdditionalProperties.Vector {
 					additionalProperties["vector"] = innerRef.Fields["vector"]
+				}
+				if len(refClass.AdditionalProperties.Vectors) > 0 {
+					// TODO[named-vectors]: make a test for this case
+					additionalProperties["vectors"] = innerRef.Fields["vectors"]
 				}
 				if refClass.AdditionalProperties.CreationTimeUnix {
 					additionalProperties["creationTimeUnix"] = innerRef.Fields["creationTimeUnix"]

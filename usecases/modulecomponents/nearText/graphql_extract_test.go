@@ -416,6 +416,19 @@ func Test_extractNearTextFn(t *testing.T) {
 				},
 			},
 		},
+		{
+			"Extract with concepts and targetVectors",
+			args{
+				source: map[string]interface{}{
+					"concepts":      []interface{}{"c1", "c2", "c3"},
+					"targetVectors": []interface{}{"targetVector"},
+				},
+			},
+			&NearTextParams{
+				Values:        []string{"c1", "c2", "c3"},
+				TargetVectors: []string{"targetVector"},
+			},
+		},
 	}
 
 	testsWithAutocorrect := []struct {
@@ -590,6 +603,21 @@ func Test_extractNearTextFn(t *testing.T) {
 						{Beacon: "weaviate://localhost/moveAwayFrom-uuid4"},
 					},
 				},
+			},
+		},
+		{
+			"Extract with concepts and targetVectors",
+			args{
+				source: map[string]interface{}{
+					"concepts":      []interface{}{"c1", "c2", "c3"},
+					"targetVectors": []interface{}{"targetVector"},
+					"autocorrect":   true,
+				},
+			},
+			&NearTextParams{
+				Values:        []string{"c1", "c2", "c3"},
+				TargetVectors: []string{"targetVector"},
+				Autocorrect:   true,
 			},
 		},
 	}
