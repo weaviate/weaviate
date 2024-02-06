@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -35,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -501,9 +503,10 @@ func indexID(class schema.ClassName) string {
 }
 
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
+	var shard, status string
 	className := i.Config.ClassName.String()
 	if tenant != "" {
-		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
+		if shard, status = i.getSchema.TenantShard(className, tenant); shard != "" {
 			if status == models.TenantActivityStatusHOT {
 				return shard, nil
 			}
@@ -521,8 +524,8 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("marshal uuid: %q", id.String())
 	}
-
-	return i.getSchema.ShardFromUUID(className, uuidBytes), nil
+	shard = i.getSchema.ShardFromUUID(className, uuidBytes)
+	return shard, err
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -1039,7 +1042,6 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
 		return i.replicator.Exists(ctx, cl, shardName, id)
-
 	}
 
 	if shard := i.localShard(shardName); shard != nil {
@@ -1329,18 +1331,20 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 func (i *Index) targetShardNames(tenant string) ([]string, error) {
 	className := i.Config.ClassName.String()
 	if !i.partitioningEnabled {
-		shardingState := i.getSchema.CopyShardingState(className)
-		return shardingState.AllPhysicalShards(), nil
+		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
 	}
-	if tenant != "" {
-		if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
-			if status == models.TenantActivityStatusHOT {
-				return []string{shard}, nil
-			}
-			return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+
+	if tenant == "" {
+		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
+	}
+
+	if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
+		if status == models.TenantActivityStatusHOT {
+			return []string{shard}, nil
 		}
+		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 	}
-	return nil, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1901,11 +1905,18 @@ func (i *Index) findUUIDs(ctx context.Context,
 	for _, shardName := range shardNames {
 		var err error
 		var res []strfmt.UUID
-		if shard := i.localShard(shardName); shard != nil {
-			res, err = shard.FindUUIDs(ctx, filters)
-		} else {
-			res, err = i.remote.FindUUIDs(ctx, shardName, filters)
+
+		if err = backoff.Retry(func() error {
+			if shard := i.localShard(shardName); shard != nil {
+				res, err = shard.FindUUIDs(ctx, filters)
+			}
+			return err
+		}, utils.NewBackoff()); err == nil {
+			results[shardName] = res
+			continue
 		}
+
+		res, err = i.remote.FindUUIDs(ctx, shardName, filters)
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
