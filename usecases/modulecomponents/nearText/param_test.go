@@ -216,6 +216,14 @@ func Test_validateNearText(t *testing.T) {
 			},
 			false,
 		},
+		{
+			"When more than one target vector is passed",
+			NearTextParams{
+				Values:        []string{"foobar"},
+				TargetVectors: []string{"targetVector1", "targetVector2"},
+			},
+			true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
