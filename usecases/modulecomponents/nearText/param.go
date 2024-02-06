@@ -28,15 +28,16 @@ type ExploreMove struct {
 }
 
 type NearTextParams struct {
-	Values       []string
-	Limit        int
-	MoveTo       ExploreMove
-	MoveAwayFrom ExploreMove
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
-	Network      bool
-	Autocorrect  bool
+	Values        []string
+	Limit         int
+	MoveTo        ExploreMove
+	MoveAwayFrom  ExploreMove
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	Network       bool
+	Autocorrect   bool
+	TargetVectors []string
 }
 
 func (n NearTextParams) GetCertainty() float64 {
@@ -49,6 +50,10 @@ func (n NearTextParams) GetDistance() float64 {
 
 func (n NearTextParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n NearTextParams) GetTargetVectors() []string {
+	return n.TargetVectors
 }
 
 func (n NearTextParams) Validate() error {
@@ -67,6 +72,11 @@ func (n NearTextParams) Validate() error {
 	if n.Certainty != 0 && n.WithDistance {
 		return errors.Errorf(
 			"nearText cannot provide both distance and certainty")
+	}
+
+	if len(n.TargetVectors) > 1 {
+		return errors.Errorf(
+			"nearText.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil
