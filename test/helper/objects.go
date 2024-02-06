@@ -14,7 +14,6 @@ package helper
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -42,7 +41,6 @@ func CreateClass(t *testing.T, class *models.Class) {
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
-	time.Sleep(time.Millisecond * 500) // give some time for update to propagate because request are not retried
 }
 
 func GetClass(t *testing.T, class string) *models.Class {
@@ -59,7 +57,6 @@ func UpdateClass(t *testing.T, class *models.Class) {
 		WithObjectClass(class).WithClassName(class.Class)
 	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
-	time.Sleep(time.Millisecond * 500) // give some time for update to propagate because request are not retried
 }
 
 func CreateObject(t *testing.T, object *models.Object) {
@@ -127,7 +124,6 @@ func DeleteClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
 	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	AssertRequestOk(t, delRes, err, nil)
-	time.Sleep(time.Millisecond * 500) // give some time for update to propagate because request are not retried
 }
 
 func DeleteObject(t *testing.T, object *models.Object) {
@@ -223,14 +219,12 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	resp, err := Client(t).Schema.TenantsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
-	time.Sleep(time.Millisecond * 500) // give some time for update to propagate because request are not retried
 }
 
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	_, err := Client(t).Schema.TenantsCreate(params, nil)
-	time.Sleep(time.Millisecond * 500) // give some time for update to propagate because request are not retried
 	return err
 }
 
@@ -251,7 +245,6 @@ func DeleteTenants(t *testing.T, class string, tenants []string) error {
 	t.Helper()
 	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
 	_, err := Client(t).Schema.TenantsDelete(params, nil)
-	time.Sleep(time.Millisecond * 500) // give some time for update to propagate because request are not retried
 	return err
 }
 
