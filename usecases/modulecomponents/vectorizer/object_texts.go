@@ -36,7 +36,7 @@ func New() *ObjectVectorizer {
 func (v *ObjectVectorizer) TextsOrVector(ctx context.Context, className string,
 	schema interface{}, objDiff *moduletools.ObjectDiff,
 	icheck ClassSettings,
-) (string, []float32, error) {
+) (string, []float32) {
 	vectorize := objDiff == nil || objDiff.GetVec() == nil
 
 	var corpi []string
@@ -74,11 +74,11 @@ func (v *ObjectVectorizer) TextsOrVector(ctx context.Context, className string,
 
 	// no property was changed, old vector can be used
 	if !vectorize {
-		return "", objDiff.GetVec(), nil
+		return "", objDiff.GetVec()
 	}
 
 	text := strings.Join(corpi, " ")
-	return text, nil, nil
+	return text, nil
 }
 
 func (v *ObjectVectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
