@@ -141,6 +141,12 @@ func TestInitState(t *testing.T) {
 			shards:            4,
 			ok:                false,
 		},
+		{
+			nodes:             []string{"node1", "node2", "node3", "node4", "node5", "node6", "node7", "node8", "node9", "node10", "node11", "node12"},
+			replicationFactor: 3,
+			shards:            4,
+			ok:                true,
+		},
 	}
 
 	for _, test := range tests {
@@ -168,6 +174,8 @@ func TestInitState(t *testing.T) {
 						actual++
 					}
 				}
+
+				assert.Equal(t, len(nodeCounter), len(test.nodes))
 
 				// assert that total no of associations is correct
 				desired := test.shards * test.replicationFactor
@@ -246,9 +254,9 @@ func TestGetPartitions(t *testing.T) {
 		require.Nil(t, partitions)
 		require.ErrorContains(t, err, "not enough replicas")
 	})
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Success/RF3", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
-		shards := []string{"H1", "H2", "H3"}
+		shards := []string{"H1", "H2", "H3", "H4", "H5"}
 		state := State{}
 		got, err := state.GetPartitions(nodes, shards, 3)
 		require.Nil(t, err)
@@ -256,6 +264,24 @@ func TestGetPartitions(t *testing.T) {
 			"H1": {"N1", "N2", "N3"},
 			"H2": {"N2", "N3", "N1"},
 			"H3": {"N3", "N1", "N2"},
+			"H4": {"N3", "N1", "N2"},
+			"H5": {"N1", "N2", "N3"},
+		}
+		require.Equal(t, want, got)
+	})
+
+	t.Run("Success/RF2", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5", "N6", "N7"}}
+		shards := []string{"H1", "H2", "H3", "H4", "H5"}
+		state := State{}
+		got, err := state.GetPartitions(nodes, shards, 2)
+		require.Nil(t, err)
+		want := map[string][]string{
+			"H1": {"N1", "N2"},
+			"H2": {"N3", "N4"},
+			"H3": {"N5", "N6"},
+			"H4": {"N7", "N1"},
+			"H5": {"N2", "N3"},
 		}
 		require.Equal(t, want, got)
 	})

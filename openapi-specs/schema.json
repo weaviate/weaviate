@@ -1087,7 +1087,8 @@
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -1876,7 +1877,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.23.4"
+    "version": "1.23.7"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
