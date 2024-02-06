@@ -332,6 +332,9 @@ func eventualReplicaCRUD(t *testing.T) {
 		helper.UpdateClass(t, pc)
 	})
 
+	// Ensure consistency on follower nodes by sleeping BEFORE shutting down the leader node
+	time.Sleep(3 * time.Second)
+
 	t.Run("stop node 1", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
 	})
