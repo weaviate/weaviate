@@ -49,6 +49,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if err != nil {
 			return nil, err
 		}
+		// TODO[named-vectors]: add support for targetVector
 		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
 			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant)
 		if err != nil {

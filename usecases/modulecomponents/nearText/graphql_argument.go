@@ -73,6 +73,10 @@ func (g *GraphQLArgumentsProvider) nearTextFields(prefix string) graphql.InputOb
 					Fields: g.movementInp(fmt.Sprintf("%sMoveAwayFrom", prefix)),
 				}),
 		},
+		"targetVectors": &graphql.InputObjectFieldConfig{
+			Description: "Target vectors",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 	if g.nearTextTransformer != nil {
 		nearTextFields["autocorrect"] = &graphql.InputObjectFieldConfig{

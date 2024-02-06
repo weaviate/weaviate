@@ -227,6 +227,14 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 	if additionalProperties.Vector {
 		nested["vector"] = res.Vector
 	}
+	if len(additionalProperties.Vectors) > 0 {
+		// TODO[named-vectors]: make tests for this case
+		vectors := make(map[string][]float32)
+		for _, targetVector := range additionalProperties.Vectors {
+			vectors[targetVector] = res.Vectors[targetVector]
+		}
+		nested["vectors"] = vectors
+	}
 	if additionalProperties.CreationTimeUnix {
 		nested["creationTimeUnix"] = res.Created
 	}
