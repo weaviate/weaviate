@@ -104,10 +104,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, objDiff *moduletools.ObjectDiff, overrides map[string]string,
 	icheck ClassIndexCheck,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
-	corpi, vector, err := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, icheck)
-	if err != nil {
-		return nil, nil, err
-	}
+	corpi, vector := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, icheck)
 	// no property was changed, old vector can be used
 	if vector != nil {
 		// dont' re-vectorize
