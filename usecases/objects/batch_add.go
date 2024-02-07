@@ -77,7 +77,9 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	batchObjects := make(BatchObjects, len(objects))
 
 	objectsPerClass := make(map[string][]*models.Object)
+	classPerClassName := make(map[string]*models.Class)
 	originalIndexPerClass := make(map[string][]int)
+	validator := validation.New(b.vectorRepo.Exists, b.config, repl)
 
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
@@ -105,6 +107,24 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
+		class, ok := classPerClassName[obj.Class]
+		if !ok {
+			var err2 error
+			if class, err2 = b.schemaManager.GetClass(ctx, principal, obj.Class); err2 != nil {
+				batchObjects[i].Err = err2
+				continue
+			}
+			classPerClassName[obj.Class] = class
+		}
+		if class == nil {
+			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
+			continue
+		}
+
+		if err := validator.Object(ctx, class, obj, nil); err != nil {
+			batchObjects[i].Err = err
+			continue
+		}
 		batchObjects[i].Object = obj
 		batchObjects[i].UUID = obj.ID
 
@@ -122,43 +142,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	}
 
 	for className, objectsForClass := range objectsPerClass {
-		class, err := b.schemaManager.GetClass(ctx, principal, className)
-		if err != nil {
-			for i := range objectsForClass {
-				origIndex := originalIndexPerClass[className][i]
-				batchObjects[origIndex].Err = err
-			}
-			continue
-		}
-		if class == nil {
-			for i, obj := range objectsForClass {
-				origIndex := originalIndexPerClass[className][i]
-				batchObjects[origIndex].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
-			}
-			continue
-		}
-
-		validator := validation.New(b.vectorRepo.Exists, b.config, repl)
-		i := 0
-		for {
-			err = validator.Object(ctx, class, objectsForClass[i], nil)
-			if err != nil {
-				origIndex := originalIndexPerClass[className][i]
-				batchObjects[origIndex].Err = err
-
-				originalIndexPerClass[className][i] = originalIndexPerClass[className][len(originalIndexPerClass)-1]
-				originalIndexPerClass[className] = originalIndexPerClass[className][:len(originalIndexPerClass)-1]
-				objectsForClass[i] = objectsForClass[len(objectsForClass)-1]
-				objectsForClass = objectsForClass[:len(objectsForClass)-1]
-			} else {
-				i++
-			}
-
-			if i == len(objectsForClass) {
-				break
-			}
-		}
-
+		class := classPerClassName[className]
 		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class, objectsForClass, b.findObject, b.logger)
 		if err != nil {
 			for i := range objectsForClass {
