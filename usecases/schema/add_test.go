@@ -47,6 +47,26 @@ func TestAddClass(t *testing.T) {
 				"class names must be unique when lowercased", err.Error())
 	})
 
+	t.Run("add multiple times", func(t *testing.T) {
+		mgr := newSchemaManager()
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: "NewClass"})
+		require.Nil(t, err)
+		cls, err := mgr.GetClass(context.Background(),
+			nil, "NewClass")
+		require.Nil(t, err)
+		require.NotNil(t, cls)
+
+		err = mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: "NewClass"})
+		require.Nil(t, err)
+
+		cls, err = mgr.GetClass(context.Background(),
+			nil, "NewClass")
+		require.Nil(t, err)
+		require.NotNil(t, cls)
+	})
+
 	t.Run("with default BM25 params", func(t *testing.T) {
 		mgr := newSchemaManager()
 

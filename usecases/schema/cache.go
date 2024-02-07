@@ -25,6 +25,7 @@ var (
 	errPropertyNotFound = errors.New("property not found")
 	errClassNotFound    = errors.New("class not found")
 	errShardNotFound    = errors.New("shard not found")
+	errClassNameExists  = errors.New("class name already exists")
 )
 
 // State is a cached copy of the schema that can also be saved into a remote

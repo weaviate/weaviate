@@ -222,7 +222,7 @@ func (r *store) loadSchemaV1() (*ucs.State, error) {
 }
 
 // UpdateClass if it exists, otherwise it will create the class.
-func (r *store) UpdateClass(ctx context.Context, data ucs.ClassPayload) error {
+func (r *store) UpdateClass(_ context.Context, data ucs.ClassPayload) error {
 	classKey := encodeClassName(data.Name)
 	var err error
 	f := func(tx *bolt.Tx) error {

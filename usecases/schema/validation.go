@@ -43,7 +43,7 @@ func (m *Manager) validateClassNameUniqueness(name string) error {
 			"class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
 			name, existingName)
 	}
-	return fmt.Errorf("class name %q already exists", name)
+	return errClassNameExists
 }
 
 // Check that the format of the name is correct

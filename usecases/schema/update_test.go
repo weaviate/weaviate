@@ -28,9 +28,29 @@ import (
 // specific updates, such as the vector index config
 func TestClassUpdates(t *testing.T) {
 	t.Run("a class which doesn't exist will be created", func(t *testing.T) {
-		err := newSchemaManager().UpdateClass(context.Background(),
-			nil, "someClass", &models.Class{Class: "someClass"})
+		className := "SomeClass"
+		sm := newSchemaManager()
+		err := sm.UpdateClass(context.Background(),
+			nil, className, &models.Class{Class: className})
 		require.Nil(t, err)
+		require.NotNil(t, sm.getClassByName(className))
+	})
+
+	t.Run("call update non existing and multiple times", func(t *testing.T) {
+		className := "SomeClass"
+		sm := newSchemaManager()
+		err := sm.UpdateClass(context.Background(),
+			nil, className, &models.Class{Class: className})
+		require.Nil(t, err)
+		require.NotNil(t, sm.getClassByName(className))
+
+		err = sm.UpdateClass(context.Background(),
+			nil, className, &models.Class{Class: className})
+		require.Nil(t, err)
+
+		cls, err := sm.GetClass(context.Background(), nil, className)
+		require.Nil(t, err)
+		require.NotNil(t, cls)
 	})
 
 	t.Run("various immutable and mutable fields", func(t *testing.T) {

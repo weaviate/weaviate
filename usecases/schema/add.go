@@ -144,9 +144,13 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 
 	m.setClassDefaults(class)
 	err := m.validateCanAddClass(ctx, class, false)
-	if err != nil {
+	if err != nil && !errors.Is(err, errClassNameExists) {
 		return nil, err
 	}
+	if err != nil && errors.Is(err, errClassNameExists) {
+		return m.ShardingState[class.Class], nil
+	}
+
 	// migrate only after validation in completed
 	m.migrateClassSettings(class)
 
