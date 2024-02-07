@@ -55,13 +55,13 @@ func TestTokenise(t *testing.T) {
 	assert.Equal(t, append(strings.Split("素早い 茶色 の 狐 が 怠 けた 犬 を 飛び越え た", " "), "素早い茶色の狐が怠けた犬を飛び越えた"), tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "すばやいちゃいろのきつねがなまけたいぬをとびこえた")
-	assert.Equal(t, append(strings.Split("すばやい ちゃいろ のき つね がな ま けた いぬ を とびこえ た", " "),"すばやいちゃいろのきつねがなまけたいぬをとびこえた"), tokens)
+	assert.Equal(t, append(strings.Split("すばやい ちゃいろ のき つね がな ま けた いぬ を とびこえ た", " "), "すばやいちゃいろのきつねがなまけたいぬをとびこえた"), tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "スバヤイチャイロノキツネガナマケタイヌヲトビコエタ")
-	assert.Equal(t, append(strings.Split("スバ ヤイ チャイロ ノ キツ ネガ ナマ ケタ イヌ ヲ トビ コ エ タ", " "),"スバヤイチャイロノキツネガナマケタイヌヲトビコエタ"), tokens)
+	assert.Equal(t, append(strings.Split("スバ ヤイ チャイロ ノ キツ ネガ ナマ ケタ イヌ ヲ トビ コ エ タ", " "), "スバヤイチャイロノキツネガナマケタイヌヲトビコエタ"), tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
-	assert.Equal(t, append(strings.Split("the quick brown fox jumps over the lazy dog", " "),"The quick brown fox jumps over the lazy dog"), tokens)
+	assert.Equal(t, append(strings.Split("the quick brown fox jumps over the lazy dog", " "), "The quick brown fox jumps over the lazy dog"), tokens)
 }
 
 func TestTokenize(t *testing.T) {
