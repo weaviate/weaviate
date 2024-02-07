@@ -88,7 +88,6 @@ func (r *batchWriter) storeObject(item search.Result) error {
 		UUID:          item.ID,
 		Object:        item.Object(),
 		OriginalIndex: r.batchIndex,
-		Vector:        item.Vector,
 	}
 	r.batchItemsCount++
 	r.batchIndex++

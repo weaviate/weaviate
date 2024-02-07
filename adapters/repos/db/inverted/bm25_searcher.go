@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -114,19 +115,13 @@ func (b *BM25Searcher) wand(
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND
-	tokenizationsOrdered := []string{
-		models.PropertyTokenizationWord,
-		models.PropertyTokenizationLowercase,
-		models.PropertyTokenizationWhitespace,
-		models.PropertyTokenizationField,
-	}
 
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	for _, tokenization := range tokenizationsOrdered {
+	for _, tokenization := range helpers.Tokenizations {
 		queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
 
 		// stopword filtering for word tokenization
@@ -187,7 +182,7 @@ func (b *BM25Searcher) wand(
 	eg.SetLimit(_NUMCPU)
 	offset := 0
 
-	for _, tokenization := range tokenizationsOrdered {
+	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms := queryTermsByTokenization[tokenization]
@@ -197,15 +192,29 @@ func (b *BM25Searcher) wand(
 				j := i
 				k := i + offset
 
-				eg.Go(func() error {
-					termResult, docIndices, err := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+				eg.Go(func() (err error) {
+					defer func() {
+						p := recover()
+						if p != nil {
+							b.logger.
+								WithField("query_term", queryTerms[j]).
+								WithField("prop_names", propNames).
+								WithField("has_filter", filterDocIds != nil).
+								Errorf("panic: %v", p)
+							debug.PrintStack()
+							err = fmt.Errorf("an internal error occurred during BM25 search")
+						}
+					}()
+
+					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
-					if err != nil {
-						return err
+					if termErr != nil {
+						err = termErr
+						return
 					}
 					results[k] = termResult
 					indices[k] = docIndices
-					return nil
+					return
 				})
 			}
 			offset += len(queryTerms)

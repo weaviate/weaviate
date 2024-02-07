@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package weaviate.v1;
 
+import "google/protobuf/struct.proto";
+
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProtoProperties";
@@ -23,6 +25,7 @@ message Value {
     GeoCoordinate geo_value = 9;
     string blob_value = 10;
     PhoneNumber phone_value = 11;
+    google.protobuf.NullValue null_value = 12;
   }
 }
 
