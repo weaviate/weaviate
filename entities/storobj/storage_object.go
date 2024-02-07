@@ -75,14 +75,11 @@ func FromObject(object *models.Object, vector []float32) *Object {
 	}
 
 	// clear out nil entries of vectors to make sure leaving a vector out and setting it nil is identical
-	vectors := object.Vectors
+	vectors := make(map[string][]float32, len(object.Vectors))
 	if ok {
-		for key, vec := range vectors {
-			if vec == nil {
-				delete(vectors, key)
-			}
+		for key, vec := range object.Vectors {
+			vectors[key] = vec
 		}
-		object.Vectors = vectors
 	}
 
 	return &Object{
@@ -867,10 +864,18 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		Properties:         props,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
-		Vectors:            targetVectorsMap,
+		Vectors:            ko.asVectors(targetVectorsMap),
 	}
 
 	return nil
+}
+
+func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
+	out := make(models.Vectors, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // DeepCopyDangerous creates a deep copy of the underlying Object
@@ -904,8 +909,8 @@ func deepCopyVector(orig []float32) []float32 {
 	return out
 }
 
-func deepCopyVectors(orig map[string][]float32) map[string][]float32 {
-	out := make(map[string][]float32, len(orig))
+func deepCopyVectors[V []float32 | models.Vector](orig map[string]V) map[string]V {
+	out := make(map[string]V, len(orig))
 	for key, vec := range orig {
 		out[key] = deepCopyVector(vec)
 	}
