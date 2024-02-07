@@ -127,6 +127,7 @@ func TestRepositorySaveLoad(t *testing.T) {
 	}
 	repo.asserEqualSchema(t, schema, "delete class")
 }
+
 func TestRepositoryCRUDIdempotence(t *testing.T) {
 	var (
 		ctx       = context.Background()
@@ -171,6 +172,7 @@ func TestRepositoryCRUDIdempotence(t *testing.T) {
 	assert.Nil(t, err)
 	repo.asserEqualSchema(t, schema, "update class")
 }
+
 func TestRepositoryUpdateClass(t *testing.T) {
 	var (
 		ctx       = context.Background()

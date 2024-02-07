@@ -26,7 +26,6 @@ import (
 func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) (err error) {
-
 	defer func() {
 		if err == ErrNotFound {
 			_, err = m.addClass(ctx, updated)
