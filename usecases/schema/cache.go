@@ -183,6 +183,10 @@ func (s *schemaCache) unsafeFindClassIf(pred func(*models.Class) bool) *models.C
 }
 
 func (s *schemaCache) unsafeFindClass(className string) *models.Class {
+	if className == "" {
+		return nil
+	}
+
 	for _, c := range s.ObjectSchema.Classes {
 		if c.Class == className {
 			return c
@@ -194,8 +198,18 @@ func (s *schemaCache) unsafeFindClass(className string) *models.Class {
 func (s *schemaCache) addClass(c *models.Class, ss *sharding.State) {
 	s.Lock()
 	defer s.Unlock()
+	s.unsafeAddClass(c, ss)
+}
 
-	s.ShardingState[c.Class] = ss
+// unsafeAddClass shouldn't be used without mutex, it's created to handle
+// deadlocks between from example Update op calling Create op
+func (s *schemaCache) unsafeAddClass(c *models.Class, ss *sharding.State) {
+	if _, exists := s.ShardingState[c.Class]; exists {
+		return
+	}
+	if ss != nil {
+		s.ShardingState[c.Class] = ss
+	}
 	s.ObjectSchema.Classes = append(s.ObjectSchema.Classes, c)
 }
 
@@ -206,7 +220,8 @@ func (s *schemaCache) updateClass(u *models.Class, ss *sharding.State) error {
 	if c := s.unsafeFindClass(u.Class); c != nil {
 		*c = *u
 	} else {
-		return errClassNotFound
+		s.unsafeAddClass(u, ss)
+		return nil
 	}
 	if ss != nil {
 		s.ShardingState[u.Class] = ss

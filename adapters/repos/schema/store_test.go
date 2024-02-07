@@ -127,7 +127,50 @@ func TestRepositorySaveLoad(t *testing.T) {
 	}
 	repo.asserEqualSchema(t, schema, "delete class")
 }
+func TestRepositoryCRUDIdempotence(t *testing.T) {
+	var (
+		ctx       = context.Background()
+		logger, _ = test.NewNullLogger()
+	)
+	repo, err := newRepo(t.TempDir(), -1, logger)
+	assert.Nil(t, err)
+	schema := ucs.NewState(3)
+	cls, ss := addClass(&schema, "C1", 0, 1, 0)
+	payload, err := ucs.CreateClassPayload(cls, ss)
+	assert.Nil(t, err)
 
+	// create same class multiple times
+	err = repo.NewClass(ctx, payload)
+	assert.Nil(t, err)
+	err = repo.NewClass(ctx, payload)
+	assert.Nil(t, err)
+	repo.asserEqualSchema(t, schema, "create class")
+
+	// update same class multiple times
+	err = repo.UpdateClass(ctx, payload)
+	assert.Nil(t, err)
+	err = repo.UpdateClass(ctx, payload)
+	assert.Nil(t, err)
+	repo.asserEqualSchema(t, schema, "update class")
+
+	// update as create
+	cls, ss = addClass(&schema, "C2", 0, 1, 0)
+	payload, err = ucs.CreateClassPayload(cls, ss)
+	assert.Nil(t, err)
+
+	err = repo.UpdateClass(ctx, payload)
+	assert.Nil(t, err)
+	repo.asserEqualSchema(t, schema, "update class")
+
+	deleteClass(&schema, "C1")
+	// delete same class multiple times
+	err = repo.DeleteClass(ctx, "C1")
+	assert.Nil(t, err)
+
+	err = repo.DeleteClass(ctx, "C1")
+	assert.Nil(t, err)
+	repo.asserEqualSchema(t, schema, "update class")
+}
 func TestRepositoryUpdateClass(t *testing.T) {
 	var (
 		ctx       = context.Background()
@@ -147,9 +190,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	if err := repo.NewClass(ctx, payload); err != nil {
 		t.Fatalf("create new class: %v", err)
 	}
-	if err := repo.NewClass(ctx, payload); err == nil {
-		t.Fatal("create new class: must fail since class already exits")
-	}
+
 	repo.asserEqualSchema(t, schema, "create class")
 
 	// update class
@@ -159,9 +200,13 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	payload, err = ucs.CreateClassPayload(cls, ss)
 	assert.Nil(t, err)
 	payload.Name = "C3"
-	if err := repo.UpdateClass(ctx, payload); err == nil {
-		t.Fatal("updating class by adding shards to non existing class must fail")
-	}
+
+	// should be handled and created updating non-exiting class
+	err = repo.UpdateClass(ctx, payload)
+	assert.Nil(t, err)
+	err = repo.DeleteClass(ctx, "C3")
+	assert.Nil(t, err)
+
 	payload.Name = "C1"
 	if err := repo.UpdateClass(ctx, payload); err != nil {
 		t.Errorf("update class: %v", err)

@@ -221,26 +221,34 @@ func (r *store) loadSchemaV1() (*ucs.State, error) {
 	return &state, nil
 }
 
-// UpdateClass if it exists, otherwise return an error.
-func (r *store) UpdateClass(_ context.Context, data ucs.ClassPayload) error {
+// UpdateClass if it exists, otherwise it will create the class.
+func (r *store) UpdateClass(ctx context.Context, data ucs.ClassPayload) error {
 	classKey := encodeClassName(data.Name)
+	var err error
 	f := func(tx *bolt.Tx) error {
 		b := tx.Bucket(schemaBucket).Bucket(classKey)
 		if b == nil {
-			return fmt.Errorf("class not found")
+			b, err = tx.Bucket(schemaBucket).CreateBucket(classKey)
+			if err != nil {
+				return err
+			}
+			return r.updateClass(b, data)
 		}
 		return r.updateClass(b, data)
 	}
 	return r.db.Update(f)
 }
 
-// NewClass creates a new class if it doesn't exists, otherwise return an error
+// NewClass creates a new class if it doesn't exists, and bailout if the class exists.
 func (r *store) NewClass(_ context.Context, data ucs.ClassPayload) error {
 	classKey := encodeClassName(data.Name)
 	f := func(tx *bolt.Tx) error {
 		b, err := tx.Bucket(schemaBucket).CreateBucket(classKey)
-		if err != nil {
+		if err != nil && !errors.Is(err, bolt.ErrBucketExists) {
 			return err
+		}
+		if err != nil && errors.Is(err, bolt.ErrBucketExists) {
+			return nil
 		}
 		return r.updateClass(b, data)
 	}
@@ -273,7 +281,7 @@ func (r *store) updateClass(b *bolt.Bucket, data ucs.ClassPayload) error {
 	return appendShards(b, data.Shards, make([]byte, 1, 68))
 }
 
-// DeleteClass class
+// DeleteClass is idempotent and won't fail if class doesn't exists.
 func (r *store) DeleteClass(_ context.Context, class string) error {
 	classKey := encodeClassName(class)
 	f := func(tx *bolt.Tx) error {

@@ -25,11 +25,18 @@ import (
 
 func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
-) error {
+) (err error) {
+
+	defer func() {
+		if err == ErrNotFound {
+			_, err = m.addClass(ctx, updated)
+			return
+		}
+	}()
 	m.Lock()
 	defer m.Unlock()
 
-	err := m.Authorizer.Authorize(principal, "update", "schema/objects")
+	err = m.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
 	}
@@ -156,7 +163,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	}
 
 	if !m.schemaCache.classExist(className) {
-		return ErrNotFound
+		m.schemaCache.addClass(updated, updatedShardingState)
 	}
 
 	payload, err := CreateClassPayload(updated, updatedShardingState)

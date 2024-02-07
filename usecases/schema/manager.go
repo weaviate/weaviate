@@ -95,13 +95,13 @@ type SchemaStore interface {
 	// Load loads the complete schema from the persistent storage
 	Load(context.Context) (State, error)
 
-	// NewClass creates a new class if it doesn't exists, otherwise return an error
+	// NewClass creates a new class if it doesn't exists, and bailout if the class exists.
 	NewClass(context.Context, ClassPayload) error
 
-	// UpdateClass if it exists, otherwise return an error
+	// UpdateClass if it exists, otherwise it will create the class.
 	UpdateClass(context.Context, ClassPayload) error
 
-	// DeleteClass deletes class
+	// DeleteClass is idempotent and won't fail if class doesn't exists.
 	DeleteClass(ctx context.Context, class string) error
 
 	// NewShards creates new shards of an existing class
