@@ -320,7 +320,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 		},
 	})
 
-	assert.NotNil(t, err)
+	assert.Nil(t, err)
 }
 
 func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
@@ -340,16 +340,17 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 
 	// Add it again, but with a different kind.
 	err = lsm.AddClass(context.Background(), nil, &models.Class{
+		Class:      "Car",
+		Vectorizer: "another-text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
-				"vectorizeClassName": true,
+			"another-text2vec-contextionary": map[string]interface{}{
+				"vectorizePropertyName": false,
 			},
 		},
-		Class:      "Car",
-		Vectorizer: "text2vec-contextionary",
 	})
 
 	assert.NotNil(t, err)
+	assert.Equal(t, err.Error(), "class name \"Car\" already exists with different properties")
 }
 
 // TODO: parts of this test contain text2vec-contextionary logic, but parts are

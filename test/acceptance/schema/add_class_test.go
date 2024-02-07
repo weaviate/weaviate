@@ -367,7 +367,7 @@ func TestUpdateDistanceSettings(t *testing.T) {
 }
 
 func TestAddClassIdempotence(t *testing.T) {
-	randomObjectClassName := "YellowCars"
+	randomObjectClassName := "RedCars"
 
 	// Ensure that this name is not in the schema yet.
 	t.Log("Asserting that this class does not exist yet")
@@ -396,8 +396,6 @@ func TestAddClassIdempotence(t *testing.T) {
 	resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
-	t.Log("Asserting that this class is now created")
-	assert.Contains(t, GetObjectClassNames(t), randomObjectClassName)
 	t.Log("Verify schema cluster status")
 	statusResp, err := helper.Client(t).Schema.SchemaClusterStatus(
 		clschema.NewSchemaClusterStatusParams(), nil,
