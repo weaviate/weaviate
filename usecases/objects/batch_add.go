@@ -80,7 +80,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	originalIndexPerClass := make(map[string][]int)
 
 	for i, obj := range objects {
-		object := &models.Object{}
+		batchObjects[i].OriginalIndex = i
+
 		if err := b.autoSchemaManager.autoSchema(ctx, principal, obj, true); err != nil {
 			batchObjects[i].Err = err
 		}
@@ -88,38 +89,27 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		if obj.ID == "" {
 			// Generate UUID for the new object
 			uid, err := generateUUID()
-			object.ID = uid
+			obj.ID = uid
 			batchObjects[i].Err = err
 		} else {
 			if _, err := uuid.Parse(obj.ID.String()); err != nil {
 				batchObjects[i].Err = err
 			}
-			object.ID = obj.ID
 		}
-
+		if obj.Properties == nil {
+			obj.Properties = map[string]interface{}{}
+		}
+		obj.CreationTimeUnix = now
+		obj.LastUpdateTimeUnix = now
 		if batchObjects[i].Err != nil {
-			batchObjects[i].OriginalIndex = i
-			batchObjects[i].Object = obj
 			continue
 		}
 
-		object.LastUpdateTimeUnix = now
-		object.CreationTimeUnix = now
-
-		object.Class = obj.Class
-		object.Vector = obj.Vector
-		object.Tenant = obj.Tenant
-		object.Properties = obj.Properties
-		if object.Properties == nil {
-			object.Properties = map[string]interface{}{}
-		}
-
-		batchObjects[i].UUID = object.ID
+		batchObjects[i].Object = obj
+		batchObjects[i].UUID = obj.ID
 
 		// no need to send this to the vectorizer if there is already a vector
 		if obj.Vector != nil {
-			batchObjects[i].OriginalIndex = i
-			batchObjects[i].Object = object
 			continue
 		}
 
@@ -127,18 +117,16 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			objectsPerClass[obj.Class] = make([]*models.Object, 0)
 			originalIndexPerClass[obj.Class] = make([]int, 0)
 		}
-		objectsPerClass[obj.Class] = append(objectsPerClass[obj.Class], object)
+		objectsPerClass[obj.Class] = append(objectsPerClass[obj.Class], obj)
 		originalIndexPerClass[obj.Class] = append(originalIndexPerClass[obj.Class], i)
 	}
 
 	for className, objectsForClass := range objectsPerClass {
 		class, err := b.schemaManager.GetClass(ctx, principal, className)
 		if err != nil {
-			for i, obj := range objectsForClass {
+			for i := range objectsForClass {
 				origIndex := originalIndexPerClass[className][i]
 				batchObjects[origIndex].Err = err
-				batchObjects[origIndex].OriginalIndex = origIndex
-				batchObjects[origIndex].Object = obj
 			}
 			continue
 		}
@@ -146,44 +134,43 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			for i, obj := range objectsForClass {
 				origIndex := originalIndexPerClass[className][i]
 				batchObjects[origIndex].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
-				batchObjects[origIndex].OriginalIndex = origIndex
-				batchObjects[origIndex].Object = obj
 			}
 			continue
-
 		}
 
 		validator := validation.New(b.vectorRepo.Exists, b.config, repl)
-		for i, obj := range objectsForClass {
-			err = validator.Object(ctx, class, obj, nil)
+		i := 0
+		for {
+			err = validator.Object(ctx, class, objectsForClass[i], nil)
 			if err != nil {
 				origIndex := originalIndexPerClass[className][i]
 				batchObjects[origIndex].Err = err
-				batchObjects[origIndex].OriginalIndex = origIndex
-				batchObjects[origIndex].Object = obj
-			}
-		}
-		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class, objectsForClass, b.findObject, b.logger)
-		if err != nil {
-			for i, obj := range objectsForClass {
-				origIndex := originalIndexPerClass[className][i]
-				batchObjects[origIndex].Err = err
-				batchObjects[origIndex].OriginalIndex = origIndex
-				batchObjects[origIndex].Object = obj
-			}
-		}
-		for i, obj := range objectsForClass {
-			origIndex := originalIndexPerClass[className][i]
-			batchObjects[origIndex].OriginalIndex = origIndex
-			batchObjects[origIndex].Object = obj
-			batchObjects[origIndex].UUID = obj.ID
-			for j, err := range errorsPerObj {
-				if i == j {
-					batchObjects[origIndex].Err = err
-				}
+
+				originalIndexPerClass[className][i] = originalIndexPerClass[className][len(originalIndexPerClass)-1]
+				originalIndexPerClass[className] = originalIndexPerClass[className][:len(originalIndexPerClass)-1]
+				objectsForClass[i] = objectsForClass[len(objectsForClass)-1]
+				objectsForClass = objectsForClass[:len(objectsForClass)-1]
+			} else {
+				i++
 			}
 
+			if i == len(objectsForClass) {
+				break
+			}
 		}
+
+		errorsPerObj, err := b.modulesProvider.BatchUpdateVector(ctx, class, objectsForClass, b.findObject, b.logger)
+		if err != nil {
+			for i := range objectsForClass {
+				origIndex := originalIndexPerClass[className][i]
+				batchObjects[origIndex].Err = err
+			}
+		}
+		for i, err := range errorsPerObj {
+			origIndex := originalIndexPerClass[className][i]
+			batchObjects[origIndex].Err = err
+		}
+
 	}
 
 	return batchObjects

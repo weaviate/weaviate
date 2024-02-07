@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -113,15 +112,14 @@ func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, 
 		for i := range objects {
 			errs[i] = err
 		}
-	}
-	fmt.Println(res.Errors, len(objects))
-	for i := range objects {
-		if res.Errors[i] != nil {
-			errs[i] = res.Errors[i]
-		} else {
-			objects[i].Vector = res.Vector[i]
+	} else {
+		for i := range objects {
+			if res.Errors[i] != nil {
+				errs[i] = res.Errors[i]
+			} else {
+				objects[i].Vector = res.Vector[i]
+			}
 		}
 	}
-
 	return errs
 }

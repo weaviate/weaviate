@@ -262,7 +262,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 			Properties: []interface{}{},
 		}
 
-		resp, err := c.Batch().ObjectsBatcher().WithObject(obj).Do(ctx)
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
 		require.Nil(t, err)
 		require.Len(t, resp, 1)
 		require.NotNil(t, resp[0].Result)
@@ -285,7 +285,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 				"stringProperty": "value",
 			},
 		}
-		resp, err := c.Batch().ObjectsBatcher().WithObject(obj).Do(ctx)
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
 		require.Nil(t, err)
 		require.Len(t, resp, 1)
 		require.NotNil(t, resp[0].Result)
