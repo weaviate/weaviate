@@ -349,21 +349,21 @@ func (l *hnswCommitLogger) traverse() bool {
 	defer l.Unlock()
 
 	for i := uint64(0); i < defaultShardsNumber; i++ {
-		l.locks.RLock(i)
+		l.locks.Lock(i)
 		if len(l.buffer[i]) == 0 {
-			l.locks.RUnlock(i)
+			l.locks.Unlock(i)
 			return false
 		}
 
 		toWrite := l.buffer[i][0]
 
 		if toWrite.data == nil {
-			l.locks.RUnlock(i)
+			l.locks.Unlock(i)
 			continue
 		}
 
 		l.buffer[i][0].data = nil
-		l.locks.RUnlock(i)
+		l.locks.Unlock(i)
 
 		_, _ = l.commitLogger.Write(toWrite.data)
 
