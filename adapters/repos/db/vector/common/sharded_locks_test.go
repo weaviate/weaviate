@@ -62,7 +62,6 @@ func TestShardedLocks_MixedLocks(t *testing.T) {
 }
 
 func TestShardedLocks(t *testing.T) {
-
 	t.Run("Lock", func(t *testing.T) {
 		t.Parallel()
 		m := NewShardedLocks(5)
