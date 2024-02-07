@@ -15,6 +15,62 @@ import "sync"
 
 const DefaultShardedLocksCount = 512
 
+type ShardedLocks struct {
+	// sharded locks
+	shards []sync.Mutex
+	// number of locks
+	count uint64
+}
+
+func NewDefaultShardedLocks() *ShardedLocks {
+	return NewShardedLocks(DefaultShardedLocksCount)
+}
+
+func NewShardedLocks(count uint64) *ShardedLocks {
+	if count < 2 {
+		count = 2
+	}
+
+	return &ShardedLocks{
+		shards: make([]sync.Mutex, count),
+		count:  count,
+	}
+}
+
+func (sl *ShardedLocks) LockAll() {
+	for i := uint64(0); i < sl.count; i++ {
+		sl.shards[i].Lock()
+	}
+}
+
+func (sl *ShardedLocks) UnlockAll() {
+	for i := int(sl.count) - 1; i >= 0; i-- {
+		sl.shards[i].Unlock()
+	}
+}
+
+func (sl *ShardedLocks) LockedAll(callback func()) {
+	sl.LockAll()
+	defer sl.UnlockAll()
+
+	callback()
+}
+
+func (sl *ShardedLocks) Lock(id uint64) {
+	sl.shards[id%sl.count].Lock()
+}
+
+func (sl *ShardedLocks) Unlock(id uint64) {
+	sl.shards[id%sl.count].Unlock()
+}
+
+func (sl *ShardedLocks) Locked(id uint64, callback func()) {
+	sl.Lock(id)
+	defer sl.Unlock(id)
+
+	callback()
+}
+
 type ShardedRWLocks struct {
 	// sharded locks
 	shards []sync.RWMutex
