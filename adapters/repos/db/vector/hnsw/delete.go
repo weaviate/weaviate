@@ -324,12 +324,12 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 					if !ok {
 						return nil
 					}
-					h.Lock()
-					if uint64(len(h.nodes)) < deletedID || h.nodes[deletedID] == nil {
-						h.Unlock()
+					h.shardedNodeLocks.RLock(deletedID)
+					if uint64(size) < deletedID || h.nodes[deletedID] == nil {
+						h.shardedNodeLocks.RUnlock(deletedID)
 						continue
 					}
-					h.Unlock()
+					h.shardedNodeLocks.RUnlock(deletedID)
 					h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
 				}
 			}
