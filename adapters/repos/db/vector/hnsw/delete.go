@@ -442,7 +442,7 @@ func (h *hnsw) reassignNeighbor(
 	}
 
 	neighborNode.markAsMaintenance()
-	if err := h.reconnectNeighboursOf(neighborNode, entryPointID, compressorDistancer,
+	if err := h.reconnectNeighboursOf(neighborNode, entryPointID, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}

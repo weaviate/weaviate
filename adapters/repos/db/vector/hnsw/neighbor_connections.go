@@ -34,10 +34,10 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 }
 
 func (h *hnsw) reconnectNeighboursOf(node *vertex,
-	entryPointID uint64, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
-	nfc := newNeighborFinderConnector(h, node, entryPointID, nil, distancer, targetLevel,
+	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
 		currentMaxLevel, denyList, true)
 
 	return nfc.Do()
