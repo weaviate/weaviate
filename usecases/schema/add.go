@@ -176,6 +176,11 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		return nil, err
 	}
 
+	err = m.parseReplicationConfig(class)
+	if err != nil {
+		return nil, err
+	}
+
 	err = m.invertedConfigValidator(class.InvertedIndexConfig)
 	if err != nil {
 		return nil, err
@@ -549,6 +554,7 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	return nil
 }
 
+// parseReplicationConfig normalize the replication config and assign the default to be factorized by 1.
 func (m *Manager) parseReplicationConfig(class *models.Class) (err error) {
 	// This is not possible if schema is being updated via by a client.
 	// But for a test object that wasn't created by a client, it is.
