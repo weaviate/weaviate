@@ -103,6 +103,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		}
 		obj.CreationTimeUnix = now
 		obj.LastUpdateTimeUnix = now
+		batchObjects[i].Object = obj
+		batchObjects[i].UUID = obj.ID
 		if batchObjects[i].Err != nil {
 			continue
 		}
@@ -125,8 +127,6 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			batchObjects[i].Err = err
 			continue
 		}
-		batchObjects[i].Object = obj
-		batchObjects[i].UUID = obj.ID
 
 		// no need to send this to the vectorizer if there is already a vector
 		if obj.Vector != nil {
