@@ -429,7 +429,7 @@ func (h *hnsw) reassignNeighbor(
 		tmpDenyList := deleteList.DeepCopy()
 		tmpDenyList.Insert(entryPointID)
 
-		alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
+		_, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 			entryPointID)
 		if level > neighborLevel {
 			neighborNode.Lock()
@@ -438,11 +438,10 @@ func (h *hnsw) reassignNeighbor(
 			neighborNode.Unlock()
 			neighborLevel = level
 		}
-		entryPointID = alternative
 	}
 
 	neighborNode.markAsMaintenance()
-	if err := h.findAndConnectNeighborsAfterCleanUpTombstonedNodes(neighborNode, entryPointID, neighborVec, compressorDistancer,
+	if err := h.reconnectNeighboursOf(neighborNode, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}

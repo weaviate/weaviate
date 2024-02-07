@@ -33,11 +33,11 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	return nfc.Do()
 }
 
-func (h *hnsw) findAndConnectNeighborsAfterCleanUpTombstonedNodes(node *vertex,
-	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+func (h *hnsw) reconnectNeighboursOf(node *vertex,
+	distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
-	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
+	nfc := newNeighborFinderConnector(h, node, 0, nil, distancer, targetLevel,
 		currentMaxLevel, denyList, true)
 
 	return nfc.Do()
