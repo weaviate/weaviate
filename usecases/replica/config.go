@@ -41,6 +41,13 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 }
 
 func ValidateConfigUpdate(old, updated *models.Class, nodeCounter nodeCounter) error {
+	if old.ReplicationConfig == nil {
+		return fmt.Errorf("replication can not be empty for class %s", old.Class)
+	}
+	if updated.ReplicationConfig == nil {
+		return fmt.Errorf("replication can not be empty for class %s", updated.Class)
+	}
+
 	if old.ReplicationConfig.Factor != updated.ReplicationConfig.Factor {
 		nc := nodeCounter.NodeCount()
 		if int(updated.ReplicationConfig.Factor) > nc {
