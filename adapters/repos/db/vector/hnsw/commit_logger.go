@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,17 +21,22 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
-const defaultCommitLogSize = 500 * 1024 * 1024
+const (
+	defaultCommitLogSize = 500 * 1024 * 1024
+	defaultShardsNumber  = 128
+)
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
@@ -44,10 +50,16 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		rootPath:  rootPath,
-		id:        name,
-		condensor: NewMemoryCondensor(logger),
-		logger:    logger,
+		rootPath:      rootPath,
+		id:            name,
+		condensor:     NewMemoryCondensor(logger),
+		logger:        logger,
+		done:          make(chan struct{}),
+		shutdown:      make(chan struct{}),
+		locks:         common.NewShardedLocks(defaultShardsNumber),
+		buffer:        make([][]logLine, defaultShardsNumber),
+		lastWrittenID: -1,
+		lastFlushedID: -1,
 
 		// both can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
@@ -73,6 +85,12 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
 	l.condenseLogsCallbackCtrl = maintenanceCallbacks.Register(id("condense_logs"), l.startCombineAndCondenseLogs)
+
+	go func() {
+		defer close(l.done)
+
+		l.loop()
+	}()
 
 	return l, nil
 }
@@ -254,6 +272,13 @@ type hnswCommitLogger struct {
 	maxSizeIndividual int64
 	maxSizeCombining  int64
 	commitLogger      *commitlog.Logger
+	done              chan struct{}
+	shutdown          chan struct{}
+	locks             *common.ShardedLocks
+	buffer            [][]logLine
+	counter           atomic.Uint64
+	lastWrittenID     int64
+	lastFlushedID     int64
 
 	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
 	condenseLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
@@ -306,88 +331,206 @@ func (t HnswCommitType) String() string {
 	return "unknown commit type"
 }
 
+type logLine struct {
+	data []byte
+	id   uint64
+}
+
 func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQ(data compressionhelpers.PQData) error {
+// apply all the changes to the underlying commit log
+// by traversing the buffer horizontally and writing the first line of each
+// shard. If a shard is empty, the traversal stops.
+// If a full traversal is done, the first line of each shard is removed.
+func (l *hnswCommitLogger) traverse() bool {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddPQ(data)
+	for i := uint64(0); i < defaultShardsNumber; i++ {
+		l.locks.RLock(i)
+		if len(l.buffer[i]) == 0 {
+			l.locks.RUnlock(i)
+			return false
+		}
+
+		toWrite := l.buffer[i][0]
+
+		if toWrite.data == nil {
+			l.locks.RUnlock(i)
+			continue
+		}
+
+		l.buffer[i][0].data = nil
+		l.locks.RUnlock(i)
+
+		_, _ = l.commitLogger.Write(toWrite.data)
+
+		l.lastWrittenID = int64(toWrite.id)
+	}
+
+	// remove line 0
+	for i := uint64(0); i < defaultShardsNumber; i++ {
+		l.locks.Lock(i)
+		if len(l.buffer[i]) > 0 {
+			l.buffer[i] = l.buffer[i][1:]
+		}
+		l.locks.Unlock(i)
+	}
+
+	return true
 }
 
-// AddNode adds an empty node
-func (l *hnswCommitLogger) AddNode(node *vertex) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) loop() {
+	for {
+		select {
+		case <-l.shutdown:
+			return
+		default:
+		}
 
-	return l.commitLogger.AddNode(node.id, node.level)
+		ok := l.traverse()
+
+		if ok {
+			continue
+		}
+
+		select {
+		case <-l.shutdown:
+			return
+		case <-time.After(100 * time.Microsecond):
+		}
+	}
 }
 
-func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
-	l.Lock()
-	defer l.Unlock()
-
-	return l.commitLogger.SetEntryPointWithMaxLayer(id, level)
+func (l *hnswCommitLogger) enqueue(data []byte) {
+	itemID := l.counter.Add(1) - 1
+	slot := itemID % defaultShardsNumber
+	l.locks.Lock(slot)
+	l.buffer[slot] = append(l.buffer[slot], logLine{
+		data: data,
+		id:   itemID,
+	})
+	l.locks.Unlock(slot)
 }
 
-func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) AddPQ(data compressionhelpers.PQData) {
+	toWrite := make([]byte, 10)
+	toWrite[0] = byte(AddPQ)
+	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
+	toWrite[3] = byte(data.EncoderType)
+	binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
+	binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
+	toWrite[8] = data.EncoderDistribution
+	if data.UseBitsEncoding {
+		toWrite[9] = 1
+	} else {
+		toWrite[9] = 0
+	}
 
-	return l.commitLogger.ReplaceLinksAtLevel(nodeid, level, targets)
+	for _, encoder := range data.Encoders {
+		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+	}
+
+	l.enqueue(toWrite)
 }
 
-func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int,
-	target uint64,
-) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) AddNode(node *vertex) {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(AddNode)
+	binary.LittleEndian.PutUint64(toWrite[1:9], node.id)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(node.level))
 
-	return l.commitLogger.AddLinkAtLevel(nodeid, level, target)
+	l.enqueue(toWrite)
 }
 
-func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(SetEntryPointMaxLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], id)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
 
-	return l.commitLogger.AddTombstone(nodeid)
+	l.enqueue(toWrite)
 }
 
-func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) {
+	data := make([]byte, 13+8*len(targets))
+	data[0] = byte(ReplaceLinksAtLevel)
+	binary.LittleEndian.PutUint64(data[1:9], nodeid)
+	binary.LittleEndian.PutUint16(data[9:11], uint16(level))
+	binary.LittleEndian.PutUint16(data[11:13], uint16(len(targets)))
 
-	return l.commitLogger.RemoveTombstone(nodeid)
+	i := 0
+	buf := data[13:]
+	for i < len(targets) {
+		pos := i % 8
+		start := pos * 8
+		end := start + 8
+		binary.LittleEndian.PutUint64(buf[start:end], targets[i])
+
+		i++
+	}
+
+	l.enqueue(data)
 }
 
-func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) {
+	toWrite := make([]byte, 19)
+	toWrite[0] = byte(AddLinkAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
+	binary.LittleEndian.PutUint16(toWrite[9:11], uint16(level))
+	binary.LittleEndian.PutUint64(toWrite[11:19], target)
 
-	return l.commitLogger.ClearLinks(nodeid)
+	l.enqueue(toWrite)
 }
 
-func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) AddTombstone(nodeid uint64) {
+	toWrite := make([]byte, 9)
+	toWrite[0] = byte(AddTombstone)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
 
-	return l.commitLogger.ClearLinksAtLevel(nodeid, level)
+	l.enqueue(toWrite)
 }
 
-func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) {
+	toWrite := make([]byte, 9)
+	toWrite[0] = byte(RemoveTombstone)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
 
-	return l.commitLogger.DeleteNode(nodeid)
+	l.enqueue(toWrite)
 }
 
-func (l *hnswCommitLogger) Reset() error {
-	l.Lock()
-	defer l.Unlock()
+func (l *hnswCommitLogger) ClearLinks(nodeid uint64) {
+	toWrite := make([]byte, 9)
+	toWrite[0] = byte(ClearLinks)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
 
-	return l.commitLogger.Reset()
+	l.enqueue(toWrite)
+}
+
+func (l *hnswCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(ClearLinksAtLevel)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
+	binary.LittleEndian.PutUint16(toWrite[9:11], level)
+
+	l.enqueue(toWrite)
+}
+
+func (l *hnswCommitLogger) DeleteNode(nodeid uint64) {
+	toWrite := make([]byte, 9)
+	toWrite[0] = byte(DeleteNode)
+	binary.LittleEndian.PutUint64(toWrite[1:9], nodeid)
+
+	l.enqueue(toWrite)
+}
+
+func (l *hnswCommitLogger) Reset() {
+	toWrite := make([]byte, 1)
+	toWrite[0] = byte(ResetIndex)
+
+	l.enqueue(toWrite)
 }
 
 // Shutdown waits for ongoing maintenance processes to stop, then cancels their
@@ -400,7 +543,15 @@ func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
 	if err := l.condenseLogsCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
 	}
-	return nil
+
+	close(l.shutdown)
+
+	select {
+	case <-l.done:
+		return nil
+	case <-ctx.Done():
+		return errors.Wrap(ctx.Err(), "shutdown commitlog")
+	}
 }
 
 func (l *hnswCommitLogger) RootPath() string {
@@ -529,13 +680,14 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context) error {
-	if err := l.commitLogger.Close(); err != nil {
-		return errors.Wrap(err, "close hnsw commit logger prior to delete")
-	}
-
 	// stop all goroutines
 	if err := l.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "drop commitlog")
+	}
+
+	// close the commit logger
+	if err := l.commitLogger.Close(); err != nil {
+		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}
 
 	// remove commit log directory if exists
@@ -550,8 +702,34 @@ func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 }
 
 func (l *hnswCommitLogger) Flush() error {
-	l.Lock()
-	defer l.Unlock()
+	id := int64(l.counter.Load() - 1)
 
-	return l.commitLogger.Flush()
+	for {
+		l.Lock()
+		if l.lastFlushedID >= id {
+			l.Unlock()
+			return nil
+		}
+
+		if l.lastWrittenID >= id {
+			err := l.commitLogger.Flush()
+			l.lastFlushedID = l.lastWrittenID
+			l.Unlock()
+			return err
+		}
+
+		l.Unlock()
+
+		t := time.NewTimer(100 * time.Microsecond)
+
+		select {
+		case <-l.shutdown:
+			if !t.Stop() {
+				<-t.C
+			}
+
+			return nil
+		case <-t.C:
+		}
+	}
 }
