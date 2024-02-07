@@ -187,7 +187,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	m.logger.
 		WithField("action", "schema.update_class").
 		Debug("saving updated schema to configuration store")
-	// payload.Shards
+
 	if err := m.repo.UpdateClass(ctx, payload); err != nil {
 		return err
 	}

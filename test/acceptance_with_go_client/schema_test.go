@@ -91,6 +91,7 @@ func TestSchemaCasingClass(t *testing.T) {
 }
 
 func checkDuplicateClassErrors(t *testing.T, err error, tt testCase) {
+	// should be ok because of idempotence.
 	if tt.className1 == tt.className2 {
 		return
 	}

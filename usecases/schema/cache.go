@@ -214,7 +214,7 @@ func (s *schemaCache) unsafeAddClass(c *models.Class, ss *sharding.State) {
 	s.ObjectSchema.Classes = append(s.ObjectSchema.Classes, c)
 }
 
-func (s *schemaCache) updateClass(u *models.Class, ss *sharding.State) error {
+func (s *schemaCache) updateClass(u *models.Class, ss *sharding.State) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -222,12 +222,11 @@ func (s *schemaCache) updateClass(u *models.Class, ss *sharding.State) error {
 		*c = *u
 	} else {
 		s.unsafeAddClass(u, ss)
-		return nil
+		return
 	}
 	if ss != nil {
 		s.ShardingState[u.Class] = ss
 	}
-	return nil
 }
 
 func (s *schemaCache) addProperty(class string, p *models.Property) (models.Class, error) {

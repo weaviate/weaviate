@@ -59,8 +59,7 @@ func TestUpdateClass(t *testing.T) {
 		},
 	}
 
-	err := cache.updateClass(&models.Class{Class: "C1"}, nil)
-	assert.Nil(t, err)
+	cache.updateClass(&models.Class{Class: "C1"}, nil)
 
 	if _, err := cache.addProperty("?", nil); !errors.Is(err, errClassNotFound) {
 		t.Fatalf("add_property: want %v got %v", errClassNotFound, err)

@@ -203,7 +203,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	assert.Nil(t, err)
 	payload.Name = "C3"
 
-	// should be handled and created updating non-exiting class
+	// should be handled and created on updating non-exiting class
 	err = repo.UpdateClass(ctx, payload)
 	assert.Nil(t, err)
 	err = repo.DeleteClass(ctx, "C3")
