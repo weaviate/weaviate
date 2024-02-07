@@ -44,11 +44,8 @@ FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
-RUN mkdir -p /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/jp
-RUN mkdir -p /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/zh
-COPY --from=server_builder /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/jp/dict.txt /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/jp/
-COPY --from=server_builder /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/zh/t_1.txt /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/zh/
-COPY --from=server_builder /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/zh/s_1.txt /go/pkg/mod/github.com/go-ego/gse@v0.80.2/data/dict/zh/
+RUN mkdir -p /go/pkg/mod/github.com/go-ego
+COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/
 RUN apk add --no-cache --upgrade ca-certificates openssl
 RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
