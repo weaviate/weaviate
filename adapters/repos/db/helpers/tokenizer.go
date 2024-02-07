@@ -143,7 +143,7 @@ func tokenizeGSE(in string) []string {
 			i--
 		}
 	}
-	return terms
+	return append(terms, in)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
