@@ -635,8 +635,9 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
 				return nil, err
 			}
-			// Read "broken" tombstones with length 12 but a non-tombstone value
+			// Read "broken" tombstones with (correct) length 12 but a non-tombstone initial byte
 			// Related to Issue #4125 and PR #4151
+			// The check is not needed for in-memory segments, as the original issue is fixed in this PR
 			// TODO: Remove the extra check, as it may interfere future in-disk format changes
 			segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 		}
