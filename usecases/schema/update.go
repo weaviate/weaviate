@@ -68,6 +68,14 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// backward compatible normalize replication factor for existing classes
+	if err := m.parseReplicationConfig(initial); err != nil {
+		return err
+	}
+	if err := m.parseReplicationConfig(updated); err != nil {
+		return err
+	}
+
 	if err := m.migrator.ValidateVectorIndexConfigUpdate(ctx,
 		initial.VectorIndexConfig.(schema.VectorIndexConfig),
 		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {

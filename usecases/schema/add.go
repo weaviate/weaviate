@@ -548,9 +548,10 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 }
 
 func (m *Manager) parseReplicationConfig(class *models.Class) (err error) {
-	// assign default
+	// This is not possible if schema is being updated via by a client.
+	// But for a test object that wasn't created by a client, it is.
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{}
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	}
 
 	return nil
