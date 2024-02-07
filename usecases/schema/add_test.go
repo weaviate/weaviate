@@ -49,20 +49,22 @@ func TestAddClass(t *testing.T) {
 
 	t.Run("add multiple times", func(t *testing.T) {
 		mgr := newSchemaManager()
+		className := "NewClass"
+
 		err := mgr.AddClass(context.Background(),
-			nil, &models.Class{Class: "NewClass"})
+			nil, &models.Class{Class: className})
 		require.Nil(t, err)
 		cls, err := mgr.GetClass(context.Background(),
-			nil, "NewClass")
+			nil, className)
 		require.Nil(t, err)
 		require.NotNil(t, cls)
 
 		err = mgr.AddClass(context.Background(),
-			nil, &models.Class{Class: "NewClass"})
+			nil, &models.Class{Class: className})
 		require.Nil(t, err)
 
 		cls, err = mgr.GetClass(context.Background(),
-			nil, "NewClass")
+			nil, className)
 		require.Nil(t, err)
 		require.NotNil(t, cls)
 	})

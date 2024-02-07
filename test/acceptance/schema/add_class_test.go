@@ -366,6 +366,47 @@ func TestUpdateDistanceSettings(t *testing.T) {
 	})
 }
 
+func TestAddClassIdempotence(t *testing.T) {
+	randomObjectClassName := "YellowCars"
+
+	// Ensure that this name is not in the schema yet.
+	t.Log("Asserting that this class does not exist yet")
+	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
+
+	tc := &models.Class{
+		Class: randomObjectClassName,
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+	}
+
+	t.Log("Creating class")
+	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(tc)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	t.Log("Asserting that this class is now created")
+	assert.Contains(t, GetObjectClassNames(t), randomObjectClassName)
+
+	t.Run("pure http - without the auto-generated client", testGetSchemaWithoutClient)
+
+	t.Log("Creating class again")
+	resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	t.Log("Asserting that this class is now created")
+	assert.Contains(t, GetObjectClassNames(t), randomObjectClassName)
+	t.Log("Verify schema cluster status")
+	statusResp, err := helper.Client(t).Schema.SchemaClusterStatus(
+		clschema.NewSchemaClusterStatusParams(), nil,
+	)
+	require.Nil(t, err)
+	assert.Equal(t, "", statusResp.Payload.Error)
+	assert.True(t, statusResp.Payload.Healthy)
+}
+
 // TODO: https://github.com/weaviate/weaviate/issues/973
 // // This test prevents a regression on the fix for this bug:
 // // https://github.com/weaviate/weaviate/issues/831

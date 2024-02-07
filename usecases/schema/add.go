@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -148,7 +149,16 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		return nil, err
 	}
 	if err != nil && errors.Is(err, errClassNameExists) {
-		return m.ShardingState[class.Class], nil
+		existedClass := m.getClassByName(class.Class)
+
+		m.parseShardingConfig(ctx, class)
+		m.parseVectorIndexConfig(ctx, class)
+		m.parseReplicationConfig(class)
+
+		if reflect.DeepEqual(existedClass, class) {
+			return m.ShardingState[class.Class], nil
+		}
+		return nil, fmt.Errorf("class name %q already exists with different properties", class.Class)
 	}
 
 	// migrate only after validation in completed
@@ -242,7 +252,7 @@ func (m *Manager) setClassDefaults(class *models.Class) {
 	if m.config.DefaultVectorDistanceMetric != "" {
 		if class.VectorIndexConfig == nil {
 			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
-		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+		} else if vectorIndexConfigMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vectorIndexConfigMap["distance"] == nil {
 			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
 		}
 	}
@@ -533,6 +543,15 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	}
 
 	class.VectorIndexConfig = parsed
+
+	return nil
+}
+
+func (m *Manager) parseReplicationConfig(class *models.Class) (err error) {
+	// assign default
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{}
+	}
 
 	return nil
 }

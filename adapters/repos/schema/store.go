@@ -224,11 +224,10 @@ func (r *store) loadSchemaV1() (*ucs.State, error) {
 // UpdateClass if it exists, otherwise it will create the class.
 func (r *store) UpdateClass(_ context.Context, data ucs.ClassPayload) error {
 	classKey := encodeClassName(data.Name)
-	var err error
 	f := func(tx *bolt.Tx) error {
 		b := tx.Bucket(schemaBucket).Bucket(classKey)
 		if b == nil {
-			b, err = tx.Bucket(schemaBucket).CreateBucket(classKey)
+			b, err := tx.Bucket(schemaBucket).CreateBucket(classKey)
 			if err != nil {
 				return err
 			}
