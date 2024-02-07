@@ -55,24 +55,24 @@ type neighborFinderConnector struct {
 	currentMaxLevel int
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
-	afterCleanUpTombstonedNodes bool
+	tombstoneCleanupNodes bool
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList, afterCleanUpTombstonedNodes bool,
+	denyList helpers.AllowList, tombstoneCleanupNodes bool,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
-		ctx:                         graph.shutdownCtx,
-		graph:                       graph,
-		node:                        node,
-		entryPointID:                entryPointID,
-		nodeVec:                     nodeVec,
-		distancer:                   distancer,
-		targetLevel:                 targetLevel,
-		currentMaxLevel:             currentMaxLevel,
-		denyList:                    denyList,
-		afterCleanUpTombstonedNodes: afterCleanUpTombstonedNodes,
+		ctx:                   graph.shutdownCtx,
+		graph:                 graph,
+		node:                  node,
+		entryPointID:          entryPointID,
+		nodeVec:               nodeVec,
+		distancer:             distancer,
+		targetLevel:           targetLevel,
+		currentMaxLevel:       currentMaxLevel,
+		denyList:              denyList,
+		tombstoneCleanupNodes: tombstoneCleanupNodes,
 	}
 }
 
@@ -167,7 +167,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
 	var total int = 0
-	if n.afterCleanUpTombstonedNodes {
+	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
 		n.graph.pools.visitedListsLock.Lock()
