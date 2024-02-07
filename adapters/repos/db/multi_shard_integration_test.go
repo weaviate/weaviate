@@ -101,7 +101,6 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			batch[i] = objects.BatchObject{
 				OriginalIndex: i,
 				Object:        obj,
-				Vector:        obj.Vector,
 				UUID:          obj.ID,
 			}
 		}

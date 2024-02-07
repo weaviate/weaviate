@@ -101,6 +101,14 @@ func TestGRPCReply(t *testing.T) {
 						{Name: "nums", DataType: schema.DataTypeIntArray.PropString()},
 						{Name: "ref", DataType: []string{refClass1}},
 						{Name: "multiRef", DataType: []string{refClass1, refClass2}},
+						{
+							Name:     "nested",
+							DataType: schema.DataTypeObject.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "text", DataType: schema.DataTypeText.PropString()},
+								{Name: "text2", DataType: schema.DataTypeText.PropString()},
+							},
+						},
 					},
 				},
 				{
@@ -361,6 +369,35 @@ func TestGRPCReply(t *testing.T) {
 			usesWeaviateStruct: true,
 		},
 		{
+			name: "request property with nil value",
+			res: []interface{}{
+				map[string]interface{}{
+					"word": "word",
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName:  className,
+				Properties: search.SelectProperties{{Name: "word", IsPrimitive: true}, {Name: "age", IsPrimitive: true}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: className,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"word": {Kind: &pb.Value_StringValue{StringValue: "word"}},
+								"age":  {Kind: &pb.Value_NullValue{}},
+							},
+						},
+						RefProps:          []*pb.RefPropertiesResult{},
+						RefPropsRequested: false,
+					},
+				},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
 			name: "array properties",
 			res: []interface{}{
 				map[string]interface{}{"nums": []float64{1, 2, 3}}, // ints are encoded as float64 in json
@@ -483,6 +520,102 @@ func TestGRPCReply(t *testing.T) {
 												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
 														"name":  {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
+														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+													},
+												},
+											}},
+											"objs": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+												Values: []*pb.Value{{Kind: &pb.Value_ObjectValue{
+													ObjectValue: &pb.Properties{
+														Fields: map[string]*pb.Value{
+															"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
+														},
+													},
+												}}},
+											}}},
+										},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
+			name: "nested object properties with missing values",
+			res: []interface{}{
+				map[string]interface{}{
+					"something": map[string]interface{}{
+						"name":  "Bob",
+						"names": []string{"Jo", "Jill"},
+						"else": map[string]interface{}{
+							"names": []string{"Jo", "Jill"},
+						},
+						"objs": []interface{}{
+							map[string]interface{}{"name": "Bill"},
+						},
+					},
+				},
+			},
+			searchParams: dto.GetParams{
+				ClassName: objClass,
+				Properties: search.SelectProperties{{
+					Name:        "something",
+					IsPrimitive: false,
+					IsObject:    true,
+					Props: []search.SelectProperty{
+						{
+							Name:        "name",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "names",
+							IsPrimitive: true,
+						},
+						{
+							Name:        "else",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{
+								{
+									Name:        "name",
+									IsPrimitive: true,
+								},
+								{
+									Name:        "names",
+									IsPrimitive: true,
+								},
+							},
+						},
+						{
+							Name:        "objs",
+							IsPrimitive: false,
+							IsObject:    true,
+							Props: []search.SelectProperty{{
+								Name:        "name",
+								IsPrimitive: true,
+							}},
+						},
+					},
+				}},
+			},
+			outSearch: []*pb.SearchResult{
+				{
+					Metadata: &pb.MetadataResult{},
+					Properties: &pb.PropertiesResult{
+						TargetCollection: objClass,
+						NonRefProps: &pb.Properties{
+							Fields: map[string]*pb.Value{
+								"something": {Kind: &pb.Value_ObjectValue{
+									ObjectValue: &pb.Properties{
+										Fields: map[string]*pb.Value{
+											"name":  {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
+											"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+											"else": {Kind: &pb.Value_ObjectValue{
+												ObjectValue: &pb.Properties{
+													Fields: map[string]*pb.Value{
 														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
 													},
 												},
@@ -1063,6 +1196,7 @@ func TestGRPCReply(t *testing.T) {
 						Id:                string(UUID1),
 						Generative:        refClass1,
 						GenerativePresent: true,
+						IdAsBytes:         idByte(UUID1.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -1071,6 +1205,7 @@ func TestGRPCReply(t *testing.T) {
 						Id:                string(UUID2),
 						Generative:        refClass2,
 						GenerativePresent: true,
+						IdAsBytes:         idByte(UUID2.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -1141,13 +1276,15 @@ func TestGRPCReply(t *testing.T) {
 			outSearch: []*pb.SearchResult{
 				{
 					Metadata: &pb.MetadataResult{
-						Id: string(UUID1),
+						Id:        string(UUID1),
+						IdAsBytes: idByte(UUID1.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
 				{
 					Metadata: &pb.MetadataResult{
-						Id: string(UUID2),
+						Id:        string(UUID2),
+						IdAsBytes: idByte(UUID2.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},
@@ -1252,6 +1389,7 @@ func TestGRPCReply(t *testing.T) {
 						Id:                 string(UUID1),
 						RerankScore:        someFloat64,
 						RerankScorePresent: true,
+						IdAsBytes:          idByte(UUID1.String()),
 					},
 					Properties: &pb.PropertiesResult{},
 				},

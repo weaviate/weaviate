@@ -446,10 +446,10 @@ func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
 				Properties: map[string]interface{}{
 					"stringProp": fmt.Sprintf("element %d", i),
 				},
-				ID: strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+				ID:     strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+				Vector: []float32{1, 2, 3},
 			},
-			UUID:   strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
-			Vector: []float32{1, 2, 3},
+			UUID: strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
 		}
 	}
 
@@ -468,10 +468,10 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 						Properties: map[string]interface{}{
 							"stringProp": "first element",
 						},
-						ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+						ID:     "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+						Vector: []float32{1, 2, 3},
 					},
-					UUID:   "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
-					Vector: []float32{1, 2, 3},
+					UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
 				},
 				objects.BatchObject{
 					OriginalIndex: 1,
@@ -481,10 +481,10 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 						Properties: map[string]interface{}{
 							"stringProp": "second element",
 						},
-						ID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+						ID:     "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
+						Vector: []float32{1, 2, 3},
 					},
-					UUID:   "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
-					Vector: []float32{1, 2, 3},
+					UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
 				},
 				objects.BatchObject{
 					OriginalIndex: 2,
@@ -494,10 +494,10 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 						Properties: map[string]interface{}{
 							"stringProp": "third element",
 						},
-						ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+						ID:     "90ade18e-2b99-4903-aa34-1d5d648c932d",
+						Vector: []float32{1, 2, 3},
 					},
-					UUID:   "90ade18e-2b99-4903-aa34-1d5d648c932d",
-					Vector: []float32{1, 2, 3},
+					UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
 				},
 			}
 
@@ -626,10 +626,10 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 							Properties: map[string]interface{}{
 								"stringProp": "first element",
 							},
-							ID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+							ID:     "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
+							Vector: []float32{1, 2, 3},
 						},
-						UUID:   "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
-						Vector: []float32{1, 2, 3},
+						UUID: "8d5a3aa2-3c8d-4589-9ae1-3f638f506970",
 					},
 					objects.BatchObject{
 						OriginalIndex: 1,
@@ -639,10 +639,10 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 							Properties: map[string]interface{}{
 								"stringProp": "third element",
 							},
-							ID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
+							ID:     "90ade18e-2b99-4903-aa34-1d5d648c932d",
+							Vector: []float32{1, 1, -3},
 						},
-						UUID:   "90ade18e-2b99-4903-aa34-1d5d648c932d",
-						Vector: []float32{1, 1, -3},
+						UUID: "90ade18e-2b99-4903-aa34-1d5d648c932d",
 					},
 				}
 
@@ -678,13 +678,13 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			batch[0] = objects.BatchObject{
 				OriginalIndex: 0,
 				Err:           nil,
-				Vector:        []float32{7, 8, 9},
 				Object: &models.Object{
 					Class: "ThingForBatching",
 					Properties: map[string]interface{}{
 						"stringProp": "first element",
 					},
-					ID: "79aebd44-7486-4fed-9334-3a74cc09a1c3",
+					ID:     "79aebd44-7486-4fed-9334-3a74cc09a1c3",
+					Vector: []float32{7, 8, 9},
 				},
 				UUID: "79aebd44-7486-4fed-9334-3a74cc09a1c3",
 			}
@@ -698,13 +698,13 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				batch[i] = objects.BatchObject{
 					OriginalIndex: i,
 					Err:           nil,
-					Vector:        []float32{0.05, 0.1, 0.2},
 					Object: &models.Object{
 						Class: "ThingForBatching",
 						Properties: map[string]interface{}{
 							"stringProp": "ignore me",
 						},
-						ID: id,
+						ID:     id,
+						Vector: []float32{0.05, 0.1, 0.2},
 					},
 					UUID: id,
 				}
@@ -713,26 +713,26 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			batch[51] = objects.BatchObject{
 				OriginalIndex: 51,
 				Err:           fmt.Errorf("already had a prior error"),
-				Vector:        []float32{3, 2, 1},
 				Object: &models.Object{
 					Class: "ThingForBatching",
 					Properties: map[string]interface{}{
 						"stringProp": "first element",
 					},
-					ID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
+					ID:     "1c2d8ce6-32da-4081-9794-a81e23e673e4",
+					Vector: []float32{3, 2, 1},
 				},
 				UUID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
 			}
 			batch[52] = objects.BatchObject{
 				OriginalIndex: 52,
 				Err:           nil,
-				Vector:        []float32{1, 2, 3},
 				Object: &models.Object{
 					Class: "ThingForBatching",
 					Properties: map[string]interface{}{
 						"stringProp": "first element, imported a second time",
 					},
-					ID: "79aebd44-7486-4fed-9334-3a74cc09a1c3", // note the duplicate id with item 1
+					ID:     "79aebd44-7486-4fed-9334-3a74cc09a1c3", // note the duplicate id with item 1
+					Vector: []float32{1, 2, 3},
 				},
 				UUID: "79aebd44-7486-4fed-9334-3a74cc09a1c3", // note the duplicate id with item 1
 			}
@@ -778,14 +778,14 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				require.Nil(t, err)
 				id := strfmt.UUID(uid.String())
 				batch[i] = objects.BatchObject{
-					Err:    nil,
-					Vector: []float32{0.05, 0.1, 0.2},
+					Err: nil,
 					Object: &models.Object{
 						Class: "ThingForBatching",
 						Properties: map[string]interface{}{
 							"stringProp": "ignore me",
 						},
-						ID: id,
+						ID:     id,
+						Vector: []float32{0.05, 0.1, 0.2},
 					},
 					UUID: id,
 				}
@@ -848,7 +848,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					batch[j] = objects.BatchObject{
 						OriginalIndex: j,
 						Object:        objs[i+j],
-						Vector:        objs[i+j].Vector,
 					}
 				}
 
@@ -930,7 +929,6 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					batch[j] = objects.BatchObject{
 						OriginalIndex: j,
 						Object:        objs[i+j],
-						Vector:        objs[i+j].Vector,
 					}
 				}
 

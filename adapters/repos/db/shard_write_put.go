@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -53,6 +55,12 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "store object in LSM store")
 	}
 
+	// object was not changed, no further updates are required
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.skipUpsert {
+		return nil
+	}
+
 	if err := s.updateVectorIndex(object.Vector, status); err != nil {
 		return errors.Wrap(err, "update vector index")
 	}
@@ -78,9 +86,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 	status objectInsertStatus,
 ) error {
-	// vector was not changed, object was updated without changing docID
+	// vector was not changed, object was not changed or changed without changing vector
 	// https://github.com/weaviate/weaviate/issues/3948
-	if status.docIDPreserved {
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.docIDPreserved || status.skipUpsert {
 		return nil
 	}
 
@@ -133,72 +142,109 @@ func (s *Shard) updateVectorIndex(vector []float32,
 	return nil
 }
 
-// TODO AL_skip_vector_reindex: adjust to batch?
-func (s *Shard) putObjectLSM(object *storobj.Object, idBytes []byte,
+func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
+	objBytes, err := bucket.Get(idBytes)
+	if err != nil {
+		return nil, err
+	}
+	if len(objBytes) == 0 {
+		return nil, nil
+	}
+
+	obj, err := storobj.FromBinary(objBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return obj, nil
+}
+
+func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 ) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	var prevObj *storobj.Object
+	var status objectInsertStatus
 
-	// First the object bucket is checked if already an object with the same uuid is present, to determine if it is new
-	// or an update. Afterwards the bucket is updates. To avoid races, only one goroutine can do this at once.
+	// First the object bucket is checked if an object with the same uuid is alreadypresent,
+	// to determine if it is insert or an update.
+	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
-	lock.Lock()
-	previous_object_bytes, err := bucket.Get(idBytes)
-	if err != nil {
-		lock.Unlock()
+
+	// wrapped in function to handle lock/unlock
+	if err := func() error {
+		lock.Lock()
+		defer lock.Unlock()
+
+		var err error
+
+		before = time.Now()
+		prevObj, err = fetchObject(bucket, idBytes)
+		if err != nil {
+			return err
+		}
+
+		status, err = s.determineInsertStatus(prevObj, obj)
+		if err != nil {
+			return err
+		}
+		s.metrics.PutObjectDetermineStatus(before)
+
+		obj.DocID = status.docID
+		if status.skipUpsert {
+			return nil
+		}
+
+		objBinary, err := obj.MarshalBinary()
+		if err != nil {
+			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
+		}
+
+		before = time.Now()
+		if err := s.upsertObjectDataLSM(bucket, idBytes, objBinary, status.docID); err != nil {
+			return errors.Wrap(err, "upsert object data")
+		}
+		s.metrics.PutObjectUpsertObject(before)
+
+		return nil
+	}(); err != nil {
 		return objectInsertStatus{}, err
-	}
-
-	status, err := s.determineInsertStatus(previous_object_bytes, object)
-	if err != nil {
-		lock.Unlock()
-		return status, errors.Wrap(err, "check insert/update status")
-	}
-	s.metrics.PutObjectDetermineStatus(before)
-
-	object.DocID = status.docID
-	data, err := object.MarshalBinary()
-	if err != nil {
-		lock.Unlock()
-		return status, errors.Wrapf(err, "marshal object %s to binary", object.ID())
+	} else if status.skipUpsert {
+		return status, nil
 	}
 
 	before = time.Now()
-	if err := s.upsertObjectDataLSM(bucket, idBytes, data, status.docID); err != nil {
-		lock.Unlock()
-		return status, errors.Wrap(err, "upsert object data")
+	if err := s.updateInvertedIndexLSM(obj, status, prevObj); err != nil {
+		return objectInsertStatus{}, errors.Wrap(err, "update inverted indices")
 	}
-	lock.Unlock()
-	s.metrics.PutObjectUpsertObject(before)
-
-	before = time.Now()
-	if err := s.updateInvertedIndexLSM(object, status, previous_object_bytes); err != nil {
-		return status, errors.Wrap(err, "update inverted indices")
-	}
-
 	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
 }
 
 type objectInsertStatus struct {
-	docID          uint64
-	docIDChanged   bool
-	oldDocID       uint64
-	docIDPreserved bool // docID preserved (docID was not changed, although object did change)
+	docID        uint64
+	docIDChanged bool
+	oldDocID     uint64
+	// docID was not changed, although object itself did. DocID can be preserved if
+	// object's vector remain the same, allowing to omit vector index update which is time
+	// consuming operation. New object is saved and inverted indexes updated if required.
+	docIDPreserved bool
+	// object was not changed, all properties and additional properties are the same as in
+	// the one already stored. No object update, inverted indexes update and vector index
+	// update is required.
+	skipUpsert bool
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
 // didn't exist before), we will get a new docID from the central counter.
 // Otherwise, we will reuse the previous docID and mark this as an update
-func (s *Shard) determineInsertStatus(previous []byte,
-	next *storobj.Object,
-) (objectInsertStatus, error) {
+func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
-	if previous == nil {
+	if prevObj == nil {
 		docID, err := s.counter.GetAndInc()
 		if err != nil {
 			return out, errors.Wrap(err, "initial doc id: get new doc id from counter")
@@ -207,41 +253,27 @@ func (s *Shard) determineInsertStatus(previous []byte,
 		return out, nil
 	}
 
-	docID, err := storobj.DocIDFromBinary(previous)
-	if err != nil {
-		return out, errors.Wrap(err, "get previous doc id from object binary")
-	}
-	out.oldDocID = docID
+	out.oldDocID = prevObj.DocID
 
-	// if vector was not changed, replace object and update indexed properties
-	// without changing docID
+	// If object was not changed (props and additional props of prev and next objects are the same)
+	// skip updates of object, inverted indexes and vector index.
+	// https://github.com/weaviate/weaviate/issues/3949
+	//
+	// If object was changed (props or additional props of prev and next objects differ)
+	// update objects and inverted indexes, skip update of vector index.
 	// https://github.com/weaviate/weaviate/issues/3948
 	//
-	// Due to geo index does not support delete+insert of geo value for the same docID
-	// (as tombstones are used for hnsw geo index),
-	// preserving docID will not be supported for classes with geo properties for now.
-	// Feature can be improved in the future, by preserving docIDs for objects
-	// not updating values of geo properties.
-	if !s.hasGeoIndex() {
-		if l := len(next.Vector); l > 0 {
-			buffer := make([]float32, l)
-			prevVector, err := storobj.VectorFromBinary(previous, buffer)
-			if err != nil {
-				return out, fmt.Errorf("get previous vector from object binary: %w", err)
-			}
-			if common.VectorsEqual(prevVector, next.Vector) {
-				out.docID = docID
-				out.docIDPreserved = true
-				return out, nil
-			}
-		}
+	// Due to geo index's (using HNSW vector index) requirement new docID for delete+insert
+	// (delete initially adds tombstone, which "overwrite" following insert of the same docID)
+	// any update of geo property needs new docID for updating geo index.
+	if preserve, skip := compareObjsForInsertStatus(prevObj, nextObj); preserve || skip {
+		out.docID = prevObj.DocID
+		out.docIDPreserved = preserve
+		out.skipUpsert = skip
+		return out, nil
 	}
 
-	// with docIDs now being immutable (see
-	// https://github.com/weaviate/weaviate/issues/1282) there is no
-	// more check if we need to increase a docID. Any update will mean a doc ID
-	// needs to be updated.
-	docID, err = s.counter.GetAndInc()
+	docID, err := s.counter.GetAndInc()
 	if err != nil {
 		return out, errors.Wrap(err, "doc id update: get new doc id from counter")
 	}
@@ -255,9 +287,7 @@ func (s *Shard) determineInsertStatus(previous []byte,
 // where it does not alter the doc id if one already exists. Calling this
 // method only makes sense under very special conditions, such as those
 // outlined in mutableMergeObjectInTx
-func (s *Shard) determineMutableInsertStatus(previous []byte,
-	next *storobj.Object,
-) (objectInsertStatus, error) {
+func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
 	if previous == nil {
@@ -269,11 +299,7 @@ func (s *Shard) determineMutableInsertStatus(previous []byte,
 		return out, nil
 	}
 
-	docID, err := storobj.DocIDFromBinary(previous)
-	if err != nil {
-		return out, errors.Wrap(err, "get previous doc id from object binary")
-	}
-	out.docID = docID
+	out.docID = previous.DocID
 
 	// we are planning on mutating and thus not altering the doc id
 	return out, nil
@@ -290,23 +316,17 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 }
 
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
-	status objectInsertStatus, previous []byte,
+	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
 	props, nilprops, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
-	var prevObject *storobj.Object
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
 
-	if previous != nil {
-		prevObject, err = storobj.FromBinary(previous)
-		if err != nil {
-			return fmt.Errorf("unmarshal previous object: %w", err)
-		}
-
+	if prevObject != nil {
 		prevProps, prevNilprops, err = s.AnalyzeObject(prevObject)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
@@ -344,7 +364,7 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		nilpropsToDel = prevNilprops
 	}
 
-	if previous != nil {
+	if prevObject != nil {
 		// TODO: metrics
 		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
@@ -369,4 +389,175 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	return nil
+}
+
+func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, skip bool) {
+	prevProps, ok := prevObj.Object.Properties.(map[string]interface{})
+	if !ok {
+		return false, false
+	}
+	nextProps, ok := nextObj.Object.Properties.(map[string]interface{})
+	if !ok {
+		return false, false
+	}
+	if !geoPropsEqual(prevProps, nextProps) {
+		return false, false
+	}
+	if !common.VectorsEqual(prevObj.Vector, nextObj.Vector) {
+		return false, false
+	}
+	if !addPropsEqual(prevObj.Object.Additional, nextObj.Object.Additional) {
+		return true, false
+	}
+	if !propsEqual(prevProps, nextProps) {
+		return true, false
+	}
+	return false, true
+}
+
+func geoPropsEqual(prevProps, nextProps map[string]interface{}) bool {
+	geoPropsCompared := map[string]struct{}{}
+
+	for name, prevVal := range prevProps {
+		switch prevGeoVal := prevVal.(type) {
+		case *models.GeoCoordinates:
+			nextVal, ok := nextProps[name]
+			if !ok {
+				// matching prop does not exist in next
+				return false
+			}
+
+			switch nextGeoVal := nextVal.(type) {
+			case *models.GeoCoordinates:
+				if !reflect.DeepEqual(prevGeoVal, nextGeoVal) {
+					// matching geo props in prev and next differ
+					return false
+				}
+			default:
+				// matching prop in next is not geo
+				return false
+			}
+			geoPropsCompared[name] = struct{}{}
+		}
+	}
+
+	for name, nextVal := range nextProps {
+		switch nextVal.(type) {
+		case *models.GeoCoordinates:
+			if _, ok := geoPropsCompared[name]; !ok {
+				// matching geo prop does not exist in prev
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func timeToString(t time.Time) string {
+	if b, err := t.MarshalText(); err == nil {
+		return string(b)
+	}
+	return ""
+}
+
+func uuidToString(u uuid.UUID) string {
+	if b, err := u.MarshalText(); err == nil {
+		return string(b)
+	}
+	return ""
+}
+
+func addPropsEqual(prevAddProps, nextAddProps models.AdditionalProperties) bool {
+	return reflect.DeepEqual(prevAddProps, nextAddProps)
+}
+
+func propsEqual(prevProps, nextProps map[string]interface{}) bool {
+	if len(prevProps) != len(nextProps) {
+		return false
+	}
+
+	for name := range nextProps {
+		if _, ok := prevProps[name]; !ok {
+			return false
+		}
+
+		switch nextVal := nextProps[name].(type) {
+		case time.Time:
+			if timeToString(nextVal) != prevProps[name] {
+				return false
+			}
+
+		case []time.Time:
+			prevVal, ok := prevProps[name].([]string)
+			if !ok {
+				return false
+			}
+			if len(nextVal) != len(prevVal) {
+				return false
+			}
+			for i := range nextVal {
+				if timeToString(nextVal[i]) != prevVal[i] {
+					return false
+				}
+			}
+
+		case uuid.UUID:
+			if uuidToString(nextVal) != prevProps[name] {
+				return false
+			}
+
+		case []uuid.UUID:
+			prevVal, ok := prevProps[name].([]string)
+			if !ok {
+				return false
+			}
+			if len(nextVal) != len(prevVal) {
+				return false
+			}
+			for i := range nextVal {
+				if uuidToString(nextVal[i]) != prevVal[i] {
+					return false
+				}
+			}
+
+		case map[string]interface{}: // data type "object"
+			prevVal, ok := prevProps[name].(map[string]interface{})
+			if !ok {
+				return false
+			}
+			if !propsEqual(prevVal, nextVal) {
+				return false
+			}
+
+		case []interface{}: // data type "objects"
+			prevVal, ok := prevProps[name].([]interface{})
+			if !ok {
+				return false
+			}
+			if len(nextVal) != len(prevVal) {
+				return false
+			}
+			for i := range nextVal {
+				nextValI, ok := nextVal[i].(map[string]interface{})
+				if !ok {
+					return false
+				}
+				prevValI, ok := prevVal[i].(map[string]interface{})
+				if !ok {
+					return false
+				}
+				if !propsEqual(prevValI, nextValI) {
+					return false
+				}
+			}
+
+		default:
+			if !reflect.DeepEqual(nextProps[name], prevProps[name]) {
+				return false
+			}
+		}
+	}
+
+	return true
 }

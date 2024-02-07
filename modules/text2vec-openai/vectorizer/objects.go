@@ -69,10 +69,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text, vector, err := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, NewClassSettings(cfg))
-	if err != nil {
-		return nil, err
-	}
+	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, NewClassSettings(cfg))
 	if vector != nil {
 		// dont' re-vectorize
 		return vector, nil
@@ -99,5 +96,6 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		DeploymentID: settings.DeploymentID(),
 		BaseURL:      settings.BaseURL(),
 		IsAzure:      settings.IsAzure(),
+		Dimensions:   settings.Dimensions(),
 	}
 }

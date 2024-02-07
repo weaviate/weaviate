@@ -16,4 +16,5 @@ type VectorizationConfig struct {
 	BaseURL                                 string
 	DeploymentID                            string `json:"deploymentId"`
 	IsAzure                                 bool
+	Dimensions                              *int64
 }
