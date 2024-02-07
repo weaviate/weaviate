@@ -165,7 +165,7 @@ type hnsw struct {
 	className          string
 	shardName          string
 	VectorForIDThunk   common.VectorForID[float32]
-	shardedNodeLocks   *common.ShardedLocks
+	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 }
 
@@ -268,7 +268,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     common.NewDefaultShardedLocks(),
+		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
