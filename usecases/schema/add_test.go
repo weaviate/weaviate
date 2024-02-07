@@ -69,6 +69,24 @@ func TestAddClass(t *testing.T) {
 		require.NotNil(t, cls)
 	})
 
+	t.Run("add multiple times with different prop.", func(t *testing.T) {
+		mgr := newSchemaManager()
+		className := "NewClass"
+
+		err := mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: className})
+		require.Nil(t, err)
+		cls, err := mgr.GetClass(context.Background(),
+			nil, className)
+		require.Nil(t, err)
+		require.NotNil(t, cls)
+
+		err = mgr.AddClass(context.Background(),
+			nil, &models.Class{Class: className, Vectorizer: "someVectorizer"})
+		require.NotNil(t, err)
+		require.Equal(t, err, errDuplicateClass(className))
+	})
+
 	t.Run("with default BM25 params", func(t *testing.T) {
 		mgr := newSchemaManager()
 

@@ -367,14 +367,19 @@ func TestUpdateDistanceSettings(t *testing.T) {
 }
 
 func TestAddClassIdempotence(t *testing.T) {
-	randomObjectClassName := "RedCars"
-
+	className := "RedCars"
+	defer func() {
+		t.Log("Remove the class")
+		delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		delResp, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+		helper.AssertRequestOk(t, delResp, err, nil)
+	}()
 	// Ensure that this name is not in the schema yet.
 	t.Log("Asserting that this class does not exist yet")
-	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
+	assert.NotContains(t, GetObjectClassNames(t), className)
 
 	tc := &models.Class{
-		Class: randomObjectClassName,
+		Class: className,
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -388,9 +393,7 @@ func TestAddClassIdempotence(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("Asserting that this class is now created")
-	assert.Contains(t, GetObjectClassNames(t), randomObjectClassName)
-
-	t.Run("pure http - without the auto-generated client", testGetSchemaWithoutClient)
+	assert.Contains(t, GetObjectClassNames(t), className)
 
 	t.Log("Creating class again")
 	resp, err = helper.Client(t).Schema.SchemaObjectsCreate(params, nil)

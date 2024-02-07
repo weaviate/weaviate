@@ -158,7 +158,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		if reflect.DeepEqual(existedClass, class) {
 			return m.ShardingState[class.Class], nil
 		}
-		return nil, fmt.Errorf("class name %q already exists with different properties", class.Class)
+		return nil, errDuplicateClass(class.Class)
 	}
 
 	// migrate only after validation in completed
@@ -619,4 +619,8 @@ func CreateClassPayload(class *models.Class,
 		}
 	}
 	return pl, nil
+}
+
+func errDuplicateClass(name string) error {
+	return fmt.Errorf("class name %q already exists with different properties", name)
 }
