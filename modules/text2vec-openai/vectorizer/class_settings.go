@@ -12,7 +12,9 @@
 package vectorizer
 
 import (
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -31,7 +33,28 @@ const (
 	DefaultBaseURL               = "https://api.openai.com"
 )
 
+const (
+	TextEmbedding3Small = "text-embedding-3-small"
+	TextEmbedding3Large = "text-embedding-3-large"
+)
+
+var (
+	TextEmbedding3SmallDefaultDimensions int64 = 1536
+	TextEmbedding3LargeDefaultDimensions int64 = 3072
+)
+
 var availableOpenAITypes = []string{"text", "code"}
+
+var availableV3Models = []string{
+	// new v3 models
+	TextEmbedding3Small,
+	TextEmbedding3Large,
+}
+
+var availableV3ModelsDimensions = map[string][]int64{
+	TextEmbedding3Small: {512, TextEmbedding3SmallDefaultDimensions},
+	TextEmbedding3Large: {256, 1024, TextEmbedding3LargeDefaultDimensions},
+}
 
 var availableOpenAIModels = []string{
 	"ada",     // supports 001 and 002
@@ -114,6 +137,11 @@ func (cs *classSettings) IsAzure() bool {
 	return cs.ResourceName() != "" && cs.DeploymentID() != ""
 }
 
+func (cs *classSettings) Dimensions() *int64 {
+	defaultValue := PickDefaultDimensions(cs.Model())
+	return cs.getPropertyAsInt("dimensions", defaultValue)
+}
+
 func (cs *classSettings) VectorizeClassName() bool {
 	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
@@ -140,13 +168,25 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	docType := cs.Type()
-	if !cs.validateOpenAISetting(docType, availableOpenAITypes) {
+	if !validateOpenAISetting[string](docType, availableOpenAITypes) {
 		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
 	}
 
+	availableModels := append(availableOpenAIModels, availableV3Models...)
 	model := cs.Model()
-	if !cs.validateOpenAISetting(model, availableOpenAIModels) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
+	if !validateOpenAISetting[string](model, availableModels) {
+		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableModels)
+	}
+
+	dimensions := cs.Dimensions()
+	if dimensions != nil {
+		if !validateOpenAISetting[string](model, availableV3Models) {
+			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
+		}
+		availableDimensions := availableV3ModelsDimensions[model]
+		if !validateOpenAISetting[int64](*dimensions, availableDimensions) {
+			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
+		}
 	}
 
 	version := cs.ModelVersion()
@@ -168,6 +208,12 @@ func (cs *classSettings) Validate(class *models.Class) error {
 }
 
 func (cs *classSettings) validateModelVersion(version, model, docType string) error {
+	for i := range availableV3Models {
+		if model == availableV3Models[i] {
+			return nil
+		}
+	}
+
 	if version == "001" {
 		// no restrictions
 		return nil
@@ -197,29 +243,48 @@ func (cs *classSettings) validateModelVersion(version, model, docType string) er
 	return nil
 }
 
-func (cs *classSettings) validateOpenAISetting(value string, availableValues []string) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
-}
-
 func (cs *classSettings) getProperty(name, defaultValue string) string {
 	if cs.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return defaultValue
 	}
 
-	model, ok := cs.cfg.Class()[name]
+	value, ok := cs.cfg.Class()[name]
 	if ok {
-		asString, ok := model.(string)
+		asString, ok := value.(string)
 		if ok {
 			return strings.ToLower(asString)
 		}
 	}
 
+	return defaultValue
+}
+
+func (cs *classSettings) getPropertyAsInt(name string, defaultValue *int64) *int64 {
+	if cs.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return defaultValue
+	}
+
+	value, ok := cs.cfg.Class()[name]
+	if ok {
+		asNumber, ok := value.(json.Number)
+		if ok {
+			if asInt64, err := asNumber.Int64(); err == nil {
+				return &asInt64
+			}
+		}
+		asInt, ok := value.(int)
+		if ok {
+			asInt64 := int64(asInt)
+			return &asInt64
+		}
+		asString := cs.getProperty(name, "")
+		if asInt, err := strconv.Atoi(asString); err == nil {
+			asInt64 := int64(asInt)
+			return &asInt64
+		}
+	}
 	return defaultValue
 }
 
@@ -266,11 +331,34 @@ func (cs *classSettings) validateAzureConfig(resourceName string, deploymentId s
 	return nil
 }
 
+func validateOpenAISetting[T string | int64](value T, availableValues []T) bool {
+	for i := range availableValues {
+		if value == availableValues[i] {
+			return true
+		}
+	}
+	return false
+}
+
 func PickDefaultModelVersion(model, docType string) string {
+	for i := range availableV3Models {
+		if model == availableV3Models[i] {
+			return ""
+		}
+	}
 	if model == "ada" && docType == "text" {
 		return "002"
 	}
-
 	// for all other combinations stick with "001"
 	return "001"
+}
+
+func PickDefaultDimensions(model string) *int64 {
+	if model == TextEmbedding3Small {
+		return &TextEmbedding3SmallDefaultDimensions
+	}
+	if model == TextEmbedding3Large {
+		return &TextEmbedding3LargeDefaultDimensions
+	}
+	return nil
 }

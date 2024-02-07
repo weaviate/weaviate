@@ -78,6 +78,11 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	texts := []string{}
 	images := []string{}
 	if schema != nil {
+		appendTexts := func(text, prop string) {
+			texts = append(texts, text)
+			vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+		}
+
 		for prop, value := range schema.(map[string]interface{}) {
 			if ichek.ImageField(prop) {
 				valueString, ok := value.(string)
@@ -87,19 +92,18 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 				}
 			}
 			if ichek.TextField(prop) {
-				valueString, ok := value.(string)
-				if ok {
-					texts = append(texts, valueString)
-					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
-				}
-			}
-			valueArr, ok := value.([]interface{})
-			if ok {
-				for _, value := range valueArr {
-					valueString, ok := value.(string)
-					if ok {
-						texts = append(texts, valueString)
-						vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
+				switch typed := value.(type) {
+				case string:
+					appendTexts(typed, prop)
+				case []string:
+					for _, valueString := range typed {
+						appendTexts(valueString, prop)
+					}
+				case []interface{}:
+					for i := range typed {
+						if valueString, ok := typed[i].(string); ok {
+							appendTexts(valueString, prop)
+						}
 					}
 				}
 			}
