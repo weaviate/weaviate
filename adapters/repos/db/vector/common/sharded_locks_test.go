@@ -23,7 +23,7 @@ func TestShardedLocks_ParallelLocksAll(t *testing.T) {
 	// no asserts
 	// ensures parallel LockAll does not fall into deadlock
 	count := 10
-	sl := NewDefaultShardedLocks()
+	sl := NewDefaultShardedRWLocks()
 
 	wg := new(sync.WaitGroup)
 	wg.Add(count)
@@ -41,7 +41,7 @@ func TestShardedLocks_ParallelRLocksAll(t *testing.T) {
 	// no asserts
 	// ensures parallel RLockAll does not fall into deadlock
 	count := 10
-	sl := NewDefaultShardedLocks()
+	sl := NewDefaultShardedRWLocks()
 
 	wg := new(sync.WaitGroup)
 	wg.Add(count)
@@ -59,7 +59,7 @@ func TestShardedLocks_ParallelLocksAllAndRLocksAll(t *testing.T) {
 	// no asserts
 	// ensures parallel LockAll + RLockAll does not fall into deadlock
 	count := 50
-	sl := NewDefaultShardedLocks()
+	sl := NewDefaultShardedRWLocks()
 
 	wg := new(sync.WaitGroup)
 	wg.Add(count)
@@ -82,7 +82,7 @@ func TestShardedLocks_MixedLocks(t *testing.T) {
 	// no asserts
 	// ensures parallel LockAll + RLockAll + Lock + RLock does not fall into deadlock
 	count := 1000
-	sl := NewShardedLocks(10)
+	sl := NewShardedRWLocks(10)
 
 	wg := new(sync.WaitGroup)
 	wg.Add(count)
@@ -115,7 +115,7 @@ func TestShardedLocks_MixedLocks(t *testing.T) {
 func TestShardedLocks(t *testing.T) {
 	t.Run("RLock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.RLock(1)
 		m.RLock(1)
@@ -126,7 +126,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("Lock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.Lock(1)
 
@@ -151,7 +151,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("RLock blocks Lock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.RLock(1)
 
@@ -176,7 +176,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("Lock blocks RLock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.Lock(1)
 
@@ -201,7 +201,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("Lock blocks LockAll", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.Lock(1)
 
@@ -226,7 +226,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("LockAll blocks Lock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.LockAll()
 
@@ -251,7 +251,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("LockAll blocks RLock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.LockAll()
 
@@ -276,7 +276,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("LockAll blocks LockAll", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.LockAll()
 
@@ -301,7 +301,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("UnlockAll releases all locks", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.LockAll()
 		m.UnlockAll()
@@ -315,7 +315,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("RLockAll blocks Lock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.RLockAll()
 
@@ -340,7 +340,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("RLockAll doesn't block/unblock RLock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.RLockAll()
 		m.RLock(1)
@@ -351,7 +351,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("RLockAll blocks LockAll", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.RLockAll()
 
@@ -376,7 +376,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("RLockAll doesn't block RLockAll", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(5)
+		m := NewShardedRWLocks(5)
 
 		m.RLockAll()
 		m.RLockAll()
@@ -387,7 +387,7 @@ func TestShardedLocks(t *testing.T) {
 
 	t.Run("unlock should wake up next waiting lock", func(t *testing.T) {
 		t.Parallel()
-		m := NewShardedLocks(2)
+		m := NewShardedRWLocks(2)
 
 		m.RLock(1)
 
