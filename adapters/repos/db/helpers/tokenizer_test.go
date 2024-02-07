@@ -40,17 +40,28 @@ func TestTokenise(t *testing.T) {
 	星空の下、すべてが平和である`)
 	assert.Equal(t, []string{"春の夜", "の夜の", "夜の夢", "の夢は", "夢はう", "はうつ", "うつつ", "つつよ", "つより", "よりも", "りもか", "もかな", "かなし", "なしき", "しき夏", "き夏の", "夏の夜", "の夜の", "夜の夢", "の夢は", "夢はう", "はうつ", "うつつ", "つつに", "つに似", "に似た", "似たり", "たり秋", "り秋の", "秋の夜", "の夜の", "夜の夢", "の夢は", "夢はう", "はうつ", "うつつ", "つつを", "つを超", "を超え", "超え冬", "え冬の", "冬の夜", "の夜の", "夜の夢", "の夢は", "夢は心", "は心に", "心に響", "に響く", "響く山", "く山の", "山のあ", "のあな", "あなた", "なたに", "たに小", "に小さ", "小さな", "さな村", "な村が", "村が見", "が見え", "見える", "える川", "る川の", "川の音", "の音が", "音が静", "が静か", "静かに", "かに耳", "に耳に", "耳に届", "に届く", "届く風", "く風が", "風が木", "が木々", "木々を", "々を通", "を通り", "通り抜", "り抜け", "抜ける", "ける音", "る音星", "音星空", "星空の", "空の下", "の下す", "下すべ", "すべて", "べてが", "てが平", "が平和", "平和で", "和であ", "である"}, tokens)
 
+	tokens = Tokenize(models.PropertyTokenizationGse, `春の夜の夢はうつつよりもかなしき
+	夏の夜の夢はうつつに似たり
+	秋の夜の夢はうつつを超え
+	冬の夜の夢は心に響く
+
+	山のあなたに小さな村が見える
+	川の音が静かに耳に届く
+	風が木々を通り抜ける音
+	星空の下、すべてが平和である`)
+	assert.Equal(t, []string{"春の", "夜", "の", "夢", "はう", "つつ", "より", "も", "かなしき", "\n", "\t", "夏", "の", "夜", "の", "夢", "はう", "つつ", "に", "似", "たり", "\n", "\t", "秋", "の", "夜", "の", "夢", "はう", "つつ", "を", "超え", "\n", "\t", "冬", "の", "夜", "の", "夢", "は", "心", "に", "響く", "\n", "\n", "\t", "山", "の", "あなた", "に", "小さな", "村", "が", "見える", "\n", "\t", "川", "の", "音", "が", "静", "かに", "耳", "に", "届く", "\n", "\t", "風", "が", "木々", "を", "通り抜ける", "音", "\n", "\t", "星空", "の", "下", "、", "すべて", "が", "平和", "で", "ある", "春の夜の夢はうつつよりもかなしき\n\t夏の夜の夢はうつつに似たり\n\t秋の夜の夢はうつつを超え\n\t冬の夜の夢は心に響く\n\n\t山のあなたに小さな村が見える\n\t川の音が静かに耳に届く\n\t風が木々を通り抜ける音\n\t星空の下、すべてが平和である"}, tokens)
+
 	tokens = Tokenize(models.PropertyTokenizationGse, "素早い茶色の狐が怠けた犬を飛び越えた")
-	assert.Equal(t, strings.Split("素早い 茶色 の 狐 が 怠 けた 犬 を 飛び越え た", " "), tokens)
+	assert.Equal(t, append(strings.Split("素早い 茶色 の 狐 が 怠 けた 犬 を 飛び越え た", " "), "素早い茶色の狐が怠けた犬を飛び越えた"), tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "すばやいちゃいろのきつねがなまけたいぬをとびこえた")
-	assert.Equal(t, strings.Split("すばやい ちゃいろ のき つね がな ま けた いぬ を とびこえ た", " "), tokens)
+	assert.Equal(t, append(strings.Split("すばやい ちゃいろ のき つね がな ま けた いぬ を とびこえ た", " "),"すばやいちゃいろのきつねがなまけたいぬをとびこえた"), tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "スバヤイチャイロノキツネガナマケタイヌヲトビコエタ")
-	assert.Equal(t, strings.Split("スバ ヤイ チャイロ ノ キツ ネガ ナマ ケタ イヌ ヲ トビ コ エ タ", " "), tokens)
+	assert.Equal(t, append(strings.Split("スバ ヤイ チャイロ ノ キツ ネガ ナマ ケタ イヌ ヲ トビ コ エ タ", " "),"スバヤイチャイロノキツネガナマケタイヌヲトビコエタ"), tokens)
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
-	assert.Equal(t, strings.Split("the quick brown fox jumps over the lazy dog", " "), tokens)
+	assert.Equal(t, append(strings.Split("the quick brown fox jumps over the lazy dog", " "),"The quick brown fox jumps over the lazy dog"), tokens)
 }
 
 func TestTokenize(t *testing.T) {
