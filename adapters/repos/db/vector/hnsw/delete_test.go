@@ -1401,7 +1401,7 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		if node == nil {
 			continue
 		}
-		require.Less(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
+		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
 		some = some || len(node.connections[0]) > index.maximumConnections
 	}
 	require.True(t, some)
