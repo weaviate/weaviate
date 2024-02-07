@@ -990,3 +990,43 @@ func Test_Defaults_NestedProperties(t *testing.T) {
 		})
 	}
 }
+
+func TestDeepEqual(t *testing.T) {
+	sm := newSchemaManager()
+	ctx := context.Background()
+	tcs := []struct {
+		name  string
+		c1    *models.Class
+		c2    *models.Class
+		equal bool
+	}{
+		{
+			name:  "one is nil",
+			c1:    nil,
+			c2:    &models.Class{Class: "C2"},
+			equal: false,
+		},
+		{
+			name:  "different names",
+			c1:    &models.Class{Class: "C1"},
+			c2:    &models.Class{Class: "C2"},
+			equal: false,
+		},
+		{
+			name:  "different config",
+			c1:    &models.Class{Class: "C1", Vectorizer: "v1"},
+			c2:    &models.Class{Class: "C1", Vectorizer: "v2"},
+			equal: false,
+		},
+		{
+			name:  "they are equal",
+			c1:    &models.Class{Class: "C1"},
+			c2:    &models.Class{Class: "C1"},
+			equal: true,
+		},
+	}
+
+	for _, tc := range tcs {
+		require.Equal(t, tc.equal, sm.deepEqual(ctx, tc.c1, tc.c2))
+	}
+}

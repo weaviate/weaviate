@@ -20,11 +20,11 @@ but it will be addressed in a separate task specifically dedicated to it.
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -149,15 +149,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		return nil, err
 	}
 	if err != nil && errors.Is(err, errClassNameExists) {
-		existedClass := m.getClassByName(class.Class)
-
-		m.parseShardingConfig(ctx, class)
-		m.parseVectorIndexConfig(ctx, class)
-		m.parseReplicationConfig(class)
-
-		m.parseReplicationConfig(existedClass)
-
-		if reflect.DeepEqual(existedClass, class) {
+		if m.deepEqual(ctx, m.getClassByName(class.Class), class) {
 			return m.ShardingState[class.Class], nil
 		}
 		return nil, errDuplicateClass(class.Class)
@@ -578,6 +570,33 @@ func (m *Manager) parseShardingConfig(ctx context.Context, class *models.Class) 
 	}
 	class.ShardingConfig = cfg
 	return nil
+}
+
+func (m *Manager) deepEqual(ctx context.Context, x, y *models.Class) bool {
+	if x == nil || y == nil {
+		return x == y
+	}
+
+	// normalize classes
+	m.parseShardingConfig(ctx, x)
+	m.parseVectorIndexConfig(ctx, x)
+	m.parseReplicationConfig(x)
+
+	m.parseShardingConfig(ctx, y)
+	m.parseVectorIndexConfig(ctx, y)
+	m.parseReplicationConfig(y)
+
+	xb, err := json.Marshal(x)
+	if err != nil {
+		m.logger.Error("error marshaling class", "class", x, "error", err)
+		return false
+	}
+	yb, err := json.Marshal(y)
+	if err != nil {
+		m.logger.Error("error marshaling class", "class", y, "error", err)
+		return false
+	}
+	return bytes.Equal(xb, yb)
 }
 
 func setInvertedConfigDefaults(class *models.Class) {
