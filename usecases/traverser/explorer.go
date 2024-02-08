@@ -59,9 +59,9 @@ type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
 	VectorFromSearchParam(ctx context.Context, className string, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn, tenant string) ([]float32, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn, tenant string) ([]float32, string, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{}, searchVector []float32,
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
@@ -79,7 +79,7 @@ type objectsSearcher interface {
 	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 
 	// GraphQL Explore{} queries
-	CrossClassVectorSearch(ctx context.Context, vector []float32, offset, limit int,
+	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 
 	// Near-params searcher
@@ -91,7 +91,7 @@ type objectsSearcher interface {
 
 type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
-	DenseObjectSearch(context.Context, string, []float32, int, int,
+	DenseObjectSearch(context.Context, string, []float32, string, int, int,
 		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
@@ -196,12 +196,13 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]interface{}, error) {
-	searchVector, err := e.vectorFromParams(ctx, params)
+	searchVector, targetVector, err := e.vectorFromParams(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
 	params.SearchVector = searchVector
+	params.TargetVector = targetVector
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
@@ -321,7 +322,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			hybridSearchLimit = baseSearchLimit
 		}
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
-			params.ClassName, vec, 0, hybridSearchLimit, params.Filters,
+			params.ClassName, vec, params.TargetVector, 0, hybridSearchLimit, params.Filters,
 			params.AdditionalProperties, params.Tenant)
 		if err != nil {
 			return nil, nil, err
@@ -652,12 +653,12 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		return nil, errors.Wrap(err, "invalid params")
 	}
 
-	vector, err := e.vectorFromExploreParams(ctx, params)
+	vector, targetVector, err := e.vectorFromExploreParams(ctx, params)
 	if err != nil {
 		return nil, errors.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, params.Offset, params.Limit, nil)
+	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}
@@ -705,17 +706,17 @@ func (e *Explorer) validateExploreParams(params ExploreParams) error {
 
 func (e *Explorer) vectorFromParams(ctx context.Context,
 	params dto.GetParams,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
 		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	params ExploreParams,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	err := e.nearParamsVector.validateNearParams(params.NearVector, params.NearObject, params.ModuleParams)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	if len(params.ModuleParams) == 1 {
@@ -725,17 +726,21 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	}
 
 	if params.NearVector != nil {
-		return params.NearVector.Vector, nil
+		targetVector := ""
+		if len(params.NearVector.TargetVectors) == 1 {
+			targetVector = params.NearVector.TargetVectors[0]
+		}
+		return params.NearVector.Vector, targetVector, nil
 	}
 
 	if params.NearObject != nil {
 		// TODO: cross class
-		vector, err := e.nearParamsVector.crossClassVectorFromNearObjectParams(ctx, params.NearObject)
+		vector, targetVector, err := e.nearParamsVector.crossClassVectorFromNearObjectParams(ctx, params.NearObject)
 		if err != nil {
-			return nil, errors.Errorf("nearObject params: %v", err)
+			return nil, "", errors.Errorf("nearObject params: %v", err)
 		}
 
-		return vector, nil
+		return vector, targetVector, nil
 	}
 
 	// either nearObject or nearVector or module search param has to be set,
@@ -746,17 +751,17 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 // similar to vectorFromModules, but not specific to a single class
 func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	paramName string, paramValue interface{},
-) ([]float32, error) {
+) ([]float32, string, error) {
 	if e.modulesProvider != nil {
-		vector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
+		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
 			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
-			return nil, errors.Errorf("vectorize params: %v", err)
+			return nil, "", errors.Errorf("vectorize params: %v", err)
 		}
-		return vector, nil
+		return vector, targetVector, nil
 	}
-	return nil, errors.New("no modules defined")
+	return nil, "", errors.New("no modules defined")
 }
 
 func (e *Explorer) checkCertaintyCompatibility(className string) error {

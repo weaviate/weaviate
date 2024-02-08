@@ -199,11 +199,11 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVector, targetDist, limit, filters, sort, groupBy, additional)
+	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
@@ -370,6 +370,11 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 	return l.shard.Queue()
 }
 
+func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
+	l.mustLoad()
+	return l.shard.Queues()
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
 		return nil
@@ -394,6 +399,11 @@ func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, e
 func (l *LazyLoadShard) VectorIndex() VectorIndex {
 	l.mustLoad()
 	return l.shard.VectorIndex()
+}
+
+func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
+	l.mustLoad()
+	return l.shard.VectorIndexes()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {
@@ -530,6 +540,11 @@ func (l *LazyLoadShard) updatePropertySpecificIndices(object *storobj.Object, st
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error {
 	l.mustLoad()
 	return l.shard.updateVectorIndexIgnoreDelete(vector, status)
+}
+
+func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error {
+	l.mustLoad()
+	return l.shard.updateVectorIndexesIgnoreDelete(vectors, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {

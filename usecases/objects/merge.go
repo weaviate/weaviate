@@ -31,6 +31,7 @@ type MergeDocument struct {
 	PrimitiveSchema      map[string]interface{}      `json:"primitiveSchema"`
 	References           BatchReferences             `json:"references"`
 	Vector               []float32                   `json:"vector"`
+	Vectors              map[string][]float32        `json:"vectors"`
 	UpdateTime           int64                       `json:"updateTime"`
 	AdditionalProperties models.AdditionalProperties `json:"additionalProperties"`
 	PropertiesToDelete   []string                    `json:"propertiesToDelete"`
@@ -102,6 +103,7 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
+	// TODO[named-vectors]: [andrzej] create a new comparator object to pass also vectors
 	mergeDoc := MergeDocument{
 		Class:              cls,
 		ID:                 id,

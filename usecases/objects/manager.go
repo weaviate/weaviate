@@ -90,7 +90,7 @@ type authorizer interface {
 }
 
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32,
+	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
 		repl *additional.ReplicationProperties) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
 		repl *additional.ReplicationProperties, tenant string) error
