@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bufio"
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,18 +77,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
 
 		err = newCommitLoggerParser(b.strategy, meteredReader, mt).Do()
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			// we need to check for both EOF or UnexpectedEOF, as we don't know where
-			// the commit log got corrupted, a field ending that weset a longer
-			// encoding for would return EOF, whereas a field read with binary.Read
-			// with a fixed size would return UnexpectedEOF. From our perspective both
-			// are unexpected.
-
+		if err != nil {
 			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
 				WithField("path", filepath.Join(b.dir, fname)).
-				Error("write-ahead-log ended abruptly, some elements may not have been recovered")
-		} else if err != nil {
-			return errors.Wrapf(err, "ingest wal %q", fname)
+				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
 		if err := mt.flush(); err != nil {

@@ -79,9 +79,6 @@ func (p *commitloggerParser) doReplaceRecordV0(nodeCache map[string]segmentRepla
 	var commitType CommitType
 
 	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-	if errors.Is(err, io.EOF) {
-		return nil
-	}
 	if err != nil {
 		return errors.Wrap(err, "read commit type")
 	}
