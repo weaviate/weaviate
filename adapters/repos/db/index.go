@@ -437,6 +437,13 @@ func (i *Index) addTimestampProperties(ctx context.Context) error {
 	})
 }
 
+func (i *Index) getVectorIndexConfig() schemaConfig.VectorIndexConfig {
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	return i.vectorIndexUserConfig
+}
+
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	updated schemaConfig.VectorIndexConfig,
 ) error {
