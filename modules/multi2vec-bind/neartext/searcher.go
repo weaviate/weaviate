@@ -132,7 +132,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				id = ref.TargetID
 			}
 
-			vector, err := findVectorFn(ctx, className, id, cfg.Tenant())
+			vector, _, err := findVectorFn(ctx, className, id, cfg.Tenant(), cfg.TargetVector())
 			if err != nil {
 				return nil, err
 			}

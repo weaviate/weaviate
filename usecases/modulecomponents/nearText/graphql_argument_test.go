@@ -140,14 +140,15 @@ func TestNearTextGraphQLArgumentWithAutocorrect(t *testing.T) {
 		//               { beacon: "some-beacon-value"}
 		//          ],
 		//          force: 0.8
-		//   }
+		//   },
+		//   targetVectors: ["targetVector"],
 		// }
 		assert.NotNil(t, nearText)
 		assert.Equal(t, "PrefixClassNearTextInpObj", nearText.Type.Name())
 		nearTextFields, ok := nearText.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, nearTextFields)
-		assert.Equal(t, 6, len(nearTextFields.Fields()))
+		assert.Equal(t, 7, len(nearTextFields.Fields()))
 		fields := nearTextFields.Fields()
 		concepts := fields["concepts"]
 		conceptsNonNull, conceptsNonNullOK := concepts.Type.(*graphql.NonNull)
@@ -197,5 +198,11 @@ func TestNearTextGraphQLArgumentWithAutocorrect(t *testing.T) {
 		assert.NotNil(t, moveAwayFrom.Fields()["force"])
 		_, moveAwayFromForceOK := moveAwayFrom.Fields()["force"].Type.(*graphql.NonNull)
 		assert.True(t, moveAwayFromForceOK)
+		targetVectors := fields["targetVectors"]
+		targetVectorsList, targetVectorsListOK := targetVectors.Type.(*graphql.List)
+		assert.True(t, targetVectorsListOK)
+		assert.NotNil(t, targetVectorsList)
+		assert.Equal(t, "String", targetVectorsList.OfType.Name())
+		assert.NotNil(t, targetVectors)
 	})
 }
