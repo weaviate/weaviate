@@ -50,12 +50,13 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 		// TODO[named-vectors]: add support for targetVector
-		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
+		searchVector, targetVector, err := t.nearParamsVector.vectorFromParams(ctx,
 			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant)
 		if err != nil {
 			return nil, err
 		}
 		params.SearchVector = searchVector
+		params.TargetVector = targetVector
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
 			params.NearObject, params.ModuleParams)
 

@@ -220,23 +220,24 @@ func (b *classBuilder) additionalVectorField(class *models.Class) *graphql.Field
 }
 
 func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Field {
-	fields := graphql.Fields{}
 	if len(class.VectorConfig) > 0 {
+		fields := graphql.Fields{}
 		for targetVector := range class.VectorConfig {
 			fields[targetVector] = &graphql.Field{
 				Name: fmt.Sprintf("%sAdditionalVectors%s", class.Class, targetVector),
 				Type: graphql.NewList(graphql.Float),
 			}
 		}
+		return &graphql.Field{
+			Type: graphql.NewObject(
+				graphql.ObjectConfig{
+					Name:   fmt.Sprintf("%sAdditionalVectors", class.Class),
+					Fields: fields,
+				},
+			),
+		}
 	}
-	return &graphql.Field{
-		Type: graphql.NewObject(
-			graphql.ObjectConfig{
-				Name:   fmt.Sprintf("%sAdditionalVectors", class.Class),
-				Fields: fields,
-			},
-		),
-	}
+	return nil
 }
 
 func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {

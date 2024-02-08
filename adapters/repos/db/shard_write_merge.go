@@ -37,6 +37,18 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 		}
 	}
 
+	for targetVector, vector := range merge.Vectors {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		vectorIndex := s.VectorIndexForName(targetVector)
+		if vectorIndex == nil {
+			return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
+		}
+		err := vectorIndex.ValidateBeforeInsert(vector)
+		if err != nil {
+			return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+		}
+	}
+
 	idBytes, err := uuid.MustParse(merge.ID.String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -59,6 +71,12 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 
 	if err := s.updateVectorIndex(obj.Vector, status); err != nil {
 		return errors.Wrap(err, "update vector index")
+	}
+
+	for targetVector, vector := range obj.Vectors {
+		if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
+		}
 	}
 
 	if err := s.updatePropertySpecificIndices(obj, status); err != nil {

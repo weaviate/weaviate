@@ -20,8 +20,6 @@ import (
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func testCreateSchema(t *testing.T, host string) func(t *testing.T) {
@@ -53,8 +51,7 @@ func testCreateSchema(t *testing.T, host string) func(t *testing.T) {
 								"vectorizeClassName": false,
 							},
 						},
-						VectorIndexType:   "hnsw",
-						VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
+						VectorIndexType: "hnsw",
 					},
 				},
 			}
@@ -95,8 +92,7 @@ func testCreateSchema(t *testing.T, host string) func(t *testing.T) {
 								"vectorizeClassName": false,
 							},
 						},
-						VectorIndexType:   "hnsw",
-						VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
+						VectorIndexType: "hnsw",
 					},
 					name2: {
 						Vectorizer: map[string]interface{}{
@@ -104,7 +100,7 @@ func testCreateSchema(t *testing.T, host string) func(t *testing.T) {
 								"vectorizeClassName": false,
 							},
 						},
-						VectorIndexType: "hnsw",
+						VectorIndexType: "flat",
 					},
 				},
 			}
