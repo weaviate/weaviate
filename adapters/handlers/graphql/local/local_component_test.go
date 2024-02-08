@@ -80,8 +80,8 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 			},
 		},
 
-		// This tests asserts that a class without any properties doesn't lead to
-		// errors.
+		// // This tests asserts that a class without any properties doesn't lead to
+		// // errors.
 		testCase{
 			name: "with things without properties locally",
 			localSchema: schema.Schema{
