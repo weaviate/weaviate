@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -87,55 +86,24 @@ func (p *commitloggerParser) doReplaceRecordV0(nodeCache map[string]segmentRepla
 		return errors.Wrap(err, "read commit type")
 	}
 
-	if CommitTypeReplace.Is(commitType) {
-		if err := p.parseReplaceNode(p.reader, nodeCache); err != nil {
-			return errors.Wrap(err, "read replace node")
-		}
-	} else {
-		return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
-	}
-
-	return nil
-}
-
-func (p *commitloggerParser) doReplaceRecordV1(nodeCache map[string]segmentReplaceNode) error {
-	var commitType CommitType
-
-	err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
-	if err != nil {
-		return errors.Wrap(err, "read commit type")
-	}
 	if !CommitTypeReplace.Is(commitType) {
 		return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
 	}
 
-	var nodeLen uint32
-	err = binary.Read(p.checksumReader, binary.LittleEndian, &nodeLen)
+	return p.parseReplaceNode(p.reader, nodeCache)
+}
+
+func (p *commitloggerParser) doReplaceRecordV1(nodeCache map[string]segmentReplaceNode) error {
+	commitType, reader, err := p.doRecord()
 	if err != nil {
-		return errors.Wrap(err, "read commit node length")
+		return err
 	}
 
-	p.bufNode.Reset()
-
-	io.CopyN(p.bufNode, p.checksumReader, int64(nodeLen))
-
-	// read checksum directly from the reader
-	var checksum [4]byte
-	_, err = io.ReadFull(p.reader, checksum[:])
-	if err != nil {
-		return errors.Wrap(err, "read commit checksum")
+	if !CommitTypeReplace.Is(commitType) {
+		return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
 	}
 
-	// validate checksum
-	if !bytes.Equal(checksum[:], p.checksumReader.Hash()) {
-		return errors.Wrap(ErrInvalidChecksum, "read commit entry")
-	}
-
-	if err := p.parseReplaceNode(p.bufNode, nodeCache); err != nil {
-		return errors.Wrap(err, "read replace node")
-	}
-
-	return nil
+	return p.parseReplaceNode(reader, nodeCache)
 }
 
 // parseReplaceNode only parses into the deduplication cache, not into the

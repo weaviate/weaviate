@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -21,38 +22,79 @@ import (
 
 func (p *commitloggerParser) doRoaringSet() error {
 	for {
-		var commitType CommitType
+		var version uint8
 
-		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
+		err := binary.Read(p.checksumReader, binary.LittleEndian, &version)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return errors.Wrap(err, "read commit type")
+			return errors.Wrap(err, "read commit version")
 		}
 
-		if CommitTypeRoaringSet.Is(commitType) {
-			if err := p.parseRoaringSetNode(); err != nil {
-				return errors.Wrap(err, "read collection node")
+		switch version {
+		case 0:
+			{
+				err = p.parseRoaringSetNodeV0()
 			}
-		} else {
-			return errors.Errorf("found a %s commit on collection bucket", commitType.String())
+		case 1:
+			{
+				err = p.parseRoaringSetNodeV1()
+			}
+		default:
+			{
+				return fmt.Errorf("unsupported commit version %d", version)
+			}
+		}
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func (p *commitloggerParser) parseRoaringSetNode() error {
+func (p *commitloggerParser) parseRoaringSetNodeV0() error {
+	var commitType CommitType
+
+	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return errors.Wrap(err, "read commit type")
+	}
+
+	if !CommitTypeRoaringSet.Is(commitType) {
+		return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
+	}
+
+	return p.parseRoaringSetNode(p.reader)
+}
+
+func (p *commitloggerParser) parseRoaringSetNodeV1() error {
+	commitType, reader, err := p.doRecord()
+	if err != nil {
+		return err
+	}
+
+	if !CommitTypeRoaringSet.Is(commitType) {
+		return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
+	}
+
+	return p.parseRoaringSetNode(reader)
+}
+
+func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 	lenBuf := make([]byte, 8)
-	if _, err := io.ReadFull(p.reader, lenBuf); err != nil {
+	if _, err := io.ReadFull(reader, lenBuf); err != nil {
 		return errors.Wrap(err, "read segment len")
 	}
 	segmentLen := binary.LittleEndian.Uint64(lenBuf)
 
 	segBuf := make([]byte, segmentLen)
 	copy(segBuf, lenBuf)
-	if _, err := io.ReadFull(p.reader, segBuf[8:]); err != nil {
+	if _, err := io.ReadFull(reader, segBuf[8:]); err != nil {
 		return errors.Wrap(err, "read segment contents")
 	}
 

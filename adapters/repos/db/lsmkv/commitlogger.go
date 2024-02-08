@@ -102,38 +102,26 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	return out, nil
 }
 
-func (cl *commitLogger) put(node segmentReplaceNode) error {
-	if cl.paused {
-		return nil
-	}
-
-	cl.bufNode.Reset()
-
+func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
-	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
-	if err != nil {
-		return err
-	}
-	nodeLen := ki.ValueEnd - ki.ValueStart
-
-	// write commit log entry
-
-	if err := binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion); err != nil {
-		return err
-	}
-
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CommitTypeReplace)
+	err := binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
 	if err != nil {
 		return err
 	}
 
-	if err := binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(nodeLen)); err != nil {
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
+	if err != nil {
 		return err
 	}
 
 	// write node
-	_, err = cl.checksumWriter.Write(cl.bufNode.Bytes())
+	_, err = cl.checksumWriter.Write(nodeBytes)
 	if err != nil {
 		return err
 	}
@@ -144,9 +132,27 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 		return err
 	}
 
-	cl.n.Add(int64(1 + 1 + 4 + nodeLen + checksumSize))
+	cl.n.Add(int64(1 + 1 + 4 + len(nodeBytes) + checksumSize))
 
 	return nil
+}
+
+func (cl *commitLogger) put(node segmentReplaceNode) error {
+	if cl.paused {
+		return nil
+	}
+
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	if err != nil {
+		return err
+	}
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
+	}
+
+	return cl.writeEntry(CommitTypeReplace, cl.bufNode.Bytes())
 }
 
 func (cl *commitLogger) append(node segmentCollectionNode) error {
@@ -154,21 +160,17 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 		return nil
 	}
 
-	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeCollection); err != nil {
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	if err != nil {
 		return err
 	}
-	n := 1
-
-	if ki, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
-		return err
-	} else {
-		n += ki.ValueEnd - ki.ValueStart
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	cl.n.Add(int64(n))
-
-	return nil
+	return cl.writeEntry(CommitTypeCollection, cl.bufNode.Bytes())
 }
 
 func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
@@ -176,20 +178,17 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 		return nil
 	}
 
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeRoaringSet); err != nil {
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode, 0)
+	if err != nil {
 		return err
 	}
-	n := 1
-
-	if ki, err := node.KeyIndexAndWriteTo(cl.writer, 0); err != nil {
-		return err
-	} else {
-		n += ki.ValueEnd - ki.ValueStart
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	cl.n.Add(int64(n))
-
-	return nil
+	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
 }
 
 // Size returns the amount of data that has been written since the commit
