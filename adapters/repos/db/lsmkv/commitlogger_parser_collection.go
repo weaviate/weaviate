@@ -12,18 +12,13 @@
 package lsmkv
 
 import (
-	"bufio"
 	"encoding/binary"
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (p *commitloggerParser) doCollection() error {
-	metered := diskio.NewMeteredReader(p.r, p.metrics.TrackStartupReadWALDiskIO)
-	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
-
 	for {
 		var commitType CommitType
 
@@ -31,7 +26,6 @@ func (p *commitloggerParser) doCollection() error {
 		if errors.Is(err, io.EOF) {
 			break
 		}
-
 		if err != nil {
 			return errors.Wrap(err, "read commit type")
 		}
