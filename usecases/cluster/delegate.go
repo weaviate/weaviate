@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"sort"
 	"sync"
 	"time"
@@ -136,16 +137,19 @@ func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	if diskSpace == nil {
 		return fmt.Errorf("function calculating disk space cannot be empty")
 	}
+	lastTime := time.Now()
+	minUpdatePeriod := time.Second + _ProtoTTL/3
 	space, err := diskSpace(d.dataPath)
 	if err != nil {
-		return fmt.Errorf("disk_space: %w", err)
+		lastTime = lastTime.Add(-minUpdatePeriod)
+		d.log.Errorf("calculate disk space: %v", err)
 	}
 
 	d.setOwnSpace(space)
-	d.set(d.Name, NodeInfo{space, time.Now().UnixMilli()}) // cache
+	d.set(d.Name, NodeInfo{space, lastTime.UnixMilli()}) // cache
 
 	// delegate remains alive throughout the entire program.
-	go d.updater(_ProtoTTL, time.Second+_ProtoTTL/3, diskSpace)
+	go d.updater(_ProtoTTL, minUpdatePeriod, diskSpace)
 	return nil
 }
 
@@ -234,17 +238,20 @@ func (d *delegate) delete(node string) {
 // sortCandidates by the amount of free space in descending order
 //
 // Two nodes are considered equivalent if the difference between their
-// free spaces is less than 4KB.
+// free spaces is less than 32MB.
 // The free space is just an rough estimate of the actual amount.
-// The Lower bound 4KB helps to mitigate the risk of selecting same set of nodes
+// The Lower bound 32MB helps to mitigate the risk of selecting same set of nodes
 // when selections happens concurrently on different initiator nodes.
 func (d *delegate) sortCandidates(names []string) []string {
+	rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+
 	d.Lock()
 	defer d.Unlock()
 	m := d.Cache
 	sort.Slice(names, func(i, j int) bool {
-		return (m[names[j]].Available >> 12) < (m[names[i]].Available >> 12)
+		return (m[names[j]].Available >> 25) < (m[names[i]].Available >> 25)
 	})
+
 	return names
 }
 
