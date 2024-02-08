@@ -46,9 +46,11 @@ func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, 
 
 	targetVectors, ok := source["targetVectors"]
 	if ok {
-		args.TargetVectors = targetVectors.([]string)
+		targetVectorsArray := targetVectors.([]interface{})
+		args.TargetVectors = make([]string, len(targetVectorsArray))
+		for i, value := range targetVectorsArray {
+			args.TargetVectors[i] = value.(string)
+		}
 	}
-
-	args.TargetVectors = source["targetVectors"].([]string)
 	return args, nil
 }

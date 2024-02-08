@@ -28,6 +28,7 @@ type Result struct {
 	ExplainScore         string
 	Dist                 float32
 	Vector               []float32
+	Vectors              models.Vectors
 	Beacon               string
 	Certainty            float32
 	Schema               models.PropertySchema
@@ -37,7 +38,7 @@ type Result struct {
 	VectorWeights        map[string]string
 	IsConsistent         bool
 	Tenant               string
-	Vectors              map[string][]float32
+	// Vectors              map[string][]float32
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int
@@ -72,11 +73,7 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 	if includeVector {
 		t.Vector = r.Vector
 		// TODO[named-vectors]: test that it works
-		vectors := make(models.Vectors)
-		for name, vector := range r.Vectors {
-			vectors[name] = vector
-		}
-		t.Vectors = vectors
+		t.Vectors = r.Vectors
 	}
 
 	return t

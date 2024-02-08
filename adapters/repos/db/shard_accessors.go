@@ -24,8 +24,20 @@ func (s *Shard) Queue() *IndexQueue {
 	return s.queue
 }
 
+func (s *Shard) Queues() map[string]*IndexQueue {
+	return s.queues
+}
+
 func (s *Shard) VectorIndex() VectorIndex {
 	return s.vectorIndex
+}
+
+func (s *Shard) VectorIndexes() map[string]VectorIndex {
+	return s.vectorIndexes
+}
+
+func (s *Shard) VectorIndexForName(targetVector string) VectorIndex {
+	return s.vectorIndexes[targetVector]
 }
 
 func (s *Shard) Versioner() *shardVersioner {
