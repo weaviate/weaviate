@@ -22,14 +22,14 @@ type fakeClient struct {
 	lastConfig ent.VectorizationConfig
 }
 
-func (c *fakeClient) Vectorize(ctx context.Context, input []string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (c *fakeClient) Vectorize(ctx context.Context, input []string, cfg ent.VectorizationConfig) (*ent.VectorizationResult, *ent.RateLimits, error) {
 	c.lastInput = input
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
 		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
 		Text:       input,
-	}, nil
+	}, nil, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,

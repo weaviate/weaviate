@@ -119,35 +119,36 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *vectorizer) Vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, *ent.RateLimits, error) {
 	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
+	res, _, err := v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
+	return res, err
 }
 
-func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, *ent.RateLimits, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal body")
+		return nil, nil, errors.Wrap(err, "marshal body")
 	}
 
 	endpoint, err := v.buildURL(ctx, config)
 	if err != nil {
-		return nil, errors.Wrap(err, "join OpenAI API host and path")
+		return nil, nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, nil, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx, config.IsAzure)
 	if err != nil {
-		return nil, errors.Wrap(err, "API Key")
+		return nil, nil, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, config.IsAzure))
 	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
@@ -157,22 +158,23 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return nil, nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return nil, nil, errors.Wrap(err, "read response body")
 	}
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, nil, errors.Wrap(err, "unmarshal response body")
 	}
+	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
+		return nil, rateLimit, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
 	}
 
 	texts := make([]string, len(resBody.Data))
@@ -191,8 +193,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
 		Errors:     openAIerror,
-		RateLimits: ent.GetRateLimitsFromHeader(res.Header),
-	}, nil
+	}, rateLimit, nil
 }
 
 func (v *vectorizer) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {

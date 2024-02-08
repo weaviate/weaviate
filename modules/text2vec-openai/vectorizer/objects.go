@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 
@@ -53,7 +54,7 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	Vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*ent.VectorizationResult, *ent.RateLimits, error)
 	VectorizeQuery(ctx context.Context, input []string,
 		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
@@ -93,7 +94,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return vector, nil
 	}
 	// vectorize text
-	res, err := v.client.Vectorize(ctx, []string{text}, v.getVectorizationConfig(cfg))
+	res, _, err := v.client.Vectorize(ctx, []string{text}, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +127,9 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 //     batches are not mixed with each other.
 //  3. It sends the smaller batches to the vectorizer
 func (v *Vectorizer) batchWorker() {
-	currentTokenLimits := 1000 // don't know token limit before the first request
+	tokenLimit := 1000 // don't know limits before the first request
+	remainingRequests := 10
+	requestLimitReset := 0
 	texts := make([]string, 0, 100)
 	for job := range v.jobQueueCh {
 		conf := v.getVectorizationConfig(job.cfg)
@@ -139,7 +142,7 @@ func (v *Vectorizer) batchWorker() {
 			// add input to vectorizer-batches until current token limit is reached
 			text := job.texts[objCounter]
 			tokensInCurrentBatch += job.tokens[objCounter]
-			if float32(tokensInCurrentBatch) < 0.95*float32(currentTokenLimits) {
+			if float32(tokensInCurrentBatch) < 0.95*float32(tokenLimit) {
 				texts = append(texts, text)
 				if objCounter < len(job.objects)-1 {
 					objCounter++
@@ -153,13 +156,12 @@ func (v *Vectorizer) batchWorker() {
 				}
 				break
 			}
-			res, err := v.client.Vectorize(job.ctx, texts, conf)
+			res, rateLimit, err := v.client.Vectorize(job.ctx, texts, conf)
 			if err != nil {
 				for j := 0; j < len(texts); j++ {
 					job.errs[vecBatchOffset+j] = err
 				}
 			} else {
-				currentTokenLimits = res.RateLimits.RemainingTokens
 				for j := 0; j < len(texts); j++ {
 					if res.Errors[j] != nil {
 						job.errs[vecBatchOffset+j] = res.Errors[j]
@@ -167,6 +169,25 @@ func (v *Vectorizer) batchWorker() {
 						job.objects[vecBatchOffset+j].Vector = res.Vector[j]
 					}
 				}
+			}
+
+			if rateLimit != nil {
+				tokenLimit = rateLimit.RemainingTokens
+				remainingRequests = rateLimit.RemainingRequests
+				requestLimitReset = rateLimit.ResetRequests
+			}
+
+			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
+			// tier only the RPD limits are shown but not RPM
+			if remainingRequests == 0 {
+				// if we need to wait more than 60s for a reset we need to stop the batch to not produce timeouts
+				if requestLimitReset >= 61 {
+					for j := vecBatchOffset; j < len(job.objects); j++ {
+						job.errs[j] = err
+					}
+					break
+				}
+				time.Sleep(time.Duration(requestLimitReset) * time.Second)
 			}
 
 			objCounter++

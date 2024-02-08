@@ -105,7 +105,7 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
 				Type:  "text",
 				Model: "ada",
@@ -126,7 +126,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -143,7 +143,7 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
@@ -167,7 +167,7 @@ func TestClient(t *testing.T) {
 			Errors:     []error{nil},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
 				Type:  "text",
 				Model: "ada",
@@ -188,7 +188,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -207,7 +207,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
 				Type:  "text",
 				Model: "ada",
