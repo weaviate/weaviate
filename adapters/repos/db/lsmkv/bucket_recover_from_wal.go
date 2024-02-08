@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
@@ -74,7 +75,9 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			WithField("path", path).
 			Warning("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
 
-		err = newCommitLoggerParser(bufio.NewReader(cl.file), mt, b.strategy, b.metrics).Do()
+		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
+
+		err = newCommitLoggerParser(b.strategy, meteredReader, mt).Do()
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			// we need to check for both EOF or UnexpectedEOF, as we don't know where
 			// the commit log got corrupted, a field ending that weset a longer

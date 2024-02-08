@@ -13,12 +13,14 @@ package lsmkv
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 )
 
 type commitLogger struct {
@@ -27,12 +29,32 @@ type commitLogger struct {
 	n      atomic.Int64
 	path   string
 
+	checksumWriter rwhasher.WriterHasher
+
+	bufNode *bytes.Buffer
+
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
 }
 
-type CommitType uint16
+// commit log entry data format
+// ---------------------------
+// | version == 0 (1byte)    |
+// | record (dynamic length) |
+// ---------------------------
+
+// ------------------------------------------------------
+// | version == 1 (1byte)                               |
+// | type (1byte)                                       |
+// | node length (4bytes)                               |
+// | node (dynamic length)                              |
+// | checksum (crc32 4bytes non-checksum fields so far) |
+// ------------------------------------------------------
+
+const CurrentVersion uint8 = 1
+
+type CommitType uint8
 
 const (
 	CommitTypeReplace CommitType = iota // replace strategy
@@ -73,6 +95,10 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	out.file = f
 
 	out.writer = bufio.NewWriter(f)
+	out.checksumWriter = rwhasher.NewCRC32Writer(out.writer)
+
+	out.bufNode = bytes.NewBuffer(nil)
+
 	return out, nil
 }
 
@@ -81,19 +107,44 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 		return nil
 	}
 
+	cl.bufNode.Reset()
+
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeReplace); err != nil {
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	if err != nil {
 		return err
 	}
-	n := 1
+	nodeLen := ki.ValueEnd - ki.ValueStart
 
-	if ki, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
+	// write commit log entry
+
+	if err := binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion); err != nil {
 		return err
-	} else {
-		n += ki.ValueEnd - ki.ValueStart
 	}
 
-	cl.n.Add(int64(n))
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CommitTypeReplace)
+	if err != nil {
+		return err
+	}
+
+	if err := binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(nodeLen)); err != nil {
+		return err
+	}
+
+	// write node
+	_, err = cl.checksumWriter.Write(cl.bufNode.Bytes())
+	if err != nil {
+		return err
+	}
+
+	// write record checksum directly on the writer
+	checksumSize, err := cl.writer.Write(cl.checksumWriter.Hash())
+	if err != nil {
+		return err
+	}
+
+	cl.n.Add(int64(1 + 1 + 4 + nodeLen + checksumSize))
 
 	return nil
 }
@@ -179,13 +230,6 @@ func (cl *commitLogger) flushBuffers() error {
 	if err != nil {
 		return fmt.Errorf("flushing WAL %q: %w", cl.path, err)
 	}
-
-	// Note: syncing at this point may penalize single object insertion too much
-	/*
-		err = cl.file.Sync()
-		if err != nil {
-			return fmt.Errorf("syncing WAL %q: %w", cl.path, err)
-		}*/
 
 	return nil
 }
