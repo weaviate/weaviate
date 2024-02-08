@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -174,7 +175,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, &class, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, &class, compFactoryFn(obj, &class), repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -202,7 +203,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, class, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, class, compFactoryFn(obj, class), repo.Object, logger)
 		assert.Nil(t, err)
 	})
 
@@ -221,7 +222,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{schema.Schema{}})
 
 		obj := &models.Object{Class: "Other Class", ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, class, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, class, compFactoryFn(obj, class), repo.Object, logger)
 		expectedErr := fmt.Sprintf("class %v not present", obj.Class)
 		assert.EqualError(t, err, expectedErr)
 	})
@@ -249,7 +250,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		p.SetSchemaGetter(&fakeSchemaGetter{sch})
 
 		obj := &models.Object{Class: className, ID: newUUID()}
-		err := p.UpdateVector(ctx, obj, class, nil, repo.Object, logger)
+		err := p.UpdateVector(ctx, obj, class, compFactoryFn(obj, class), repo.Object, logger)
 		expectedErr := "vector index config (struct {}) is not of type HNSW, " +
 			"but objects manager is restricted to HNSW"
 		assert.EqualError(t, err, expectedErr)
@@ -258,4 +259,10 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 func newUUID() strfmt.UUID {
 	return strfmt.UUID(uuid.NewString())
+}
+
+func compFactoryFn(object *models.Object, class *models.Class) moduletools.PropsComparatorFactory {
+	return func() (moduletools.VectorizablePropsComparator, error) {
+		return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
+	}
 }

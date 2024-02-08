@@ -46,9 +46,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	objDiff *moduletools.ObjectDiff, settings ClassSettings,
+	comp moduletools.VectorizablePropsComparator, settings ClassSettings,
 ) error {
-	vec, err := v.object(ctx, object.ID, object.Properties, objDiff, settings)
+	vec, err := v.object(ctx, object.ID, comp, settings)
 	if err != nil {
 		return err
 	}
@@ -70,49 +70,43 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float3
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	schema interface{}, objDiff *moduletools.ObjectDiff, ichek ClassSettings,
+	comp moduletools.VectorizablePropsComparator, ichek ClassSettings,
 ) ([]float32, error) {
-	vectorize := objDiff == nil || objDiff.GetVec() == nil
+	vectorize := comp.PrevVector() == nil
 
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
-	if schema != nil {
-		appendTexts := func(text, prop string) {
-			texts = append(texts, text)
-			vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
-		}
 
-		for prop, value := range schema.(map[string]interface{}) {
-			if ichek.ImageField(prop) {
-				valueString, ok := value.(string)
-				if ok {
-					images = append(images, valueString)
-					vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
-				}
+	it := comp.PropsIterator()
+	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
+		switch typed := propValue.(type) {
+		case string:
+			if ichek.ImageField(propName) {
+				vectorize = vectorize || comp.IsChanged(propName)
+				images = append(images, typed)
 			}
-			if ichek.TextField(prop) {
-				switch typed := value.(type) {
-				case string:
-					appendTexts(typed, prop)
-				case []string:
-					for _, valueString := range typed {
-						appendTexts(valueString, prop)
-					}
-				case []interface{}:
-					for i := range typed {
-						if valueString, ok := typed[i].(string); ok {
-							appendTexts(valueString, prop)
-						}
-					}
-				}
+			if ichek.TextField(propName) {
+				vectorize = vectorize || comp.IsChanged(propName)
+				texts = append(texts, typed)
+			}
+
+		case []string:
+			if ichek.TextField(propName) {
+				vectorize = vectorize || comp.IsChanged(propName)
+				texts = append(texts, typed...)
+			}
+
+		case nil:
+			if ichek.ImageField(propName) || ichek.TextField(propName) {
+				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
 	}
 
 	// no property was changed, old vector can be used
 	if !vectorize {
-		return objDiff.GetVec(), nil
+		return comp.PrevVector(), nil
 	}
 
 	vectors := [][]float32{}

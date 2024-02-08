@@ -118,7 +118,7 @@ type ModulesProvider interface {
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
 	UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-		objectDiff *moduletools.ObjectDiff, repo modulecapabilities.FindObjectFn,
+		compFactory moduletools.PropsComparatorFactory, repo modulecapabilities.FindObjectFn,
 		logger logrus.FieldLogger) error
 	VectorizerName(className string) (string, error)
 }
