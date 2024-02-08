@@ -28,6 +28,7 @@ const (
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
 	baseURLProperty          = "baseURL"
+	apiVersionProperty       = "apiVersion"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -52,6 +53,7 @@ var (
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
 	DefaultOpenAIBaseURL          = "https://api.openai.com"
+	DefaultApiVersion             = "2023-05-15"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
@@ -64,6 +66,17 @@ var defaultMaxTokens = map[string]float64{
 	"gpt-4":              8192,
 	"gpt-4-32k":          32768,
 	"gpt-4-1106-preview": 128000,
+}
+
+var availableApiVersions = []string{
+	"2022-12-01",
+	"2023-03-15-preview",
+	"2023-05-15",
+	"2023-06-01-preview",
+	"2023-07-01-preview",
+	"2023-08-01-preview",
+	"2023-09-01-preview",
+	"2023-12-01-preview",
 }
 
 type ClassSettings interface {
@@ -80,6 +93,7 @@ type ClassSettings interface {
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
 	BaseURL() string
+	ApiVersion() string
 }
 
 type classSettings struct {
@@ -124,6 +138,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	topP := ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
+	}
+
+	apiVersion := ic.ApiVersion()
+	if !ic.validateApiVersion(apiVersion) {
+		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
 	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
@@ -192,6 +211,10 @@ func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
 }
 
+func (ic *classSettings) validateApiVersion(apiVersion string) bool {
+	return contains(availableApiVersions, apiVersion)
+}
+
 func (ic *classSettings) IsLegacy() bool {
 	return contains(availableOpenAILegacyModels, ic.Model())
 }
@@ -206,6 +229,10 @@ func (ic *classSettings) MaxTokens() float64 {
 
 func (ic *classSettings) BaseURL() string {
 	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
+}
+
+func (ic *classSettings) ApiVersion() string {
+	return *ic.getStringProperty(apiVersionProperty, DefaultApiVersion)
 }
 
 func (ic *classSettings) Temperature() float64 {

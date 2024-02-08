@@ -4104,7 +4104,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -9345,7 +9346,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {

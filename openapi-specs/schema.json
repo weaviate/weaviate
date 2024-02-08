@@ -1138,7 +1138,8 @@
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
