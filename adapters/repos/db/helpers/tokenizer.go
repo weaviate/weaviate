@@ -34,6 +34,18 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationGse,
 }
 
+func init() {
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
+	if gseTokenizer == nil {
+		seg, err := gse.New("ja")
+		if err != nil {
+			return //[]string{}
+		}
+		gseTokenizer = &seg
+	}
+}
+
 func Tokenize(tokenization string, in string) []string {
 	switch tokenization {
 	case models.PropertyTokenizationWord:
@@ -120,21 +132,9 @@ func tokenizetrigram(in string) []string {
 
 // tokenizeGSE uses the gse tokenizer to tokenise Chinese and Japanese
 func tokenizeGSE(in string) []string {
-	gseTokenizerLock.Lock()
-	defer gseTokenizerLock.Unlock()
-	if gseTokenizer == nil {
-		seg, err := gse.New("ja,zh")
-		if err != nil {
-			return []string{}
-		}
-		seg.LoadDict()
-		gseTokenizer = &seg
-	}
-	segments := gseTokenizer.Segment([]byte(in))
-	var terms []string
-	for _, segment := range segments {
-		terms = append(terms, segment.Token().Text())
-	}
+
+	terms := gseTokenizer.CutAll(in)
+
 
 	// Remove empty strings from terms
 	for i := 0; i < len(terms); i++ {
@@ -143,7 +143,10 @@ func tokenizeGSE(in string) []string {
 			i--
 		}
 	}
-	return append(terms, in)
+
+	alpha := tokenizeWord(in)
+	return append(terms, alpha...)
+	
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
