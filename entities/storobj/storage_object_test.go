@@ -31,10 +31,6 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Vectors: models.Vectors{
-				"vector1": {1, 2, 3},
-				"vector2": {4, 5, 6},
-			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -55,6 +51,10 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+		},
 	)
 	before.DocID = 7
 
@@ -101,6 +101,7 @@ func TestFilteringNilProperty(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		nil,
 	)
 	props := object.Properties()
 	propsTyped, ok := props.(map[string]interface{})
@@ -119,11 +120,6 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Vectors: models.Vectors{
-				"vector1": {1, 2, 3},
-				"vector2": {4, 5, 6},
-				"vector3": {7, 8, 9},
-			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -144,6 +140,11 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+			"vector3": {7, 8, 9},
+		},
 	)
 	before.DocID = 7
 
@@ -159,6 +160,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			before.Object.Additional = nil
 			before.Vector = nil
 			before.VectorLen = 3
+			before.Vectors = nil
 			assert.Equal(t, before, after)
 
 			assert.Equal(t, before.DocID, after.DocID)
@@ -218,7 +220,7 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil)
+				}, nil, nil)
 				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
@@ -272,7 +274,7 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil)
+				}, nil, nil)
 				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
@@ -287,11 +289,6 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Vectors: models.Vectors{
-				"vector1": {1, 2, 3},
-				"vector2": {4, 5, 6},
-				"vector3": {7, 8, 9},
-			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -313,6 +310,11 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+			"vector3": {7, 8, 9},
+		},
 	)
 	before.DocID = 7
 
@@ -383,6 +385,7 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 			Properties:         properties,
 		},
 		[]float32{1, 2, 0.7},
+		nil,
 	)
 
 	before.DocID = 7
@@ -415,11 +418,6 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Vectors: models.Vectors{
-				"vector1": {1, 2, 3},
-				"vector2": {4, 5, 6},
-				"vector3": {7, 8, 9},
-			},
 			Additional: models.AdditionalProperties{
 				"classification": &additional.Classification{
 					BasedOn: []string{"some", "fields"},
@@ -462,6 +460,11 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+			"vector3": {7, 8, 9},
+		},
 	)
 	before.DocID = 7
 
@@ -544,6 +547,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						},
 					},
 					vector,
+					nil,
 				)
 				before.DocID = 7
 
@@ -577,6 +581,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						},
 					},
 					vector,
+					nil,
 				)
 				before.DocID = 7
 
