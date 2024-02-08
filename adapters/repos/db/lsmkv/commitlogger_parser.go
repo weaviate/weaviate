@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 
 	"github.com/pkg/errors"
@@ -52,4 +53,35 @@ func (p *commitloggerParser) Do() error {
 	default:
 		return errors.Errorf("unknown strategy %s on commit log parse", p.strategy)
 	}
+}
+
+func (p *commitloggerParser) doRecord() (commitType CommitType, r io.Reader, err error) {
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
+	if err != nil {
+		return commitType, nil, errors.Wrap(err, "read commit type")
+	}
+
+	var nodeLen uint32
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &nodeLen)
+	if err != nil {
+		return commitType, nil, errors.Wrap(err, "read commit node length")
+	}
+
+	p.bufNode.Reset()
+
+	io.CopyN(p.bufNode, p.checksumReader, int64(nodeLen))
+
+	// read checksum directly from the reader
+	var checksum [4]byte
+	_, err = io.ReadFull(p.reader, checksum[:])
+	if err != nil {
+		return commitType, nil, errors.Wrap(err, "read commit checksum")
+	}
+
+	// validate checksum
+	if !bytes.Equal(checksum[:], p.checksumReader.Hash()) {
+		return commitType, nil, errors.Wrap(ErrInvalidChecksum, "read commit entry")
+	}
+
+	return commitType, p.bufNode, nil
 }

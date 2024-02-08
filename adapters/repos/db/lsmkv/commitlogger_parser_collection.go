@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -20,30 +21,71 @@ import (
 
 func (p *commitloggerParser) doCollection() error {
 	for {
-		var commitType CommitType
+		var version uint8
 
-		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
+		err := binary.Read(p.checksumReader, binary.LittleEndian, &version)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return errors.Wrap(err, "read commit type")
+			return errors.Wrap(err, "read commit version")
 		}
 
-		if CommitTypeCollection.Is(commitType) {
-			if err := p.parseCollectionNode(); err != nil {
-				return errors.Wrap(err, "read collection node")
+		switch version {
+		case 0:
+			{
+				err = p.parseCollectionNodeV0()
 			}
-		} else {
-			return errors.Errorf("found a %s commit on collection bucket", commitType.String())
+		case 1:
+			{
+				err = p.parseCollectionNodeV1()
+			}
+		default:
+			{
+				return fmt.Errorf("unsupported commit version %d", version)
+			}
+		}
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func (p *commitloggerParser) parseCollectionNode() error {
-	n, err := ParseCollectionNode(p.reader)
+func (p *commitloggerParser) parseCollectionNodeV0() error {
+	var commitType CommitType
+
+	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return errors.Wrap(err, "read commit type")
+	}
+
+	if !CommitTypeReplace.Is(commitType) {
+		return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
+	}
+
+	return p.parseCollectionNode(p.reader)
+}
+
+func (p *commitloggerParser) parseCollectionNodeV1() error {
+	commitType, reader, err := p.doRecord()
+	if err != nil {
+		return err
+	}
+
+	if !CommitTypeCollection.Is(commitType) {
+		return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
+	}
+
+	return p.parseCollectionNode(reader)
+}
+
+func (p *commitloggerParser) parseCollectionNode(reader io.Reader) error {
+	n, err := ParseCollectionNode(reader)
 	if err != nil {
 		return err
 	}
@@ -51,6 +93,7 @@ func (p *commitloggerParser) parseCollectionNode() error {
 	if p.strategy == StrategyMapCollection {
 		return p.parseMapNode(n)
 	}
+
 	return p.memtable.append(n.primaryKey, n.values)
 }
 
