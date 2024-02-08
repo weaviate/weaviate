@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"os"
 
 	"github.com/go-ego/gse"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,6 +24,7 @@ import (
 var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
+	UseGse           = false
 )
 
 var Tokenizations []string = []string{
@@ -35,14 +37,23 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	gseTokenizerLock.Lock()
-	defer gseTokenizerLock.Unlock()
-	if gseTokenizer == nil {
-		seg, err := gse.New("ja")
-		if err != nil {
-			return //[]string{}
+	init_gse()
+}
+
+func init_gse() {
+	if os.Getenv("USE_GSE") == "true" {
+		UseGse = true
+	}
+	if UseGse {
+		gseTokenizerLock.Lock()
+		defer gseTokenizerLock.Unlock()
+		if gseTokenizer == nil {
+			seg, err := gse.New("ja")
+			if err != nil {
+				return //[]string{}
+			}
+			gseTokenizer = &seg
 		}
-		gseTokenizer = &seg
 	}
 }
 
@@ -132,9 +143,10 @@ func tokenizetrigram(in string) []string {
 
 // tokenizeGSE uses the gse tokenizer to tokenise Chinese and Japanese
 func tokenizeGSE(in string) []string {
-
+	if !UseGse {
+		return []string{}
+	}
 	terms := gseTokenizer.CutAll(in)
-
 
 	// Remove empty strings from terms
 	for i := 0; i < len(terms); i++ {
@@ -146,7 +158,7 @@ func tokenizeGSE(in string) []string {
 
 	alpha := tokenizeWord(in)
 	return append(terms, alpha...)
-	
+
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
