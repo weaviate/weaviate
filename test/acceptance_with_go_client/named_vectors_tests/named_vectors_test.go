@@ -20,16 +20,16 @@ import (
 )
 
 func TestNamedVectors_SingleNode(t *testing.T) {
-	// ctx := context.Background()
-	// compose, err := createSingleNodeEnvironment(ctx)
-	// require.NoError(t, err)
-	// defer func() {
-	// 	require.NoError(t, compose.Terminate(ctx))
-	// }()
-	// endpoint := compose.GetWeaviate().URI()
-	endpoint := "localhost:8080"
-	// t.Run("schema", testCreateSchema(t, endpoint))
-	t.Run("object", testCreateObject(t, endpoint))
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+
+	t.Run("schema", testCreateSchema(t, endpoint))
+	t.Run("objects", testCreateObject(t, endpoint))
 }
 
 func TestNamedVectors_Cluster(t *testing.T) {
@@ -41,6 +41,7 @@ func TestNamedVectors_Cluster(t *testing.T) {
 	}()
 	endpoint := compose.GetWeaviate().URI()
 	t.Run("schema", testCreateSchema(t, endpoint))
+	t.Run("object", testCreateObject(t, endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
@@ -60,6 +61,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
+		WithText2VecTransformers().
 		WithText2VecOpenAI().
 		WithText2VecCohere()
 	return
