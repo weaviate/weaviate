@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"golang.org/x/sync/errgroup"
@@ -167,6 +168,8 @@ func (b *BM25Searcher) wand(
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU)
 
+	var resultsLock sync.Mutex
+
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
@@ -203,8 +206,10 @@ func (b *BM25Searcher) wand(
 						err = termErr
 						return
 					}
+					resultsLock.Lock()
 					results = append(results, termResult)
 					indices = append(indices, docIndices)
+					resultsLock.Unlock()
 					return
 				})
 			}
