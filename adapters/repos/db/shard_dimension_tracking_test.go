@@ -82,7 +82,7 @@ func Benchmark_Migration(b *testing.B) {
 
 				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 				obj := &models.Object{Class: "Test", ID: id}
-				err := repo.PutObject(context.Background(), obj, vec, nil)
+				err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -151,7 +151,7 @@ func Test_Migration(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -217,7 +217,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -232,7 +232,7 @@ func Test_DimensionTracking(t *testing.T) {
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, nil, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -287,7 +287,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -304,7 +304,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -337,7 +337,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -354,7 +354,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")

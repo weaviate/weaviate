@@ -647,39 +647,40 @@ func (p *Provider) RestApiAdditionalProperties(includeProp string, class *models
 func (p *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn, tenant string,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	class, err := p.getClass(className)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	targetVector := p.getTargetVector(params)
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if mod.Name() == targetModule {
-			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
-				var moduleName string
-				var vectorSearches modulecapabilities.ArgumentVectorForParams
-				if searcher, ok := mod.(modulecapabilities.Searcher); ok {
+		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+			var moduleName string
+			var vectorSearches modulecapabilities.ArgumentVectorForParams
+			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
+				if mod.Name() == targetModule {
+					// TODO[named-vector]: dependecy modules like qna are tricky to handle
 					moduleName = mod.Name()
 					vectorSearches = searcher.VectorSearches()
-				} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
-					if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
-						// TODO[named-vector]: check if here needs to be passed targetVector
-						moduleName = targetModule
-						vectorSearches = dependencySearchers[targetModule]
-					}
 				}
-				if vectorSearches != nil {
-					if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-						// TODO[named-vector]: add support for named targetVector param
-						cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
-						vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
-						if err != nil {
-							return nil, errors.Errorf("vectorize params: %v", err)
-						}
-						return vector, nil
+			} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
+				if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
+					// TODO[named-vector]: check if here needs to be passed targetVector
+					moduleName = targetModule
+					vectorSearches = dependencySearchers[targetModule]
+				}
+			}
+			if vectorSearches != nil {
+				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
+					// TODO[named-vector]: add support for named targetVector param
+					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
+					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
+					if err != nil {
+						return nil, "", errors.Errorf("vectorize params: %v", err)
 					}
+					return vector, targetVector, nil
 				}
 			}
 		}
@@ -694,7 +695,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	for _, mod := range p.GetAll() {
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
@@ -702,9 +703,9 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 					cfg := NewCrossClassModuleConfig()
 					vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
+						return nil, "", errors.Errorf("vectorize params: %v", err)
 					}
-					return vector, nil
+					return vector, p.getTargetVector(params), nil
 				}
 			}
 		}

@@ -138,12 +138,13 @@ func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 }
 
 type nearCustomTextParams struct {
-	Values       []string
-	MoveTo       nearExploreMove
-	MoveAwayFrom nearExploreMove
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Values        []string
+	MoveTo        nearExploreMove
+	MoveAwayFrom  nearExploreMove
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 // implements the modulecapabilities.NearParam interface
@@ -157,6 +158,10 @@ func (n nearCustomTextParams) GetDistance() float64 {
 
 func (n nearCustomTextParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n nearCustomTextParams) GetTargetVectors() []string {
+	return n.TargetVectors
 }
 
 type nearExploreMove struct {
@@ -287,6 +292,10 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 					"distance": &graphql.InputObjectFieldConfig{
 						Description: descriptions.Distance,
 						Type:        graphql.Float,
+					},
+					"targetVectors": &graphql.InputObjectFieldConfig{
+						Description: "Target vectors",
+						Type:        graphql.NewList(graphql.String),
 					},
 				},
 				Description: descriptions.GetWhereInpObj,
@@ -518,7 +527,7 @@ func (fmp *fakeModulesProvider) GetAll() []modulecapabilities.Module {
 	panic("implement me")
 }
 
-func (fmp *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (fmp *fakeModulesProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	panic("not implemented")
 }
 
