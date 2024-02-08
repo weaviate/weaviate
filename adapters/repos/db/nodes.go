@@ -89,6 +89,7 @@ func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 	}
 	db.batchMonitorLock.Lock()
 	rate := db.ratePerSecond
+	announcedObjects := db.announcedObjects
 	db.batchMonitorLock.Unlock()
 
 	status := models.NodeStatus{
@@ -102,7 +103,8 @@ func (db *DB) localNodeStatus(className, output string) *models.NodeStatus {
 			ObjectCount: objectCount,
 		},
 		BatchStats: &models.BatchStats{
-			RatePerSecond: int64(rate),
+			RatePerSecond:             int64(rate),
+			CurrentlyProcessedObjects: int64(announcedObjects),
 		},
 	}
 

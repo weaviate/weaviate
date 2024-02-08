@@ -28,9 +28,24 @@ type batchQueue struct {
 	originalIndex []int
 }
 
+// AnnounceBatchObjects can be sued to notify the db about the number of objects that are about to be added. This can be
+// used in the nodes API to let the clients now how many objects are still in the batch queue. Especially with
+// vectorizers this can be a large number of objects
+func (db *DB) AnnounceBatchObjects(ctx context.Context, numberObjects int) {
+	db.batchMonitorLock.Lock()
+	db.announcedObjects += numberObjects
+	db.batchMonitorLock.Unlock()
+}
+
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, removeAnnouncedObjects bool,
 ) (objects.BatchObjects, error) {
+	if removeAnnouncedObjects {
+		db.batchMonitorLock.Lock()
+		db.announcedObjects -= len(objs)
+		db.batchMonitorLock.Unlock()
+	}
+
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 

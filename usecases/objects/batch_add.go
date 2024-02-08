@@ -48,6 +48,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
+	b.vectorRepo.AnnounceBatchObjects(ctx, len(objects))
 	beforePreProcessing := time.Now()
 	if err := b.validateObjectForm(objects); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
@@ -63,7 +64,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, true); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -81,6 +82,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	originalIndexPerClass := make(map[string][]int)
 	validator := validation.New(b.vectorRepo.Exists, b.config, repl)
 
+	// validate each object and sort by class (==vectorizer)
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
 

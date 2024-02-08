@@ -28,6 +28,9 @@ import (
 // swagger:model BatchStats
 type BatchStats struct {
 
+	// How many objects are in the processing step before being added to the batch queue.
+	CurrentlyProcessedObjects int64 `json:"currentlyProcessedObjects"`
+
 	// How many objects are currently in the batch queue.
 	QueueLength *int64 `json:"queueLength,omitempty"`
 

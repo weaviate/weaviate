@@ -104,6 +104,7 @@ type vectorizer struct {
 	httpClient         *http.Client
 	buildUrlFn         func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
+	jobQueueCh         chan struct{}
 }
 
 func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
@@ -191,6 +192,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
 		Errors:     openAIerror,
+		RateLimits: ent.GetRateLimitsFromHeader(res.Header),
 	}, nil
 }
 

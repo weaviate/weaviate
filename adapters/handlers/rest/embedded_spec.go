@@ -3394,6 +3394,12 @@ func init() {
     "BatchStats": {
       "description": "The summary of a nodes batch queue congestion status.",
       "properties": {
+        "currentlyProcessedObjects": {
+          "description": "How many objects are in the processing step before being added to the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
         "queueLength": {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
@@ -8565,6 +8571,12 @@ func init() {
     "BatchStats": {
       "description": "The summary of a nodes batch queue congestion status.",
       "properties": {
+        "currentlyProcessedObjects": {
+          "description": "How many objects are in the processing step before being added to the batch queue.",
+          "type": "number",
+          "format": "int",
+          "x-omitempty": false
+        },
         "queueLength": {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",

@@ -1084,6 +1084,12 @@
           "format": "int",
           "type": "number",
           "x-omitempty": false
+        },
+        "currentlyProcessedObjects": {
+          "description": "How many objects are in the processing step before being added to the batch queue.",
+          "format": "int",
+          "type": "number",
+          "x-omitempty": false
         }
       }
     },

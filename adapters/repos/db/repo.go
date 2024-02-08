@@ -80,6 +80,7 @@ type DB struct {
 	maxNumberGoroutines     int
 	batchMonitorLock        sync.Mutex
 	ratePerSecond           int
+	announcedObjects        int
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
