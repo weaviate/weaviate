@@ -161,8 +161,8 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	results := make(terms, 100)
-	indices := make([]map[uint64]int, 100)
+	results := terms{}
+	indices := []map[uint64]int{}
 
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU)
