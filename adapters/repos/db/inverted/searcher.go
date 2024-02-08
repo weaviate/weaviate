@@ -47,7 +47,7 @@ type Searcher struct {
 	tenant                 string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
-	maxIDGetter         maxIDGetterFunc
+	maxIDGetter         MaxIDGetterFunc
 }
 
 type DeletedDocIDChecker interface {
@@ -58,7 +58,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64, maxIDGetter maxIDGetterFunc,
+	tenant string, nestedCrossRefLimit int64, maxIDGetter MaxIDGetterFunc,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,

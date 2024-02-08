@@ -29,16 +29,16 @@ type RowReaderRoaringSet struct {
 	operator    filters.Operator
 	newCursor   func() lsmkv.CursorRoaringSet
 	getter      func(key []byte) (*sroar.Bitmap, error)
-	maxIDGetter maxIDGetterFunc
+	maxIDGetter MaxIDGetterFunc
 }
 
-type maxIDGetterFunc func() uint64
+type MaxIDGetterFunc func() uint64
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // RoaringSetReadFn will always be empty
 func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool, maxIDGetter maxIDGetterFunc,
+	operator filters.Operator, keyOnly bool, maxIDGetter MaxIDGetterFunc,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet

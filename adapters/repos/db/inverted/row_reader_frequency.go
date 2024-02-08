@@ -30,12 +30,12 @@ type RowReaderFrequency struct {
 	operator     filters.Operator
 	keyOnly      bool
 	shardVersion uint16
-	maxIDGetter  maxIDGetterFunc
+	maxIDGetter  MaxIDGetterFunc
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	maxIDGetter maxIDGetterFunc,
+	maxIDGetter MaxIDGetterFunc,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:       bucket,

@@ -29,14 +29,14 @@ type RowReader struct {
 	bucket      *lsmkv.Bucket
 	operator    filters.Operator
 	keyOnly     bool
-	maxIDGetter maxIDGetterFunc
+	maxIDGetter MaxIDGetterFunc
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool, maxIDGetter maxIDGetterFunc,
+	operator filters.Operator, keyOnly bool, maxIDGetter MaxIDGetterFunc,
 ) *RowReader {
 	return &RowReader{
 		bucket:      bucket,
