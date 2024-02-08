@@ -12,10 +12,10 @@
 package helpers
 
 import (
+	"os"
 	"strings"
 	"sync"
 	"unicode"
-	"os"
 
 	"github.com/go-ego/gse"
 	"github.com/weaviate/weaviate/entities/models"
@@ -146,6 +146,8 @@ func tokenizeGSE(in string) []string {
 	if !UseGse {
 		return []string{}
 	}
+	gseTokenizerLock.Lock()
+	defer gseTokenizerLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
 	// Remove empty strings from terms
