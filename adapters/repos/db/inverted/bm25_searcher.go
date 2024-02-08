@@ -302,6 +302,10 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			for j, result := range results {
 				if termIndice, ok := indices[j][res.ID]; ok {
 					queryTerm := result.queryTerm
+					if len(result.data) <= termIndice {
+						b.logger.Warnf("Skipping object explanation in BM25: term indice %v is out of range for query term %v, length %d, id %v", termIndice, queryTerm, len(result.data), res.ID)
+						continue
+					}
 					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
 					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
 				}
@@ -437,6 +441,16 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				if ok {
+					if ind >= len(docMapPairs) {
+						// the index is not valid anymore, but the key is still in the map
+						b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, length %d.", ind, key, len(docMapPairs))
+						continue
+					}
+					if ind < len(docMapPairs) && docMapPairs[ind].id != key {
+						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
+						continue
+					}
+
 					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
 					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
@@ -464,6 +478,15 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		n += float64(filteredDocIDs.GetCardinality())
 	}
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
+
+	// catch special case where there are no results and would panic termResult.data[0].id
+	// related to #4125
+	if len(termResult.data) == 0 {
+		termResult.posPointer = 0
+		termResult.idPointer = 0
+		termResult.exhausted = true
+		return termResult, docMapPairsIndices, nil
+	}
 
 	termResult.posPointer = 0
 	termResult.idPointer = termResult.data[0].id

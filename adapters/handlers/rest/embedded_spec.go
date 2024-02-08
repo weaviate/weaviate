@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.23.7"
+    "version": "1.23.8"
   },
   "basePath": "/v1",
   "paths": {
@@ -4104,7 +4104,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -5008,7 +5009,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.23.7"
+    "version": "1.23.8"
   },
   "basePath": "/v1",
   "paths": {
@@ -9345,7 +9346,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
