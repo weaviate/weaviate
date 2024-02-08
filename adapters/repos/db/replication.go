@@ -338,7 +338,8 @@ func (i *Index) overwriteObjects(ctx context.Context,
 		case curUpdateTime == u.StaleUpdateTime:
 			// the stored object is not the most recent version. in
 			// this case, we overwrite it with the more recent one.
-			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector))
+			// TODO[named-vectors] check if it's ok to pass u.LatestObject.Vectors
+			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector, u.LatestObject.Vectors))
 			if err != nil {
 				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
 			}
