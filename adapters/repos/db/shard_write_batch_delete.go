@@ -115,6 +115,14 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
+	for targetVector, vectorIndex := range b.shard.VectorIndexes() {
+		if err := vectorIndex.Flush(); err != nil {
+			for i := range b.objects {
+				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+	}
+
 	if err := b.shard.GetPropertyLengthTracker().Flush(false); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)

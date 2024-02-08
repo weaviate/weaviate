@@ -59,7 +59,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 		}
 	})
 
@@ -72,7 +72,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 		}
 	})
 
@@ -126,7 +126,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 				Properties: map[string]interface{}{}, // empty so we remove the ref
 			}
 
-			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil, nil))
 		}
 
 		index := 0
@@ -434,7 +434,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, 0, limit, nil)
+				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, "", 0, limit, nil)
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {

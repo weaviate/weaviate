@@ -62,7 +62,7 @@ func New(docID uint64) *Object {
 	}
 }
 
-func FromObject(object *models.Object, vector []float32) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -74,11 +74,11 @@ func FromObject(object *models.Object, vector []float32) *Object {
 		object.Properties = properties
 	}
 
-	// clear out nil entries of vectors to make sure leaving a vector out and setting it nil is identical
-	vectors := make(map[string][]float32, len(object.Vectors))
-	if ok {
-		for key, vec := range object.Vectors {
-			vectors[key] = vec
+	var vecs map[string][]float32
+	if vectors != nil {
+		vecs = make(map[string][]float32)
+		for targetVector, vector := range vectors {
+			vecs[targetVector] = vector
 		}
 	}
 
@@ -87,7 +87,7 @@ func FromObject(object *models.Object, vector []float32) *Object {
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
-		Vectors:           vectors,
+		Vectors:           vecs,
 	}
 }
 
@@ -188,8 +188,24 @@ func FromBinaryOptional(data []byte,
 	vectorWeightsLength := rw.ReadUint32()
 	vectorWeights := rw.ReadBytesFromBuffer(uint64(vectorWeightsLength))
 
-	vectorsLength := rw.ReadUint32()
-	vectors := rw.ReadBytesFromBuffer(uint64(vectorsLength))
+	var vecs map[string][]float32
+	if len(addProp.Vectors) > 0 {
+		vectorsLength := rw.ReadUint32()
+		vectors := rw.ReadBytesFromBuffer(uint64(vectorsLength))
+		ko.Object.Vectors = make(models.Vectors, vectorsLength)
+		if len(vectors) > 0 {
+			if err := msgpack.Unmarshal(vectors, &ko.Object.Vectors); err != nil {
+				return nil, fmt.Errorf("parse vectors: %w", err)
+			}
+			vecs = make(map[string][]float32, vectorsLength)
+			for targetVector, vector := range ko.Object.Vectors {
+				vecs[targetVector] = vector
+			}
+		}
+	} else {
+		ko.Object.Vectors = nil
+	}
+	ko.Vectors = vecs
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
 	if len(props) > 0 ||
@@ -210,7 +226,6 @@ func FromBinaryOptional(data []byte,
 			props,
 			meta,
 			vectorWeights,
-			vectors,
 		); err != nil {
 			return nil, errors.Wrap(err, "parse")
 		}
@@ -397,7 +412,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
-		Vectors:   ko.Vectors,
+		Vectors:   ko.asVectors(ko.Vectors),
 		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
@@ -409,6 +424,17 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
+}
+
+func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
+	if len(in) > 0 {
+		out := make(models.Vectors)
+		for targetVector, vector := range in {
+			out[targetVector] = vector
+		}
+		return out
+	}
+	return nil
 }
 
 func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
@@ -730,6 +756,13 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "Could not copy targetVectors")
 	}
+	var targetVectorsMap map[string][]float32
+	if len(targetVectors) > 0 {
+		if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
+			return err
+		}
+	}
+	ko.Vectors = targetVectorsMap
 
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
@@ -739,7 +772,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		schema,
 		meta,
 		vectorWeights,
-		targetVectors,
 	)
 }
 
@@ -779,7 +811,7 @@ func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	propsB []byte, additionalB []byte, vectorWeightsB []byte, targetVectors []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte,
 ) error {
 	var props map[string]interface{}
 	if err := json.Unmarshal(propsB, &props); err != nil {
@@ -848,14 +880,6 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		return err
 	}
 
-	var targetVectorsMap map[string][]float32
-	if len(targetVectors) > 0 {
-		if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
-			return err
-		}
-	}
-	ko.Vectors = targetVectorsMap
-
 	ko.Object = models.Object{
 		Class:              className,
 		CreationTimeUnix:   create,
@@ -864,18 +888,9 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		Properties:         props,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
-		Vectors:            ko.asVectors(targetVectorsMap),
 	}
 
 	return nil
-}
-
-func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
-	out := make(models.Vectors, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 // DeepCopyDangerous creates a deep copy of the underlying Object

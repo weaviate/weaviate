@@ -314,6 +314,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		}
 		counter++
 
+		// TODO[named-vectors]: how we will handle target vectors
 		desc := vectorDescriptor{
 			id:     id,
 			vector: obj.Vector,

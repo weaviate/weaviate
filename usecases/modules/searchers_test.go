@@ -62,17 +62,18 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "class", "123", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return append(initial, 4), nil
 			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
-		res, err := p.VectorFromSearchParam(context.Background(), "MyClass",
+		res, targetVector, err := p.VectorFromSearchParam(context.Background(), "MyClass",
 			"nearGrape", nil, fakeFindVector, "")
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
+		assert.Equal(t, "", targetVector)
 	})
 
 	t.Run("get a vector across classes", func(t *testing.T) {
@@ -98,22 +99,23 @@ func TestModulesWithSearchers(t *testing.T) {
 				// take the findVectorFn and append one dimension. This doesn't make too
 				// much sense, but helps verify that the modules method was used in the
 				// decisions
-				initial, _ := findVectorFn(ctx, "class", "123", "")
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
 				return append(initial, 4), nil
 			}),
 		)
 		p.Init(context.Background(), nil, logger)
 
-		res, err := p.CrossClassVectorFromSearchParam(context.Background(),
+		res, targetVector, err := p.CrossClassVectorFromSearchParam(context.Background(),
 			"nearGrape", nil, fakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
+		assert.Equal(t, "", targetVector)
 	})
 }
 
-func fakeFindVector(ctx context.Context, className string, id strfmt.UUID, tenant string) ([]float32, error) {
-	return []float32{1, 2, 3}, nil
+func fakeFindVector(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error) {
+	return []float32{1, 2, 3}, targetVector, nil
 }
 
 func newSearcherModule(name string) *dummySearcherModule {

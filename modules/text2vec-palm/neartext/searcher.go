@@ -64,6 +64,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	// vectorizer/class_settings_test.go for details.
 	settings := config.NewClassSettings(cfg)
 	tenant := cfg.Tenant()
+	targetVector := cfg.TargetVector()
 	vector, err := s.vectorizer.Texts(ctx, params.Values, settings)
 	if err != nil {
 		return nil, errors.Errorf("vectorize keywords: %v", err)
@@ -72,7 +73,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	moveTo := params.MoveTo
 	if moveTo.Force > 0 && (len(moveTo.Values) > 0 || len(moveTo.Objects) > 0) {
 		moveToVector, err := s.vectorFromValuesAndObjects(ctx, moveTo.Values,
-			moveTo.Objects, className, findVectorFn, settings, tenant)
+			moveTo.Objects, className, findVectorFn, settings, tenant, targetVector)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move to: %v", err)
 		}
@@ -87,7 +88,7 @@ func (s *Searcher) vectorFromNearTextParam(ctx context.Context,
 	moveAway := params.MoveAwayFrom
 	if moveAway.Force > 0 && (len(moveAway.Values) > 0 || len(moveAway.Objects) > 0) {
 		moveAwayVector, err := s.vectorFromValuesAndObjects(ctx, moveAway.Values,
-			moveAway.Objects, className, findVectorFn, settings, tenant)
+			moveAway.Objects, className, findVectorFn, settings, tenant, targetVector)
 		if err != nil {
 			return nil, errors.Errorf("vectorize move away from: %v", err)
 		}
@@ -106,7 +107,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 	values []string, objects []nearText.ObjectMove,
 	className string,
 	findVectorFn modulecapabilities.FindVectorFn,
-	settings localvectorizer.ClassSettings, tenant string,
+	settings localvectorizer.ClassSettings, tenant, targetVector string,
 ) ([]float32, error) {
 	var objectVectors [][]float32
 	class := className
@@ -135,7 +136,7 @@ func (s *Searcher) vectorFromValuesAndObjects(ctx context.Context,
 				}
 			}
 
-			vector, err := findVectorFn(ctx, class, id, tenant)
+			vector, _, err := findVectorFn(ctx, class, id, tenant, targetVector)
 			if err != nil {
 				return nil, err
 			}
