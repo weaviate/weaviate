@@ -218,7 +218,6 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 }
 
 func (f *fakeVectorRepo) AnnounceBatchObjects(ctx context.Context, numberObjects int) {
-	return
 }
 
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,

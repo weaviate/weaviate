@@ -126,8 +126,7 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 //     batches are not mixed with each other.
 //  3. It sends the smaller batches to the vectorizer
 func (v *Vectorizer) batchWorker() {
-	maxTokenLimit := 1000 // don't know token limit before the first request
-	currentTokenLimits := maxTokenLimit
+	currentTokenLimits := 1000 // don't know token limit before the first request
 	texts := make([]string, 0, 100)
 	for job := range v.jobQueueCh {
 		conf := v.getVectorizationConfig(job.cfg)
@@ -160,7 +159,6 @@ func (v *Vectorizer) batchWorker() {
 					job.errs[vecBatchOffset+j] = err
 				}
 			} else {
-				maxTokenLimit = res.RateLimits.LimitTokens
 				currentTokenLimits = res.RateLimits.RemainingTokens
 				for j := 0; j < len(texts); j++ {
 					if res.Errors[j] != nil {
