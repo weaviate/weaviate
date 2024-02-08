@@ -122,13 +122,6 @@ func (b *BM25Searcher) wand(
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	for _, tokenization := range helpers.Tokenizations {
-		queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
-
-		// stopword filtering for word tokenization
-		if tokenization == models.PropertyTokenizationWord {
-			queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization], stopWordDetector)
-		}
-
 		propNamesByTokenization[tokenization] = make([]string, 0)
 	}
 
@@ -168,29 +161,27 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	// preallocate the results
-	lengthAllResults := 0
-	for tokenization, propNames := range propNamesByTokenization {
-		if len(propNames) > 0 {
-			lengthAllResults += len(queryTermsByTokenization[tokenization])
-		}
-	}
-	results := make(terms, lengthAllResults)
-	indices := make([]map[uint64]int, lengthAllResults)
+	results := make(terms, 100)
+	indices := make([]map[uint64]int, 100)
 
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU)
-	offset := 0
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
+			queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+
+			// stopword filtering for word tokenization
+			if tokenization == models.PropertyTokenizationWord {
+				queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization], stopWordDetector)
+			}
+
 			queryTerms := queryTermsByTokenization[tokenization]
 			duplicateBoosts := duplicateBoostsByTokenization[tokenization]
 
 			for i := range queryTerms {
 				j := i
-				k := i + offset
 
 				eg.Go(func() (err error) {
 					defer func() {
@@ -212,12 +203,11 @@ func (b *BM25Searcher) wand(
 						err = termErr
 						return
 					}
-					results[k] = termResult
-					indices[k] = docIndices
+					results = append(results, termResult)
+					indices = append(indices, docIndices)
 					return
 				})
 			}
-			offset += len(queryTerms)
 		}
 	}
 
