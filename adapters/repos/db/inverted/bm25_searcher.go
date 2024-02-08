@@ -291,7 +291,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue, results ter
 				if termIndice, ok := indices[j][res.ID]; ok {
 					queryTerm := result.queryTerm
 					if len(result.data) <= termIndice {
-						b.logger.Warnf("Skipping object explanation in BM25: term indice %v is out of range for query term %v, len() %d, res.ID %v", termIndice, queryTerm, len(result.data), res.ID)
+						b.logger.Warnf("Skipping object explanation in BM25: term indice %v is out of range for query term %v, length %d, id %v", termIndice, queryTerm, len(result.data), res.ID)
 						continue
 					}
 					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
@@ -430,11 +430,11 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 				if ok {
 					if ind >= len(docMapPairs) {
 						// the index is not valid anymore, but the key is still in the map
-						b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, len() %d.", ind, key, len(docMapPairs))
+						b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, length %d.", ind, key, len(docMapPairs))
 						continue
 					}
 					if ind < len(docMapPairs) && docMapPairs[ind].id != key {
-						b.logger.Warnf("docMapPairs[%d].id %d != key %d", ind, docMapPairs[ind].id, key)
+						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
 						continue
 					}
 
