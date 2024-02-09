@@ -183,7 +183,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
 		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
 		if err != nil {
-			return nil, fmt.Errorf("check for ¡¡ of wals for segment %s: %w",
+			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
 				entry.Name(), err)
 		}
 		if ok {
