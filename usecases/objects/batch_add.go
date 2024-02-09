@@ -180,7 +180,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		Object:        object,
 		Err:           ec.ToError(),
 		OriginalIndex: originalIndex,
-		Vector:        object.Vector,
 	}
 }
 

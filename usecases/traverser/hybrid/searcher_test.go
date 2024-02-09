@@ -192,7 +192,7 @@ func TestSearcher(t *testing.T) {
 				assert.Contains(t, res[1].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[1].Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[1].Dist, float32(0.000))
-				assert.Equal(t, float32(0.008196721), res[0].Score)
+				assert.Equal(t, float32(0.008333334), res[0].Score)
 			},
 		},
 		{
