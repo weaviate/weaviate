@@ -347,6 +347,11 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, state *sharding.State) error {
+	args := f.Called(ctx, class, state)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
 	args := f.Called(ctx)
 	return args.Error(0)

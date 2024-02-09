@@ -58,4 +58,7 @@ type Migrator interface {
 		updated *models.InvertedIndexConfig) error
 	WaitForStartup(context.Context) error
 	Shutdown(context.Context) error
+
+	// UpdateIndex creates index if not exists and idempotent in nature.
+	UpdateIndex(ctx context.Context, class *models.Class, state *sharding.State) error
 }
