@@ -178,6 +178,10 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			}
 		}
 
+		if generateFmt.Error != nil {
+			return nil, "", generateFmt.Error
+		}
+
 		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
 		if !ok {
 			return nil, "", errors.New("could not cast generative search params")
