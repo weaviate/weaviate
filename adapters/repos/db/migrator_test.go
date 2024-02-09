@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"testing"
 
@@ -48,7 +47,6 @@ func TestUpdateIndex(t *testing.T) {
 			VectorIndexType: "flat",
 			Vectorizer:      "text2vec-contextionary",
 		}
-		// mi = newMigrator(t, 3, class1)
 		class2 = &models.Class{
 			Class:               "C2",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -57,8 +55,7 @@ func TestUpdateIndex(t *testing.T) {
 	)
 
 	// init filesystem
-	err := os.MkdirAll(rootpath, os.ModePerm)
-	require.Nil(t, err)
+	require.Nil(t, os.MkdirAll(rootpath, os.ModePerm))
 
 	// init DB with class 1 and state 1
 	db := testDB(rootpath, []*models.Class{class1}, map[string]*sharding.State{class1.Class: state1})
@@ -70,10 +67,10 @@ func TestUpdateIndex(t *testing.T) {
 	})
 
 	t.Run("update existing class", func(t *testing.T) {
-		err = mi.UpdateIndex(ctx, class1, state1)
+		err := mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 InvertedIndexConfig
 		class1.InvertedIndexConfig = &models.InvertedIndexConfig{
@@ -83,7 +80,7 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 Properties
 		class1.Properties = []*models.Property{
@@ -102,35 +99,35 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 replication config
 		class1.ReplicationConfig = &models.ReplicationConfig{Factor: 10}
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 VectorIndexType
 		class1.VectorIndexType = "hnsw"
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 Vectorizer
 		class1.Vectorizer = "custom-near-text-module"
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 VectorIndexConfig
 		class1.VectorIndexConfig = hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric, FlatSearchCutoff: 10}
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 ShardingConfig
 		class1.ShardingConfig = map[string]interface{}{
@@ -139,14 +136,14 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 MultiTenancyConfig
 		class1.MultiTenancyConfig = &models.MultiTenancyConfig{AutoTenantCreation: true, Enabled: true}
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 ModuleConfig
 		class1.ModuleConfig = map[string]interface{}{
@@ -157,14 +154,14 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update class 1 Description
 		class1.Description = "updated"
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 
 		// update state
 		state1.PartitioningEnabled = true
@@ -180,10 +177,10 @@ func TestUpdateIndex(t *testing.T) {
 			Name:           "node1",
 			BelongsToNodes: []string{"node1"},
 		}}}
-		err = mi.UpdateIndex(ctx, class2, state2)
+		err := mi.UpdateIndex(ctx, class2, state2)
 		r.Nil(err)
 		r.Equal(2, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1, rootpath)
+		classIsInMemoryAndFileSystem(r, mi, class1)
 	})
 }
 
@@ -191,7 +188,7 @@ func TestAddClass(t *testing.T) {
 	var (
 		ctx    = context.Background()
 		r      = require.New(t)
-		mi     = newMigrator(t, 3)
+		mi     = newMigrator(t, 2)
 		class1 = &models.Class{
 			Class:               "C1",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -220,7 +217,7 @@ func TestDropClass(t *testing.T) {
 	var (
 		ctx    = context.Background()
 		r      = require.New(t)
-		mi     = newMigrator(t, 3)
+		mi     = newMigrator(t, 1)
 		class1 = &models.Class{
 			Class:               "C1",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -248,7 +245,7 @@ func TestAddProperty(t *testing.T) {
 	var (
 		ctx    = context.Background()
 		r      = require.New(t)
-		mi     = newMigrator(t, 3)
+		mi     = newMigrator(t, 1)
 		class1 = &models.Class{
 			Class:               "C1",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -278,7 +275,7 @@ func TestUpdateInvertedIndexConfig(t *testing.T) {
 	var (
 		ctx    = context.Background()
 		r      = require.New(t)
-		mi     = newMigrator(t, 3)
+		mi     = newMigrator(t, 1)
 		class1 = &models.Class{
 			Class:               "C1",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -315,7 +312,7 @@ func TestUpdateVectorIndexConfig(t *testing.T) {
 	var (
 		ctx    = context.Background()
 		r      = require.New(t)
-		mi     = newMigrator(t, 3)
+		mi     = newMigrator(t, 1)
 		class1 = &models.Class{
 			Class:               "C1",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -345,19 +342,19 @@ func TestUpdateVectorIndexConfig(t *testing.T) {
 
 func newMigrator(t *testing.T, numClasses int, classes ...*models.Class) *Migrator {
 	states := make(map[string]*sharding.State, numClasses)
-	err := os.MkdirAll("./testdata/", os.ModePerm)
+	err := os.MkdirAll(t.TempDir(), os.ModePerm)
 	require.Nil(t, err)
-	db := testDB("./testdata/", classes, states)
+	db := testDB(t.TempDir(), classes, states)
 	db.indices = make(map[string]*Index)
 	return NewMigrator(db, db.logger)
 }
 
-func classIsInMemoryAndFileSystem(r *require.Assertions, mi *Migrator, c *models.Class, rootpath string) {
+func classIsInMemoryAndFileSystem(r *require.Assertions, mi *Migrator, c *models.Class) {
 	existedIndex := mi.db.GetIndex(schema.ClassName(c.Class))
 	r.Equal(existedIndex.getVectorIndexConfig(), c.VectorIndexConfig)
 	existedClasses := existedIndex.getSchema.GetSchemaSkipAuth().Objects.Classes
 	r.Equal(existedClasses[0], c)
-	_, err := os.Stat(fmt.Sprintf("%s%s", rootpath, c.Class))
+	_, err := os.Stat(existedIndex.path())
 	r.Nil(err)
 	r.True(classEqual(existedClasses[0], c))
 }
