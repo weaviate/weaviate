@@ -160,7 +160,6 @@ func tokenizeGSE(in string) []string {
 
 	alpha := tokenizeWord(in)
 	return append(terms, alpha...)
-
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
