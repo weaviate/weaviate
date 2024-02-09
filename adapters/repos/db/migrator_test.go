@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -31,10 +32,12 @@ func TestUpdateIndex(t *testing.T) {
 		rootpath = "./testdata/"
 		ctx      = context.Background()
 		r        = require.New(t)
-		state1   = &sharding.State{Physical: map[string]sharding.Physical{"C1": {
-			Name:           "node1",
-			BelongsToNodes: []string{"node1"},
-		}}}
+		state1   = &sharding.State{Physical: map[string]sharding.Physical{
+			"S1": {
+				Name:           "S1",
+				BelongsToNodes: []string{localNode},
+			},
+		}}
 		class1 = &models.Class{
 			Class:             "C1",
 			VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
@@ -47,6 +50,7 @@ func TestUpdateIndex(t *testing.T) {
 			VectorIndexType: "flat",
 			Vectorizer:      "text2vec-contextionary",
 		}
+		states = map[string]*sharding.State{class1.Class: state1}
 		class2 = &models.Class{
 			Class:               "C2",
 			InvertedIndexConfig: &models.InvertedIndexConfig{},
@@ -58,7 +62,8 @@ func TestUpdateIndex(t *testing.T) {
 	require.Nil(t, os.MkdirAll(rootpath, os.ModePerm))
 
 	// init DB with class 1 and state 1
-	db := testDB(rootpath, []*models.Class{class1}, map[string]*sharding.State{class1.Class: state1})
+	states[class1.Class].SetLocalName(localNode)
+	db := testDB(rootpath, []*models.Class{class1}, states)
 	db.indices = make(map[string]*Index)
 	mi := NewMigrator(db, db.logger)
 
@@ -70,7 +75,7 @@ func TestUpdateIndex(t *testing.T) {
 		err := mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 InvertedIndexConfig
 		class1.InvertedIndexConfig = &models.InvertedIndexConfig{
@@ -80,7 +85,7 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 Properties
 		class1.Properties = []*models.Property{
@@ -99,35 +104,35 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 replication config
 		class1.ReplicationConfig = &models.ReplicationConfig{Factor: 10}
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 VectorIndexType
 		class1.VectorIndexType = "hnsw"
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 Vectorizer
 		class1.Vectorizer = "custom-near-text-module"
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 VectorIndexConfig
 		class1.VectorIndexConfig = hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric, FlatSearchCutoff: 10}
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 ShardingConfig
 		class1.ShardingConfig = map[string]interface{}{
@@ -136,14 +141,14 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 MultiTenancyConfig
 		class1.MultiTenancyConfig = &models.MultiTenancyConfig{AutoTenantCreation: true, Enabled: true}
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 ModuleConfig
 		class1.ModuleConfig = map[string]interface{}{
@@ -154,14 +159,14 @@ func TestUpdateIndex(t *testing.T) {
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update class 1 Description
 		class1.Description = "updated"
 		err = mi.UpdateIndex(ctx, class1, state1)
 		r.Nil(err)
 		r.Equal(1, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 
 		// update state
 		state1.PartitioningEnabled = true
@@ -170,6 +175,19 @@ func TestUpdateIndex(t *testing.T) {
 		r.Equal(1, len(mi.db.indices))
 		existedIndex := mi.db.GetIndex(schema.ClassName(class1.Class))
 		r.Equal(existedIndex.partitioningEnabled, state1.PartitioningEnabled)
+
+		// update state shar physical name
+		state1.Physical = map[string]sharding.Physical{"T11": {
+			Name:           "T11",
+			BelongsToNodes: []string{localNode},
+		}}
+		// update shard
+		err = mi.UpdateIndex(ctx, class1, state1)
+		r.Nil(err)
+		r.Equal(1, len(mi.db.indices))
+		existedIndex = mi.db.GetIndex(schema.ClassName(class1.Class))
+		r.Equal(existedIndex.partitioningEnabled, state1.PartitioningEnabled)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 	})
 
 	t.Run("create new class on updating it", func(t *testing.T) {
@@ -180,7 +198,7 @@ func TestUpdateIndex(t *testing.T) {
 		err := mi.UpdateIndex(ctx, class2, state2)
 		r.Nil(err)
 		r.Equal(2, len(mi.db.indices))
-		classIsInMemoryAndFileSystem(r, mi, class1)
+		classIsInMemoryAndFileSystem(r, mi, class1, state1)
 	})
 }
 
@@ -349,13 +367,21 @@ func newMigrator(t *testing.T, numClasses int, classes ...*models.Class) *Migrat
 	return NewMigrator(db, db.logger)
 }
 
-func classIsInMemoryAndFileSystem(r *require.Assertions, mi *Migrator, c *models.Class) {
+func classIsInMemoryAndFileSystem(r *require.Assertions, mi *Migrator, c *models.Class, state *sharding.State) {
 	existedIndex := mi.db.GetIndex(schema.ClassName(c.Class))
 	r.Equal(existedIndex.getVectorIndexConfig(), c.VectorIndexConfig)
 	existedClasses := existedIndex.getSchema.GetSchemaSkipAuth().Objects.Classes
 	r.Equal(existedClasses[0], c)
 	_, err := os.Stat(existedIndex.path())
 	r.Nil(err)
+
+	// shards filesystem
+	shardName := existedIndex.GetShards()[0].Name()
+	_, err = os.Stat(fmt.Sprintf("%s/%s/lsm", existedIndex.path(), shardName))
+	r.Nil(err)
+	r.NotNil(state.Physical[shardName])
+	r.Equal(state.Physical[shardName].Name, shardName)
+
 	r.True(classEqual(existedClasses[0], c))
 }
 
