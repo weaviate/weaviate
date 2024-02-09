@@ -23,22 +23,22 @@ esac
 # Set default value for VOTERS
 VOTERS=${1:-2}
 FILE_NAME="docker-compose-raft.yml"
+CURRENT_DIR=$(dirname "$0")
 
 # Check if jinja2 is installed
 if ! command -v jinja2 &> /dev/null; then
     # Check if running on Mac
+    echo "Installing jinja2-cli..."
     if [[ $(uname) == "Darwin" ]]; then
         # Install jinja2-cli via Homebrew
         brew install jinja2-cli
     else
-        # Prompt user to install jinja2-cli via pip
-        echo "jinja2-cli is not installed. Please install it using 'pip install jinja2-cli'."
-        exit 1
+        pip install jinja2-cli
     fi
 fi
 
 # Generate docker-compose-raft.yml using jinja2
-jinja2 docker-compose-raft.yml.j2 -D NUMBER_VOTERS=${VOTERS} -o ${FILE_NAME}
+jinja2 ${CURRENT_DIR}/docker-compose-raft.yml.j2 -D NUMBER_VOTERS=${VOTERS} -o ${FILE_NAME}
 
 echo -e "You can now start your multinode Weaviate compose! To do so, run the following command:\n\
     docker-compose -f ${FILE_NAME} up -d\n\

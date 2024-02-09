@@ -18,6 +18,7 @@ function main() {
   run_benchmark=false
   run_module_only_backup_tests=false
   run_module_except_backup_tests=false
+  multi_node=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -25,7 +26,7 @@ function main() {
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
-          
+
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
@@ -34,7 +35,9 @@ function main() {
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
+          --multi-node|-mn) multi_node=true; nodes=3;;
           --help|-h) printf '%s\n' \
+              "Usage: $0 [options] [optional]"\
               "Options:"\
               "--unit-only | -u"\
               "--unit-and-integration-only | -ui"\
@@ -46,10 +49,16 @@ function main() {
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
-              "--only-module-{moduleName}"
-              "--benchmark-only | -b" \
-              "--help | -h"; exit 1;;
-          *) echo "Unknown parameter passed: $1"; exit 1 ;;
+              "--only-module-{moduleName}"\
+              "--benchmark-only | -b"\
+              "--multi-node | -mn <number_of_nodes>[default:3]"\
+              "--help | -h";exit 1;;
+          *)
+            if [[ $multi_node ]] && [[ $1 =~ ^[0-9]+$ ]]; then
+              nodes=$1
+            else
+              echo "Unknown parameter passed: $1"; exit 1
+            fi
       esac
       shift
   done
@@ -80,21 +89,31 @@ function main() {
     echo_green "Run integration tests..."
     run_integration_tests "$@"
     echo_green "Integration tests successful"
-  fi 
+  fi
 
   if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
-    suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
+    composes=("docker-compose-test.yml", "docker-compose-raft.yml")
+    for compose in "${composes[@]}"; do
+      if [[ -f $compose ]]; then
+        suppress_on_success docker compose -f $compose down --remove-orphans
+      fi
+    done
 
     echo_green "Start up weaviate and backing dbs in docker-compose..."
     echo "This could take some time..."
-    tools/test/run_ci_server.sh
+    if $multi_node; then
+      echo "Running multi-node setup with $nodes nodes"
+      tools/test/run_ci_server_multi_node.sh $nodes
+    else
+      tools/test/run_ci_server.sh
+    fi
 
     # echo_green "Import required schema and test fixtures..."
     # # Note: It's not best practice to do this as part of the test script
-    # # It would be better if each test independently prepared (and also 
+    # # It would be better if each test independently prepared (and also
     # # cleaned up) the test fixtures it needs, but one step at a time ;)
     # suppress_on_success import_test_fixtures
 
@@ -122,7 +141,7 @@ function main() {
         return 1
       fi
       echo_green "Module acceptance tests for $mod successful"
-    done    
+    done
   fi
   if $run_module_tests; then
     echo_green "Running module acceptance tests..."
@@ -174,7 +193,7 @@ function run_acceptance_tests() {
   if $run_acceptance_replication_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance replciation"
     run_acceptance_replication_tests "$@"
-  fi  
+  fi
 }
 
 function run_acceptance_only_fast() {
@@ -254,13 +273,13 @@ suppress_on_success() {
 
 function echo_green() {
   green='\033[0;32m'
-  nc='\033[0m' 
+  nc='\033[0m'
   echo -e "${green}${*}${nc}"
 }
 
 function echo_red() {
   red='\033[0;31m'
-  nc='\033[0m' 
+  nc='\033[0m'
   echo -e "${red}${*}${nc}"
 }
 
