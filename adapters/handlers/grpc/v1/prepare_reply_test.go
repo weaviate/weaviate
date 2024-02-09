@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
+
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -179,6 +181,7 @@ func TestGRPCReply(t *testing.T) {
 		outGenerative      string
 		outGroup           []*pb.GroupByResult
 		usesWeaviateStruct bool
+		hasError           bool
 	}{
 		{
 			name: "vector only",
@@ -1221,6 +1224,24 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
+			name: "generative with error",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{ // different place for generative
+						"generate": &addModels.GenerateResult{Error: errors.New("error")},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Prompt: &refClass1,
+					},
+				},
+			}},
+			hasError: true,
+		},
+		{
 			name: "generative group only",
 			res: []interface{}{
 				map[string]interface{}{
@@ -1467,12 +1488,16 @@ func TestGRPCReply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme, tt.usesWeaviateStruct)
-			require.Nil(t, err)
-			for i := range tt.outSearch {
-				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
-				require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
+			if tt.hasError {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				for i := range tt.outSearch {
+					require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
+					require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
+				}
+				require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 			}
-			require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 		})
 	}
 }
