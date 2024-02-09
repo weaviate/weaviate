@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -149,7 +150,11 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	if err != nil {
 		return out, err
 	}
-
+	if previous == nil {
+		uid := uuid.UUID{}
+		uid.UnmarshalBinary(idBytes)
+		return out, fmt.Errorf("object with id %s not found", uid)
+	}
 	nextObj, previousObj, err := s.mergeObjectData(previous, merge)
 	if err != nil {
 		return out, errors.Wrap(err, "merge object data")
