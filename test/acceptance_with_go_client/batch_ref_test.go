@@ -65,6 +65,6 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 		require.NotNil(t, resp[i].Result)
 		require.NotNil(t, resp[i].Result.Status)
 		assert.Equal(t, "FAILED", *resp[i].Result.Status)
-		assert.Nil(t, resp[i].Result.Errors)
+		assert.NotNil(t, resp[i].Result.Errors)
 	}
 }

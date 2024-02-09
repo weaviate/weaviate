@@ -151,7 +151,9 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 		return out, err
 	}
 	if previous == nil {
-		return out, fmt.Errorf("object with id %s not found", idBytes)
+		uid := uuid.UUID{}
+		uid.UnmarshalBinary(idBytes)
+		return out, fmt.Errorf("object with id %s not found", uid)
 	}
 	nextObj, previousObj, err := s.mergeObjectData(previous, merge)
 	if err != nil {
