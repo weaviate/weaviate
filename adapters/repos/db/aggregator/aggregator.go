@@ -94,8 +94,11 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 func (a *Aggregator) aggTypeOfProperty(
 	name schema.PropertyName,
 ) (aggregation.PropertyType, schema.DataType, error) {
-	s := a.getSchema.GetSchemaSkipAuth()
-	schemaProp, err := s.GetProperty(a.params.ClassName, name)
+	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
+	if class == nil {
+		return "", "", fmt.Errorf("could not find class %s in schema", a.params.ClassName)
+	}
+	schemaProp, err := schema.GetPropertyByName(class, name.String())
 	if err != nil {
 		return "", "", errors.Wrapf(err, "property %s", name)
 	}
