@@ -119,7 +119,7 @@ func (c *Classifier) getClassifyParams(params models.Classification,
 	filters Filters, unclassifiedItems []search.Result,
 ) modulecapabilities.ClassifyParams {
 	return modulecapabilities.ClassifyParams{
-		Schema:            c.schemaGetter.GetSchemaSkipAuth(),
+		GetClass:          c.schemaGetter.ReadOnlyClass,
 		Params:            params,
 		Filters:           filters,
 		UnclassifiedItems: unclassifiedItems,

@@ -16,7 +16,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -32,7 +31,7 @@ type VectorClassSearchRepo interface {
 }
 
 type ClassifyParams struct {
-	Schema            schema.Schema
+	GetClass          func(string) *models.Class
 	Params            models.Classification
 	Filters           Filters
 	UnclassifiedItems []search.Result
