@@ -32,7 +32,7 @@ type contextualPreparationContext struct {
 	targets map[string]search.Results // map[classifyProp]targets
 }
 
-func (c *Classifier) prepareContextualClassification(schema schema.Schema,
+func (c *Classifier) prepareContextualClassification(getClass func(string) *models.Class,
 	vectorRepo modulecapabilities.VectorClassSearchRepo, params models.Classification,
 	filters libclassification.Filters, items search.Results,
 ) (contextualPreparationContext, error) {
@@ -41,7 +41,7 @@ func (c *Classifier) prepareContextualClassification(schema schema.Schema,
 		params:     params,
 		repo:       vectorRepo,
 		filters:    filters,
-		schema:     schema,
+		getClass:   getClass,
 	}
 
 	return p.do()
@@ -52,7 +52,7 @@ type contextualPreparer struct {
 	params     models.Classification
 	repo       modulecapabilities.VectorClassSearchRepo
 	filters    libclassification.Filters
-	schema     schema.Schema
+	getClass   func(string) *models.Class
 }
 
 func (p *contextualPreparer) do() (contextualPreparationContext, error) {
@@ -150,12 +150,17 @@ func (p *contextualPreparer) findTargets(class schema.ClassName) (search.Results
 }
 
 func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.ClassName, error) {
-	prop, err := p.schema.GetProperty(schema.ClassName(p.params.Class), schema.PropertyName(propName))
-	if err != nil {
-		return "", fmt.Errorf("get target prop '%s': %v", propName, err)
+	class := p.getClass(p.params.Class)
+	if class == nil {
+		return "", fmt.Errorf("could not find class %s in schema", p.params.Class)
 	}
 
-	dataType, err := p.schema.FindPropertyDataType(prop.DataType)
+	prop, err := schema.GetPropertyByName(class, propName)
+	if err != nil {
+		return "", err
+	}
+
+	dataType, err := schema.FindPropertyDataTypeWithRefs(p.getClass, prop.DataType, false, "")
 	if err != nil {
 		return "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
 	}
