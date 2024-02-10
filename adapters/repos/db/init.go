@@ -51,55 +51,57 @@ func (db *DB) init(ctx context.Context) error {
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
-	if objects != nil {
-		for _, class := range objects.Classes {
-			invertedConfig := class.InvertedIndexConfig
-			if invertedConfig == nil {
-				// for backward compatibility, this field was introduced in v1.0.4,
-				// prior schemas will not yet have the field. Init with the defaults
-				// which were previously hard-coded.
-				// In this method we are essentially reading the schema from disk, so
-				// it could have been created before v1.0.4
-				invertedConfig = &models.InvertedIndexConfig{
-					CleanupIntervalSeconds: config.DefaultCleanupIntervalSeconds,
-					Bm25: &models.BM25Config{
-						K1: config.DefaultBM25k1,
-						B:  config.DefaultBM25b,
-					},
-				}
-			}
-			if err := replica.ValidateConfig(class, db.config.Replication); err != nil {
-				return fmt.Errorf("replication config: %w", err)
-			}
+	if objects == nil {
+		return nil
+	}
 
-			idx, err := NewIndex(ctx, IndexConfig{
-				ClassName:                 schema.ClassName(class.Class),
-				RootPath:                  db.config.RootPath,
-				ResourceUsage:             db.config.ResourceUsage,
-				QueryMaximumResults:       db.config.QueryMaximumResults,
-				QueryNestedRefLimit:       db.config.QueryNestedRefLimit,
-				MemtablesFlushIdleAfter:   db.config.MemtablesFlushIdleAfter,
-				MemtablesInitialSizeMB:    db.config.MemtablesInitialSizeMB,
-				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
-				MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
-				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
-				TrackVectorDimensions:     db.config.TrackVectorDimensions,
-				AvoidMMap:                 db.config.AvoidMMap,
-				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
-				ReplicationFactor:         class.ReplicationConfig.Factor,
-			}, db.schemaGetter.CopyShardingState(class.Class),
-				inverted.ConfigFromModel(invertedConfig),
-				class.VectorIndexConfig.(schemaConfig.VectorIndexConfig),
-				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
-			if err != nil {
-				return errors.Wrap(err, "create index")
+	for _, class := range objects.Classes {
+		invertedConfig := class.InvertedIndexConfig
+		if invertedConfig == nil {
+			// for backward compatibility, this field was introduced in v1.0.4,
+			// prior schemas will not yet have the field. Init with the defaults
+			// which were previously hard-coded.
+			// In this method we are essentially reading the schema from disk, so
+			// it could have been created before v1.0.4
+			invertedConfig = &models.InvertedIndexConfig{
+				CleanupIntervalSeconds: config.DefaultCleanupIntervalSeconds,
+				Bm25: &models.BM25Config{
+					K1: config.DefaultBM25k1,
+					B:  config.DefaultBM25b,
+				},
 			}
-
-			db.indexLock.Lock()
-			db.indices[idx.ID()] = idx
-			db.indexLock.Unlock()
 		}
+		if err := replica.ValidateConfig(class, db.config.Replication); err != nil {
+			return fmt.Errorf("replication config: %w", err)
+		}
+
+		idx, err := NewIndex(ctx, IndexConfig{
+			ClassName:                 schema.ClassName(class.Class),
+			RootPath:                  db.config.RootPath,
+			ResourceUsage:             db.config.ResourceUsage,
+			QueryMaximumResults:       db.config.QueryMaximumResults,
+			QueryNestedRefLimit:       db.config.QueryNestedRefLimit,
+			MemtablesFlushIdleAfter:   db.config.MemtablesFlushIdleAfter,
+			MemtablesInitialSizeMB:    db.config.MemtablesInitialSizeMB,
+			MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
+			MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
+			MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
+			TrackVectorDimensions:     db.config.TrackVectorDimensions,
+			AvoidMMap:                 db.config.AvoidMMap,
+			DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
+			ReplicationFactor:         class.ReplicationConfig.Factor,
+		}, db.schemaGetter.CopyShardingState(class.Class),
+			inverted.ConfigFromModel(invertedConfig),
+			class.VectorIndexConfig.(schemaConfig.VectorIndexConfig),
+			db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+			db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
+		if err != nil {
+			return errors.Wrap(err, "create index")
+		}
+
+		db.indexLock.Lock()
+		db.indices[idx.ID()] = idx
+		db.indexLock.Unlock()
 	}
 
 	return nil
