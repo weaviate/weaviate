@@ -787,23 +787,20 @@ func Test_propertyHasSearchableIndex(t *testing.T) {
 		},
 	}
 
-	ClassSchema := &models.Schema{
-		Classes: []*models.Class{class},
-	}
 	t.Run("Property index", func(t *testing.T) {
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "description"); got != true {
+		if got := inverted.PropertyHasSearchableIndex(class, "description"); got != true {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "description^2"); got != true {
+		if got := inverted.PropertyHasSearchableIndex(class, "description^2"); got != true {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "textField"); got != false {
+		if got := inverted.PropertyHasSearchableIndex(class, "textField"); got != false {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, false)
 		}
 
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "title"); got != true {
+		if got := inverted.PropertyHasSearchableIndex(class, "title"); got != true {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 	})

@@ -1133,9 +1133,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		propHash := cl.Properties
 		// Get keys of hash
 		for _, v := range propHash {
-			if inverted.PropertyHasSearchableIndex(i.getSchema.GetSchemaSkipAuth().Objects,
-				i.Config.ClassName.String(), v.Name) {
-
+			if inverted.PropertyHasSearchableIndex(i.getSchema.ReadOnlyClass(i.Config.ClassName.String()), v.Name) {
 				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 			}
 		}
@@ -1340,7 +1338,7 @@ func (i *Index) sortKeywordRanking(objects []*storobj.Object,
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
 	sort []filters.Sort, limit int,
 ) ([]*storobj.Object, []float32, error) {
-	return sorter.NewObjectsSorter(i.getSchema.GetSchemaSkipAuth()).
+	return sorter.NewObjectsSorter(i.getSchema.ReadOnlyClass).
 		Sort(objects, scores, limit, sort)
 }
 

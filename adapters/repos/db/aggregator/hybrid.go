@@ -42,14 +42,13 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 }
 
 func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
-	s := a.getSchema.GetSchemaSkipAuth()
-	class := s.GetClass(a.params.ClassName.String())
+	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", a.params.ClassName)
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
 
-	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, s,
+	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, a.classSearcher,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
 	).BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw)
