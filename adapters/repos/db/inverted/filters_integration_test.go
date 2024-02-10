@@ -652,11 +652,11 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 	return out
 }
 
-func createSchema() schema.Schema {
+func createSchema() *schema.Schema {
 	vFalse := false
 	vTrue := true
 
-	return schema.Schema{
+	return &schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
