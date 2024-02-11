@@ -123,17 +123,37 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 ) error {
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
+
+	vectors := make(models.Vectors)
 	for targetVector, modConfig := range modConfigs {
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
 		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
-			return p.vectorizeOne(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger)
+			err := p.vectorizeOne(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger)
+			if err != nil {
+				return err
+			}
+			// TODO[named-vectors]: temporary solution, the vectorize API need to return vectors
+			// so that locking be only in one place, here
+			p.lockGuard(func() {
+				for targetVector, vector := range object.Vectors {
+					vectors[targetVector] = vector
+				}
+			})
+			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return err
 	}
+	object.Vectors = vectors
 	return nil
+}
+
+func (p *Provider) lockGuard(mutate func()) {
+	p.vectorsLock.Lock()
+	defer p.vectorsLock.Unlock()
+	mutate()
 }
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,

@@ -27,7 +27,6 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-
 	t.Run("schema", testCreateSchema(t, endpoint))
 	t.Run("objects", testCreateObject(t, endpoint))
 	t.Run("batch", testBatchObject(t, endpoint))
