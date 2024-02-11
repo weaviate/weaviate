@@ -30,6 +30,7 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 
 	t.Run("schema", testCreateSchema(t, endpoint))
 	t.Run("objects", testCreateObject(t, endpoint))
+	t.Run("batch", testBatchObject(t, endpoint))
 }
 
 func TestNamedVectors_Cluster(t *testing.T) {
