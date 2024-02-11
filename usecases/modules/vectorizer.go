@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -24,7 +25,10 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
+	"golang.org/x/sync/errgroup"
 )
+
+var _NUMCPU = runtime.NumCPU()
 
 const (
 	errorVectorizerCapability = "module %q exists, but does not provide the " +
@@ -85,12 +89,15 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	vectorize, err := p.shouldVectorize(object, class, "", logger)
-	if err != nil {
-		return err
-	}
-	if !vectorize {
-		return nil
+	if !p.hasMultipleVectorsConfiguration(class) {
+		// legacy vectorizer configuration
+		vectorize, err := p.shouldVectorize(object, class, "", logger)
+		if err != nil {
+			return err
+		}
+		if !vectorize {
+			return nil
+		}
 	}
 
 	modConfigs, err := p.getModuleConfigs(object, class)
@@ -98,22 +105,51 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 		return err
 	}
 
-	// TODO[named-vector]: just to double check the logic
-	// this operation is now performed sequentially, can be done parallel
-	for targetVector, modConfig := range modConfigs {
-		// TODO[named-vector]: add this check later, it seems that it doesn't work
-		// for some cases, needs investigation
-		// vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
-		// if err != nil {
-		// 	return err
-		// }
-		// if vectorize {
-		// 	// Modules API needs to be changed to return the produced vector
-		// 	p.vectorize(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger)
-		// }
-		p.vectorize(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger)
+	if len(modConfigs) == 1 {
+		for targetVector, modConfig := range modConfigs {
+			return p.vectorize(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger)
+		}
 	}
+	return p.vectorizeMultiple(ctx, object, class, objectDiff, findObjectFn, modConfigs, logger)
+}
 
+func (p *Provider) hasMultipleVectorsConfiguration(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
+}
+
+func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object, class *models.Class,
+	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
+	modConfigs map[string]map[string]interface{}, logger logrus.FieldLogger,
+) error {
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+	for targetVector, modConfig := range modConfigs {
+		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
+		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
+		eg.Go(func() error {
+			return p.vectorizeOne(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
+	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
+	targetVector string, modConfig map[string]interface{},
+	logger logrus.FieldLogger,
+) error {
+	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
+	if err != nil {
+		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
+	}
+	if vectorize {
+		if err := p.vectorize(ctx, object, class, objectDiff, findObjectFn, targetVector, modConfig, logger); err != nil {
+			return fmt.Errorf("vectorize target vector %s: %w", targetVector, err)
+		}
+	}
 	return nil
 }
 
