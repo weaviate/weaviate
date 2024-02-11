@@ -25,11 +25,11 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -43,11 +43,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
-func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *config.Config) (dto.GetParams, error) {
+func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.Class, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class, err := schema.GetClassByName(scheme.Objects, req.Collection)
-	if err != nil {
-		return dto.GetParams{}, err
+	class := getClass(req.Collection)
+	if class == nil {
+		return dto.GetParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
 	}
 
 	out.ClassName = req.Collection
@@ -293,12 +293,12 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 	}
 
 	if req.Filters != nil {
-		clause, err := extractFilters(req.Filters, scheme, req.Collection)
+		clause, err := extractFilters(req.Filters, getClass, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(scheme.GetClass, filter); err != nil {
+		if err := filters.ValidateFilters(getClass, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter
@@ -484,13 +484,13 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool, targetVectors *[]string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors *[]string) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
 		// No properties selected at all, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		nonRefProps, err := getAllNonRefNonBlobProperties(scheme, className)
+		nonRefProps, err := getAllNonRefNonBlobProperties(getClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -499,13 +499,13 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 
 	if !usesNewDefaultLogic {
 		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, scheme, className, targetVectors)
+		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
 		// No non-ref return properties selected, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(scheme, className)
+		returnProps, err := getAllNonRefNonBlobProperties(getClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -524,7 +524,11 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		class := scheme.GetClass(className)
+		class := getClass(className)
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", className)
+		}
+
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
@@ -548,7 +552,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, scheme, linkedClassName, usesNewDefaultLogic, targetVectors)
+				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -561,7 +565,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(getClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -592,7 +596,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, targetVectors *[]string) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors *[]string) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -608,7 +612,11 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme s
 	}
 
 	if reqProps.RefProperties != nil && len(reqProps.RefProperties) > 0 {
-		class := scheme.GetClass(className)
+		class := getClass(className)
+		if class == nil {
+			return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
+		}
+
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
@@ -632,7 +640,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme s
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, scheme, linkedClassName, targetVectors)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -645,7 +653,7 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme s
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(scheme, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(getClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}
@@ -755,9 +763,12 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
-func getAllNonRefNonBlobProperties(scheme schema.Schema, className string) ([]search.SelectProperty, error) {
+func getAllNonRefNonBlobProperties(getClass func(string) *models.Class, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
-	class := scheme.GetClass(className)
+	class := getClass(className)
+	if class == nil {
+		return []search.SelectProperty{}, fmt.Errorf("could not find class %s in schema", className)
+	}
 
 	for _, prop := range class.Properties {
 		dt, err := schema.GetPropertyDataType(class, prop.Name)
