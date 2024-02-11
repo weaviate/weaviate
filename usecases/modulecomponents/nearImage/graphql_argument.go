@@ -57,5 +57,9 @@ func nearImageFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
 		},
+		"targetVectors": &graphql.InputObjectFieldConfig{
+			Description: "Target vectors",
+			Type:        graphql.NewList(graphql.String),
+		},
 	}
 }
