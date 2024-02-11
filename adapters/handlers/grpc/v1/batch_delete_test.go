@@ -71,7 +71,7 @@ func TestBatchDeleteRequest(t *testing.T) {
 		{
 			name:  "collection does not exist",
 			req:   &pb.BatchDeleteRequest{Collection: "does not exist"},
-			error: errors.New("no such class with name 'does not exist' found in the schema. Check your schema files for which classes are available"),
+			error: errors.New("could not find class does not exist in schema"),
 		},
 		{
 			name:  "no filter",
@@ -113,7 +113,7 @@ func TestBatchDeleteRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchDeleteParamsFromProto(tt.req, scheme)
+			out, err := batchDeleteParamsFromProto(tt.req, scheme.GetClass)
 			require.Equal(t, tt.error, err)
 
 			if tt.error == nil {
