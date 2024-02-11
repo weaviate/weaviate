@@ -63,6 +63,21 @@ func Test_extractNearImageFn(t *testing.T) {
 				WithDistance: true,
 			},
 		},
+		{
+			name: "should extract properly with image and certainty set and targetVectors set",
+			args: args{
+				source: map[string]interface{}{
+					"image":         "base64;encoded",
+					"certainty":     float64(0.9),
+					"targetVectors": []interface{}{"targetVector1"},
+				},
+			},
+			want: &NearImageParams{
+				Image:         "base64;encoded",
+				Certainty:     0.9,
+				TargetVectors: []string{"targetVector1"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
