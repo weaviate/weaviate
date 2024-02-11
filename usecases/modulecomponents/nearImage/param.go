@@ -16,10 +16,11 @@ import (
 )
 
 type NearImageParams struct {
-	Image        string
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Image         string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearImageParams) GetCertainty() float64 {
@@ -34,6 +35,10 @@ func (n NearImageParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
+func (n NearImageParams) GetTargetVectors() []string {
+	return n.TargetVectors
+}
+
 func ValidateNearImageFn(param interface{}) error {
 	nearImage, ok := param.(*NearImageParams)
 	if !ok {
@@ -46,8 +51,12 @@ func ValidateNearImageFn(param interface{}) error {
 
 	if nearImage.Certainty != 0 && nearImage.WithDistance {
 		return errors.Errorf(
-			"nearText cannot provide both distance and certainty")
+			"nearImage cannot provide both distance and certainty")
 	}
 
+	if len(nearImage.TargetVectors) > 1 {
+		return errors.Errorf(
+			"nearImage.targetVectors cannot provide more than 1 target vector value")
+	}
 	return nil
 }

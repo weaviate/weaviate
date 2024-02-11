@@ -12,8 +12,11 @@
 package modulecomponents
 
 import (
+	"fmt"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 )
 
@@ -29,8 +32,10 @@ func GetGenericArgument(name, className string, argumentType ArgumentType) *grap
 	switch name {
 	case "nearText":
 		return getGenericArgument(nearText.New(nil).Arguments()[name], className, argumentType)
+	case "nearImage":
+		return getGenericArgument(nearImage.New().Arguments()[name], className, argumentType)
 	default:
-		return nil
+		panic(fmt.Sprintf("Unknown generic argument: %s", name))
 	}
 }
 
@@ -45,6 +50,6 @@ func getGenericArgument(arg modulecapabilities.GraphQLArgument,
 	case Explore:
 		return arg.ExploreArgumentsFunction()
 	default:
-		return nil
+		panic(fmt.Sprintf("Unknown argument type: %v", argumentType))
 	}
 }
