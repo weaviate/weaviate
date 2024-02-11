@@ -43,6 +43,7 @@ func TestNamedVectors_Cluster(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 	t.Run("schema", testCreateSchema(t, endpoint))
 	t.Run("object", testCreateObject(t, endpoint))
+	// t.Run("batch", testBatchObject(t, endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
