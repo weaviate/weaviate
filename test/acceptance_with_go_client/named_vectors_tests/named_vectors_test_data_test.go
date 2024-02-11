@@ -29,18 +29,25 @@ import (
 )
 
 var (
-	className                  = "NamedVectors"
-	text2vecContextionaryName1 = "c11y1"
-	text2vecContextionaryName2 = "c11y2_flat"
-	text2vecContextionaryName3 = "c11y2_pq"
-	transformersName1          = "transformers1"
-	transformersName2          = "transformers2_flat"
-	transformersName3          = "transformers2_pq"
-	text2vecContextionary      = "text2vec-contextionary"
-	text2vecTransformers       = "text2vec-transformers"
-	id1                        = "00000000-0000-0000-0000-000000000001"
-	id2                        = "00000000-0000-0000-0000-000000000002"
+	className             = "NamedVectors"
+	c11y                  = "c11y"
+	c11y_pq               = "c11y_pq"
+	c11y_flat             = "c11y_flat"
+	c11y_bq               = "c11y_bq"
+	transformers          = "transformers"
+	transformers_flat     = "transformers_flat"
+	transformers_pq       = "transformers_pq"
+	transformers_bq       = "transformers_bq"
+	text2vecContextionary = "text2vec-contextionary"
+	text2vecTransformers  = "text2vec-transformers"
+	id1                   = "00000000-0000-0000-0000-000000000001"
+	id2                   = "00000000-0000-0000-0000-000000000002"
 )
+
+var targetVectors = []string{
+	c11y, c11y_flat, c11y_pq, c11y_bq,
+	transformers, transformers_flat, transformers_pq, transformers_bq,
+}
 
 func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 	ctx := context.Background()
@@ -52,7 +59,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 			},
 		},
 		VectorConfig: map[string]models.VectorConfig{
-			text2vecContextionaryName1: {
+			c11y: {
 				Vectorizer: map[string]interface{}{
 					text2vecContextionary: map[string]interface{}{
 						"vectorizeClassName": false,
@@ -60,7 +67,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				},
 				VectorIndexType: "hnsw",
 			},
-			text2vecContextionaryName2: {
+			c11y_flat: {
 				Vectorizer: map[string]interface{}{
 					text2vecContextionary: map[string]interface{}{
 						"vectorizeClassName": false,
@@ -68,7 +75,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				},
 				VectorIndexType: "flat",
 			},
-			text2vecContextionaryName3: {
+			c11y_pq: {
 				Vectorizer: map[string]interface{}{
 					text2vecContextionary: map[string]interface{}{
 						"vectorizeClassName": false,
@@ -77,7 +84,16 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				VectorIndexType:   "hnsw",
 				VectorIndexConfig: pqVectorIndexConfig(),
 			},
-			transformersName1: {
+			c11y_bq: {
+				Vectorizer: map[string]interface{}{
+					text2vecContextionary: map[string]interface{}{
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType:   "flat",
+				VectorIndexConfig: bqFlatIndexConfig(),
+			},
+			transformers: {
 				Vectorizer: map[string]interface{}{
 					text2vecTransformers: map[string]interface{}{
 						"vectorizeClassName": false,
@@ -85,7 +101,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				},
 				VectorIndexType: "hnsw",
 			},
-			transformersName2: {
+			transformers_flat: {
 				Vectorizer: map[string]interface{}{
 					text2vecTransformers: map[string]interface{}{
 						"vectorizeClassName": false,
@@ -93,7 +109,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				},
 				VectorIndexType: "flat",
 			},
-			transformersName3: {
+			transformers_pq: {
 				Vectorizer: map[string]interface{}{
 					text2vecTransformers: map[string]interface{}{
 						"vectorizeClassName": false,
@@ -101,6 +117,15 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				},
 				VectorIndexType:   "hnsw",
 				VectorIndexConfig: pqVectorIndexConfig(),
+			},
+			transformers_bq: {
+				Vectorizer: map[string]interface{}{
+					text2vecTransformers: map[string]interface{}{
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType:   "flat",
+				VectorIndexConfig: bqFlatIndexConfig(),
 			},
 		},
 		Vectorizer: text2vecContextionary,
@@ -113,10 +138,10 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 	require.NoError(t, err)
 	assert.Equal(t, class.Class, cls.Class)
 	require.NotEmpty(t, cls.VectorConfig)
-	require.Len(t, cls.VectorConfig, 6)
+	require.Len(t, cls.VectorConfig, 8)
 	targetVectors := []string{
-		text2vecContextionaryName1, text2vecContextionaryName2, text2vecContextionaryName3,
-		transformersName1, transformersName2, transformersName3,
+		c11y, c11y_flat, c11y_pq, c11y_bq,
+		transformers, transformers_flat, transformers_pq, transformers_bq,
 	}
 	for _, name := range targetVectors {
 		require.NotEmpty(t, cls.VectorConfig[name])
@@ -153,7 +178,17 @@ func pqVectorIndexConfig() map[string]interface{} {
 	}
 }
 
-func getVectors(t *testing.T, client *wvt.Client, className, id string, targetVectors ...string) map[string][]float32 {
+func bqFlatIndexConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"bq": map[string]interface{}{
+			"enabled": true,
+		},
+	}
+}
+
+func getVectorsWithNearText(t *testing.T, client *wvt.Client,
+	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
+) map[string][]float32 {
 	where := filters.Where().
 		WithPath([]string{"id"}).
 		WithOperator(filters.Equal).
@@ -165,15 +200,48 @@ func getVectors(t *testing.T, client *wvt.Client, className, id string, targetVe
 			{Name: fmt.Sprintf("vectors{%s}", strings.Join(targetVectors, " "))},
 		},
 	}
-	resp, err := client.GraphQL().Get().
+	get := client.GraphQL().Get().
 		WithClassName(className).
 		WithWhere(where).
-		WithFields(field).
-		Do(context.Background())
+		WithNearText(nearText).
+		WithFields(field)
+
+	if nearText != nil {
+		get = get.WithNearText(nearText)
+	}
+
+	resp, err := get.Do(context.Background())
 	require.NoError(t, err)
 
 	ids := acceptance_with_go_client.GetIds(t, resp, className)
 	require.ElementsMatch(t, ids, []string{id})
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, targetVectors...)
+}
+
+func getVectors(t *testing.T, client *wvt.Client,
+	className, id string, targetVectors ...string,
+) map[string][]float32 {
+	return getVectorsWithNearText(t, client, className, id, nil, targetVectors...)
+}
+
+func checkTargetVectors(t *testing.T, resultVectors map[string][]float32) {
+	require.NotEmpty(t, resultVectors[c11y])
+	require.NotEmpty(t, resultVectors[c11y_flat])
+	require.NotEmpty(t, resultVectors[c11y_pq])
+	require.NotEmpty(t, resultVectors[c11y_bq])
+	require.NotEmpty(t, resultVectors[transformers])
+	require.NotEmpty(t, resultVectors[transformers_flat])
+	require.NotEmpty(t, resultVectors[transformers_pq])
+	require.NotEmpty(t, resultVectors[transformers_bq])
+	assert.Equal(t, resultVectors[c11y], resultVectors[c11y_flat])
+	assert.Equal(t, resultVectors[c11y_flat], resultVectors[c11y_pq])
+	assert.Equal(t, resultVectors[c11y_pq], resultVectors[c11y_bq])
+	assert.Equal(t, resultVectors[transformers], resultVectors[transformers_flat])
+	assert.Equal(t, resultVectors[transformers_flat], resultVectors[transformers_pq])
+	assert.Equal(t, resultVectors[transformers_pq], resultVectors[transformers_bq])
+	assert.NotEqual(t, resultVectors[c11y], resultVectors[transformers])
+	assert.NotEqual(t, resultVectors[c11y_flat], resultVectors[transformers_flat])
+	assert.NotEqual(t, resultVectors[c11y_pq], resultVectors[transformers_pq])
+	assert.NotEqual(t, resultVectors[c11y_bq], resultVectors[transformers_bq])
 }

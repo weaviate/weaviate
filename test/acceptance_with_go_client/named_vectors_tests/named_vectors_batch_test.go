@@ -85,24 +85,20 @@ func testBatchObject(t *testing.T, host string) func(t *testing.T) {
 
 			t.Run("GraphQL get vectors", func(t *testing.T) {
 				for id := range fixtures.Books() {
-					targetVectors := []string{
-						text2vecContextionaryName1, text2vecContextionaryName2, text2vecContextionaryName3,
-						transformersName1, transformersName2, transformersName3,
-					}
 					resultVectors := getVectors(t, client, className, id, targetVectors...)
-					require.NotEmpty(t, resultVectors[text2vecContextionaryName1])
-					require.NotEmpty(t, resultVectors[text2vecContextionaryName2])
-					require.NotEmpty(t, resultVectors[text2vecContextionaryName3])
-					require.NotEmpty(t, resultVectors[transformersName1])
-					require.NotEmpty(t, resultVectors[transformersName2])
-					require.NotEmpty(t, resultVectors[transformersName3])
-					assert.Equal(t, resultVectors[text2vecContextionaryName1], resultVectors[text2vecContextionaryName2])
-					assert.Equal(t, resultVectors[text2vecContextionaryName2], resultVectors[text2vecContextionaryName3])
-					assert.Equal(t, resultVectors[transformersName1], resultVectors[transformersName2])
-					assert.Equal(t, resultVectors[transformersName2], resultVectors[transformersName3])
-					assert.NotEqual(t, resultVectors[text2vecContextionaryName1], resultVectors[transformersName1])
-					assert.NotEqual(t, resultVectors[text2vecContextionaryName2], resultVectors[transformersName2])
-					assert.NotEqual(t, resultVectors[text2vecContextionaryName3], resultVectors[transformersName3])
+					checkTargetVectors(t, resultVectors)
+				}
+			})
+
+			t.Run("GraphQL near<Media> check", func(t *testing.T) {
+				for id, book := range fixtures.Books() {
+					for _, targetVector := range targetVectors {
+						nearText := client.GraphQL().NearTextArgBuilder().
+							WithConcepts([]string{book.Title}).
+							WithTargetVectors(targetVector)
+						resultVectors := getVectorsWithNearText(t, client, className, id, nearText, targetVectors...)
+						checkTargetVectors(t, resultVectors)
+					}
 				}
 			})
 
@@ -161,10 +157,6 @@ func testBatchObject(t *testing.T, host string) func(t *testing.T) {
 			})
 
 			t.Run("batch update objects and check if vectors changed", func(t *testing.T) {
-				targetVectors := []string{
-					text2vecContextionaryName1, text2vecContextionaryName2, text2vecContextionaryName3,
-					transformersName1, transformersName2, transformersName3,
-				}
 				existingIds := []string{}
 				for id := range fixtures.Books() {
 					if !hasBeenDeleted(id) {
@@ -174,20 +166,7 @@ func testBatchObject(t *testing.T, host string) func(t *testing.T) {
 				beforeUpdateVectorsMap := map[string]map[string][]float32{}
 				for _, id := range existingIds {
 					beforeUpdateVectors := getVectors(t, client, className, id, targetVectors...)
-					require.NotEmpty(t, beforeUpdateVectors[text2vecContextionaryName1])
-					require.NotEmpty(t, beforeUpdateVectors[text2vecContextionaryName2])
-					require.NotEmpty(t, beforeUpdateVectors[text2vecContextionaryName3])
-					require.NotEmpty(t, beforeUpdateVectors[transformersName1])
-					require.NotEmpty(t, beforeUpdateVectors[transformersName2])
-					require.NotEmpty(t, beforeUpdateVectors[transformersName3])
-					assert.Equal(t, beforeUpdateVectors[text2vecContextionaryName1], beforeUpdateVectors[text2vecContextionaryName2])
-					assert.Equal(t, beforeUpdateVectors[text2vecContextionaryName2], beforeUpdateVectors[text2vecContextionaryName3])
-					assert.Equal(t, beforeUpdateVectors[transformersName1], beforeUpdateVectors[transformersName2])
-					assert.Equal(t, beforeUpdateVectors[transformersName2], beforeUpdateVectors[transformersName3])
-					assert.NotEqual(t, beforeUpdateVectors[text2vecContextionaryName1], beforeUpdateVectors[transformersName1])
-					assert.NotEqual(t, beforeUpdateVectors[text2vecContextionaryName2], beforeUpdateVectors[transformersName2])
-					assert.NotEqual(t, beforeUpdateVectors[text2vecContextionaryName3], beforeUpdateVectors[transformersName3])
-					beforeUpdateVectorsMap[id] = beforeUpdateVectors
+					checkTargetVectors(t, beforeUpdateVectors)
 				}
 
 				objs := []*models.Object{}
@@ -209,12 +188,7 @@ func testBatchObject(t *testing.T, host string) func(t *testing.T) {
 
 				for _, id := range existingIds {
 					afterUpdateVectors := getVectors(t, client, className, id, targetVectors...)
-					require.NotEmpty(t, afterUpdateVectors[text2vecContextionaryName1])
-					require.NotEmpty(t, afterUpdateVectors[text2vecContextionaryName2])
-					require.NotEmpty(t, afterUpdateVectors[text2vecContextionaryName3])
-					require.NotEmpty(t, afterUpdateVectors[transformersName1])
-					require.NotEmpty(t, afterUpdateVectors[transformersName2])
-					require.NotEmpty(t, afterUpdateVectors[transformersName3])
+					checkTargetVectors(t, afterUpdateVectors)
 					beforeUpdateVectors := beforeUpdateVectorsMap[id]
 					for _, targetVector := range targetVectors {
 						assert.NotEqual(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
