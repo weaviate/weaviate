@@ -116,7 +116,7 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 }
 
 func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
-	vector []float32, cfg moduletools.ClassConfig,
+	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
 ) *models.Object {
 	if cfg.TargetVector() == "" {
 		object.Vector = vector
@@ -131,6 +131,14 @@ func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
 	}
 	v.vectorsLock.Lock()
 	object.Vectors[cfg.TargetVector()] = vector
+	if len(additional) > 0 {
+		if object.Additional == nil {
+			object.Additional = models.AdditionalProperties{}
+		}
+		for additionalName, additionalValue := range additional {
+			object.Additional[additionalName] = additionalValue
+		}
+	}
 	v.vectorsLock.Unlock()
 	return object
 }
