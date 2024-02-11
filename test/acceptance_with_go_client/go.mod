@@ -10,7 +10,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
 	github.com/weaviate/weaviate v1.23.0
-	github.com/weaviate/weaviate-go-client/v4 v4.12.1
+	github.com/weaviate/weaviate-go-client/v4 v4.12.2-0.20240211133132-069f70419160
 )
 
 require (

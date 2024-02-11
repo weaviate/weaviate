@@ -402,6 +402,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 		vi, err := flat.New(flat.Config{
 			ID:               vecIdxID,
+			TargetVector:     targetVector,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 		}, flatUserConfig, s.store)
@@ -469,7 +470,7 @@ func (s *Shard) pathLSM() string {
 
 func (s *Shard) vectorIndexID(targetVector string) string {
 	if targetVector != "" {
-		return fmt.Sprintf("vectors.%s", targetVector)
+		return fmt.Sprintf("vectors_%s", targetVector)
 	}
 	return "main"
 }
