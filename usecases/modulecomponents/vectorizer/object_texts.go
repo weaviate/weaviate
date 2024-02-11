@@ -129,6 +129,8 @@ func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
 		object.Vectors = models.Vectors{}
 		v.vectorsLock.Unlock()
 	}
+	v.vectorsLock.Lock()
 	object.Vectors[cfg.TargetVector()] = vector
+	v.vectorsLock.Unlock()
 	return object
 }

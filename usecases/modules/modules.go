@@ -661,13 +661,13 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 			var vectorSearches modulecapabilities.ArgumentVectorForParams
 			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 				if mod.Name() == targetModule {
-					// TODO[named-vector]: dependecy modules like qna are tricky to handle
+					// TODO[named-vectors]: dependecy modules like qna are tricky to handle
 					moduleName = mod.Name()
 					vectorSearches = searcher.VectorSearches()
 				}
 			} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
 				if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
-					// TODO[named-vector]: check if here needs to be passed targetVector
+					// TODO[named-vectors]: check if here needs to be passed targetVector
 					moduleName = targetModule
 					vectorSearches = dependencySearchers[targetModule]
 				}
