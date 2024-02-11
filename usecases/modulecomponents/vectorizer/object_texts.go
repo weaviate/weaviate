@@ -118,19 +118,10 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
 	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
 ) *models.Object {
-	if cfg.TargetVector() == "" {
-		object.Vector = vector
-		return object
-	}
-	if object.Vectors == nil {
-		// TODO[named-vectors]: think about adding a per class lock?
-		// this seems unefficient
-		v.vectorsLock.Lock()
-		object.Vectors = models.Vectors{}
-		v.vectorsLock.Unlock()
-	}
+	// TODO[named-vectors]: this lock is only temporary, the vectorize API
+	// needs to return (vector, additionalProperties)
 	v.vectorsLock.Lock()
-	object.Vectors[cfg.TargetVector()] = vector
+	defer v.vectorsLock.Unlock()
 	if len(additional) > 0 {
 		if object.Additional == nil {
 			object.Additional = models.AdditionalProperties{}
@@ -139,6 +130,13 @@ func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
 			object.Additional[additionalName] = additionalValue
 		}
 	}
-	v.vectorsLock.Unlock()
+	if cfg.TargetVector() == "" {
+		object.Vector = vector
+		return object
+	}
+	if object.Vectors == nil {
+		object.Vectors = models.Vectors{}
+	}
+	object.Vectors[cfg.TargetVector()] = vector
 	return object
 }
