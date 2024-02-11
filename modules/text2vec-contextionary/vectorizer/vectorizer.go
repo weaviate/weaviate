@@ -87,16 +87,12 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 		return err
 	}
 
-	object = v.objectVectorizer.AddVectorToObject(object, vec, cfg)
-
-	if object.Additional == nil {
-		object.Additional = models.AdditionalProperties{}
-	}
-
-	object.Additional["interpretation"] = &txt2vecmodels.Interpretation{
+	additional := models.AdditionalProperties{}
+	additional["interpretation"] = &txt2vecmodels.Interpretation{
 		Source: sourceFromInputElements(sources),
 	}
 
+	v.objectVectorizer.AddVectorToObject(object, vec, additional, cfg)
 	return nil
 }
 

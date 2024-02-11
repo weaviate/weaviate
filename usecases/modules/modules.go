@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -36,6 +37,7 @@ var (
 )
 
 type Provider struct {
+	vectorsLock            sync.RWMutex
 	registered             map[string]modulecapabilities.Module
 	altNames               map[string]string
 	schemaGetter           schemaGetter
