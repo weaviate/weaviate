@@ -63,6 +63,19 @@ func Test_extractNearDepthFn(t *testing.T) {
 				Depth: "base64;encoded",
 			},
 		},
+		{
+			name: "should extract properly with depth and targetVectors set",
+			args: args{
+				source: map[string]interface{}{
+					"depth":         "base64;encoded",
+					"targetVectors": []interface{}{"targetVector1"},
+				},
+			},
+			want: &NearDepthParams{
+				Depth:         "base64;encoded",
+				TargetVectors: []string{"targetVector1"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

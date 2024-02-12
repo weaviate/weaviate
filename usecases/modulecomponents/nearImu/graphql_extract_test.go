@@ -63,6 +63,19 @@ func Test_extractNearIMUFn(t *testing.T) {
 				IMU: "base64;encoded",
 			},
 		},
+		{
+			name: "should extract properly with imu and targetVectors set",
+			args: args{
+				source: map[string]interface{}{
+					"imu":           "base64;encoded",
+					"targetVectors": []interface{}{"targetVector"},
+				},
+			},
+			want: &NearIMUParams{
+				IMU:           "base64;encoded",
+				TargetVectors: []string{"targetVector"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
