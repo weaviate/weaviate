@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package traverser
 
 import (
@@ -65,7 +76,6 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 
 	params.Pagination.Offset = 0
 
-
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
 	if err != nil {
 		return nil, "", err
@@ -86,7 +96,6 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 }
 
 func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
-
 	subSearchParams := params
 	subSearchParams.ModuleParams["nearText"] = params.HybridSearch.NearTextParams
 	subSearchParams.HybridSearch = nil

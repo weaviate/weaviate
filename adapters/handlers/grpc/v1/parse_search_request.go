@@ -77,8 +77,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.AdditionalProperties.NoProps = true
 	}
 
-
-
 	if bm25 := req.Bm25Search; bm25 != nil {
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 	}
@@ -236,10 +234,9 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			Vector:          vector,
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
-
 		}
 		if nearTxt != nil {
-			out.HybridSearch.NearTextParams =   &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
+			out.HybridSearch.NearTextParams = &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
 		}
 	}
 
@@ -390,7 +387,6 @@ func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch)
 		nearText.WithDistance = true
 	}
 	return nearText, nil
-
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearText2.ExploreMove, error) {

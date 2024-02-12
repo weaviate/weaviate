@@ -15,12 +15,12 @@ package db
 
 import (
 	"context"
-	"time"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
-	"net/http"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -31,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -40,8 +42,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
 type TestDoc struct {
@@ -208,7 +208,7 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
-		Vectorizer: 		"test-vectoriser",
+		Vectorizer:          "test-vectoriser",
 		Properties: []*models.Property{
 			{
 				Name:         "title",
@@ -513,7 +513,6 @@ func TestRFJourney(t *testing.T) {
 		testerModule.AddVector("journey", journeyVector())
 		prov.Register(testerModule)
 
-
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
@@ -569,7 +568,7 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		require.Nil(t, err)
-		require.Equal(t, len(hybridResults) , 0)
+		require.Equal(t, len(hybridResults), 0)
 	})
 }
 
@@ -997,7 +996,6 @@ func TestHybridOverSearch(t *testing.T) {
 		testerModule.AddVector("journey", journeyVector())
 		prov.Register(testerModule)
 
-
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(fos, log, prov, nil, defaultConfig)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
@@ -1008,20 +1006,14 @@ func TestHybridOverSearch(t *testing.T) {
 	})
 }
 
-
-
-
-
 type TesterModule struct {
-	vectors map[string][]float32
+	vectors                      map[string][]float32
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
-
-
 
 func (m *TesterModule) Name() string {
 	return "test-vectoriser"
