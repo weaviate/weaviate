@@ -29,13 +29,13 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearDepth"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImu"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearThermal"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
 func TestGRPCRequest(t *testing.T) {
