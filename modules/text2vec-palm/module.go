@@ -17,17 +17,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/text2vec-palm/config"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/additional"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/additional/projector"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-palm"
@@ -48,13 +45,9 @@ type PalmModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		settings vectorizer.ClassSettings) error
+		cfg moduletools.ClassConfig) error
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -116,8 +109,7 @@ func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
 }
 
 func (m *PalmModule) initAdditionalPropertiesProvider() error {
-	projector := projector.New()
-	m.additionalPropertiesProvider = additional.New(projector)
+	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
@@ -129,8 +121,7 @@ func (m *PalmModule) RootHandler() http.Handler {
 func (m *PalmModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	icheck := config.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, comp, icheck)
+	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
 func (m *PalmModule) MetaInfo() (map[string]interface{}, error) {
@@ -144,7 +135,7 @@ func (m *PalmModule) AdditionalProperties() map[string]modulecapabilities.Additi
 func (m *PalmModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Texts(ctx, []string{input}, config.NewClassSettings(cfg))
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface
