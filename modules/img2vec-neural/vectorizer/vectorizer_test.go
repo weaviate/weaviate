@@ -30,7 +30,6 @@ func TestVectorizer(t *testing.T) {
 		client := &fakeClient{}
 		vectorizer := &Vectorizer{client}
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image"}).build()
-		settings := NewClassSettings(config)
 
 		propsSchema := []*models.Property{
 			{
@@ -48,7 +47,7 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, settings)
+		err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
@@ -60,7 +59,6 @@ func TestVectorizer(t *testing.T) {
 		client := &fakeClient{}
 		vectorizer := &Vectorizer{client}
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image1", "image2"}).build()
-		settings := NewClassSettings(config)
 
 		propsSchema := []*models.Property{
 			{
@@ -83,7 +81,7 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, settings)
+		err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
@@ -165,9 +163,8 @@ func TestVectorizerWithComp(t *testing.T) {
 			client := &fakeClient{}
 			vectorizer := &Vectorizer{client}
 			config := newConfigBuilder().addSetting("imageFields", []interface{}{"image"}).build()
-			settings := NewClassSettings(config)
 
-			err := vectorizer.Object(context.Background(), test.input, test.comp, settings)
+			err := vectorizer.Object(context.Background(), test.input, test.comp, config)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
