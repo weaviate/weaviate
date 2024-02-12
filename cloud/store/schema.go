@@ -73,23 +73,16 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
 	return nil
 }
 
-func (s *schema) updateClass(cls *models.Class, ss *sharding.State) error {
+// updateClass modifies existing class based on the givin update function
+func (s *schema) updateClass(name string, update func(*metaClass) error) error {
 	s.Lock()
 	defer s.Unlock()
 
-	info := s.Classes[cls.Class]
+	info := s.Classes[name]
 	if info == nil {
 		return errClassNotFound
 	}
-
-	if cls != nil {
-		info.Class = *cls
-	}
-	if ss != nil {
-		info.Sharding = *ss
-	}
-
-	return nil
+	return update(info)
 }
 
 func (s *schema) deleteClass(name string) {
