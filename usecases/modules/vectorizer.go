@@ -105,7 +105,8 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 		return err
 	}
 
-	if len(modConfigs) == 1 {
+	if !p.hasMultipleVectorsConfiguration(class) {
+		// legacy vectorizer configuration
 		for targetVector, modConfig := range modConfigs {
 			return p.vectorize(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger)
 		}
@@ -124,7 +125,6 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 
-	vectors := make(models.Vectors)
 	for targetVector, modConfig := range modConfigs {
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
 		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
@@ -133,20 +133,12 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 			if err != nil {
 				return err
 			}
-			// TODO[named-vectors]: temporary solution, the vectorize API need to return vectors
-			// so that locking be only in one place, here
-			p.lockGuard(func() {
-				for targetVector, vector := range object.Vectors {
-					vectors[targetVector] = vector
-				}
-			})
 			return nil
 		})
 	}
 	if err := eg.Wait(); err != nil {
 		return err
 	}
-	object.Vectors = vectors
 	return nil
 }
 
@@ -154,6 +146,28 @@ func (p *Provider) lockGuard(mutate func()) {
 	p.vectorsLock.Lock()
 	defer p.vectorsLock.Unlock()
 	mutate()
+}
+
+func (p *Provider) addVectorToObject(object *models.Object,
+	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
+) *models.Object {
+	if len(additional) > 0 {
+		if object.Additional == nil {
+			object.Additional = models.AdditionalProperties{}
+		}
+		for additionalName, additionalValue := range additional {
+			object.Additional[additionalName] = additionalValue
+		}
+	}
+	if cfg.TargetVector() == "" {
+		object.Vector = vector
+		return object
+	}
+	if object.Vectors == nil {
+		object.Vectors = models.Vectors{}
+	}
+	object.Vectors[cfg.TargetVector()] = vector
+	return object
 }
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
@@ -192,16 +206,24 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			if err != nil {
 				return fmt.Errorf("failed creating properties comparator: %w", err)
 			}
-			if err := vectorizer.VectorizeObject(ctx, object, comp, cfg); err != nil {
+			vector, additionalProperties, err := vectorizer.VectorizeObject(ctx, object, comp, cfg)
+			if err != nil {
 				return fmt.Errorf("update vector: %w", err)
 			}
+			p.lockGuard(func() {
+				object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+			})
+			return nil
 		}
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
-		if err := refVectorizer.VectorizeObject(
-			ctx, object, cfg, findObjectFn); err != nil {
+		vector, err := refVectorizer.VectorizeObject(ctx, object, cfg, findObjectFn)
+		if err != nil {
 			return fmt.Errorf("update reference vector: %w", err)
 		}
+		p.lockGuard(func() {
+			object = p.addVectorToObject(object, vector, nil, cfg)
+		})
 	}
 	return nil
 }
