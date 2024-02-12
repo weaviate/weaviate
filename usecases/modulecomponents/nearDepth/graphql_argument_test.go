@@ -31,13 +31,14 @@ func TestNearDepthGraphQLArgument(t *testing.T) {
 		// nearDepth: {
 		//   depth: "base64;encoded,depth_depth",
 		//   distance: 0.9
+		//   targetVectors: ["targetVector"]
 		// }
 		assert.NotNil(t, nearDepth)
 		assert.Equal(t, "Multi2VecBindPrefixClassNearDepthInpObj", nearDepth.Type.Name())
 		answerFields, ok := nearDepth.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, answerFields)
-		assert.Equal(t, 3, len(answerFields.Fields()))
+		assert.Equal(t, 4, len(answerFields.Fields()))
 		fields := answerFields.Fields()
 		depth := fields["depth"]
 		depthNonNull, depthNonNullOK := depth.Type.(*graphql.NonNull)
@@ -46,5 +47,10 @@ func TestNearDepthGraphQLArgument(t *testing.T) {
 		assert.NotNil(t, depth)
 		assert.NotNil(t, fields["certainty"])
 		assert.NotNil(t, fields["distance"])
+		targetVectors := fields["targetVectors"]
+		targetVectorsList, targetVectorsListOK := targetVectors.Type.(*graphql.List)
+		assert.True(t, targetVectorsListOK)
+		assert.Equal(t, "String", targetVectorsList.OfType.Name())
+		assert.NotNil(t, targetVectors)
 	})
 }
