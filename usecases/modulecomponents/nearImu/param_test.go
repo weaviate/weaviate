@@ -67,6 +67,25 @@ func Test_validateNearImageFn(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "should pass with imu and target vector",
+			args: args{
+				param: &NearIMUParams{
+					IMU:           "base64;enncoded",
+					TargetVectors: []string{"targetVector"},
+				},
+			},
+		},
+		{
+			name: "should not pass with more then 1 target vector",
+			args: args{
+				param: NearIMUParams{
+					IMU:           "imu_data",
+					TargetVectors: []string{"targetVector1", "targetVector2"},
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

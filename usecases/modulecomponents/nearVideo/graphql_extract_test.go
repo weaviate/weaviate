@@ -63,6 +63,19 @@ func Test_extractNearVideoFn(t *testing.T) {
 				Video: "base64;encoded",
 			},
 		},
+		{
+			name: "should extract properly with only video set",
+			args: args{
+				source: map[string]interface{}{
+					"video":         "base64;encoded",
+					"targetVectors": []interface{}{"targetVector1", "targetVector2"},
+				},
+			},
+			want: &NearVideoParams{
+				Video:         "base64;encoded",
+				TargetVectors: []string{"targetVector1", "targetVector2"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

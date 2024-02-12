@@ -16,10 +16,11 @@ import (
 )
 
 type NearVideoParams struct {
-	Video        string
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Video         string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearVideoParams) GetCertainty() float64 {
@@ -32,6 +33,10 @@ func (n NearVideoParams) GetDistance() float64 {
 
 func (n NearVideoParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n NearVideoParams) GetTargetVectors() []string {
+	return n.TargetVectors
 }
 
 func validateNearVideoFn(param interface{}) error {
@@ -47,6 +52,11 @@ func validateNearVideoFn(param interface{}) error {
 	if nearVideo.Certainty != 0 && nearVideo.WithDistance {
 		return errors.New(
 			"nearVideo cannot provide both distance and certainty")
+	}
+
+	if len(nearVideo.TargetVectors) > 1 {
+		return errors.New(
+			"nearVideo.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil

@@ -67,6 +67,16 @@ func Test_validateNearVideoFn(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "should not pass with more then 1 target vector set",
+			args: args{
+				param: NearVideoParams{
+					Video:         "video",
+					TargetVectors: []string{"targetVector1", "targetVector2"},
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

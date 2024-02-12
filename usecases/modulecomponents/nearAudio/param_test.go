@@ -67,6 +67,16 @@ func Test_validateNearAudioFn(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "should not pass with more then 1 targetVector set",
+			args: args{
+				param: NearAudioParams{
+					Audio:         "image",
+					TargetVectors: []string{"targetVector1", "targetVector1"},
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
