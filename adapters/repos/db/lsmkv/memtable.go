@@ -294,7 +294,8 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		primaryKey: key,
 		values: []value{
 			{
-				value: valuesForCommitLog,
+				value:     valuesForCommitLog,
+				tombstone: pair.Tombstone,
 			},
 		},
 	}); err != nil {

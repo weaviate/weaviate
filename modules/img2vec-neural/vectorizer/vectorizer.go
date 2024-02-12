@@ -42,9 +42,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	objDiff *moduletools.ObjectDiff, settings ClassSettings,
+	comp moduletools.VectorizablePropsComparator, settings ClassSettings,
 ) error {
-	vec, err := v.object(ctx, object.ID, object.Properties, objDiff, settings)
+	vec, err := v.object(ctx, object.ID, comp, settings)
 	if err != nil {
 		return err
 	}
@@ -63,28 +63,32 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]fl
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	schema interface{}, objDiff *moduletools.ObjectDiff, ichek ClassSettings,
+	comp moduletools.VectorizablePropsComparator, ichek ClassSettings,
 ) ([]float32, error) {
-	vectorize := objDiff == nil || objDiff.GetVec() == nil
+	vectorize := comp.PrevVector() == nil
 
 	// vectorize image
 	images := []string{}
-	if schema != nil {
-		for prop, value := range schema.(map[string]interface{}) {
-			if !ichek.ImageField(prop) {
-				continue
-			}
-			valueString, ok := value.(string)
-			if ok {
-				images = append(images, valueString)
-				vectorize = vectorize || (objDiff != nil && objDiff.IsChangedProp(prop))
-			}
+
+	it := comp.PropsIterator()
+	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
+		if !ichek.ImageField(propName) {
+			continue
+		}
+
+		switch typed := propValue.(type) {
+		case string:
+			vectorize = vectorize || comp.IsChanged(propName)
+			images = append(images, typed)
+
+		case nil:
+			vectorize = vectorize || comp.IsChanged(propName)
 		}
 	}
 
 	// no property was changed, old vector can be used
 	if !vectorize {
-		return objDiff.GetVec(), nil
+		return comp.PrevVector(), nil
 	}
 
 	vectors := [][]float32{}

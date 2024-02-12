@@ -24,7 +24,7 @@ import (
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
-	shardedLocks     *common.ShardedLocks
+	shardedLocks     *common.ShardedRWLocks
 	cache            [][]T
 	vectorForID      common.VectorForID[T]
 	normalizeOnRead  bool
@@ -65,7 +65,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedLocks(),
+		shardedLocks:     common.NewDefaultShardedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
@@ -85,7 +85,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedLocks(),
+		shardedLocks:     common.NewDefaultShardedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}
@@ -105,7 +105,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		maxSize:          int64(maxSize),
 		cancel:           make(chan bool),
 		logger:           logger,
-		shardedLocks:     common.NewDefaultShardedLocks(),
+		shardedLocks:     common.NewDefaultShardedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
 	}

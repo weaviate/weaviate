@@ -13,11 +13,14 @@ package nodes
 
 import (
 	"context"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
+
+const GetNodeStatusTimeout = 30 * time.Second
 
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
@@ -40,11 +43,16 @@ func NewManager(logger logrus.FieldLogger, authorizer authorizer,
 	return &Manager{logger, authorizer, db, schemaManager}
 }
 
+// GetNodeStatus aggregates the status across all nodes. It will try for a
+// maximum of the configured timeout, then mark nodes as timed out.
 func (m *Manager) GetNodeStatus(ctx context.Context,
 	principal *models.Principal, className string, verbosity string,
 ) ([]*models.NodeStatus, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	defer cancel()
+
 	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
 		return nil, err
 	}
-	return m.db.GetNodeStatus(ctx, className, verbosity)
+	return m.db.GetNodeStatus(ctxWithTimeout, className, verbosity)
 }
