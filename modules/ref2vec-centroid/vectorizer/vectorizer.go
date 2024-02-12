@@ -49,26 +49,25 @@ func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindObjectFn) *V
 	return v
 }
 
-func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) error {
+func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) ([]float32, error) {
 	props := v.config.ReferenceProperties()
 
 	refVecs, err := v.referenceVectorSearch(ctx, obj, props)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(refVecs) == 0 {
 		obj.Vector = nil
-		return nil
+		return nil, nil
 	}
 
 	vec, err := v.calcFn(refVecs...)
 	if err != nil {
-		return fmt.Errorf("calculate vector: %w", err)
+		return nil, fmt.Errorf("calculate vector: %w", err)
 	}
 
-	obj.Vector = vec
-	return nil
+	return vec, nil
 }
 
 func (v *Vectorizer) referenceVectorSearch(ctx context.Context,
