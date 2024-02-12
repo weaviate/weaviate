@@ -13,7 +13,7 @@ package neartext
 
 import (
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
 func (g *GraphQLArgumentsProvider) validateNearTextFn(param interface{}) error {
