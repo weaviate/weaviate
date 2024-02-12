@@ -208,10 +208,10 @@ func TestVectorizingObjects(t *testing.T) {
 				vectorizePropertyName: true,
 			}
 			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)
-			err := v.Object(context.Background(), test.input, comp, ic)
+			vector, _, err := v.Object(context.Background(), test.input, comp, ic)
 
 			require.Nil(t, err)
-			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
+			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
 			assert.Equal(t, client.lastConfig.Model, test.expectedJinaAIModel)
 		})
@@ -383,14 +383,14 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 			client := &fakeClient{}
 			v := New(client)
 
-			err := v.Object(context.Background(), test.input, test.comp, ic)
+			vector, _, err := v.Object(context.Background(), test.input, test.comp, ic)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
-				assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
+				assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 				assert.NotEmpty(t, client.lastInput)
 			} else {
-				assert.Equal(t, models.C11yVector{0, 0, 0, 0}, test.input.Vector)
+				assert.Equal(t, []float32{0, 0, 0, 0}, vector)
 				assert.Empty(t, client.lastInput)
 			}
 		})
