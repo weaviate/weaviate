@@ -998,6 +998,7 @@ func TestHybridOverSearch(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(fos, log, prov, nil, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
