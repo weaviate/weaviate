@@ -16,10 +16,11 @@ import (
 )
 
 type NearAudioParams struct {
-	Audio        string
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Audio         string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearAudioParams) GetCertainty() float64 {
@@ -34,6 +35,10 @@ func (n NearAudioParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
+func (n NearAudioParams) GetTargetVectors() []string {
+	return n.TargetVectors
+}
+
 func validateNearAudioFn(param interface{}) error {
 	nearAudio, ok := param.(*NearAudioParams)
 	if !ok {
@@ -46,7 +51,12 @@ func validateNearAudioFn(param interface{}) error {
 
 	if nearAudio.Certainty != 0 && nearAudio.WithDistance {
 		return errors.New(
-			"nearText cannot provide both distance and certainty")
+			"nearAudio cannot provide both distance and certainty")
+	}
+
+	if len(nearAudio.TargetVectors) > 1 {
+		return errors.New(
+			"nearAudio.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil

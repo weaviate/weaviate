@@ -16,10 +16,11 @@ import (
 )
 
 type NearIMUParams struct {
-	IMU          string
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	IMU           string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearIMUParams) GetCertainty() float64 {
@@ -32,6 +33,10 @@ func (n NearIMUParams) GetDistance() float64 {
 
 func (n NearIMUParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n NearIMUParams) GetTargetVectors() []string {
+	return n.TargetVectors
 }
 
 func validateNearIMUFn(param interface{}) error {
@@ -47,6 +52,11 @@ func validateNearIMUFn(param interface{}) error {
 	if nearIMU.Certainty != 0 && nearIMU.WithDistance {
 		return errors.New(
 			"nearIMU cannot provide both distance and certainty")
+	}
+
+	if len(nearIMU.TargetVectors) > 1 {
+		return errors.New(
+			"nearIMU.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil
