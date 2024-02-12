@@ -63,6 +63,19 @@ func Test_extractNearAudioFn(t *testing.T) {
 				Audio: "base64;encoded",
 			},
 		},
+		{
+			name: "should extract properly with audio and targetVectors set",
+			args: args{
+				source: map[string]interface{}{
+					"audio":         "base64;encoded",
+					"targetVectors": []interface{}{"targetVector"},
+				},
+			},
+			want: &NearAudioParams{
+				Audio:         "base64;encoded",
+				TargetVectors: []string{"targetVector"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
