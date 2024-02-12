@@ -21,7 +21,7 @@ import (
 )
 
 type DockerCompose struct {
-	network    testcontainers.Network
+	network    *testcontainers.DockerNetwork
 	containers []*DockerContainer
 }
 

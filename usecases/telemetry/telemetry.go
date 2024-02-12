@@ -33,13 +33,13 @@ import (
 )
 
 const (
-	defaultConsumerURL = "aHR0cHM6Ly91cy1jZW50cmFsMS1zZW1pLXByb2R1Y3Rpb24uY2x" +
+	defaultConsumer = "aHR0cHM6Ly91cy1jZW50cmFsMS1zZW1pLXByb2R1Y3Rpb24uY2x" +
 		"vdWRmdW5jdGlvbnMubmV0L3dlYXZpYXRlLXRlbGVtZXRyeQ=="
 	defaultPushInterval = 24 * time.Hour
 )
 
 type nodesStatusGetter interface {
-	LocalNodeStatus(className, output string) *models.NodeStatus
+	LocalNodeStatus(ctx context.Context, className, output string) *models.NodeStatus
 }
 
 type modulesProvider interface {
@@ -68,7 +68,7 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 		modulesProvider:   modulesProvider,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
-		consumerURL:       defaultConsumerURL,
+		consumerURL:       defaultConsumer,
 		pushInterval:      defaultPushInterval,
 	}
 	return tel
@@ -179,7 +179,7 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 	if err != nil {
 		return nil, fmt.Errorf("get enabled modules: %w", err)
 	}
-	objs, err := tel.getObjectCount()
+	objs, err := tel.getObjectCount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get object count: %w", err)
 	}
@@ -210,8 +210,8 @@ func (tel *Telemeter) getEnabledModules() (string, error) {
 	return strings.Join(mods, ","), nil
 }
 
-func (tel *Telemeter) getObjectCount() (int64, error) {
-	status := tel.nodesStatusGetter.LocalNodeStatus("", verbosity.OutputMinimal)
+func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
+	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", verbosity.OutputMinimal)
 	if status == nil || status.Stats == nil {
 		return 0, fmt.Errorf("received nil node stats")
 	}

@@ -36,7 +36,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
 			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 100,
@@ -60,7 +60,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("on update", func(t *testing.T) {
 			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
@@ -80,7 +80,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("on terminate", func(t *testing.T) {
 			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 300_000_000_000,
@@ -102,7 +102,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("failure path", func(t *testing.T) {
 		t.Run("fail to get enabled modules", func(t *testing.T) {
 			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(
+			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(
 				&models.NodeStatus{Stats: &models.NodeStats{ObjectCount: 10}})
 			mp.On("GetMeta").Return(nil, errors.New("FAILURE"))
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
@@ -113,7 +113,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("fail to get node status", func(t *testing.T) {
 			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(nil)
+			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(nil)
 			mp.On("GetMeta").Return(
 				map[string]interface{}{
 					"module-1": nil,
@@ -127,7 +127,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("fail to get node status stats", func(t *testing.T) {
 			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(&models.NodeStatus{})
+			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(&models.NodeStatus{})
 			mp.On("GetMeta").Return(
 				map[string]interface{}{
 					"module-1": nil,
@@ -153,7 +153,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	}
 	tel, sg, mp := newTestTelemeter(opts...)
 
-	sg.On("LocalNodeStatus", "", verbosity.OutputMinimal).Return(
+	sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputMinimal).Return(
 		&models.NodeStatus{
 			Stats: &models.NodeStats{
 				ObjectCount: 100,

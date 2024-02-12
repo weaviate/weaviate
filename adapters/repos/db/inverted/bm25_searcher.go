@@ -115,19 +115,13 @@ func (b *BM25Searcher) wand(
 	// word, lowercase, whitespace and field.
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND
-	tokenizationsOrdered := []string{
-		models.PropertyTokenizationWord,
-		models.PropertyTokenizationLowercase,
-		models.PropertyTokenizationWhitespace,
-		models.PropertyTokenizationField,
-	}
 
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
-	for _, tokenization := range tokenizationsOrdered {
+	for _, tokenization := range helpers.Tokenizations {
 		queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
 
 		// stopword filtering for word tokenization
@@ -188,7 +182,7 @@ func (b *BM25Searcher) wand(
 	eg.SetLimit(_NUMCPU)
 	offset := 0
 
-	for _, tokenization := range tokenizationsOrdered {
+	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms := queryTermsByTokenization[tokenization]
@@ -308,6 +302,10 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			for j, result := range results {
 				if termIndice, ok := indices[j][res.ID]; ok {
 					queryTerm := result.queryTerm
+					if len(result.data) <= termIndice {
+						b.logger.Warnf("Skipping object explanation in BM25: term indice %v is out of range for query term %v, length %d, id %v", termIndice, queryTerm, len(result.data), res.ID)
+						continue
+					}
 					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
 					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
 				}
@@ -443,6 +441,16 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				if ok {
+					if ind >= len(docMapPairs) {
+						// the index is not valid anymore, but the key is still in the map
+						b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, length %d.", ind, key, len(docMapPairs))
+						continue
+					}
+					if ind < len(docMapPairs) && docMapPairs[ind].id != key {
+						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
+						continue
+					}
+
 					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
 					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
@@ -470,6 +478,15 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		n += float64(filteredDocIDs.GetCardinality())
 	}
 	termResult.idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
+
+	// catch special case where there are no results and would panic termResult.data[0].id
+	// related to #4125
+	if len(termResult.data) == 0 {
+		termResult.posPointer = 0
+		termResult.idPointer = 0
+		termResult.exhausted = true
+		return termResult, docMapPairsIndices, nil
+	}
 
 	termResult.posPointer = 0
 	termResult.idPointer = termResult.data[0].id

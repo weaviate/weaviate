@@ -170,6 +170,9 @@ type QueryDefaults struct {
 	Limit int64 `json:"limit" yaml:"limit"`
 }
 
+// DefaultQueryDefaultsLimit is the default query limit when no limit is provided
+const DefaultQueryDefaultsLimit int64 = 10
+
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
 }
@@ -200,6 +203,9 @@ type Persistence struct {
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
 }
+
+// DefaultPersistenceDataPath is the default location for data directory when no location is provided
+const DefaultPersistenceDataPath string = "./data"
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -299,7 +305,6 @@ func (f *WeaviateConfig) GetHostAddress() string {
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
-
 	// Set default if not given
 	if configFileName == "" {
 		configFileName = DefaultConfigFile

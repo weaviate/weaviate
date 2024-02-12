@@ -12,6 +12,8 @@
 package telemetry
 
 import (
+	"context"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -20,8 +22,10 @@ type fakeNodesStatusGetter struct {
 	mock.Mock
 }
 
-func (n *fakeNodesStatusGetter) LocalNodeStatus(className, verbosity string) *models.NodeStatus {
-	args := n.Called(className, verbosity)
+func (n *fakeNodesStatusGetter) LocalNodeStatus(ctx context.Context,
+	className, verbosity string,
+) *models.NodeStatus {
+	args := n.Called(ctx, className, verbosity)
 	if args.Get(0) != nil {
 		return args.Get(0).(*models.NodeStatus)
 	}

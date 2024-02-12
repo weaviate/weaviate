@@ -483,6 +483,12 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+	dataPath := serverConfig.Config.Persistence.DataPath
+	if err := os.MkdirAll(dataPath, 0o777); err != nil {
+		logger.WithField("action", "startup").
+			WithField("path", dataPath).Error("cannot create data directory")
+		logger.Exit(1)
+	}
 
 	monitoring.InitConfig(serverConfig.Config.Monitoring)
 
@@ -523,7 +529,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Persistence.DataPath, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")

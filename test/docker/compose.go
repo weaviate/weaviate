@@ -17,7 +17,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-	"github.com/testcontainers/testcontainers-go"
+	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -303,13 +303,12 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
-	networkName := "weaviate-module-acceptance-tests"
-	network, err := testcontainers.GenericNetwork(ctx, testcontainers.GenericNetworkRequest{
-		NetworkRequest: testcontainers.NetworkRequest{
-			Name:     networkName,
-			Internal: false,
-		},
-	})
+	network, err := tescontainersnetwork.New(
+		ctx,
+		tescontainersnetwork.WithCheckDuplicate(),
+		tescontainersnetwork.WithAttachable(),
+	)
+	networkName := network.Name
 	if err != nil {
 		return nil, errors.Wrapf(err, "network: %s", networkName)
 	}

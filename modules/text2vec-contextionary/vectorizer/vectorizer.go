@@ -73,7 +73,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 
 // Object object to vector
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	objectDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
@@ -81,8 +81,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	}
 
 	icheck := NewIndexChecker(cfg)
-	vec, sources, err := v.object(ctx, object.Class, object.Properties, objectDiff, overrides,
-		icheck)
+	vec, sources, err := v.object(ctx, object.Class, comp, overrides, icheck)
 	if err != nil {
 		return err
 	}
@@ -101,13 +100,10 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, objDiff *moduletools.ObjectDiff, overrides map[string]string,
+	comp moduletools.VectorizablePropsComparator, overrides map[string]string,
 	icheck ClassIndexCheck,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
-	corpi, vector, err := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, icheck)
-	if err != nil {
-		return nil, nil, err
-	}
+	corpi, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, icheck)
 	// no property was changed, old vector can be used
 	if vector != nil {
 		// dont' re-vectorize

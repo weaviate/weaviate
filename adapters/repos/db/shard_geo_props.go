@@ -129,6 +129,11 @@ func (s *Shard) updateGeoIndex(propName string, index propertyspecific.Index,
 		return storagestate.ErrStatusReadOnly
 	}
 
+	// geo props were not changed
+	if status.docIDPreserved || status.skipUpsert {
+		return nil
+	}
+
 	if status.docIDChanged {
 		if err := s.deleteFromGeoIndex(index, status.oldDocID); err != nil {
 			return errors.Wrap(err, "delete old doc id from geo index")
