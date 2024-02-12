@@ -15,7 +15,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
 func Test_extractNearTextFn(t *testing.T) {
