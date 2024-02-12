@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // These are mostly copy/pasted (with minimal additions) from the
@@ -33,6 +34,29 @@ func TestVectorizingObjects(t *testing.T) {
 		excludedProperty    string // to simulate a schema where property names aren't vectorized
 		excludedClass       string // to simulate a schema where class names aren't vectorized
 		jinaAIModel         string
+	}
+
+	propsSchema := []*models.Property{
+		{
+			Name:     "brand",
+			DataType: schema.DataTypeText.PropString(),
+		},
+		{
+			Name:     "power",
+			DataType: schema.DataTypeInt.PropString(),
+		},
+		{
+			Name:     "review",
+			DataType: schema.DataTypeText.PropString(),
+		},
+		{
+			Name:     "brandOfTheCar",
+			DataType: schema.DataTypeText.PropString(),
+		},
+		{
+			Name:     "reviews",
+			DataType: schema.DataTypeTextArray.PropString(),
+		},
 	}
 
 	tests := []testCase{
@@ -135,7 +159,7 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 				Properties: map[string]interface{}{
-					"reviews": []interface{}{
+					"reviews": []string{
 						"a very great car",
 						"you should consider buying one",
 					},
@@ -148,7 +172,7 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 				Properties: map[string]interface{}{
-					"reviews": []interface{}{
+					"reviews": []string{
 						"a very great car",
 						"you should consider buying one",
 					},
@@ -183,7 +207,8 @@ func TestVectorizingObjects(t *testing.T) {
 				jinaAIModel:           test.jinaAIModel,
 				vectorizePropertyName: true,
 			}
-			err := v.Object(context.Background(), test.input, nil, ic)
+			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)
+			err := v.Object(context.Background(), test.input, comp, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
@@ -226,133 +251,125 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 		name              string
 		input             *models.Object
 		skipped           string
-		diff              *moduletools.ObjectDiff
+		comp              moduletools.VectorizablePropsComparator
 		expectedVectorize bool
 	}
 
+	propsSchema := []*models.Property{
+		{
+			Name:     "brand",
+			DataType: schema.DataTypeText.PropString(),
+		},
+		{
+			Name:     "power",
+			DataType: schema.DataTypeInt.PropString(),
+		},
+		{
+			Name:     "description",
+			DataType: schema.DataTypeText.PropString(),
+		},
+		{
+			Name:     "reviews",
+			DataType: schema.DataTypeTextArray.PropString(),
+		},
+	}
+	props := map[string]interface{}{
+		"brand":       "best brand",
+		"power":       300,
+		"description": "a very great car",
+		"reviews": []string{
+			"a very great car",
+			"you should consider buying one",
+		},
+	}
+	vector := []float32{0, 0, 0, 0}
+
 	tests := []testCase{
 		{
-			name: "no diff",
+			name: "noop comp",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff:              nil,
+			comp:              moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props),
 			expectedVectorize: true,
 		},
 		{
-			name: "diff all props unchanged",
+			name: "all props unchanged",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff: newObjectDiffWithVector().
-				WithProp("brand", "best brand", "best brand").
-				WithProp("power", 300, 300).
-				WithProp("description", "a very great car", "a very great car").
-				WithProp("reviews", []interface{}{
-					"a very great car",
-					"you should consider buying one",
-				}, []interface{}{
-					"a very great car",
-					"you should consider buying one",
-				}),
+			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector),
 			expectedVectorize: false,
 		},
 		{
-			name: "diff one vectorizable prop changed (1)",
+			name: "one vectorizable prop changed (1)",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff: newObjectDiffWithVector().
-				WithProp("brand", "old best brand", "best brand"),
-			expectedVectorize: true,
-		},
-		{
-			name: "diff one vectorizable prop changed (2)",
-			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
-			},
-			diff: newObjectDiffWithVector().
-				WithProp("description", "old a very great car", "a very great car"),
-			expectedVectorize: true,
-		},
-		{
-			name: "diff one vectorizable prop changed (3)",
-			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
-			},
-			diff: newObjectDiffWithVector().
-				WithProp("reviews", []interface{}{
-					"old a very great car",
-					"you should consider buying one",
-				}, []interface{}{
+			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
+				"brand":       "old best brand",
+				"power":       300,
+				"description": "a very great car",
+				"reviews": []string{
 					"a very great car",
 					"you should consider buying one",
-				}),
+				},
+			}, vector),
+			expectedVectorize: true,
+		},
+		{
+			name: "one vectorizable prop changed (2)",
+			input: &models.Object{
+				Class:      "Car",
+				Properties: props,
+			},
+			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
+				"brand":       "best brand",
+				"power":       300,
+				"description": "old a very great car",
+				"reviews": []string{
+					"a very great car",
+					"you should consider buying one",
+				},
+			}, vector),
+			expectedVectorize: true,
+		},
+		{
+			name: "one vectorizable prop changed (3)",
+			input: &models.Object{
+				Class:      "Car",
+				Properties: props,
+			},
+			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
+				"brand":       "best brand",
+				"power":       300,
+				"description": "a very great car",
+				"reviews": []string{
+					"old a very great car",
+					"you should consider buying one",
+				},
+			}, vector),
 			expectedVectorize: true,
 		},
 		{
 			name:    "all non-vectorizable props changed",
 			skipped: "description",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff: newObjectDiffWithVector().
-				WithProp("power", 123, 300).
-				WithProp("description", "old a very great car", "a very great car"),
+			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
+				"brand":       "best brand",
+				"power":       123,
+				"description": "old a very great car",
+				"reviews": []string{
+					"a very great car",
+					"you should consider buying one",
+				},
+			}, vector),
 			expectedVectorize: false,
 		},
 	}
@@ -366,7 +383,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 			client := &fakeClient{}
 			v := New(client)
 
-			err := v.Object(context.Background(), test.input, test.diff, ic)
+			err := v.Object(context.Background(), test.input, test.comp, ic)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
@@ -378,8 +395,4 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 			}
 		})
 	}
-}
-
-func newObjectDiffWithVector() *moduletools.ObjectDiff {
-	return moduletools.NewObjectDiff([]float32{0, 0, 0, 0})
 }
