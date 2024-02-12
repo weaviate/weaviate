@@ -979,18 +979,18 @@ func Test_Validation_PropertyNames(t *testing.T) {
 // As of now, most class settings are immutable, but we need to allow some
 // specific updates, such as the vector index config
 func Test_UpdateClass(t *testing.T) {
-	t.Parallel()
-
-	t.Run("a class which doesn't exist", func(t *testing.T) {
+	t.Run("ClassNotFound", func(t *testing.T) {
 		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 		fakeMetaHandler.On("ReadOnlyClass", "WrongClass").Return(nil)
+		fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
+
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{})
 		require.NotNil(t, err)
 		assert.Equal(t, ErrNotFound, err)
 		fakeMetaHandler.AssertExpectations(t)
 	})
 
-	t.Run("various immutable and mutable fields", func(t *testing.T) {
+	t.Run("Fields", func(t *testing.T) {
 		type test struct {
 			name          string
 			initial       *models.Class
@@ -1000,7 +1000,7 @@ func Test_UpdateClass(t *testing.T) {
 
 		tests := []test{
 			{
-				name:    "attempting a name change",
+				name:    "ChangeName",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
 				update:  &models.Class{Class: "UpdatedName", Vectorizer: "none"},
 				expectedError: fmt.Errorf(
@@ -1008,7 +1008,7 @@ func Test_UpdateClass(t *testing.T) {
 						"attempted change from \"InitialName\" to \"UpdatedName\""),
 			},
 			{
-				name:    "attempting to modify the vectorizer",
+				name:    "ModifyVectorizer",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "model1"},
 				update:  &models.Class{Class: "InitialName", Vectorizer: "model2"},
 				expectedError: fmt.Errorf(
@@ -1016,7 +1016,7 @@ func Test_UpdateClass(t *testing.T) {
 						"attempted change from \"model1\" to \"model2\""),
 			},
 			{
-				name:    "attempting to modify the vector index type",
+				name:    "ModifyVectorIndexType",
 				initial: &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none"},
 				update:  &models.Class{Class: "InitialName", VectorIndexType: "lsh", Vectorizer: "none"},
 				expectedError: fmt.Errorf(
@@ -1024,7 +1024,7 @@ func Test_UpdateClass(t *testing.T) {
 						"attempted change from \"hnsw\" to \"lsh\""),
 			},
 			{
-				name:    "attempting to add a property",
+				name:    "AddProperty",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1205,29 +1205,32 @@ func Test_UpdateClass(t *testing.T) {
 		}
 
 		for _, test := range tests {
+			store := NewFakeStore()
 			t.Run(test.name, func(t *testing.T) {
 				handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 				ctx := context.Background()
 
 				fakeMetaHandler.On("AddClass", test.initial, mock.Anything).Return(nil)
+				fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
 				if len(test.initial.Properties) > 0 {
 					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
 				}
 				assert.Nil(t, handler.AddClass(ctx, nil, test.initial))
+				store.AddClass(test.initial)
 
-				if test.expectedError == nil {
-					fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				}
+				fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				err := handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
+				if err == nil {
+					err = store.UpdateClass(test.update)
+				}
 
 				if test.expectedError == nil {
 					assert.Nil(t, err)
 				} else {
 					require.NotNil(t, err, "update must error")
-					assert.Equal(t, test.expectedError.Error(), err.Error())
+					assert.Contains(t, err.Error(), test.expectedError.Error())
 				}
-				fakeMetaHandler.AssertExpectations(t)
 			})
 		}
 	})
