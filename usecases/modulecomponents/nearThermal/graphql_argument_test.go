@@ -31,13 +31,14 @@ func TestNearThermalGraphQLArgument(t *testing.T) {
 		// nearThermal: {
 		//   thermal: "base64;encoded,thermal_image",
 		//   distance: 0.9
+		//   targetVectors: ["targetVector"]
 		// }
 		assert.NotNil(t, nearThermal)
 		assert.Equal(t, "Multi2VecBindPrefixClassNearThermalInpObj", nearThermal.Type.Name())
 		answerFields, ok := nearThermal.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, answerFields)
-		assert.Equal(t, 3, len(answerFields.Fields()))
+		assert.Equal(t, 4, len(answerFields.Fields()))
 		fields := answerFields.Fields()
 		thermal := fields["thermal"]
 		thermalNonNull, thermalNonNullOK := thermal.Type.(*graphql.NonNull)
@@ -46,5 +47,10 @@ func TestNearThermalGraphQLArgument(t *testing.T) {
 		assert.NotNil(t, thermal)
 		assert.NotNil(t, fields["certainty"])
 		assert.NotNil(t, fields["distance"])
+		targetVectors := fields["targetVectors"]
+		targetVectorsList, targetVectorsListOK := targetVectors.Type.(*graphql.List)
+		assert.True(t, targetVectorsListOK)
+		assert.Equal(t, "String", targetVectorsList.OfType.Name())
+		assert.NotNil(t, targetVectors)
 	})
 }
