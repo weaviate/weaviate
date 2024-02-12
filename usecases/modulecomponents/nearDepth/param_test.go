@@ -9,11 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package nearAudio
+package nearDepth
 
 import "testing"
 
-func Test_validateNearAudioFn(t *testing.T) {
+func Test_validateNearDepthFn(t *testing.T) {
 	type args struct {
 		param interface{}
 	}
@@ -25,32 +25,32 @@ func Test_validateNearAudioFn(t *testing.T) {
 		{
 			name: "should pass with proper values",
 			args: args{
-				param: &NearAudioParams{
-					Audio: "base64;enncoded",
+				param: &NearDepthParams{
+					Depth: "base64;enncoded",
 				},
 			},
 		},
 		{
-			name: "should not pass with empty image",
+			name: "should not pass with empty depth",
 			args: args{
-				param: &NearAudioParams{
-					Audio: "",
+				param: &NearDepthParams{
+					Depth: "",
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name: "should not pass with nil image",
+			name: "should not pass with nil depth",
 			args: args{
-				param: &NearAudioParams{},
+				param: &NearDepthParams{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "should not pass with struct param, not a pointer to struct",
 			args: args{
-				param: NearAudioParams{
-					Audio: "image",
+				param: NearDepthParams{
+					Depth: "depth",
 				},
 			},
 			wantErr: true,
@@ -58,8 +58,8 @@ func Test_validateNearAudioFn(t *testing.T) {
 		{
 			name: "should not pass with certainty and distance",
 			args: args{
-				param: NearAudioParams{
-					Audio:        "image",
+				param: NearDepthParams{
+					Depth:        "depth",
 					Distance:     0.9,
 					WithDistance: true,
 					Certainty:    0.1,
@@ -70,8 +70,8 @@ func Test_validateNearAudioFn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateNearAudioFn(tt.args.param); (err != nil) != tt.wantErr {
-				t.Errorf("ValidateNearAudioFn() error = %v, wantErr %v", err, tt.wantErr)
+			if err := validateNearDepthFn(tt.args.param); (err != nil) != tt.wantErr {
+				t.Errorf("validateNearDepthFn() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
