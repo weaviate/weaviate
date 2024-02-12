@@ -14,7 +14,7 @@ package neartext
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 
 	"github.com/weaviate/weaviate/modules/text2vec-palm/config"
 

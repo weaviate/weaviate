@@ -11,7 +11,7 @@
 
 package neartext
 
-import "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+import "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
