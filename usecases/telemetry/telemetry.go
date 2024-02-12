@@ -14,6 +14,7 @@ package telemetry
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,7 +33,8 @@ import (
 )
 
 const (
-	defaultConsumerURL  = "https://us-central1-semi-production.cloudfunctions.net/weaviate-telemetry"
+	defaultConsumerURL = "aHR0cHM6Ly91cy1jZW50cmFsMS1zZW1pLXByb2R1Y3Rpb24uY2x" +
+		"vdWRmdW5jdGlvbnMubmV0L3dlYXZpYXRlLXRlbGVtZXRyeQ=="
 	defaultPushInterval = 24 * time.Hour
 )
 
@@ -81,6 +83,7 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 	}
 	go func() {
 		t := time.NewTicker(tel.pushInterval)
+		defer t.Stop()
 		for {
 			select {
 			case <-tel.shutdown:
@@ -93,7 +96,7 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 						WithField("payload", fmt.Sprintf("%+v", payload)).
 						WithField("retry_at", time.Now().Add(tel.pushInterval).Format(time.RFC3339)).
 						Error(err.Error())
-					return
+					continue
 				}
 				tel.logger.
 					WithField("action", "telemetry_push").
@@ -154,7 +157,12 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	resp, err := http.Post(tel.consumerURL, "application/json", bytes.NewReader(b))
+	url, err := base64.StdEncoding.DecodeString(tel.consumerURL)
+	if err != nil {
+		return nil, fmt.Errorf("decode url: %w", err)
+	}
+
+	resp, err := http.Post(string(url), "application/json", bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

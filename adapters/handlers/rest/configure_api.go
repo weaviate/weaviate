@@ -430,6 +430,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.ServerShutdown = func() {
+		if telemetryEnabled(appState) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// must be shutdown before the db, to ensure the
+			// termination payload contains the correct
+			// object count
+			if err := telemeter.Stop(ctx); err != nil {
+				appState.Logger.WithField("action", "stop_telemetry").
+					Errorf("failed to stop telemetry: %s", err.Error())
+			}
+		}
+
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel()
 
@@ -438,15 +450,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-
-		if telemetryEnabled(appState) {
-			// must be shutdown before the db, to ensure the
-			// termination payload contains the correct
-			// object count
-			if err := telemeter.Stop(ctx); err != nil {
-				panic(err)
-			}
-		}
 
 		if err := appState.SchemaManager.Shutdown(ctx); err != nil {
 			panic(err)

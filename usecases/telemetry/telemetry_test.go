@@ -13,6 +13,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -185,8 +186,9 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 type telemetryOpt func(*Telemeter)
 
 func withConsumerURL(url string) telemetryOpt {
+	encoded := base64.StdEncoding.EncodeToString([]byte(url))
 	return func(tel *Telemeter) {
-		tel.consumerURL = url
+		tel.consumerURL = encoded
 	}
 }
 
