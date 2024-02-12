@@ -78,8 +78,13 @@ type Indexer interface {
 	Close(context.Context) error
 }
 
+// Parser parses concrete class fields after deserialization
 type Parser interface {
+	// ParseClassUpdate parses a class after unmarshaling by setting concrete types for the fields
 	ParseClass(class *models.Class) error
+
+	// ParseClass parses new updates by providing the current class data.
+	ParseClassUpdate(class, update *models.Class) (*models.Class, error)
 }
 
 type Config struct {
