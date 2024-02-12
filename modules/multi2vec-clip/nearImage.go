@@ -13,8 +13,8 @@ package modclip
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/nearImage"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/neartext"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
 )
 
 func (m *ClipModule) initNearImage() error {
@@ -24,8 +24,8 @@ func (m *ClipModule) initNearImage() error {
 }
 
 func (m *ClipModule) initNearText() error {
-	m.nearTextSearcher = neartext.NewSearcher(m.textVectorizer)
-	m.nearTextGraphqlProvider = neartext.New(m.nearTextTransformer)
+	m.nearTextSearcher = nearText.NewSearcher(m.textVectorizer)
+	m.nearTextGraphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
 
