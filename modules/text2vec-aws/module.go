@@ -44,7 +44,7 @@ type AwsModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
+	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
 		cfg moduletools.ClassConfig) error
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
@@ -134,9 +134,9 @@ func (m *AwsModule) RootHandler() http.Handler {
 }
 
 func (m *AwsModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
 func (m *AwsModule) MetaInfo() (map[string]interface{}, error) {

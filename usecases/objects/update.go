@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 // UpdateObject updates object of class.
@@ -73,8 +74,9 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("id", id).
 		Debug("received update kind request")
 
+	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, obj.Object())
+		ctx, principal, repl, updates, prevObj)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -90,7 +92,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, nil, m.findObject, m.logger)
+	compFactory := func() (moduletools.VectorizablePropsComparator, error) {
+		return moduletools.NewVectorizablePropsComparator(class.Properties, updates.Properties,
+			prevObj.Properties, prevObj.Vector), nil
+	}
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, compFactory, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}

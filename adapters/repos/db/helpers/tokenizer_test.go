@@ -12,11 +12,35 @@
 package helpers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+func TestTokenise(t *testing.T) {
+	tokens := Tokenize(models.PropertyTokenizationTrigram, "Thequickbrownfoxjumpsoverthelazydog")
+	assert.Equal(t, []string{"the", "heq", "equ", "qui", "uic", "ick", "ckb", "kbr", "bro", "row", "own", "wnf", "nfo", "fox", "oxj", "xju", "jum", "ump", "mps", "pso", "sov", "ove", "ver", "ert", "rth", "the", "hel", "ela", "laz", "azy", "zyd", "ydo", "dog"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationTrigram, "The quick brown fox jumps over the lazy dog")
+	assert.Equal(t, []string{"the", "heq", "equ", "qui", "uic", "ick", "ckb", "kbr", "bro", "row", "own", "wnf", "nfo", "fox", "oxj", "xju", "jum", "ump", "mps", "pso", "sov", "ove", "ver", "ert", "rth", "the", "hel", "ela", "laz", "azy", "zyd", "ydo", "dog"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationTrigram, "いろはにほへとちりぬるをわかよたれそつねならむうゐのおくやまけふこえてあさきゆめみしゑひもせす")
+	assert.Equal(t, []string{"いろは", "ろはに", "はにほ", "にほへ", "ほへと", "へとち", "とちり", "ちりぬ", "りぬる", "ぬるを", "るをわ", "をわか", "わかよ", "かよた", "よたれ", "たれそ", "れそつ", "そつね", "つねな", "ねなら", "ならむ", "らむう", "むうゐ", "うゐの", "ゐのお", "のおく", "おくや", "くやま", "やまけ", "まけふ", "けふこ", "ふこえ", "こえて", "えてあ", "てあさ", "あさき", "さきゆ", "きゆめ", "ゆめみ", "めみし", "みしゑ", "しゑひ", "ゑひも", "ひもせ", "もせす"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationGse, "素早い茶色の狐が怠けた犬を飛び越えた")
+	assert.Equal(t, strings.Split("素早い 茶色 の 狐 が 怠 けた 犬 を 飛び越え た", " "), tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationGse, "すばやいちゃいろのきつねがなまけたいぬをとびこえた")
+	assert.Equal(t, strings.Split("すばやい ちゃいろ のき つね がな ま けた いぬ を とびこえ た", " "), tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationGse, "スバヤイチャイロノキツネガナマケタイヌヲトビコエタ")
+	assert.Equal(t, strings.Split("スバ ヤイ チャイロ ノ キツ ネガ ナマ ケタ イヌ ヲ トビ コ エ タ", " "), tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
+	assert.Equal(t, strings.Split("the quick brown fox jumps over the lazy dog", " "), tokens)
+}
 
 func TestTokenize(t *testing.T) {
 	input := " Hello You*-beautiful_world?!"

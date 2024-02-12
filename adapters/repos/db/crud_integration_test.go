@@ -1602,7 +1602,6 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			batch[i] = objects.BatchObject{
 				OriginalIndex: i,
 				Err:           nil,
-				Vector:        nil,
 				Object:        data[i+individual],
 				UUID:          data[i+individual].ID,
 			}

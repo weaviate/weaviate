@@ -28,7 +28,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 			}
 			tempResult := res
 			docId := tempResult.ID
-			score := weights[resultSetIndex] / float64(i+60+1) // TODO replace 60 with a class configured variable
+			score := weights[resultSetIndex] / float64(i+60) // TODO replace 60 with a class configured variable in the schema
 
 			if tempResult.AdditionalProperties == nil {
 				tempResult.AdditionalProperties = map[string]interface{}{}
