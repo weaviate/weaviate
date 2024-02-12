@@ -13,6 +13,8 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/stretchr/testify/mock"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
@@ -150,4 +152,46 @@ func (f *fakeMetaHandler) Read(class string, reader func(*models.Class, *shardin
 func (f *fakeMetaHandler) GetShardsStatus(class string) (models.ShardStatusList, error) {
 	args := f.Called(class)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
+}
+
+type fakeStore struct {
+	collections map[string]*models.Class
+	parser      Parser
+}
+
+func NewFakeStore() *fakeStore {
+	return &fakeStore{
+		collections: make(map[string]*models.Class),
+		parser:      *NewParser(&fakeClusterState{}, dummyParseVectorConfig, &fakeValidator{}),
+	}
+}
+
+func (f *fakeStore) AddClass(cls *models.Class) {
+	f.collections[cls.Class] = cls
+}
+
+func (f *fakeStore) UpdateClass(cls *models.Class) error {
+	bytes, err := json.Marshal(cls)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	cls = f.collections[cls.Class]
+	if cls == nil {
+		return ErrNotFound
+	}
+
+	cls2 := &models.Class{}
+	if err := json.Unmarshal(bytes, cls2); err != nil {
+		return fmt.Errorf("unmarshal: %w", err)
+	}
+
+	u, err := f.parser.ParseClassUpdate(cls, cls2)
+	if err != nil {
+		return fmt.Errorf("parse class update: %w", err)
+	}
+
+	cls.VectorIndexConfig = u.VectorIndexConfig
+	cls.InvertedIndexConfig = u.InvertedIndexConfig
+	return nil
 }

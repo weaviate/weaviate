@@ -371,7 +371,7 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 }
 
 func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
-	className string, updated map[string]schema.VectorIndexConfig,
+	className string, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
@@ -381,21 +381,23 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 	return idx.updateVectorIndexConfigs(ctx, updated)
 }
 
-func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
+	// hnsw is the only supported vector index type at the moment, so no need
+	// to check, we can always use that an hnsw-specific validation should be
+	// used for now.
 	switch old.IndexType() {
-	// hnsw and flat are the only supported vector indexes
-	case vIndex.VectorIndexTypeHNSW:
+	case "hnsw":
 		return hnsw.ValidateUserConfigUpdate(old, updated)
-	case vIndex.VectorIndexTypeFLAT:
+	case "flat":
 		return flat.ValidateUserConfigUpdate(old, updated)
 	}
-	return fmt.Errorf("invalid index type: %q", old.IndexType())
+	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
-	old, updated map[string]schema.VectorIndexConfig,
+	old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName := range old {
 		if err := m.ValidateVectorIndexConfigUpdate(ctx, old[vecName], updated[vecName]); err != nil {
@@ -405,8 +407,7 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
 	return nil
 }
 
-func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
-	old, updated *models.InvertedIndexConfig,
+func (m *Migrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig,
 ) error {
 	return inverted.ValidateUserConfigUpdate(old, updated)
 }
