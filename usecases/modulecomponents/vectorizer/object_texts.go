@@ -39,62 +39,8 @@ func New() *ObjectVectorizer {
 func (v *ObjectVectorizer) TextsOrVector(ctx context.Context, className string,
 	comp moduletools.VectorizablePropsComparator, icheck ClassSettings,
 ) (string, []float32) {
-	vectorize := comp.PrevVector() == nil
-
-	var corpi []string
-
-	if icheck.VectorizeClassName() {
-		corpi = append(corpi, v.camelCaseToLower(className))
-	}
-
-	it := comp.PropsIterator()
-	for propName, value, ok := it.Next(); ok; propName, value, ok = it.Next() {
-		if !icheck.PropertyIndexed(propName) {
-			continue
-		}
-
-		switch typed := value.(type) {
-		case string:
-			vectorize = vectorize || comp.IsChanged(propName)
-
-			str := strings.ToLower(typed)
-			if icheck.VectorizePropertyName(propName) {
-				str = fmt.Sprintf("%s %s", v.camelCaseToLower(propName), str)
-			}
-			corpi = append(corpi, str)
-
-		case []string:
-			vectorize = vectorize || comp.IsChanged(propName)
-
-			if len(typed) > 0 {
-				isVectorizable := icheck.VectorizePropertyName(propName)
-				lowerPropertyName := v.camelCaseToLower(propName)
-				for i := range typed {
-					str := strings.ToLower(typed[i])
-					if isVectorizable {
-						str = fmt.Sprintf("%s %s", lowerPropertyName, str)
-					}
-					corpi = append(corpi, str)
-				}
-			}
-
-		case nil:
-			vectorize = vectorize || comp.IsChanged(propName)
-		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return "", comp.PrevVector()
-	}
-
-	if len(corpi) == 0 {
-		// fall back to using the class name
-		corpi = append(corpi, v.camelCaseToLower(className))
-	}
-
-	text := strings.Join(corpi, " ")
-	return text, nil
+	text, _, vector := v.TextsOrVectorWithTitleProperty(ctx, className, comp, icheck, "")
+	return text, vector
 }
 
 func (v *ObjectVectorizer) camelCaseToLower(in string) string {
@@ -113,6 +59,81 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 	}
 
 	return sb.String()
+}
+
+func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, className string,
+	comp moduletools.VectorizablePropsComparator, icheck ClassSettings, titlePopertyName string,
+) (string, string, []float32) {
+	vectorize := comp.PrevVector() == nil
+
+	var titlePropertyValue []string
+	var corpi []string
+
+	if icheck.VectorizeClassName() {
+		corpi = append(corpi, v.camelCaseToLower(className))
+	}
+
+	it := comp.PropsIterator()
+	for propName, value, ok := it.Next(); ok; propName, value, ok = it.Next() {
+		if !icheck.PropertyIndexed(propName) {
+			continue
+		}
+
+		switch typed := value.(type) {
+		case string:
+			vectorize = vectorize || comp.IsChanged(propName)
+			isTitleProperty := propName == titlePopertyName
+
+			str := strings.ToLower(typed)
+			if isTitleProperty {
+				titlePropertyValue = append(titlePropertyValue, str)
+			}
+			if icheck.VectorizePropertyName(propName) {
+				str = fmt.Sprintf("%s %s", v.camelCaseToLower(propName), str)
+			}
+			corpi = append(corpi, str)
+
+		case []string:
+			vectorize = vectorize || comp.IsChanged(propName)
+
+			if len(typed) > 0 {
+				isNameVectorizable := icheck.VectorizePropertyName(propName)
+				lowerPropertyName := v.camelCaseToLower(propName)
+				isTitleProperty := propName == titlePopertyName
+
+				for i := range typed {
+					str := strings.ToLower(typed[i])
+					if isTitleProperty {
+						titlePropertyValue = append(titlePropertyValue, str)
+					}
+					if isNameVectorizable {
+						str = fmt.Sprintf("%s %s", lowerPropertyName, str)
+					}
+					corpi = append(corpi, str)
+				}
+			}
+
+		case nil:
+			vectorize = vectorize || comp.IsChanged(propName)
+		}
+	}
+
+	// no property was changed, old vector can be used
+	if !vectorize {
+		return "", "", comp.PrevVector()
+	}
+
+	if len(corpi) == 0 {
+		// fall back to using the class name
+		corpi = append(corpi, v.camelCaseToLower(className))
+	}
+
+	text := strings.Join(corpi, " ")
+	if titlePopertyName == "" {
+		return text, "", nil
+	}
+	titlePropertyVal := strings.Join(titlePropertyValue, " ")
+	return text, titlePropertyVal, nil
 }
 
 func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
