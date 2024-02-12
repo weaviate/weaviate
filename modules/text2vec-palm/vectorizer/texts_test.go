@@ -22,57 +22,54 @@ import (
 // as used in the nearText searcher
 func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               []string
-		expectedApiEndpoint string
-		expectedProjectID   string
-		expectedEndpointID  string
-		expectedPalmModel   string
-		palmModel           string
+		name              string
+		input             []string
+		expectedPalmModel string
+		palmModel         string
 	}
 
 	tests := []testCase{
 		{
 			name:              "single word",
 			input:             []string{"hello"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 		{
 			name:              "multiple words",
 			input:             []string{"hello world, this is me!"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 		{
 			name:              "multiple sentences (joined with a dot)",
 			input:             []string{"this is sentence 1", "and here's number 2"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 		{
 			name:              "multiple sentences already containing a dot",
 			input:             []string{"this is sentence 1.", "and here's number 2"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 		{
 			name:              "multiple sentences already containing a question mark",
 			input:             []string{"this is sentence 1?", "and here's number 2"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 		{
 			name:              "multiple sentences already containing an exclamation mark",
 			input:             []string{"this is sentence 1!", "and here's number 2"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 		{
 			name:              "multiple sentences already containing comma",
 			input:             []string{"this is sentence 1,", "and here's number 2"},
-			palmModel:         "large",
-			expectedPalmModel: "large",
+			palmModel:         "textembedding-gecko@001",
+			expectedPalmModel: "textembedding-gecko@001",
 		},
 	}
 
@@ -82,19 +79,19 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client)
 
-			settings := &fakeSettings{
+			cfg := &fakeClassConfig{
 				apiEndpoint: "",
 				projectID:   "",
 				endpointID:  "",
+				modelID:     test.palmModel,
 			}
-			vec, err := v.Texts(context.Background(), test.input, settings)
+			vec, err := v.Texts(context.Background(), test.input, cfg)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			assert.Equal(t, test.expectedApiEndpoint, client.lastConfig.ApiEndpoint)
-			assert.Equal(t, test.expectedProjectID, client.lastConfig.ProjectID)
-			assert.Equal(t, test.expectedEndpointID, client.lastConfig.Model)
+			assert.Equal(t, DefaultApiEndpoint, client.lastConfig.ApiEndpoint)
+			assert.Equal(t, test.palmModel, client.lastConfig.Model)
 		})
 	}
 }

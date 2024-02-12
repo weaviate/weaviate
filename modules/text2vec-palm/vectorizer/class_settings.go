@@ -9,13 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package config
+package vectorizer
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/weaviate/weaviate/modules/text2vec-palm/vectorizer"
 
 	"github.com/pkg/errors"
 
@@ -180,7 +178,7 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return defaultValue
 }
 
-func (cv *classSettings) validateIndexState(class *models.Class, settings vectorizer.ClassSettings) error {
+func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
 	if settings.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
