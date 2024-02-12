@@ -1049,7 +1049,7 @@ func (m *TesterModule) RootHandler() http.Handler {
 }
 
 func (m *TesterModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+	obj *models.Object, objDiff *models.Object, cfg moduletools.ClassConfig,
 ) error {
 	return nil
 }
