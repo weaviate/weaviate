@@ -31,13 +31,14 @@ func TestNearIMUGraphQLArgument(t *testing.T) {
 		// nearIMU: {
 		//   imu: "base64;encoded,imu_data",
 		//   distance: 0.9
+		//   targetVectors: ["targetVector"]
 		// }
 		assert.NotNil(t, nearIMU)
 		assert.Equal(t, "Multi2VecBindPrefixClassNearIMUInpObj", nearIMU.Type.Name())
 		answerFields, ok := nearIMU.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, answerFields)
-		assert.Equal(t, 3, len(answerFields.Fields()))
+		assert.Equal(t, 4, len(answerFields.Fields()))
 		fields := answerFields.Fields()
 		imu := fields["imu"]
 		imuNonNull, imuNonNullOK := imu.Type.(*graphql.NonNull)
@@ -46,5 +47,10 @@ func TestNearIMUGraphQLArgument(t *testing.T) {
 		assert.NotNil(t, imu)
 		assert.NotNil(t, fields["certainty"])
 		assert.NotNil(t, fields["distance"])
+		targetVectors := fields["targetVectors"]
+		targetVectorsList, targetVectorsListOK := targetVectors.Type.(*graphql.List)
+		assert.True(t, targetVectorsListOK)
+		assert.Equal(t, "String", targetVectorsList.OfType.Name())
+		assert.NotNil(t, targetVectors)
 	})
 }

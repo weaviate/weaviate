@@ -16,10 +16,11 @@ import (
 )
 
 type NearDepthParams struct {
-	Depth        string
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Depth         string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearDepthParams) GetCertainty() float64 {
@@ -32,6 +33,10 @@ func (n NearDepthParams) GetDistance() float64 {
 
 func (n NearDepthParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n NearDepthParams) GetTargetVectors() []string {
+	return n.TargetVectors
 }
 
 func validateNearDepthFn(param interface{}) error {
@@ -47,6 +52,11 @@ func validateNearDepthFn(param interface{}) error {
 	if nearDepth.Certainty != 0 && nearDepth.WithDistance {
 		return errors.New(
 			"nearDepth cannot provide both distance and certainty")
+	}
+
+	if len(nearDepth.TargetVectors) > 1 {
+		return errors.New(
+			"nearText.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil

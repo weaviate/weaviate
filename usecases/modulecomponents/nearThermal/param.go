@@ -16,10 +16,11 @@ import (
 )
 
 type NearThermalParams struct {
-	Thermal      string
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Thermal       string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearThermalParams) GetCertainty() float64 {
@@ -32,6 +33,10 @@ func (n NearThermalParams) GetDistance() float64 {
 
 func (n NearThermalParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
+}
+
+func (n NearThermalParams) GetTargetVectors() []string {
+	return n.TargetVectors
 }
 
 func validateNearThermalFn(param interface{}) error {
@@ -47,6 +52,11 @@ func validateNearThermalFn(param interface{}) error {
 	if nearThermal.Certainty != 0 && nearThermal.WithDistance {
 		return errors.New(
 			"nearThermal cannot provide both distance and certainty")
+	}
+
+	if len(nearThermal.TargetVectors) > 1 {
+		return errors.New(
+			"nearThermal.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil
