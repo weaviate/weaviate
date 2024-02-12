@@ -49,6 +49,8 @@ const (
 	envTestSUMTransformersImage = "TEST_SUM_TRANSFORMERS_IMAGE"
 	// envTestMulti2VecCLIPImage adds ability to pass a custom CLIP image to module tests
 	envTestMulti2VecCLIPImage = "TEST_MULTI2VEC_CLIP_IMAGE"
+	// envTestMulti2VecBindImage adds ability to pass a custom BIND image to module tests
+	envTestMulti2VecBindImage = "TEST_MULTI2VEC_BIND_IMAGE"
 	// envTestImg2VecNeuralImage adds ability to pass a custom Im2Vec Neural image to module tests
 	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
 	// envTestRerankerTransformersImage adds ability to pass a custom image to module tests
@@ -86,6 +88,7 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
+	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
 	weaviateEnvs                  map[string]string
@@ -172,6 +175,12 @@ func (d *Compose) WithSUMTransformers() *Compose {
 func (d *Compose) WithMulti2VecCLIP() *Compose {
 	d.withCLIP = true
 	d.enableModules = append(d.enableModules, Multi2VecCLIP)
+	return d
+}
+
+func (d *Compose) WithMulti2VecBind() *Compose {
+	d.withBind = true
+	d.enableModules = append(d.enableModules, Multi2VecBind)
 	return d
 }
 
@@ -406,6 +415,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startM2VClip(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", Multi2VecCLIP)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withBind {
+		image := os.Getenv(envTestMulti2VecBindImage)
+		container, err := startM2VBind(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", Multi2VecBind)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v

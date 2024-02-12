@@ -59,21 +59,18 @@ type metaClient interface {
 
 type bindVectorizer interface {
 	Object(ctx context.Context, object *models.Object, comp moduletools.VectorizablePropsComparator,
-		settings vectorizer.ClassSettings) error
-	VectorizeImage(ctx context.Context, image string) ([]float32, error)
-	VectorizeAudio(ctx context.Context, audio string) ([]float32, error)
-	VectorizeVideo(ctx context.Context, video string) ([]float32, error)
-	VectorizeIMU(ctx context.Context, imu string) ([]float32, error)
-	VectorizeThermal(ctx context.Context, thermal string) ([]float32, error)
-	VectorizeDepth(ctx context.Context, depth string) ([]float32, error)
+		cfg moduletools.ClassConfig) error
+	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeVideo(ctx context.Context, video string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeIMU(ctx context.Context, imu string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeThermal(ctx context.Context, thermal string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeDepth(ctx context.Context, depth string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type textVectorizer interface {
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors(vectors [][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (m *BindModule) Name() string {
@@ -166,8 +163,7 @@ func (m *BindModule) RootHandler() http.Handler {
 func (m *BindModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.bindVectorizer.Object(ctx, obj, comp, icheck)
+	return m.bindVectorizer.Object(ctx, obj, comp, cfg)
 }
 
 func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
@@ -177,7 +173,7 @@ func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 func (m *BindModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.textVectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface
