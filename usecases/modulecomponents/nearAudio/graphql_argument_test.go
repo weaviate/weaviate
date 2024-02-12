@@ -31,13 +31,14 @@ func TestNearAudioGraphQLArgument(t *testing.T) {
 		// nearAudio: {
 		//   audio: "base64;encoded,audio",
 		//   distance: 0.9
+		//   targetVectors: ["targetVector"]
 		// }
 		assert.NotNil(t, nearAudio)
 		assert.Equal(t, "Multi2VecBindPrefixClassNearAudioInpObj", nearAudio.Type.Name())
 		nearAudioFields, ok := nearAudio.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, nearAudioFields)
-		assert.Equal(t, 3, len(nearAudioFields.Fields()))
+		assert.Equal(t, 4, len(nearAudioFields.Fields()))
 		fields := nearAudioFields.Fields()
 		audio := fields["audio"]
 		audioNonNull, audioNonNullOK := audio.Type.(*graphql.NonNull)
@@ -46,5 +47,10 @@ func TestNearAudioGraphQLArgument(t *testing.T) {
 		assert.NotNil(t, audio)
 		assert.NotNil(t, fields["certainty"])
 		assert.NotNil(t, fields["distance"])
+		targetVectors := fields["targetVectors"]
+		targetVectorsList, targetVectorsListOK := targetVectors.Type.(*graphql.List)
+		assert.True(t, targetVectorsListOK)
+		assert.Equal(t, "String", targetVectorsList.OfType.Name())
+		assert.NotNil(t, targetVectors)
 	})
 }

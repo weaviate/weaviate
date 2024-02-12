@@ -63,6 +63,19 @@ func Test_extractNearThermalFn(t *testing.T) {
 				Thermal: "base64;encoded",
 			},
 		},
+		{
+			name: "should extract properly with thermal and targetVectors set",
+			args: args{
+				source: map[string]interface{}{
+					"thermal":       "base64;encoded",
+					"targetVectors": []interface{}{"targetVector1", "targetVector2"},
+				},
+			},
+			want: &NearThermalParams{
+				Thermal:       "base64;encoded",
+				TargetVectors: []string{"targetVector1", "targetVector2"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
