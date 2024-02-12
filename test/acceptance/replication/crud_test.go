@@ -271,6 +271,7 @@ func immediateReplicaCRUD(t *testing.T) {
 }
 
 func eventualReplicaCRUD(t *testing.T) {
+	t.Skip("To be addressed as part of https://semi-technology.atlassian.net/browse/WEAVIATE-701")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 

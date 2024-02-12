@@ -269,7 +269,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotThreshold: appState.ServerConfig.Config.Raft.SnapshotThreshold,
 
 		DB:          nil,
-		Parser:      schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig),
+		Parser:      schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
 		Logger:      sLogger(),
 		LogLevel:    logLevel(),
 		IsLocalHost: appState.ServerConfig.Config.Cluster.Localhost,
