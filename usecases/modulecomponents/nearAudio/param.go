@@ -34,7 +34,7 @@ func (n NearAudioParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
-func ValidateNearAudioFn(param interface{}) error {
+func validateNearAudioFn(param interface{}) error {
 	nearAudio, ok := param.(*NearAudioParams)
 	if !ok {
 		return errors.New("'nearAudio' invalid parameter")

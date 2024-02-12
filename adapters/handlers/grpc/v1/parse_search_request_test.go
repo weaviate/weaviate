@@ -14,34 +14,28 @@ package v1
 import (
 	"testing"
 
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
-
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
-
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
-
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
-
+	"github.com/weaviate/weaviate/entities/searchparams"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearDepth"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImu"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearThermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 )
 
 func TestGRPCRequest(t *testing.T) {
@@ -1034,7 +1028,7 @@ func TestGRPCRequest(t *testing.T) {
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
-					"nearDepth": &neardepth.NearDepthParams{
+					"nearDepth": &nearDepth.NearDepthParams{
 						Depth: "depth file",
 					},
 				},
@@ -1054,7 +1048,7 @@ func TestGRPCRequest(t *testing.T) {
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
-					"nearThermal": &nearthermal.NearThermalParams{
+					"nearThermal": &nearThermal.NearThermalParams{
 						Thermal: "thermal file",
 					},
 				},
@@ -1074,7 +1068,7 @@ func TestGRPCRequest(t *testing.T) {
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
 				ModuleParams: map[string]interface{}{
-					"nearIMU": &nearimu.NearIMUParams{
+					"nearIMU": &nearImu.NearIMUParams{
 						IMU: "IMU file",
 					},
 				},
