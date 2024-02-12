@@ -31,7 +31,7 @@ func NewSearcher(vectorizer imgVectorizer) *Searcher {
 
 type imgVectorizer interface {
 	VectorizeImage(ctx context.Context,
-		id, image string) ([]float32, error)
+		id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (s *Searcher) VectorSearches() map[string]modulecapabilities.VectorForParams {
@@ -54,7 +54,7 @@ func (s *Searcher) vectorFromNearImageParam(ctx context.Context,
 ) ([]float32, error) {
 	// find vector for given search query
 	searchID := fmt.Sprintf("search_%v", time.Now().UnixNano())
-	vector, err := s.vectorizer.VectorizeImage(ctx, searchID, params.Image)
+	vector, err := s.vectorizer.VectorizeImage(ctx, searchID, params.Image, cfg)
 	if err != nil {
 		return nil, errors.Errorf("vectorize image: %v", err)
 	}

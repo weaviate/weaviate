@@ -28,9 +28,8 @@ func TestVectorizer(t *testing.T) {
 	t.Run("should vectorize image", func(t *testing.T) {
 		// given
 		client := &fakeClient{}
-		vectorizer := &Vectorizer{client}
+		vectorizer := New(client)
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image"}).build()
-		settings := NewClassSettings(config)
 
 		propsSchema := []*models.Property{
 			{
@@ -48,7 +47,7 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, settings)
+		err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
@@ -58,9 +57,8 @@ func TestVectorizer(t *testing.T) {
 	t.Run("should vectorize 2 image fields", func(t *testing.T) {
 		// given
 		client := &fakeClient{}
-		vectorizer := &Vectorizer{client}
+		vectorizer := New(client)
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image1", "image2"}).build()
-		settings := NewClassSettings(config)
 
 		propsSchema := []*models.Property{
 			{
@@ -83,7 +81,7 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, settings)
+		err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
@@ -183,14 +181,13 @@ func TestVectorizerWithDiff(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			vectorizer := &Vectorizer{client}
+			vectorizer := New(client)
 			config := newConfigBuilder().
 				addSetting("imageFields", []interface{}{"image"}).
 				addSetting("textFields", []interface{}{"text"}).
 				build()
-			settings := NewClassSettings(config)
 
-			err := vectorizer.Object(context.Background(), test.input, test.comp, settings)
+			err := vectorizer.Object(context.Background(), test.input, test.comp, config)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
@@ -206,13 +203,12 @@ func TestVectorizerWithDiff(t *testing.T) {
 
 func TestVectorizerWithWeights(t *testing.T) {
 	client := &fakeClient{}
-	vectorizer := &Vectorizer{client}
+	vectorizer := New(client)
 	config := newConfigBuilder().
 		addSetting("imageFields", []interface{}{"image"}).
 		addSetting("textFields", []interface{}{"text"}).
 		addWeights([]interface{}{0.4}, []interface{}{0.6}).
 		build()
-	settings := NewClassSettings(config)
 
 	propsSchema := []*models.Property{
 		{
@@ -239,7 +235,7 @@ func TestVectorizerWithWeights(t *testing.T) {
 	}
 	comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
-	err := vectorizer.Object(context.Background(), input, comp, settings)
+	err := vectorizer.Object(context.Background(), input, comp, config)
 
 	require.Nil(t, err)
 	assert.Equal(t, models.C11yVector{3.2, 6.4, 9.6, 12.8, 16}, input.Vector)
