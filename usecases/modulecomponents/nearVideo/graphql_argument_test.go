@@ -31,13 +31,14 @@ func TestNearVideoGraphQLArgument(t *testing.T) {
 		// nearVideo: {
 		//   video: "base64;encoded,video_file",
 		//   distance: 0.9
+		//   targetVectors: ["targetVector"]
 		// }
 		assert.NotNil(t, nearVideo)
 		assert.Equal(t, "Multi2VecBindPrefixClassNearVideoInpObj", nearVideo.Type.Name())
 		answerFields, ok := nearVideo.Type.(*graphql.InputObject)
 		assert.True(t, ok)
 		assert.NotNil(t, answerFields)
-		assert.Equal(t, 3, len(answerFields.Fields()))
+		assert.Equal(t, 4, len(answerFields.Fields()))
 		fields := answerFields.Fields()
 		video := fields["video"]
 		videoNonNull, videoNonNullOK := video.Type.(*graphql.NonNull)
@@ -46,5 +47,10 @@ func TestNearVideoGraphQLArgument(t *testing.T) {
 		assert.NotNil(t, video)
 		assert.NotNil(t, fields["certainty"])
 		assert.NotNil(t, fields["distance"])
+		targetVectors := fields["targetVectors"]
+		targetVectorsList, targetVectorsListOK := targetVectors.Type.(*graphql.List)
+		assert.True(t, targetVectorsListOK)
+		assert.Equal(t, "String", targetVectorsList.OfType.Name())
+		assert.NotNil(t, targetVectors)
 	})
 }
