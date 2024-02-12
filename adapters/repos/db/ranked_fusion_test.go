@@ -316,8 +316,8 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, resultSet2[0].ID, results[0].ID)
 		require.Equal(t, resultSet2[1].ID, results[1].ID)
 		require.Equal(t, resultSet2[2].ID, results[2].ID)
-		require.Equal(t, float32(0.016287679), results[0].Score)
-		require.Equal(t, float32(0.016234796), results[1].Score)
+		require.Equal(t, float32(0.016557377), results[0].Score)
+		require.Equal(t, float32(0.016502732), results[1].Score)
 	})
 
 	t.Run("Fusion Reciprocal 2", func(t *testing.T) {
@@ -332,8 +332,8 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, resultSet2[0].ID, results[1].ID)
 		require.Equal(t, resultSet2[1].ID, results[0].ID)
 		require.Equal(t, resultSet2[2].ID, results[2].ID)
-		require.Equal(t, float32(0.016340561), results[0].Score)
-		require.Equal(t, float32(0.016181914), results[1].Score)
+		require.Equal(t, float32(0.016612021), results[0].Score)
+		require.Equal(t, float32(0.016448088), results[1].Score)
 	})
 
 	t.Run("Vector Only", func(t *testing.T) {
@@ -348,8 +348,8 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, resultSet2[0].ID, results[0].ID)
 		require.Equal(t, resultSet2[1].ID, results[1].ID)
 		require.Equal(t, resultSet2[2].ID, results[2].ID)
-		require.Equal(t, float32(0.016393442), results[0].Score)
-		require.Equal(t, float32(0.016129032), results[1].Score)
+		require.Equal(t, float32(0.016666668), results[0].Score)
+		require.Equal(t, float32(0.016393442), results[1].Score)
 	})
 
 	t.Run("BM25 only", func(t *testing.T) {
@@ -364,8 +364,8 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, resultSet1[0].ID, results[0].ID)
 		require.Equal(t, resultSet1[1].ID, results[1].ID)
 		require.Equal(t, resultSet1[2].ID, results[2].ID)
-		require.Equal(t, float32(0.016393442), results[0].Score)
-		require.Equal(t, float32(0.016129032), results[1].Score)
+		require.Equal(t, float32(0.016666668), results[0].Score)
+		require.Equal(t, float32(0.016393442), results[1].Score)
 	})
 
 	// Check basic search with one property

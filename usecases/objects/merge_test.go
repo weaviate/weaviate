@@ -315,7 +315,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
-					"employees": int64(70),
+					"employees": float64(70),
 					"located": &models.GeoCoordinates{
 						Latitude:  ptFloat32(30.2),
 						Longitude: ptFloat32(60.2),
@@ -429,9 +429,6 @@ func Test_MergeObject(t *testing.T) {
 				cls = tc.updated.Class
 			}
 			if tc.previous != nil {
-				if tc.previous.Properties != nil && tc.updated.Vector == nil {
-					m.modulesProvider.On("VectorizerName", mock.Anything).Return("some-module", nil)
-				}
 				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return(&search.Result{
 						Schema:    tc.previous.Properties,

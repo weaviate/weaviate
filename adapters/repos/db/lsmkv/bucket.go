@@ -635,7 +635,10 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
 				return nil, err
 			}
-			segmentDecoded[j].Tombstone = v.tombstone
+			// Read "broken" tombstones with length 12 but a non-tombstone value
+			// Related to Issue #4125
+			// TODO: Remove the extra check, as it may interfere future in-disk format changes
+			segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 		}
 		segments = append(segments, segmentDecoded)
 	}
