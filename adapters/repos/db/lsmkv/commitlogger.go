@@ -18,16 +18,19 @@ import (
 	"fmt"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 )
 
 type commitLogger struct {
+	path string
+
 	file   *os.File
 	writer *bufio.Writer
-	n      atomic.Int64
-	path   string
+
+	n int64
 
 	checksumWriter rwhasher.WriterHasher
 
@@ -36,6 +39,12 @@ type commitLogger struct {
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
+
+	syncRequired atomic.Bool
+
+	// if an error ocurrs writing or flushing, no more data will be accepted,
+	// any subsequent write or flush will return the same error
+	err error
 }
 
 // commit log entry data format
@@ -99,47 +108,66 @@ func newCommitLogger(path string) (*commitLogger, error) {
 
 	out.bufNode = bytes.NewBuffer(nil)
 
+	go func() {
+		for {
+			time.Sleep(100 * time.Millisecond)
+
+			if !out.syncRequired.Swap(false) {
+				continue
+			}
+
+			err := out.file.Sync()
+			if err != nil {
+				break
+			}
+		}
+	}()
+
 	return out, nil
 }
 
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
-	err := binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
-	if err != nil {
-		return err
+	cl.err = binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
+	if cl.err != nil {
+		return cl.err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
-	if err != nil {
-		return err
+	cl.err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
+	if cl.err != nil {
+		return cl.err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
-	if err != nil {
-		return err
+	cl.err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
+	if cl.err != nil {
+		return cl.err
 	}
 
 	// write node
-	_, err = cl.checksumWriter.Write(nodeBytes)
-	if err != nil {
-		return err
+	_, cl.err = cl.checksumWriter.Write(nodeBytes)
+	if cl.err != nil {
+		return cl.err
 	}
 
 	// write record checksum directly on the writer
-	checksumSize, err := cl.writer.Write(cl.checksumWriter.Hash())
-	if err != nil {
-		return err
+	var checksumSize int
+
+	checksumSize, cl.err = cl.writer.Write(cl.checksumWriter.Hash())
+	if cl.err != nil {
+		return cl.err
 	}
 
-	cl.n.Add(int64(1 + 1 + 4 + len(nodeBytes) + checksumSize))
+	cl.n += int64(1 + 1 + 4 + len(nodeBytes) + checksumSize)
+
+	cl.syncRequired.Store(true)
 
 	return nil
 }
 
 func (cl *commitLogger) put(node segmentReplaceNode) error {
-	if cl.paused {
-		return nil
+	if cl.paused || cl.err != nil {
+		return cl.err
 	}
 
 	cl.bufNode.Reset()
@@ -156,8 +184,8 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 }
 
 func (cl *commitLogger) append(node segmentCollectionNode) error {
-	if cl.paused {
-		return nil
+	if cl.paused || cl.err != nil {
+		return cl.err
 	}
 
 	cl.bufNode.Reset()
@@ -174,8 +202,8 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 }
 
 func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
-	if cl.paused {
-		return nil
+	if cl.paused || cl.err != nil {
+		return cl.err
 	}
 
 	cl.bufNode.Reset()
@@ -195,20 +223,12 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 // logger was initialized. After a flush a new logger is initialized which
 // automatically resets the logger.
 func (cl *commitLogger) Size() int64 {
-	return cl.n.Load()
+	return cl.n
 }
 
 func (cl *commitLogger) close() error {
-	if !cl.paused {
-		if err := cl.writer.Flush(); err != nil {
-			return err
-		}
-
-		if err := cl.file.Sync(); err != nil {
-			return err
-		}
-	}
-
+	cl.flush()
+	cl.file.Sync()
 	return cl.file.Close()
 }
 
@@ -224,10 +244,14 @@ func (cl *commitLogger) delete() error {
 	return os.Remove(cl.path)
 }
 
-func (cl *commitLogger) flushBuffers() error {
-	err := cl.writer.Flush()
-	if err != nil {
-		return fmt.Errorf("flushing WAL %q: %w", cl.path, err)
+func (cl *commitLogger) flush() error {
+	if cl.paused || cl.err != nil {
+		return cl.err
+	}
+
+	cl.err = cl.writer.Flush()
+	if cl.err != nil {
+		return fmt.Errorf("flushing WAL %q: %w", cl.path, cl.err)
 	}
 
 	return nil

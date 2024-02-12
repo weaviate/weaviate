@@ -22,6 +22,9 @@ import (
 )
 
 func (m *Memtable) flush() error {
+	m.Lock()
+	defer m.Unlock()
+
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -32,7 +35,7 @@ func (m *Memtable) flush() error {
 		return errors.Wrap(err, "close commit log file")
 	}
 
-	if m.Size() == 0 {
+	if m.size == 0 {
 		// this is an empty memtable, nothing to do
 		// however, we still have to cleanup the commit log, otherwise we will
 		// attempt to recover from it on the next cycle
@@ -153,9 +156,7 @@ func (m *Memtable) flushDataSet(f io.Writer) ([]segmentindex.Key, error) {
 }
 
 func (m *Memtable) flushDataMap(f io.Writer) ([]segmentindex.Key, error) {
-	m.RLock()
 	flat := m.keyMap.flattenInOrder()
-	m.RUnlock()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic

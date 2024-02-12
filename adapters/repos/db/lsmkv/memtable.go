@@ -343,5 +343,5 @@ func (m *Memtable) writeWAL() error {
 	m.Lock()
 	defer m.Unlock()
 
-	return m.commitlog.flushBuffers()
+	return m.commitlog.flush()
 }
