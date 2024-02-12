@@ -211,7 +211,7 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 

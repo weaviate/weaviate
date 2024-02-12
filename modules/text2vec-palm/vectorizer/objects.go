@@ -54,17 +54,9 @@ type ClassSettings interface {
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	vec, err := v.object(ctx, object.Class, comp, cfg)
-	if err != nil {
-		return err
-	}
-
-	// TODO[named-vectors]: move the vectorizer code to use a generic method to
-	// object = v.objectVectorizer.AddVectorToObject(object, vec, settings)
-	object.Vector = vec
-	v.objectVectorizer.AddVectorToObject(object, vec, nil, cfg)
-	return nil
+	return vec, nil, err
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
