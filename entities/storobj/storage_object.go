@@ -518,7 +518,7 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // 2          | uint32    | length of vectorweights json
 // n          | []byte    | vectorweights as json
 // 4          | uint32    | length of packed targetvectors
-// n		  | []byte    | packed targetvectors
+// n          | []byte    | packed targetvectors
 
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
