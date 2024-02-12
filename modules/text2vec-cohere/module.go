@@ -45,7 +45,7 @@ type CohereModule struct {
 
 type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) error
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
 }
@@ -120,7 +120,7 @@ func (m *CohereModule) RootHandler() http.Handler {
 
 func (m *CohereModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 

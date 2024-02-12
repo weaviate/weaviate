@@ -47,11 +47,11 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, config)
+		vector, _, err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
-		assert.NotNil(t, object.Vector)
+		assert.NotNil(t, vector)
 	})
 
 	t.Run("should vectorize 2 image fields", func(t *testing.T) {
@@ -81,11 +81,11 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, config)
+		vector, _, err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
-		assert.NotNil(t, object.Vector)
+		assert.NotNil(t, vector)
 	})
 }
 
@@ -187,15 +187,15 @@ func TestVectorizerWithDiff(t *testing.T) {
 				addSetting("textFields", []interface{}{"text"}).
 				build()
 
-			err := vectorizer.Object(context.Background(), test.input, test.comp, config)
+			vector, _, err := vectorizer.Object(context.Background(), test.input, test.comp, config)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
-				assert.Equal(t, models.C11yVector{5.5, 11, 16.5, 22, 27.5}, test.input.Vector)
+				assert.Equal(t, []float32{5.5, 11, 16.5, 22, 27.5}, vector)
 				// vectors are defined in Vectorize within fakes_for_test.go
 				// result calculated without weights as (textVectors[0][i]+imageVectors[0][i]) / 2
 			} else {
-				assert.Equal(t, models.C11yVector{0, 0, 0, 0, 0}, test.input.Vector)
+				assert.Equal(t, []float32{0, 0, 0, 0, 0}, vector)
 			}
 		})
 	}
@@ -235,10 +235,10 @@ func TestVectorizerWithWeights(t *testing.T) {
 	}
 	comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
-	err := vectorizer.Object(context.Background(), input, comp, config)
+	vector, _, err := vectorizer.Object(context.Background(), input, comp, config)
 
 	require.Nil(t, err)
-	assert.Equal(t, models.C11yVector{3.2, 6.4, 9.6, 12.8, 16}, input.Vector)
+	assert.Equal(t, []float32{3.2, 6.4, 9.6, 12.8, 16}, vector)
 	// vectors are defined in Vectorize within fakes_for_test.go
 	// result calculated with above weights as (textVectors[0][i]*0.4+imageVectors[0][i]*0.6) / 2
 }

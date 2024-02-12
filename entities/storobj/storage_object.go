@@ -558,7 +558,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 
 	targetVectors, err := msgpack.Marshal(ko.Vectors)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	targetVectorsLength := uint32(len(targetVectors))

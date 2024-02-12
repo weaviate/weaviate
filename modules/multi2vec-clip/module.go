@@ -47,7 +47,7 @@ type metaClient interface {
 
 type imageVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) error
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
@@ -124,7 +124,7 @@ func (m *ClipModule) RootHandler() http.Handler {
 
 func (m *ClipModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	return m.imageVectorizer.Object(ctx, obj, comp, cfg)
 }
 
