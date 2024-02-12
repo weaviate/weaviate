@@ -117,7 +117,6 @@ func (b *BM25Searcher) wand(
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND
 
-
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
