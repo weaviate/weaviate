@@ -199,14 +199,15 @@ func TestVectorizingObjects(t *testing.T) {
 
 			v := New(client)
 
-			ic := &fakeSettings{
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Car",
-				excludedProperty:   test.excludedProperty,
-				apiEndpoint:        "",
-				projectID:          "",
-				endpointID:         "",
-				truncateType:       "",
+			ic := &fakeClassConfig{
+				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Car",
+				excludedProperty:      test.excludedProperty,
+				vectorizePropertyName: true,
+				apiEndpoint:           "",
+				projectID:             "",
+				endpointID:            "",
+				modelID:               "",
 			}
 			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)
 			err := v.Object(context.Background(), test.input, comp, ic)
@@ -350,7 +351,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeSettings{
+			ic := &fakeClassConfig{
 				skippedProperty: test.skipped,
 			}
 
