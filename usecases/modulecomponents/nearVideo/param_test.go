@@ -70,7 +70,7 @@ func Test_validateNearVideoFn(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := ValidateNearVideoFn(tt.args.param); (err != nil) != tt.wantErr {
+			if err := validateNearVideoFn(tt.args.param); (err != nil) != tt.wantErr {
 				t.Errorf("ValidateNearVideoFn() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

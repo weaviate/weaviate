@@ -57,9 +57,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, settings ClassSettings,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	vec, err := v.object(ctx, object.ID, comp, settings)
+	vec, err := v.object(ctx, object.ID, comp, cfg)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
-func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float32, error) {
+func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, []string{image}, nil, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, image string) ([]float3
 	return v.getVector(res.ImageVectors)
 }
 
-func (v *Vectorizer) VectorizeAudio(ctx context.Context, audio string) ([]float32, error) {
+func (v *Vectorizer) VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, nil, []string{audio}, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ func (v *Vectorizer) VectorizeAudio(ctx context.Context, audio string) ([]float3
 	return v.getVector(res.AudioVectors)
 }
 
-func (v *Vectorizer) VectorizeVideo(ctx context.Context, video string) ([]float32, error) {
+func (v *Vectorizer) VectorizeVideo(ctx context.Context, video string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, nil, nil, []string{video}, nil, nil, nil)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (v *Vectorizer) VectorizeVideo(ctx context.Context, video string) ([]float3
 	return v.getVector(res.VideoVectors)
 }
 
-func (v *Vectorizer) VectorizeIMU(ctx context.Context, imu string) ([]float32, error) {
+func (v *Vectorizer) VectorizeIMU(ctx context.Context, imu string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, nil, nil, nil, []string{imu}, nil, nil)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (v *Vectorizer) VectorizeIMU(ctx context.Context, imu string) ([]float32, e
 	return v.getVector(res.IMUVectors)
 }
 
-func (v *Vectorizer) VectorizeThermal(ctx context.Context, thermal string) ([]float32, error) {
+func (v *Vectorizer) VectorizeThermal(ctx context.Context, thermal string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, nil, nil, nil, nil, []string{thermal}, nil)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (v *Vectorizer) VectorizeThermal(ctx context.Context, thermal string) ([]fl
 	return v.getVector(res.ThermalVectors)
 }
 
-func (v *Vectorizer) VectorizeDepth(ctx context.Context, depth string) ([]float32, error) {
+func (v *Vectorizer) VectorizeDepth(ctx context.Context, depth string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, nil, nil, nil, nil, nil, []string{depth})
 	if err != nil {
 		return nil, err
@@ -124,8 +124,9 @@ func (v *Vectorizer) getVector(vectors [][]float32) ([]float32, error) {
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, ichek ClassSettings,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
+	icheck := NewClassSettings(cfg)
 	vectorize := comp.PrevVector() == nil
 
 	// vectorize image and text
@@ -135,46 +136,46 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
 		switch typed := propValue.(type) {
 		case string:
-			if ichek.ImageField(propName) {
+			if icheck.ImageField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				images = append(images, typed)
 			}
-			if ichek.TextField(propName) {
+			if icheck.TextField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				texts = append(texts, typed)
 			}
-			if ichek.AudioField(propName) {
+			if icheck.AudioField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				audio = append(audio, typed)
 			}
-			if ichek.VideoField(propName) {
+			if icheck.VideoField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				video = append(video, typed)
 			}
-			if ichek.IMUField(propName) {
+			if icheck.IMUField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				imu = append(imu, typed)
 			}
-			if ichek.ThermalField(propName) {
+			if icheck.ThermalField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				thermal = append(thermal, typed)
 			}
-			if ichek.DepthField(propName) {
+			if icheck.DepthField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				depth = append(depth, typed)
 			}
 
 		case []string:
-			if ichek.TextField(propName) {
+			if icheck.TextField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 				texts = append(texts, typed...)
 			}
 
 		case nil:
-			if ichek.ImageField(propName) || ichek.TextField(propName) ||
-				ichek.AudioField(propName) || ichek.VideoField(propName) ||
-				ichek.IMUField(propName) || ichek.ThermalField(propName) ||
-				ichek.DepthField(propName) {
+			if icheck.ImageField(propName) || icheck.TextField(propName) ||
+				icheck.AudioField(propName) || icheck.VideoField(propName) ||
+				icheck.IMUField(propName) || icheck.ThermalField(propName) ||
+				icheck.DepthField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
@@ -200,7 +201,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 		vectors = append(vectors, res.ThermalVectors...)
 		vectors = append(vectors, res.DepthVectors...)
 	}
-	weights, err := v.getWeights(ichek)
+	weights, err := v.getWeights(icheck)
 	if err != nil {
 		return nil, err
 	}
