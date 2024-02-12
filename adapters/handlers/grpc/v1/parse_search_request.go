@@ -14,39 +14,30 @@ package v1
 import (
 	"fmt"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/byteops"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
-
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
-
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/search"
-
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearDepth"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImu"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearThermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
 )
 
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
@@ -789,8 +780,8 @@ func parseNearVideo(n *pb.NearVideoSearch) (*nearVideo.NearVideoParams, error) {
 	return out, nil
 }
 
-func parseNearDepth(n *pb.NearDepthSearch) (*neardepth.NearDepthParams, error) {
-	out := &neardepth.NearDepthParams{
+func parseNearDepth(n *pb.NearDepthSearch) (*nearDepth.NearDepthParams, error) {
+	out := &nearDepth.NearDepthParams{
 		Depth: n.Depth,
 	}
 
@@ -813,8 +804,8 @@ func parseNearDepth(n *pb.NearDepthSearch) (*neardepth.NearDepthParams, error) {
 	return out, nil
 }
 
-func parseNearThermal(n *pb.NearThermalSearch) (*nearthermal.NearThermalParams, error) {
-	out := &nearthermal.NearThermalParams{
+func parseNearThermal(n *pb.NearThermalSearch) (*nearThermal.NearThermalParams, error) {
+	out := &nearThermal.NearThermalParams{
 		Thermal: n.Thermal,
 	}
 
@@ -837,8 +828,8 @@ func parseNearThermal(n *pb.NearThermalSearch) (*nearthermal.NearThermalParams, 
 	return out, nil
 }
 
-func parseNearIMU(n *pb.NearIMUSearch) (*nearimu.NearIMUParams, error) {
-	out := &nearimu.NearIMUParams{
+func parseNearIMU(n *pb.NearIMUSearch) (*nearImu.NearIMUParams, error) {
+	out := &nearImu.NearIMUParams{
 		IMU: n.Imu,
 	}
 
