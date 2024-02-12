@@ -58,14 +58,9 @@ type ClassSettings interface {
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	vec, err := v.object(ctx, object.ID, comp, cfg)
-	if err != nil {
-		return err
-	}
-
-	object.Vector = vec
-	return nil
+	return vec, nil, err
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {

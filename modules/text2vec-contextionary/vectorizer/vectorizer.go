@@ -74,7 +74,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 // Object object to vector
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
@@ -83,7 +83,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	icheck := NewIndexChecker(cfg)
 	vec, sources, err := v.object(ctx, object.Class, comp, overrides, icheck)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	additional := models.AdditionalProperties{}
@@ -91,8 +91,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 		Source: sourceFromInputElements(sources),
 	}
 
-	v.objectVectorizer.AddVectorToObject(object, vec, additional, cfg)
-	return nil
+	return vec, additional, nil
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,

@@ -15,10 +15,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/fatih/camelcase"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
@@ -28,9 +26,7 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 }
 
-type ObjectVectorizer struct {
-	vectorsLock sync.RWMutex
-}
+type ObjectVectorizer struct{}
 
 func New() *ObjectVectorizer {
 	return &ObjectVectorizer{}
@@ -134,30 +130,4 @@ func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, c
 	}
 	titlePropertyVal := strings.Join(titlePropertyValue, " ")
 	return text, titlePropertyVal, nil
-}
-
-func (v *ObjectVectorizer) AddVectorToObject(object *models.Object,
-	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
-) *models.Object {
-	// TODO[named-vectors]: this lock is only temporary, the vectorize API
-	// needs to return (vector, additionalProperties)
-	v.vectorsLock.Lock()
-	defer v.vectorsLock.Unlock()
-	if len(additional) > 0 {
-		if object.Additional == nil {
-			object.Additional = models.AdditionalProperties{}
-		}
-		for additionalName, additionalValue := range additional {
-			object.Additional[additionalName] = additionalValue
-		}
-	}
-	if cfg.TargetVector() == "" {
-		object.Vector = vector
-		return object
-	}
-	if object.Vectors == nil {
-		object.Vectors = models.Vectors{}
-	}
-	object.Vectors[cfg.TargetVector()] = vector
-	return object
 }
