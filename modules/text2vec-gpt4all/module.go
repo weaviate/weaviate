@@ -44,7 +44,7 @@ type GPT4AllModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
+	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
 		cfg moduletools.ClassConfig) error
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
@@ -126,9 +126,9 @@ func (m *GPT4AllModule) RootHandler() http.Handler {
 }
 
 func (m *GPT4AllModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
 func (m *GPT4AllModule) MetaInfo() (map[string]interface{}, error) {

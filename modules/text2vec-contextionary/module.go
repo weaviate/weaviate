@@ -210,9 +210,9 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
 func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
