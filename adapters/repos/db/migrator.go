@@ -368,7 +368,7 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 	return idx.updateVectorIndexConfig(ctx, updated)
 }
 
-func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	switch old.IndexType() {
@@ -381,8 +381,7 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	return fmt.Errorf("invalid index type: %q", old.IndexType())
 }
 
-func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
-	old, updated *models.InvertedIndexConfig,
+func (m *Migrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig,
 ) error {
 	return inverted.ValidateUserConfigUpdate(old, updated)
 }
