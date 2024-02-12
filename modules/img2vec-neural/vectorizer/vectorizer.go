@@ -42,9 +42,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, settings ClassSettings,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) error {
-	vec, err := v.object(ctx, object.ID, comp, settings)
+	vec, err := v.object(ctx, object.ID, comp, cfg)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return nil
 }
 
-func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]float32, error) {
+func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, id, image)
 	if err != nil {
 		return nil, err
@@ -63,8 +63,9 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]fl
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, ichek ClassSettings,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
+	ichek := NewClassSettings(cfg)
 	vectorize := comp.PrevVector() == nil
 
 	// vectorize image
@@ -94,7 +95,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	vectors := [][]float32{}
 	for i, image := range images {
 		imgID := fmt.Sprintf("%s_%v", id, i)
-		vector, err := v.VectorizeImage(ctx, imgID, image)
+		vector, err := v.VectorizeImage(ctx, imgID, image, cfg)
 		if err != nil {
 			return nil, err
 		}
