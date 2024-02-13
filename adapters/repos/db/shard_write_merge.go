@@ -277,8 +277,25 @@ func mergeProps(previous *storobj.Object,
 		next.Vector = merge.Vector
 	}
 
+	if len(merge.Vectors) == 0 {
+		next.Vectors = previous.Vectors
+	} else {
+		next.Vectors = vectorsAsMap(merge.Vectors)
+	}
+
 	next.Object.LastUpdateTimeUnix = merge.UpdateTime
 	next.SetProperties(properties)
 
 	return next
+}
+
+func vectorsAsMap(in models.Vectors) map[string][]float32 {
+	if len(in) > 0 {
+		out := make(map[string][]float32)
+		for targetVector, vector := range in {
+			out[targetVector] = vector
+		}
+		return out
+	}
+	return nil
 }
