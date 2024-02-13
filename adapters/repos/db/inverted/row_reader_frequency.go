@@ -80,8 +80,6 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 	return err
 }
 
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
 	v, err := rr.equalHelper(ctx)
 	if err != nil {
@@ -230,17 +228,17 @@ func (rr *RowReaderFrequency) newCursor(
 }
 
 func (rr *RowReaderFrequency) transformToBitmap(pairs []lsmkv.MapPair) *sroar.Bitmap {
-	out := newDocBitmap()
+	out := sroar.NewBitmap()
 	for _, pair := range pairs {
 		// this entry has a frequency, but that's only used for bm25, not for
 		// pure filtering, so we can ignore it here
 		if rr.shardVersion < 2 {
-			out.docIDs.Set(binary.LittleEndian.Uint64(pair.Key))
+			out.Set(binary.LittleEndian.Uint64(pair.Key))
 		} else {
-			out.docIDs.Set(binary.BigEndian.Uint64(pair.Key))
+			out.Set(binary.BigEndian.Uint64(pair.Key))
 		}
 	}
-	return out.docIDs
+	return out
 }
 
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
