@@ -55,6 +55,7 @@ func TestServiceEndpoints(t *testing.T) {
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
 
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
 	srv := NewService(m.store, nil)
 
@@ -97,8 +98,11 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.ErrorIs(t, srv.AddClass(nil, nil), errBadRequest)
 	assert.Equal(t, schema.ClassEqual("C"), "")
 
-	cls := &models.Class{Class: "C"}
-	ss := &sharding.State{}
+	cls := &models.Class{
+		Class:              "C",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	ss := &sharding.State{Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
 	assert.Nil(t, srv.AddClass(cls, ss))
 	assert.Equal(t, schema.ClassEqual("C"), "C")
 
@@ -106,15 +110,15 @@ func TestServiceEndpoints(t *testing.T) {
 	info := ClassInfo{
 		Exists:            true,
 		MultiTenancy:      models.MultiTenancyConfig{Enabled: true},
-		ReplicationFactor: 2,
+		ReplicationFactor: 1,
 		Tenants:           1,
 	}
 	assert.ErrorIs(t, srv.UpdateClass(nil, nil), errBadRequest)
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 2}
+	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
-	assert.Nil(t, srv.UpdateClass(cls, ss))
-	assert.Equal(t, schema.ClassInfo("C"), info)
+	assert.Nil(t, srv.UpdateClass(cls, nil))
+	assert.Equal(t, info, schema.ClassInfo("C"))
 
 	// DeleteClass
 	assert.Nil(t, srv.DeleteClass("X"))
@@ -239,6 +243,7 @@ func TestStoreApply(t *testing.T) {
 	doFirst := func(m *MockStore) {
 		m.indexer.On("Open", mock.Anything).Return(nil)
 		m.parser.On("ParseClass", mock.Anything).Return(nil)
+		m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 	}
 
 	cls := &models.Class{Class: "C1"}
@@ -359,18 +364,6 @@ func TestStoreApply(t *testing.T) {
 			doBefore: doFirst,
 		},
 		{
-			name: "UpdateClass/ParseClass",
-			req: raft.Log{Data: cmdAsBytes("C2",
-				cmd.ApplyRequest_TYPE_UPDATE_CLASS,
-				cmd.UpdateClassRequest{Class: cls, State: ss},
-				nil)},
-			resp: Response{Error: errBadRequest},
-			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
-				m.parser.On("ParseClass", mock.Anything).Return(errAny)
-			},
-		},
-		{
 			name: "UpdateClass/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_UPDATE_CLASS,
@@ -379,7 +372,20 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: errSchema},
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
-				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
+			},
+		},
+		{
+			name: "UpdateClass/ParseUpdate",
+			req: raft.Log{Data: cmdAsBytes("C2",
+				cmd.ApplyRequest_TYPE_UPDATE_CLASS,
+				cmd.UpdateClassRequest{Class: cls, State: nil},
+				nil)},
+			resp: Response{Error: errBadRequest},
+			doBefore: func(m *MockStore) {
+				m.indexer.On("Open", mock.Anything).Return(nil)
+				m.store.db.Schema.addClass(cls, ss)
+				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(nil, errAny)
 			},
 		},
 		{
@@ -391,7 +397,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
-				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 				m.store.db.Schema.addClass(cls, ss)
 			},
 		},
@@ -403,7 +409,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
-				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				if _, ok := ms.store.db.Schema.Classes["C1"]; ok {
@@ -797,4 +803,9 @@ type MockParser struct {
 func (m *MockParser) ParseClass(class *models.Class) error {
 	args := m.Called(class)
 	return args.Error(0)
+}
+
+func (m *MockParser) ParseClassUpdate(class, update *models.Class) (*models.Class, error) {
+	args := m.Called(class)
+	return update, args.Error(1)
 }

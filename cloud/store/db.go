@@ -57,6 +57,8 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 		schemaOnly)
 }
 
+// UpdateClass modifies the vectors and inverted indexes associated with a class
+// Other class properties are handled by separate functions
 func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
 	req := command.UpdateClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
@@ -65,13 +67,20 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 	if req.State != nil {
 		req.State.SetLocalName(nodeID)
 	}
-	if err := db.parser.ParseClass(req.Class); err != nil {
-		return fmt.Errorf("%w :parsing class: %w", errBadRequest, err)
+
+	update := func(cur *metaClass) error {
+		u, err := db.parser.ParseClassUpdate(&cur.Class, req.Class)
+		if err != nil {
+			return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
+		}
+		cur.Class.VectorIndexConfig = u.VectorIndexConfig
+		cur.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		return nil
 	}
 
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.updateClass(req.Class, req.State) },
+		func() error { return db.Schema.updateClass(req.Class.Class, update) },
 		func() error { return db.store.UpdateClass(req) },
 		schemaOnly)
 }

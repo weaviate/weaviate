@@ -134,13 +134,13 @@ func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
 
 type fakeValidator struct{}
 
-func (f *fakeValidator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+func (f *fakeValidator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
 
-func (f *fakeValidator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
+func (f *fakeValidator) ValidateInvertedIndexConfigUpdate(
 	old, updated *models.InvertedIndexConfig,
 ) error {
 	return nil

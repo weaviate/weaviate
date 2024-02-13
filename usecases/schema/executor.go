@@ -61,7 +61,6 @@ func (e *executor) AddClass(pl cluster.AddClassRequest) error {
 func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
-
 	if err := e.migrator.UpdateVectorIndexConfig(ctx, className,
 		req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")

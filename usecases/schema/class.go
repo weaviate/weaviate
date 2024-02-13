@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -151,61 +150,33 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
-	if err != nil {
-		return err
-	}
-
-	initial := h.metaReader.ReadOnlyClass(className)
-	if initial == nil {
-		return ErrNotFound
-	}
-	mtEnabled, err := validateUpdatingMT(initial, updated)
-	if err != nil {
+	if err != nil || updated == nil {
 		return err
 	}
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	h.setClassDefaults(updated)
+	initial := h.metaReader.ReadOnlyClass(className)
 
-	if err := h.validateImmutableFields(initial, updated); err != nil {
-		return err
-	}
-	if err := h.parser.ParseClass(updated); err != nil {
-		return err
-	}
-
-	if err := h.validator.ValidateVectorIndexConfigUpdate(ctx,
-		initial.VectorIndexConfig.(schemaConfig.VectorIndexConfig),
-		updated.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
-		return errors.Wrap(err, "vector index config")
-	}
-
-	if err := h.validator.ValidateInvertedIndexConfigUpdate(ctx,
-		initial.InvertedIndexConfig, updated.InvertedIndexConfig); err != nil {
-		return errors.Wrap(err, "inverted index config")
-	}
-	if err := validateShardingConfig(initial, updated, mtEnabled, h.clusterState); err != nil {
-		return fmt.Errorf("validate sharding config: %w", err)
-	}
-
-	if err := replica.ValidateConfigUpdate(initial, updated, h.clusterState); err != nil {
-		return fmt.Errorf("replication config: %w", err)
-	}
-
-	updatedSharding := updated.ShardingConfig.(shardingConfig.Config)
-	initialRF := initial.ReplicationConfig.Factor
-	updatedRF := updated.ReplicationConfig.Factor
-	var updatedState *sharding.State
-	if initialRF != updatedRF {
-		uss, err := h.scaleOut.Scale(ctx, className, updatedSharding, initialRF, updatedRF)
+	// first layer of defense is basic validation if class already exits
+	if initial != nil {
+		_, err := validateUpdatingMT(initial, updated)
 		if err != nil {
-			return fmt.Errorf("scale out from %d to %d replicas", initialRF, updatedRF)
+			return err
 		}
-		updatedState = uss
+
+		if initial.ReplicationConfig.Factor != updated.ReplicationConfig.Factor {
+			return fmt.Errorf("updating replication factor is not supported yet")
+		}
+
+		if err := validateImmutableFields(initial, updated); err != nil {
+			return err
+		}
+
 	}
 
-	return h.metaWriter.UpdateClass(updated, updatedState)
+	return h.metaWriter.UpdateClass(updated, nil)
 }
 
 func (h *Handler) setClassDefaults(class *models.Class) {
@@ -228,6 +199,10 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	setInvertedConfigDefaults(class)
 	for _, prop := range class.Properties {
 		setPropertyDefaults(prop)
+	}
+
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	}
 
 	h.moduleConfig.SetClassDefaults(class)
@@ -627,7 +602,7 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 	return
 }
 
-func validateShardingConfig(current, update *models.Class, mtEnabled bool, cl clusterState) error {
+func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {
 	if mtEnabled {
 		return nil
 	}
@@ -639,13 +614,21 @@ func validateShardingConfig(current, update *models.Class, mtEnabled bool, cl cl
 	if !ok {
 		return fmt.Errorf("updated config is not well-formed")
 	}
-	if err := shardingConfig.ValidateConfigUpdate(first, second, cl); err != nil {
-		return err
+	if first.DesiredCount != second.DesiredCount {
+		return fmt.Errorf("re-sharding not supported yet: shard count is immutable: "+
+			"attempted change from \"%d\" to \"%d\"", first.DesiredCount,
+			second.DesiredCount)
+	}
+
+	if first.VirtualPerPhysical != second.VirtualPerPhysical {
+		return fmt.Errorf("virtual shards per physical is immutable: "+
+			"attempted change from \"%d\" to \"%d\"", first.VirtualPerPhysical,
+			second.VirtualPerPhysical)
 	}
 	return nil
 }
 
-func (h *Handler) validateImmutableFields(initial, updated *models.Class) error {
+func validateImmutableFields(initial, updated *models.Class) error {
 	immutableFields := []immutableText{
 		{
 			name:     "class name",
@@ -662,16 +645,9 @@ func (h *Handler) validateImmutableFields(initial, updated *models.Class) error 
 	}
 
 	for _, u := range immutableFields {
-		if err := h.validateImmutableTextField(u, initial, updated); err != nil {
+		if err := validateImmutableTextField(u, initial, updated); err != nil {
 			return err
 		}
-	}
-
-	if !reflect.DeepEqual(initial.Properties, updated.Properties) {
-		return errors.Errorf(
-			"properties cannot be updated through updating the class. Use the add " +
-				"property feature (e.g. \"POST /v1/schema/{className}/properties\") " +
-				"to add additional properties")
 	}
 
 	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
@@ -686,7 +662,7 @@ type immutableText struct {
 	name     string
 }
 
-func (h *Handler) validateImmutableTextField(u immutableText,
+func validateImmutableTextField(u immutableText,
 	previous, next *models.Class,
 ) error {
 	oldField := u.accessor(previous)
