@@ -30,7 +30,7 @@ type commitLogger struct {
 	file   *os.File
 	writer *bufio.Writer
 
-	n int64
+	n atomic.Int64
 
 	checksumWriter rwhasher.WriterHasher
 
@@ -158,7 +158,7 @@ func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) erro
 		return cl.err
 	}
 
-	cl.n += int64(1 + 1 + 4 + len(nodeBytes) + checksumSize)
+	cl.n.Add(int64(1 + 1 + 4 + len(nodeBytes) + checksumSize))
 
 	cl.syncRequired.Store(true)
 
@@ -223,7 +223,7 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 // logger was initialized. After a flush a new logger is initialized which
 // automatically resets the logger.
 func (cl *commitLogger) Size() int64 {
-	return cl.n
+	return cl.n.Load()
 }
 
 func (cl *commitLogger) close() error {
