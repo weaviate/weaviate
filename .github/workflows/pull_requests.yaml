@@ -117,7 +117,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-only-fast", "--acceptance-only-graphql", "--acceptance-only-replication"]
+        test: ["--acceptance-only-fast", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-fast --multi-node", "--acceptance-only-graphql --multi-node 5"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
