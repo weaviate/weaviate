@@ -30,6 +30,8 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 	t.Run("schema", testCreateSchema(t, endpoint))
 	t.Run("objects", testCreateObject(t, endpoint))
 	t.Run("batch", testBatchObject(t, endpoint))
+	t.Run("none vectorizer", testCreateSchemaWithNoneVectorizer(t, endpoint))
+	t.Run("mixed objects with none and vectorizer", testCreateSchemaWithMixedVectorizers(t, endpoint))
 }
 
 func TestNamedVectors_Cluster(t *testing.T) {
@@ -40,9 +42,11 @@ func TestNamedVectors_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("schema", testCreateSchema(t, endpoint))
+	t.Run("schema", testCreateSchemaWithNoneVectorizer(t, endpoint))
 	t.Run("object", testCreateObject(t, endpoint))
 	t.Run("batch", testBatchObject(t, endpoint))
+	t.Run("none vectorizer", testCreateSchemaWithNoneVectorizer(t, endpoint))
+	t.Run("mixed objects with none and vectorizer", testCreateSchemaWithMixedVectorizers(t, endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
