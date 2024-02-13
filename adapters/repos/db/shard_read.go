@@ -243,7 +243,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
-	// TODO[named-vectors]: when a targetVector is present we need to get an appropriate queue => s.queues[targetVector]
 	queue, err := s.getIndexQueue(targetVector)
 	if err != nil {
 		return nil, nil, err

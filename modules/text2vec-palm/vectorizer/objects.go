@@ -65,7 +65,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	icheck := NewClassSettings(cfg)
 
 	corpi, titlePropertyValue, vector := v.objectVectorizer.TextsOrVectorWithTitleProperty(ctx,
-		className, comp, icheck, icheck.TitleProperty())
+		className, comp, icheck, icheck.TitleProperty(), cfg.TargetVector())
 	if vector != nil {
 		// dont' re-vectorize
 		return vector, nil

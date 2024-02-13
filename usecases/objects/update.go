@@ -94,7 +94,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	}
 	compFactory := func() (moduletools.VectorizablePropsComparator, error) {
 		return moduletools.NewVectorizablePropsComparator(class.Properties, updates.Properties,
-			prevObj.Properties, prevObj.Vector), nil
+			prevObj.Properties, prevObj.Vector, prevObj.Vectors), nil
 	}
 	err = m.modulesProvider.UpdateVector(ctx, updates, class, compFactory, m.findObject, m.logger)
 	if err != nil {
