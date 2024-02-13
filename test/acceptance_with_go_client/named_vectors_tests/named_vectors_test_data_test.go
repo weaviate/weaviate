@@ -189,6 +189,21 @@ func bqFlatIndexConfig() map[string]interface{} {
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
 ) map[string][]float32 {
+	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, targetVectors...)
+}
+
+func getVectorsWithNearVector(t *testing.T, client *wvt.Client,
+	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
+) map[string][]float32 {
+	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, targetVectors...)
+}
+
+func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
+	className, id string,
+	nearText *graphql.NearTextArgumentBuilder,
+	nearVector *graphql.NearVectorArgumentBuilder,
+	targetVectors ...string,
+) map[string][]float32 {
 	where := filters.Where().
 		WithPath([]string{"id"}).
 		WithOperator(filters.Equal).
@@ -208,6 +223,10 @@ func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 
 	if nearText != nil {
 		get = get.WithNearText(nearText)
+	}
+
+	if nearVector != nil {
+		get = get.WithNearVector(nearVector)
 	}
 
 	resp, err := get.Do(context.Background())
