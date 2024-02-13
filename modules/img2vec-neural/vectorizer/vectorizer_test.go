@@ -112,6 +112,7 @@ func TestVectorizerWithComp(t *testing.T) {
 		},
 	}
 	vector := []float32{0, 0, 0, 0, 0}
+	var vectors models.Vectors
 
 	tests := []testCase{
 		{
@@ -129,7 +130,7 @@ func TestVectorizerWithComp(t *testing.T) {
 				ID:         "some-uuid",
 				Properties: props,
 			},
-			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector),
+			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector, vectors),
 			expectedVectorize: false,
 		},
 		{
@@ -141,7 +142,7 @@ func TestVectorizerWithComp(t *testing.T) {
 			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
 				"image": nil,
 				"text":  "text",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -153,7 +154,7 @@ func TestVectorizerWithComp(t *testing.T) {
 			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
 				"image": image,
 				"text":  "old text",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: false,
 		},
 	}

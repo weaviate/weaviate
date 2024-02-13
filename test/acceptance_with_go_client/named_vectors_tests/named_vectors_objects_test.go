@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func testCreateObject(t *testing.T, host string) func(t *testing.T) {
@@ -143,6 +145,69 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 				checkTargetVectors(t, afterUpdateVectors)
 				for _, targetVector := range targetVectors {
 					assert.NotEqual(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
+				}
+			})
+
+			t.Run("merge object and check if vectors changed", func(t *testing.T) {
+				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, beforeUpdateVectors)
+
+				err := client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"text": "This is a new property value that should be merged",
+					}).
+					Do(ctx)
+				require.NoError(t, err)
+				afterUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, afterUpdateVectors)
+				for _, targetVector := range targetVectors {
+					assert.NotEqual(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
+				}
+			})
+
+			t.Run("add new property", func(t *testing.T) {
+				property := &models.Property{
+					Name:     "dont_vectorize_property",
+					DataType: []string{schema.DataTypeText.String()},
+					ModuleConfig: map[string]interface{}{
+						text2vecContextionary: map[string]interface{}{
+							"skip":                  true,
+							"vectorizePropertyName": "false",
+						},
+						text2vecTransformers: map[string]interface{}{
+							"skip":                  true,
+							"vectorizePropertyName": "false",
+						},
+					},
+				}
+
+				err = client.Schema().PropertyCreator().WithClassName(className).WithProperty(property).Do(ctx)
+				require.NoError(t, err)
+
+				class, err := client.Schema().ClassGetter().WithClassName(className).Do(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, class)
+				require.Len(t, class.Properties, 2)
+
+				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, beforeUpdateVectors)
+
+				err = client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"dont_vectorize_property": "This change should not change vector",
+					}).
+					Do(ctx)
+				require.NoError(t, err)
+				afterUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, afterUpdateVectors)
+				for _, targetVector := range targetVectors {
+					assert.Equal(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
 				}
 			})
 		})
