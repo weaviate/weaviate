@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"golang.org/x/sync/errgroup"
@@ -116,19 +117,10 @@ func (b *BM25Searcher) wand(
 	// Query is tokenized and respective properties are then searched for the search terms,
 	// results at the end are combined using WAND
 
-	queryTermsByTokenization := map[string][]string{}
-	duplicateBoostsByTokenization := map[string][]int{}
 	propNamesByTokenization := map[string][]string{}
 	propertyBoosts := make(map[string]float32, len(params.Properties))
 
 	for _, tokenization := range helpers.Tokenizations {
-		queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
-
-		// stopword filtering for word tokenization
-		if tokenization == models.PropertyTokenizationWord {
-			queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization] = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization], duplicateBoostsByTokenization[tokenization], stopWordDetector)
-		}
-
 		propNamesByTokenization[tokenization] = make([]string, 0)
 	}
 
@@ -168,29 +160,27 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	// preallocate the results
-	lengthAllResults := 0
-	for tokenization, propNames := range propNamesByTokenization {
-		if len(propNames) > 0 {
-			lengthAllResults += len(queryTermsByTokenization[tokenization])
-		}
-	}
-	results := make(terms, lengthAllResults)
-	indices := make([]map[uint64]int, lengthAllResults)
+	//Pre-allocate room for 100 query terms, most searches will have less than 100 terms, and then go will start re-allocating memory like usual
+	results := make(terms, 0, 100)
+	indices := make([]map[uint64]int, 0, 100)
 
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU)
-	offset := 0
+
+	var resultsLock sync.Mutex
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
-			queryTerms := queryTermsByTokenization[tokenization]
-			duplicateBoosts := duplicateBoostsByTokenization[tokenization]
+			queryTerms, duplicateBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+
+			// stopword filtering for word tokenization
+			if tokenization == models.PropertyTokenizationWord {
+				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(queryTerms, duplicateBoosts, stopWordDetector)
+			}
 
 			for i := range queryTerms {
 				j := i
-				k := i + offset
 
 				eg.Go(func() (err error) {
 					defer func() {
@@ -212,12 +202,13 @@ func (b *BM25Searcher) wand(
 						err = termErr
 						return
 					}
-					results[k] = termResult
-					indices[k] = docIndices
+					resultsLock.Lock()
+					results = append(results, termResult)
+					indices = append(indices, docIndices)
+					resultsLock.Unlock()
 					return
 				})
 			}
-			offset += len(queryTerms)
 		}
 	}
 
