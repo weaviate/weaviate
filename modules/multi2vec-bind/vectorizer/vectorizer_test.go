@@ -117,6 +117,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 		"description": "non-vectorizable",
 	}
 	vector := []float32{0, 0, 0, 0, 0}
+	var vectors models.Vectors
 
 	tests := []testCase{
 		{
@@ -134,7 +135,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				ID:         "some-uuid",
 				Properties: props,
 			},
-			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector),
+			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector, vectors),
 			expectedVectorize: false,
 		},
 		{
@@ -147,7 +148,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				"image":       nil,
 				"text":        "text",
 				"description": "non-vectorizable",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -160,7 +161,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				"image":       image,
 				"text":        "old text",
 				"description": "non-vectorizable",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -173,7 +174,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				"image":       image,
 				"text":        "text",
 				"description": "old non-vectorizable",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: false,
 		},
 	}

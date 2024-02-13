@@ -33,9 +33,9 @@ func New() *ObjectVectorizer {
 }
 
 func (v *ObjectVectorizer) TextsOrVector(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, icheck ClassSettings,
+	comp moduletools.VectorizablePropsComparator, icheck ClassSettings, targetVector string,
 ) (string, []float32) {
-	text, _, vector := v.TextsOrVectorWithTitleProperty(ctx, className, comp, icheck, "")
+	text, _, vector := v.TextsOrVectorWithTitleProperty(ctx, className, comp, icheck, "", targetVector)
 	return text, vector
 }
 
@@ -59,8 +59,14 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 
 func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, className string,
 	comp moduletools.VectorizablePropsComparator, icheck ClassSettings, titlePopertyName string,
+	targetVector string,
 ) (string, string, []float32) {
-	vectorize := comp.PrevVector() == nil
+	prevVector := comp.PrevVector()
+	if targetVector != "" {
+		prevVector = comp.PrevVectorForName(targetVector)
+	}
+
+	vectorize := prevVector == nil
 
 	var titlePropertyValue []string
 	var corpi []string
@@ -116,7 +122,7 @@ func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, c
 
 	// no property was changed, old vector can be used
 	if !vectorize {
-		return "", "", comp.PrevVector()
+		return "", "", prevVector
 	}
 
 	if len(corpi) == 0 {

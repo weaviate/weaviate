@@ -283,6 +283,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 		},
 	}
 	vector := []float32{0, 0, 0, 0}
+	var vectors models.Vectors
 
 	tests := []testCase{
 		{
@@ -300,7 +301,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 				Class:      "Car",
 				Properties: props,
 			},
-			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector),
+			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector, vectors),
 			expectedVectorize: false,
 		},
 		{
@@ -317,7 +318,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 					"a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -334,7 +335,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 					"a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -351,7 +352,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 					"old a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -369,7 +370,7 @@ func TestVectorizingObjectWithDiff(t *testing.T) {
 					"a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: false,
 		},
 	}
