@@ -321,25 +321,21 @@ type job struct {
 	batcher *objectsBatcher
 
 	// async only
-	chunk   *chunk
-	indexer batchIndexer
-	queue   *vectorQueue
+	indexer    batchIndexer
+	getVectors func(dst []vectorDescriptor) []vectorDescriptor
+	commit     func(ids []uint64)
 }
 
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
+	var desc []vectorDescriptor
 	var ids []uint64
 	var vectors [][]float32
-	var deleted []uint64
 
 	for job := range ch {
-		c := job.chunk
-		for i := range c.data[:c.cursor] {
-			if job.queue.IsDeleted(c.data[i].id) {
-				deleted = append(deleted, c.data[i].id)
-			} else {
-				ids = append(ids, c.data[i].id)
-				vectors = append(vectors, c.data[i].vector)
-			}
+		desc = job.getVectors(desc)
+		for i := range desc {
+			ids = append(ids, desc[i].id)
+			vectors = append(vectors, desc[i].vector)
 		}
 
 		var err error
@@ -374,17 +370,11 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 
 		// only persist checkpoint if we indexed a full batch
 		if err == nil {
-			job.queue.persistCheckpoint(ids)
+			job.commit(ids)
 		}
 
-		job.queue.releaseChunk(c)
-
-		if len(deleted) > 0 {
-			job.queue.ResetDeleted(deleted...)
-		}
-
+		desc = desc[:0]
 		ids = ids[:0]
 		vectors = vectors[:0]
-		deleted = deleted[:0]
 	}
 }
