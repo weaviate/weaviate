@@ -59,7 +59,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 func (v *Vectorizer) object(ctx context.Context, className string,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg))
+	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg), cfg.TargetVector())
 	if vector != nil {
 		// dont' re-vectorize
 		return vector, nil
