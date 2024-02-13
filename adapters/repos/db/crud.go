@@ -32,7 +32,6 @@ import (
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
 ) error {
-	// TODO[named-vectors]: pass vectors!!!
 	object := storobj.FromObject(obj, vector, vectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {

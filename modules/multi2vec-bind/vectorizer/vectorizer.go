@@ -122,7 +122,12 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
-	vectorize := comp.PrevVector() == nil
+	prevVector := comp.PrevVector()
+	if cfg.TargetVector() != "" {
+		prevVector = comp.PrevVectorForName(cfg.TargetVector())
+	}
+
+	vectorize := prevVector == nil
 
 	// vectorize image and text
 	var texts, images, audio, video, imu, thermal, depth []string
@@ -178,7 +183,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 
 	// no property was changed, old vector can be used
 	if !vectorize {
-		return comp.PrevVector(), nil
+		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
