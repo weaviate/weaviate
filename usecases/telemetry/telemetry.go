@@ -119,16 +119,10 @@ func (tel *Telemeter) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	waitForShutdown := make(chan struct{})
-	go func() {
-		tel.shutdown <- struct{}{}
-		waitForShutdown <- struct{}{}
-	}()
-
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("shutdown telemetry: %w", ctx.Err())
-	case <-waitForShutdown:
+	case tel.shutdown <- struct{}{}:
 		payload, err := tel.push(ctx, PayloadType.Terminate)
 		if err != nil {
 			tel.logger.
@@ -211,7 +205,7 @@ func (tel *Telemeter) getEnabledModules() (string, error) {
 }
 
 func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
-	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", verbosity.OutputMinimal)
+	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", verbosity.OutputVerbose)
 	if status == nil || status.Stats == nil {
 		return 0, fmt.Errorf("received nil node stats")
 	}
