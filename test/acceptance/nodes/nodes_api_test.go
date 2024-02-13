@@ -36,7 +36,7 @@ func Test_NodesAPI(t *testing.T) {
 		require.Nil(t, err)
 		assert.NotNil(t, meta.GetPayload())
 
-		assertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		assertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 			require.NotNil(t, nodeStatus)
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 			assert.True(t, len(nodeStatus.Name) > 0)
@@ -59,14 +59,14 @@ func Test_NodesAPI(t *testing.T) {
 			helper.AssertGetObjectEventually(t, book.Class, book.ID)
 		}
 
-		minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 			require.NotNil(t, nodeStatus)
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 			assert.True(t, len(nodeStatus.Name) > 0)
 			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 		}
 
-		verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		verboseAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 			require.Len(t, nodeStatus.Shards, 1)
 			shard := nodeStatus.Shards[0]
 			assert.True(t, len(shard.Name) > 0)
@@ -90,14 +90,14 @@ func Test_NodesAPI(t *testing.T) {
 			helper.AssertGetObjectEventually(t, multiShard.Class, multiShard.ID)
 		}
 
-		minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 			require.NotNil(t, nodeStatus)
 			assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 			assert.True(t, len(nodeStatus.Name) > 0)
 			assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 		}
 
-		verboseAsssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		verboseAsssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 			assert.Len(t, nodeStatus.Shards, 2)
 			for _, shard := range nodeStatus.Shards {
 				assert.True(t, len(shard.Name) > 0)
@@ -123,8 +123,8 @@ func Test_NodesAPI(t *testing.T) {
 				helper.AssertGetObjectEventually(t, book.Class, book.ID)
 			}
 
-			minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {}
-			verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {}
+			verboseAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 				require.NotNil(t, nodeStatus.Stats)
 				assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
@@ -147,13 +147,13 @@ func Test_NodesAPI(t *testing.T) {
 
 			docsClass := docsClasses[0]
 
-			minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 				assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 				assert.True(t, len(nodeStatus.Name) > 0)
 				assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 			}
 
-			verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+			verboseAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 				require.NotNil(t, nodeStatus.Stats)
 				assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
 				assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
@@ -206,8 +206,8 @@ func Test_NodesAPI(t *testing.T) {
 			}), nil)
 		require.Nil(t, err)
 
-		minimalAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {}
-		verboseAssertions := func(t *testing.T, nodeStatus *models.NodeStatus) {
+		minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {}
+		verboseAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
 			require.NotNil(t, nodeStatus.Stats)
 			assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
 		}
@@ -322,7 +322,7 @@ func Test_NodesAPI(t *testing.T) {
 	})
 }
 
-func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(*testing.T, *models.NodeStatus),
+func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(require.TestingT, *models.NodeStatus),
 	class string,
 ) {
 	minimal, verbose := verbosity.OutputMinimal, verbosity.OutputVerbose
@@ -343,11 +343,16 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 
 	if verboseAssertions != nil {
 		t.Run("verbose", func(t *testing.T) {
-			payload, err := getNodesStatus(t, verbose, class)
-			require.Nil(t, err)
-			commonTests(&nodes.NodesGetOK{Payload: payload})
-			// If commonTests pass, resp.Nodes[0] != nil
-			verboseAssertions(t, payload.Nodes[0])
+			getNodes := func() (*models.NodesStatusResponse, error) {
+				return getNodesStatus(t, verbose, class)
+			}
+			assert.EventuallyWithT(t, func(t *assert.CollectT) {
+				payload, err := getNodes()
+				require.Nil(t, err)
+				commonTests(&nodes.NodesGetOK{Payload: payload})
+				// If commonTests pass, resp.Nodes[0] != nil
+				verboseAssertions(t, payload.Nodes[0])
+			}, 15*time.Second, 500*time.Millisecond)
 		})
 	}
 }
