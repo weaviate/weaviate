@@ -159,7 +159,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
-	// 100 is a reasonable expected capacity for the total number of terms to query. 
+	// 100 is a reasonable expected capacity for the total number of terms to query.
 	results := make(terms, 0, 100)
 	indices := make([]map[uint64]int, 0, 100)
 
