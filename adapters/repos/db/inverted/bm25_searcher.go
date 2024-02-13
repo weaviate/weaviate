@@ -160,7 +160,7 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	//Pre-allocate room for 100 query terms, most searches will have less than 100 terms, and then go will start re-allocating memory like usual
+	// Pre-allocate room for 100 query terms, most searches will have less than 100 terms, and then go will start re-allocating memory like usual
 	results := make(terms, 0, 100)
 	indices := make([]map[uint64]int, 0, 100)
 
