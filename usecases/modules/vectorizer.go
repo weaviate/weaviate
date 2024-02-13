@@ -201,7 +201,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector)
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
-		if object.Vector == nil {
+		if p.shouldVectorizeObject(object, cfg) {
 			comp, err := compFactory()
 			if err != nil {
 				return fmt.Errorf("failed creating properties comparator: %w", err)
@@ -226,6 +226,13 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 		})
 	}
 	return nil
+}
+
+func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.ClassConfig) bool {
+	if cfg.TargetVector() == "" {
+		return object.Vector == nil
+	}
+	return true
 }
 
 func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
