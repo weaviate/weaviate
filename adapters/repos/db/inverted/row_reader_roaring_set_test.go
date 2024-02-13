@@ -198,7 +198,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := []readResult{}
 			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
-			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap, op filters.Operator) (bool, error) {
+			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
 				result = append(result, readResult{k, v})
 				return true, nil
 			})
@@ -222,7 +222,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 
 			result := []readResult{}
 			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
-			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap, op filters.Operator) (bool, error) {
+			rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
 				result = append(result, readResult{k, v})
 				if len(result) >= limit {
 					return false, nil

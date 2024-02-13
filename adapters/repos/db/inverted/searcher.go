@@ -50,10 +50,6 @@ type Searcher struct {
 	maxIDGetter         MaxIDGetterFunc
 }
 
-type DeletedDocIDChecker interface {
-	Contains(id uint64) bool
-}
-
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,

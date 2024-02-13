@@ -56,7 +56,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap, op filters.Operator) (bool, error) {
+	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
 		if isEmpty {
 			out.docIDs = docIDs
 			isEmpty = false
@@ -65,7 +65,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
-		if op == filters.OperatorNotEqual {
+		if pv.operator == filters.OperatorNotEqual {
 			return true, nil
 		}
 
@@ -90,10 +90,10 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
-	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap, op filters.Operator) (bool, error) {
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
 		out.docIDs.SetMany(ids.ToArray())
 		// NotEqual requires the full set of potentially existing doc ids
-		if op == filters.OperatorNotEqual {
+		if pv.operator == filters.OperatorNotEqual {
 			return true, nil
 		}
 		if limit > 0 && ids.GetCardinality() >= limit {
@@ -114,10 +114,10 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newDocBitmap()
-	var readFn ReadFn = func(k []byte, pairs *sroar.Bitmap, op filters.Operator) (bool, error) {
-		out.docIDs.SetMany(pairs.ToArray())
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+		out.docIDs.SetMany(ids.ToArray())
 		// NotEqual requires the full set of potentially existing doc ids
-		if op == filters.OperatorNotEqual {
+		if pv.operator == filters.OperatorNotEqual {
 			return true, nil
 		}
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {

@@ -68,7 +68,7 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
 // The boolean return argument is a way to stop iteration (e.g. when a limit is
 // reached) without producing an error. In normal operation always return true,
 // if false is returned once, the loop is broken.
-type RoaringSetReadFn func(k []byte, v *sroar.Bitmap, op filters.Operator) (bool, error)
+type RoaringSetReadFn func(k []byte, v *sroar.Bitmap) (bool, error)
 
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
@@ -104,7 +104,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 		return err
 	}
 
-	_, err = readFn(rr.value, v, rr.operator)
+	_, err = readFn(rr.value, v)
 	return err
 }
 
@@ -120,7 +120,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 
 	maxID := rr.maxIDGetter()
 	inverted := roaringset.NewInvertedBitmap(v, maxID)
-	_, err = readFn(rr.value, inverted, rr.operator)
+	_, err = readFn(rr.value, inverted)
 	return err
 }
 
@@ -141,7 +141,7 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v, rr.operator); err != nil {
+		if continueReading, err := readFn(k, v); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -169,7 +169,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v, rr.operator); err != nil {
+		if continueReading, err := readFn(k, v); err != nil {
 			return err
 		} else if !continueReading {
 			break
@@ -224,7 +224,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 			continue
 		}
 
-		if continueReading, err := readFn(k, v, rr.operator); err != nil {
+		if continueReading, err := readFn(k, v); err != nil {
 			return err
 		} else if !continueReading {
 			break
