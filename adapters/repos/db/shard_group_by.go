@@ -32,16 +32,17 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 ) ([]*storobj.Object, []float32, error) {
 	objsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	className := s.index.Config.ClassName
-	sch := s.index.getSchema.GetSchemaSkipAuth()
-	prop, err := sch.GetProperty(className, schema.PropertyName(groupBy.Property))
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: unrecognized property: %s",
-			err, groupBy.Property)
+	class := s.index.getSchema.ReadOnlyClass(className.String())
+	if class == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
-	dt, err := sch.FindPropertyDataType(prop.DataType)
+	prop, err := schema.GetPropertyByName(class, groupBy.Property)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s",
-			err, groupBy.Property)
+		return nil, nil, fmt.Errorf("%w: unrecognized property: %s", err, groupBy.Property)
+	}
+	dt, err := schema.FindPropertyDataTypeWithRefs(s.index.getSchema.ReadOnlyClass, prop.DataType, false, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s", err, groupBy.Property)
 	}
 
 	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional).Do(ctx)

@@ -54,7 +54,7 @@ func TestSortValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sch := schema.Schema{Objects: &models.Schema{
+			sch := &schema.Schema{Objects: &models.Schema{
 				Classes: []*models.Class{
 					{
 						Class: "Car",
@@ -74,7 +74,7 @@ func TestSortValidation(t *testing.T) {
 				Order: "asc",
 			}}
 
-			err := ValidateSort(sch, schema.ClassName("Car"), sort)
+			err := ValidateSort(sch.GetClass, schema.ClassName("Car"), sort)
 			if tt.valid {
 				require.Nil(t, err)
 			} else {

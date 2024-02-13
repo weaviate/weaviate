@@ -15,17 +15,18 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func ValidateSort(sch schema.Schema, className schema.ClassName, sort []Sort) error {
+func ValidateSort(getClass func(string) *models.Class, className schema.ClassName, sort []Sort) error {
 	if len(sort) == 0 {
 		return errors.New("empty sort")
 	}
 
 	var errs []error
 	for i := range sort {
-		if err := validateSortClause(sch, className, sort[i]); err != nil {
+		if err := validateSortClause(getClass, className, sort[i]); err != nil {
 			errs = append(errs, errors.Wrapf(err, "sort parameter at position %d", i))
 		}
 	}
@@ -37,7 +38,7 @@ func ValidateSort(sch schema.Schema, className schema.ClassName, sort []Sort) er
 	}
 }
 
-func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort) error {
+func validateSortClause(getClass func(string) *models.Class, className schema.ClassName, sort Sort) error {
 	// validate current
 	path, order := sort.Path, sort.Order
 
@@ -50,17 +51,17 @@ func validateSortClause(sch schema.Schema, className schema.ClassName, sort Sort
 	case 0:
 		return errors.New("path parameter cannot be empty")
 	case 1:
-		class := sch.FindClassByName(className)
+		class := getClass(className.String())
 		if class == nil {
-			return errors.Errorf("class %q does not exist in schema",
-				className)
+			return errors.Errorf("class %q does not exist in schema", className)
 		}
 		propName := schema.PropertyName(path[0])
 		if IsInternalProperty(propName) {
 			// handle internal properties
 			return nil
 		}
-		prop, err := sch.GetProperty(className, propName)
+
+		prop, err := schema.GetPropertyByName(class, string(propName))
 		if err != nil {
 			return err
 		}
