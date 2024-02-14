@@ -82,12 +82,13 @@ type BatchObject struct {
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
 	// Deprecated: Marked as deprecated in v1/batch.proto.
-	Vector       []float32               `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"` // deprecated, will be removed
-	Properties   *BatchObject_Properties `protobuf:"bytes,3,opt,name=properties,proto3" json:"properties,omitempty"`
-	Collection   string                  `protobuf:"bytes,4,opt,name=collection,proto3" json:"collection,omitempty"`
-	Tenant       string                  `protobuf:"bytes,5,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	VectorBytes  []byte                  `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
-	VectorsNamed []*Vectors              `protobuf:"bytes,23,rep,name=vectors_named,json=vectorsNamed,proto3" json:"vectors_named,omitempty"`
+	Vector      []float32               `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"` // deprecated, will be removed
+	Properties  *BatchObject_Properties `protobuf:"bytes,3,opt,name=properties,proto3" json:"properties,omitempty"`
+	Collection  string                  `protobuf:"bytes,4,opt,name=collection,proto3" json:"collection,omitempty"`
+	Tenant      string                  `protobuf:"bytes,5,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	VectorBytes []byte                  `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
+	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+	VectorsNamed []*Vectors `protobuf:"bytes,23,rep,name=vectors_named,json=vectorsNamed,proto3" json:"vectors_named,omitempty"`
 }
 
 func (x *BatchObject) Reset() {
