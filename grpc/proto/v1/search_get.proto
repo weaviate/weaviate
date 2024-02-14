@@ -85,8 +85,7 @@ message MetadataRequest {
   bool score = 7;
   bool explain_score = 8;
   bool is_consistent = 9;
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated string vectors_named = 10;
+  repeated string vectors = 10;
 }
 
 message PropertiesRequest {
@@ -254,8 +253,7 @@ message MetadataResult {
   bytes id_as_bytes = 20;
   double rerank_score = 21;
   bool rerank_score_present = 22;
-  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated Vectors vectors_named = 23;
+  repeated Vectors vectors = 23;
 }
 
 message PropertiesResult {
