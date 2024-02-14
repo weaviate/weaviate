@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -1008,12 +1007,7 @@ func TestHybridOverSearch(t *testing.T) {
 }
 
 type TesterModule struct {
-	vectors                      map[string][]float32
-	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.Searcher
-	nearTextTransformer          modulecapabilities.TextTransform
-	logger                       logrus.FieldLogger
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	vectors map[string][]float32
 }
 
 func (m *TesterModule) Name() string {
@@ -1031,16 +1025,6 @@ func (m *TesterModule) Init(ctx context.Context,
 }
 
 func (m *TesterModule) InitExtension(modules []modulecapabilities.Module) error {
-	return nil
-}
-
-func (m *TesterModule) initVectorizer(ctx context.Context, timeout time.Duration,
-	logger logrus.FieldLogger,
-) error {
-	return nil
-}
-
-func (m *TesterModule) initAdditionalPropertiesProvider() error {
 	return nil
 }
 
