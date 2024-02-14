@@ -15,6 +15,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
+const NAME = "nearVideo"
+
 type GraphQLArgumentsProvider struct{}
 
 func New() *GraphQLArgumentsProvider {
@@ -23,7 +25,7 @@ func New() *GraphQLArgumentsProvider {
 
 func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
-	arguments["nearVideo"] = g.getNearVideo()
+	arguments[NAME] = g.getNearVideo()
 	return arguments
 }
 

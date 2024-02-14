@@ -301,7 +301,11 @@ func (p *Provider) shouldIncludeArgument(schema *models.Schema, module string,
 }
 
 func (p *Provider) shouldAddGenericArgument(class *models.Class, moduleType modulecapabilities.ModuleType) bool {
-	return len(class.VectorConfig) > 0 && p.isVectorizerModule(moduleType)
+	return p.hasMultipleVectorizersConfig(class) && p.isVectorizerModule(moduleType)
+}
+
+func (p *Provider) hasMultipleVectorizersConfig(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
 }
 
 func (p *Provider) shouldCrossClassAddGenericArgument(schema *models.Schema, moduleType modulecapabilities.ModuleType) bool {
@@ -311,6 +315,33 @@ func (p *Provider) shouldCrossClassAddGenericArgument(schema *models.Schema, mod
 		}
 	}
 	return false
+}
+
+func (p *Provider) getGenericArgument(name, className string,
+	argumentType modulecomponents.ArgumentType,
+) *graphql.ArgumentConfig {
+	var nearTextTransformer modulecapabilities.TextTransform
+	if name == "nearText" {
+		// nearText argument might be exposed with an extension, we need to check
+		// if text transformers module is enabled if so then we need to init nearText
+		// argument with this extension
+		for _, mod := range p.GetAll() {
+			if arg, ok := mod.(modulecapabilities.TextTransformers); ok {
+				if arg != nil && arg.TextTransformers() != nil {
+					nearTextTransformer = arg.TextTransformers()["nearText"]
+					break
+				}
+			}
+		}
+	}
+	return modulecomponents.GetGenericArgument(name, className, argumentType, nearTextTransformer)
+}
+
+func (p *Provider) getGenericAdditionalProperty(name string, class *models.Class) *modulecapabilities.AdditionalProperty {
+	if p.hasMultipleVectorizersConfig(class) {
+		return modulecomponents.GetGenericAdditionalProperty(name, class.Class)
+	}
+	return nil
 }
 
 // GetArguments provides GraphQL Get arguments
@@ -323,7 +354,7 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 					if argument.GetArgumentsFunction != nil {
 						if p.shouldAddGenericArgument(class, module.Type()) {
 							if _, ok := arguments[name]; !ok {
-								arguments[name] = modulecomponents.GetGenericArgument(name, class.Class, modulecomponents.Get)
+								arguments[name] = p.getGenericArgument(name, class.Class, modulecomponents.Get)
 							}
 						} else {
 							arguments[name] = argument.GetArgumentsFunction(class.Class)
@@ -346,7 +377,7 @@ func (p *Provider) AggregateArguments(class *models.Class) map[string]*graphql.A
 					if argument.AggregateArgumentsFunction != nil {
 						if p.shouldAddGenericArgument(class, module.Type()) {
 							if _, ok := arguments[name]; !ok {
-								arguments[name] = modulecomponents.GetGenericArgument(name, class.Class, modulecomponents.Aggregate)
+								arguments[name] = p.getGenericArgument(name, class.Class, modulecomponents.Aggregate)
 							}
 						} else {
 							arguments[name] = argument.AggregateArgumentsFunction(class.Class)
@@ -369,7 +400,7 @@ func (p *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 					if argument.ExploreArgumentsFunction != nil {
 						if p.shouldCrossClassAddGenericArgument(schema, module.Type()) {
 							if _, ok := arguments[name]; !ok {
-								arguments[name] = modulecomponents.GetGenericArgument(name, "", modulecomponents.Explore)
+								arguments[name] = p.getGenericArgument(name, "", modulecomponents.Explore)
 							}
 						} else {
 							arguments[name] = argument.ExploreArgumentsFunction()
@@ -457,7 +488,15 @@ func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					if additionalProperty.GraphQLFieldFunction != nil {
-						additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+						if genericAdditionalProperty := p.getGenericAdditionalProperty(name, class); genericAdditionalProperty != nil {
+							if genericAdditionalProperty.GraphQLFieldFunction != nil {
+								if _, ok := additionalProperties[name]; !ok {
+									additionalProperties[name] = genericAdditionalProperty.GraphQLFieldFunction(class.Class)
+								}
+							}
+						} else {
+							additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+						}
 					}
 				}
 			}
@@ -477,9 +516,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
 					if additionalProperty, ok := additionalProperties[name]; ok {
-						if additionalProperty.GraphQLExtractFunction != nil {
-							return additionalProperty.GraphQLExtractFunction(params)
-						}
+						return additionalProperty.GraphQLExtractFunction(params)
 					}
 				}
 			}
@@ -548,7 +585,6 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
-			// TODO[named-vector]: add support for named targetVector param
 			cfg := NewClassBasedModuleConfig(class, "", "", "")
 			for name, value := range moduleParams {
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
