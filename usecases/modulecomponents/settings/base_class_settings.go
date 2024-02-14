@@ -11,7 +11,12 @@
 
 package settings
 
-import "github.com/weaviate/weaviate/entities/moduletools"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/moduletools"
+)
 
 const (
 	DefaultPropertyIndexed       = true
@@ -109,6 +114,33 @@ func (s *BaseClassSettings) Properties() []string {
 		return asStringArray
 	}
 
+	return nil
+}
+
+func (s *BaseClassSettings) Validate() error {
+	if s.cfg != nil && len(s.cfg.Class()) > 0 {
+		if field, ok := s.cfg.Class()["properties"]; ok {
+			fieldsArray, fieldsArrayOk := field.([]interface{})
+			if fieldsArrayOk {
+				if len(fieldsArray) == 0 {
+					return errors.New("properties field needs to have at least 1 property defined")
+				}
+				for _, value := range fieldsArray {
+					_, ok := value.(string)
+					if !ok {
+						return fmt.Errorf("properties field value: %v must be a string", value)
+					}
+				}
+			}
+			stringArray, stringArrayOk := field.([]string)
+			if stringArrayOk && len(stringArray) == 0 {
+				return errors.New("properties field needs to have at least 1 property defined")
+			}
+			if !fieldsArrayOk && !stringArrayOk {
+				return fmt.Errorf("properties field needs to be of array type, got: %T", field)
+			}
+		}
+	}
 	return nil
 }
 
