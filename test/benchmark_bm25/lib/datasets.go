@@ -34,9 +34,10 @@ type DatasetCorpus struct {
 }
 
 type DatasetQueries struct {
-	Property        string `yaml:"property"`
-	MatchingResults string `yaml:"matching_results"`
-	PropertyWithId  string `yaml:"property_with_id"`
+	Property          string   `yaml:"property"`
+	MatchingResults   string   `yaml:"matching_results"`
+	PropertyWithId    string   `yaml:"property_with_id"`
+	PropertiesToMatch []string `yaml:"properties_to_match"`
 }
 
 func ParseDatasetConfig(filename string) (DatasetCfg, error) {
