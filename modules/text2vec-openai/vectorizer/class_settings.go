@@ -113,6 +113,10 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
+	if err := cs.BaseClassSettings.Validate(); err != nil {
+		return err
+	}
+
 	docType := cs.Type()
 	if !validateOpenAISetting[string](docType, availableOpenAITypes) {
 		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)

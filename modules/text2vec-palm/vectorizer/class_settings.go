@@ -71,6 +71,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	var errorMessages []string
 
+	if err := ic.BaseClassSettings.Validate(); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+
 	apiEndpoint := ic.ApiEndpoint()
 	model := ic.ModelID()
 	if apiEndpoint == DefaulGenerativeAIApiEndpoint {

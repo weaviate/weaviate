@@ -12,6 +12,7 @@
 package vectorizer
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
@@ -23,4 +24,8 @@ type indexChecker struct {
 
 func NewIndexChecker(cfg moduletools.ClassConfig) *indexChecker {
 	return &indexChecker{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+}
+
+func (ic *indexChecker) Validate(class *models.Class) error {
+	return ic.BaseClassSettings.Validate()
 }

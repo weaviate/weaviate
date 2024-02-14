@@ -41,6 +41,9 @@ func (m *ContextionaryModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	icheck := vectorizer.NewIndexChecker(cfg)
+	if err := icheck.Validate(class); err != nil {
+		return err
+	}
 	return m.configValidator.Do(ctx, class, cfg, icheck)
 }
 

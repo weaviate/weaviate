@@ -12,6 +12,7 @@
 package vectorizer
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
@@ -29,4 +30,8 @@ type classSettings struct {
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+}
+
+func (cs *classSettings) Validate(class *models.Class) error {
+	return cs.BaseClassSettings.Validate()
 }
