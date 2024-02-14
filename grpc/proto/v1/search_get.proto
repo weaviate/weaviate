@@ -85,6 +85,7 @@ message MetadataRequest {
   bool score = 7;
   bool explain_score = 8;
   bool is_consistent = 9;
+  repeated string vectors_named = 10;
 }
 
 message PropertiesRequest {
@@ -252,6 +253,7 @@ message MetadataResult {
   bytes id_as_bytes = 20;
   double rerank_score = 21;
   bool rerank_score_present = 22;
+  repeated Vectors vectors_named = 23;
 }
 
 message PropertiesResult {

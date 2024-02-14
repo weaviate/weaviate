@@ -138,3 +138,9 @@ message GeoCoordinatesFilter {
   float longitude = 2;
   float distance = 3;
 }
+
+message Vectors {
+  string name = 1;
+  uint64 index = 2;  // for multi-vec
+  bytes vector_bytes = 3;
+}
