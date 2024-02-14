@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -43,48 +44,12 @@ var (
 )
 
 type classSettings struct {
+	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
-}
-
-func (cs *classSettings) PropertyIndexed(propName string) bool {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultPropertyIndexed
-	}
-
-	vcn, ok := cs.cfg.Property(propName)["skip"]
-	if !ok {
-		return DefaultPropertyIndexed
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultPropertyIndexed
-	}
-
-	return !asBool
-}
-
-func (cs *classSettings) VectorizePropertyName(propName string) bool {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultVectorizePropertyName
-	}
-	vcn, ok := cs.cfg.Property(propName)["vectorizePropertyName"]
-	if !ok {
-		return DefaultVectorizePropertyName
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultVectorizePropertyName
-	}
-
-	return asBool
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
 func (cs *classSettings) Model() string {
@@ -97,25 +62,6 @@ func (cs *classSettings) Truncate() string {
 
 func (cs *classSettings) BaseURL() string {
 	return cs.getProperty("baseURL", DefaultBaseURL)
-}
-
-func (cs *classSettings) VectorizeClassName() bool {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultVectorizeClassName
-	}
-
-	vcn, ok := cs.cfg.Class()["vectorizeClassName"]
-	if !ok {
-		return DefaultVectorizeClassName
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultVectorizeClassName
-	}
-
-	return asBool
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
