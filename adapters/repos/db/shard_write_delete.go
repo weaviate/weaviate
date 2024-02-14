@@ -66,7 +66,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("delete from vector index: %w", err)
 	}
 
-	// TODO[named-vectors]: [asdine] this is ok to go through all queues?
 	for targetVector, queue := range s.queues {
 		if err = queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from vector index for target vector %s: %w", targetVector, err)
