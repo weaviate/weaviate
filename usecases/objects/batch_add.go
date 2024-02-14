@@ -203,7 +203,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		if err != nil {
 			return err
 		}
-		
 
 		return nil
 	}, cloud_utils.NewBackoff())
