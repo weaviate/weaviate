@@ -79,9 +79,9 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 		}
 
 		var vectors models.Vectors = nil
-		if len(obj.VectorsNamed) > 0 {
-			vectors = make(models.Vectors, len(obj.VectorsNamed))
-			for _, vec := range obj.VectorsNamed {
+		if len(obj.Vectors) > 0 {
+			vectors = make(models.Vectors, len(obj.Vectors))
+			for _, vec := range obj.Vectors {
 				vectors[vec.Name] = byteops.Float32FromByteVector(vec.VectorBytes)
 			}
 		}
