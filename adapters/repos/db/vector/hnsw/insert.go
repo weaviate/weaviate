@@ -155,7 +155,9 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 		node.connections[i] = make([]uint64, 0, capacity)
 	}
 
-	h.commitLog.AddNode(node)
+	if err := h.commitLog.AddNode(node); err != nil {
+		return err
+	}
 
 	nodeId := node.id
 
@@ -207,7 +209,11 @@ func (h *hnsw) addOne(vector []float32, node *vertex) error {
 		h.Lock()
 		// check again to avoid changes from RUnlock to Lock again
 		if targetLevel > h.currentMaximumLayer {
-			h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
+			if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+				h.Unlock()
+				return err
+			}
+
 			h.entryPointID = nodeId
 			h.currentMaximumLayer = targetLevel
 		}
@@ -227,7 +233,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
 
-	h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
+		return err
+	}
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
@@ -235,7 +243,9 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 		make([]uint64, 0, h.maximumConnectionsLayerZero),
 	}
 	node.level = 0
-	h.commitLog.AddNode(node)
+	if err := h.commitLog.AddNode(node); err != nil {
+		return err
+	}
 
 	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {

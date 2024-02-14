@@ -25,31 +25,53 @@ func (n *NoopCommitLogger) ID() string {
 	return ""
 }
 
-func (n *NoopCommitLogger) AddPQ(data compressionhelpers.PQData) {}
+func (n *NoopCommitLogger) AddPQ(data compressionhelpers.PQData) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) AddNode(node *vertex) {}
+func (n *NoopCommitLogger) AddNode(node *vertex) error {
+	return nil
+}
 
 func (n *NoopCommitLogger) Flush() error {
 	return nil
 }
 
-func (n *NoopCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) {}
+func (n *NoopCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) {}
+func (n *NoopCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) {}
+func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) AddTombstone(nodeid uint64) {}
+func (n *NoopCommitLogger) AddTombstone(nodeid uint64) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) RemoveTombstone(nodeid uint64) {}
+func (n *NoopCommitLogger) RemoveTombstone(nodeid uint64) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) DeleteNode(nodeid uint64) {}
+func (n *NoopCommitLogger) DeleteNode(nodeid uint64) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) ClearLinks(nodeid uint64) {}
+func (n *NoopCommitLogger) ClearLinks(nodeid uint64) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) {}
+func (n *NoopCommitLogger) ClearLinksAtLevel(nodeid uint64, level uint16) error {
+	return nil
+}
 
-func (n *NoopCommitLogger) Reset() {}
+func (n *NoopCommitLogger) Reset() error {
+	return nil
+}
 
 func (n *NoopCommitLogger) Drop(ctx context.Context) error {
 	return nil

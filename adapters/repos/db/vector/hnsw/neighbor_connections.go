@@ -288,7 +288,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we can simply append
 		// updatedConnections = append(currentConnections, n.node.id)
 		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
-		n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id)
+		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
+			return err
+		}
 	} else {
 		// we need to run the heuristic
 
@@ -326,12 +328,16 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		}
 
 		neighbor.resetConnectionsAtLevelNoLock(level)
-		n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level))
+		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
+			return err
+		}
 
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
 			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
-			n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id)
+			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
+				return err
+			}
 		}
 	}
 
