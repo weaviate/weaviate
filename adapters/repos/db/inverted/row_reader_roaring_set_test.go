@@ -24,6 +24,8 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+const maxDocID = 33333333
+
 func TestRowReaderRoaringSet(t *testing.T) {
 	data := []kvData{
 		{"aaa", []uint64{1, 2, 3}},
@@ -51,36 +53,25 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				{"ggg", []uint64{1111111, 2222222, 3333333}},
 			},
 		},
-		// TODO: not equal needs a new test with the new behavior
-		// {
-		// 	name:     "not equal 'ccc' value",
-		// 	value:    "ccc",
-		// 	operator: filters.OperatorNotEqual,
-		// 	expected: []kvData{
-		// 		{"aaa", []uint64{1, 2, 3}},
-		// 		{"bbb", []uint64{11, 22, 33}},
-		// 		{"ddd", []uint64{1111, 2222, 3333}},
-		// 		{"eee", []uint64{11111, 22222, 33333}},
-		// 		{"fff", []uint64{111111, 222222, 333333}},
-		// 		{"ggg", []uint64{1111111, 2222222, 3333333}},
-		// 		{"hhh", []uint64{11111111, 2222222, 33333333}},
-		// 	},
-		// },
-		// {
-		// 	name:     "not equal non-matching value",
-		// 	value:    "fgh",
-		// 	operator: filters.OperatorNotEqual,
-		// 	expected: []kvData{
-		// 		{"aaa", []uint64{1, 2, 3}},
-		// 		{"bbb", []uint64{11, 22, 33}},
-		// 		{"ccc", []uint64{111, 222, 333}},
-		// 		{"ddd", []uint64{1111, 2222, 3333}},
-		// 		{"eee", []uint64{11111, 22222, 33333}},
-		// 		{"fff", []uint64{111111, 222222, 333333}},
-		// 		{"ggg", []uint64{1111111, 2222222, 3333333}},
-		// 		{"hhh", []uint64{11111111, 2222222, 33333333}},
-		// 	},
-		// },
+		{
+			name:     "not equal 'ccc' value",
+			value:    "ccc",
+			operator: filters.OperatorNotEqual,
+			expected: []kvData{
+				{"ccc", func() []uint64 {
+					bm := sroar.NewBitmap()
+					bm.SetMany([]uint64{111, 222, 333})
+					return roaringset.NewInvertedBitmap(
+						bm, maxDocID+MaxIDBuffer).ToArray()
+				}()},
+			},
+		},
+		{
+			name:     "not equal non-matching value",
+			value:    "fgh",
+			operator: filters.OperatorNotEqual,
+			expected: []kvData{},
+		},
 		{
 			name:     "greater than 'ddd' value",
 			value:    "ddd",
@@ -301,6 +292,7 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, entlsmkv.NotFound
 		},
-		maxIDGetter: func() uint64 { return 33333333 },
+		bitmapFactory: NewBitmapFactory(
+			func() uint64 { return maxDocID }),
 	}
 }

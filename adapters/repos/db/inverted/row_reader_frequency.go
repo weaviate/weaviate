@@ -19,31 +19,30 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
-	value        []byte
-	bucket       *lsmkv.Bucket
-	operator     filters.Operator
-	keyOnly      bool
-	shardVersion uint16
-	maxIDGetter  MaxIDGetterFunc
+	value         []byte
+	bucket        *lsmkv.Bucket
+	operator      filters.Operator
+	keyOnly       bool
+	shardVersion  uint16
+	bitmapFactory *BitmapFactory
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	maxIDGetter MaxIDGetterFunc,
+	bitmapFactory *BitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
-		bucket:       bucket,
-		value:        value,
-		operator:     operator,
-		keyOnly:      keyOnly,
-		shardVersion: shardVersion,
-		maxIDGetter:  maxIDGetter,
+		bucket:        bucket,
+		value:         value,
+		operator:      operator,
+		keyOnly:       keyOnly,
+		shardVersion:  shardVersion,
+		bitmapFactory: bitmapFactory,
 	}
 }
 
@@ -87,8 +86,8 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error
 	}
 
 	// Invert the Equal results for an efficient NotEqual
-	inverted := roaringset.NewInvertedBitmap(
-		rr.transformToBitmap(v), rr.maxIDGetter())
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(rr.transformToBitmap(v))
 	_, err = readFn(rr.value, inverted)
 	return err
 }

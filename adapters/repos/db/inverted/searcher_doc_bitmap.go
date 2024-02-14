@@ -17,8 +17,38 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
+
+// MaxIDBuffer is the amount of bits greater than <maxDocID> to reduce
+// the amount of times BitmapFactory has to reallocate
+const MaxIDBuffer = uint64(1000)
+
+// BitmapFactory exists to prevent an expensive call to
+// NewBitmapPrefill each time NewInvertedBitmap is invoked
+type BitmapFactory struct {
+	bitmap      *sroar.Bitmap
+	maxIDGetter MaxIDGetterFunc
+}
+
+func NewBitmapFactory(maxIDGetter MaxIDGetterFunc) *BitmapFactory {
+	maxID := maxIDGetter() + MaxIDBuffer
+	return &BitmapFactory{
+		bitmap:      roaringset.NewInvertedBitmap(sroar.NewBitmap(), maxID),
+		maxIDGetter: maxIDGetter,
+	}
+}
+
+func (bmf *BitmapFactory) GetBitmap() *sroar.Bitmap {
+	maxID := bmf.maxIDGetter()
+	if maxID > uint64(bmf.bitmap.GetCardinality()) {
+		for i := maxID; i > uint64(bmf.bitmap.GetCardinality()); i-- {
+			bmf.bitmap.Set(i)
+		}
+	}
+	return bmf.bitmap.Clone()
+}
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
@@ -75,7 +105,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.maxIDGetter)
+	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -110,7 +140,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.value, pv.operator, false, s.maxIDGetter)
+	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -142,7 +172,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.maxIDGetter)
+	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}

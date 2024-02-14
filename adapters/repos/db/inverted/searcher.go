@@ -47,14 +47,15 @@ type Searcher struct {
 	tenant                 string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
-	maxIDGetter         MaxIDGetterFunc
+	bitmapFactory       *BitmapFactory
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64, maxIDGetter MaxIDGetterFunc,
+	tenant string, nestedCrossRefLimit int64,
+	bitmapFactory *BitmapFactory,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -67,7 +68,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
-		maxIDGetter:            maxIDGetter,
+		bitmapFactory:          bitmapFactory,
 	}
 }
 

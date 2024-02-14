@@ -96,9 +96,11 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
+	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(docIDCounter))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	t.Run("run tests", func(t *testing.T) {
 		t.Run("NotEqual", func(t *testing.T) {

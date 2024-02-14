@@ -81,9 +81,11 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
+	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(200))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(200))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -348,9 +350,11 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
+	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(maxDocID))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -394,8 +398,8 @@ func Test_Filters_Int(t *testing.T) {
 				},
 			},
 			// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
-			expectedListBeforeUpdate: helpers.NewAllowList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21),
-			expectedListAfterUpdate:  helpers.NewAllowList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21),
+			expectedListBeforeUpdate: notEqualsExpectedResults(maxDocID, 13),
+			expectedListAfterUpdate:  notEqualsExpectedResults(maxDocID, 13),
 		},
 		{
 			name: "exact match - or filter",
@@ -532,9 +536,11 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
+	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(200))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, newFakeMaxIDGetter(200))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -678,4 +684,16 @@ func createSchema() schema.Schema {
 
 func newFakeMaxIDGetter(maxID uint64) func() uint64 {
 	return func() uint64 { return maxID }
+}
+
+func notEqualsExpectedResults(maxID uint64, skip int) helpers.AllowList {
+	allow := make([]uint64, maxID+MaxIDBuffer+1)
+	p := 0
+	for i := 0; i < len(allow); i++ {
+		if i != skip {
+			allow[p] = uint64(i)
+			p++
+		}
+	}
+	return helpers.NewAllowList(allow...)
 }

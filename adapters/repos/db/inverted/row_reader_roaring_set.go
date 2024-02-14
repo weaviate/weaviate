@@ -18,18 +18,17 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderRoaringSet reads one or many row(s) depending on the specified
 // operator
 type RowReaderRoaringSet struct {
-	value       []byte
-	operator    filters.Operator
-	newCursor   func() lsmkv.CursorRoaringSet
-	getter      func(key []byte) (*sroar.Bitmap, error)
-	maxIDGetter MaxIDGetterFunc
+	value         []byte
+	operator      filters.Operator
+	newCursor     func() lsmkv.CursorRoaringSet
+	getter        func(key []byte) (*sroar.Bitmap, error)
+	bitmapFactory *BitmapFactory
 }
 
 type MaxIDGetterFunc func() uint64
@@ -37,8 +36,8 @@ type MaxIDGetterFunc func() uint64
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // ReadFn will always be empty
-func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool, maxIDGetter MaxIDGetterFunc,
+func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
+	keyOnly bool, bitmapFactory *BitmapFactory,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
@@ -47,11 +46,11 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte,
 	}
 
 	return &RowReaderRoaringSet{
-		value:       value,
-		operator:    operator,
-		newCursor:   newCursor,
-		getter:      getter,
-		maxIDGetter: maxIDGetter,
+		value:         value,
+		operator:      operator,
+		newCursor:     newCursor,
+		getter:        getter,
+		bitmapFactory: bitmapFactory,
 	}
 }
 
@@ -116,8 +115,8 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 		return err
 	}
 
-	maxID := rr.maxIDGetter()
-	inverted := roaringset.NewInvertedBitmap(v, maxID)
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(v)
 	_, err = readFn(rr.value, inverted)
 	return err
 }
