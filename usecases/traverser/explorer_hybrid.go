@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
@@ -75,6 +76,9 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 	}
 
 	params.Pagination.Offset = 0
+	if params.Pagination.Limit < hybrid.DefaultLimit {
+		params.Pagination.Limit = hybrid.DefaultLimit
+	}
 
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
 	if err != nil {
@@ -86,10 +90,11 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 		return nil, "", err
 	}
 
-	out := make([]*search.Result, len(results))
-	for i, sr := range results {
-		sr.SecondarySortValue = 1 - sr.Dist
-		out[i] = &sr
+	out := make([]*search.Result, 0, len(results))
+	for _, sr := range results {
+		out_sr := sr
+		out_sr.SecondarySortValue = 1 - sr.Dist
+		out = append(out, &out_sr)
 	}
 
 	return out, "vector,nearVector", nil
@@ -122,6 +127,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var results [][]*search.Result
 	var weights []float64
 	var names []string
+
+	origParams := params
+	params.Pagination = &filters.Pagination{
+		Limit: params.Pagination.Limit,
+		Offset: params.Pagination.Offset,
+		Autocut: params.Pagination.Autocut,
+	}
 
 	if params.HybridSearch.NearTextParams != nil {
 		res, name, err := nearTextSubSearch(ctx, e, params)
@@ -166,7 +178,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	postProcess := func(results []*search.Result) ([]search.Result, error) {
-		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
+		totalLimit, err := e.CalculateTotalLimit(origParams.Pagination)
 		if err != nil {
 			return nil, err
 		}
@@ -180,7 +192,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			res1 = append(res1, *res)
 		}
 
-		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, params.Tenant)
+		res, err := e.searcher.ResolveReferences(ctx, res1, origParams.Properties, nil, origParams.AdditionalProperties, origParams.Tenant)
 		if err != nil {
 			return nil, err
 		}
@@ -188,10 +200,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	res, err := hybrid.Do(ctx, &hybrid.Params{
-		HybridSearch: params.HybridSearch,
-		Keyword:      params.KeywordRanking,
-		Class:        params.ClassName,
-		Autocut:      params.Pagination.Autocut,
+		HybridSearch: origParams.HybridSearch,
+		Keyword:      origParams.KeywordRanking,
+		Class:        origParams.ClassName,
+		Autocut:      origParams.Pagination.Autocut,
 	}, results, weights, names, e.logger, postProcess)
 	if err != nil {
 		return nil, err
@@ -199,27 +211,27 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	var pointerResultList hybrid.Results
 
-	if params.Pagination.Limit <= 0 {
-		params.Pagination.Limit = hybrid.DefaultLimit
+	if origParams.Pagination.Limit <= 0 {
+		origParams.Pagination.Limit = hybrid.DefaultLimit
 	}
 
-	if params.Pagination.Offset < 0 {
-		params.Pagination.Offset = 0
+	if origParams.Pagination.Offset < 0 {
+		origParams.Pagination.Offset = 0
 	}
 
-	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
-		pointerResultList = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
+	if len(res) >= origParams.Pagination.Limit+origParams.Pagination.Offset {
+		pointerResultList = res[origParams.Pagination.Offset : origParams.Pagination.Limit+origParams.Pagination.Offset]
 	}
-	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
-		pointerResultList = res[params.Pagination.Offset:]
+	if len(res) < origParams.Pagination.Limit+origParams.Pagination.Offset && len(res) > origParams.Pagination.Offset {
+		pointerResultList = res[origParams.Pagination.Offset:]
 	}
-	if len(res) <= params.Pagination.Offset {
+	if len(res) <= origParams.Pagination.Offset {
 		pointerResultList = hybrid.Results{}
 	}
 
-	out := make([]search.Result, len(pointerResultList))
-	for i := range pointerResultList {
-		out[i] = *pointerResultList[i]
+	out := make([]search.Result, 0,len(pointerResultList))
+	for _,pointerResult := range pointerResultList {
+		out = append(out, *pointerResult)
 	}
 
 	return out, nil
