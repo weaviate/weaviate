@@ -688,7 +688,7 @@ func newFakeMaxIDGetter(maxID uint64) func() uint64 {
 }
 
 func notEqualsExpectedResults(maxID uint64, skip int) helpers.AllowList {
-	allow := make([]uint64, maxID+roaringset.MaxValBuffer+1)
+	allow := make([]uint64, maxID+roaringset.MaxBufferIncrement+1)
 	p := 0
 	for i := 0; i < len(allow); i++ {
 		if i != skip {

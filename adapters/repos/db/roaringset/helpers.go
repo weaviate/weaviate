@@ -133,25 +133,34 @@ func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
 
 type MaxValGetterFunc func() uint64
 
-// MaxValBuffer is the amount of bits greater than <maxVal> to reduce
-// the amount of times InvertedBitmapFactory has to reallocate
-const MaxValBuffer = uint64(1000)
+const (
+	// MaxBufferIncrement is the amount of bits greater than <maxVal> to reduce
+	// the amount of times InvertedBitmapFactory has to reallocate. Note
+	// that is only applied on the first initialization of the factory
+	MaxBufferIncrement = uint64(1000)
+	// DefaultBufferIncrement  is the amount of bits greater than <maxVal>
+	// to reduce the amount of times InvertedBitmapFactory has to reallocate.
+	// This value is used only on increments which occur after initialization
+	DefaultBufferIncrement = uint64(100)
+)
 
 // InvertedBitmapFactory exists to prevent an expensive call to
 // NewBitmapPrefill each time NewInvertedBitmap is invoked
 type InvertedBitmapFactory struct {
-	bitmap        *sroar.Bitmap
-	maxValGetter  MaxValGetterFunc
-	currentMaxVal uint64
-	lock          sync.RWMutex
+	bitmap          *sroar.Bitmap
+	maxValGetter    MaxValGetterFunc
+	currentMaxVal   uint64
+	bufferIncrement uint64
+	lock            sync.RWMutex
 }
 
 func NewInvertedBitmapFactory(maxValGetter MaxValGetterFunc) *InvertedBitmapFactory {
-	maxVal := maxValGetter() + MaxValBuffer
+	maxVal := maxValGetter() + MaxBufferIncrement
 	return &InvertedBitmapFactory{
-		bitmap:        NewBitmapPrefill(maxVal),
-		maxValGetter:  maxValGetter,
-		currentMaxVal: maxVal,
+		bitmap:          NewBitmapPrefill(maxVal),
+		maxValGetter:    maxValGetter,
+		currentMaxVal:   maxVal,
+		bufferIncrement: DefaultBufferIncrement,
 	}
 }
 
@@ -189,14 +198,14 @@ func (bmf *InvertedBitmapFactory) GetBitmap() *sroar.Bitmap {
 	// maxVal has grown to exceed even the buffer,
 	// time to expand
 	{
-		length := maxVal + MaxValBuffer - bmf.currentMaxVal
+		length := maxVal + bmf.bufferIncrement - bmf.currentMaxVal
 		list := make([]uint64, length)
 		for i := uint64(0); i < length; i++ {
 			list[i] = bmf.currentMaxVal + i + 1
 		}
 
 		bmf.bitmap.Or(sroar.FromSortedList(list))
-		bmf.currentMaxVal = maxVal + MaxValBuffer
+		bmf.currentMaxVal = maxVal + bmf.bufferIncrement
 	}
 
 	return bmf.bitmap.Clone()
