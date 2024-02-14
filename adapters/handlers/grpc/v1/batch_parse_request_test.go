@@ -124,7 +124,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 		},
 		{
 			name: "Named Vecs",
-			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, VectorsNamed: []*pb.Vectors{
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
 				{
 					Name:        "custom",
 					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
