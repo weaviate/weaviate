@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -37,11 +38,12 @@ var (
 )
 
 type Provider struct {
-	vectorsLock            sync.RWMutex
-	registered             map[string]modulecapabilities.Module
-	altNames               map[string]string
-	schemaGetter           schemaGetter
-	hasMultipleVectorizers bool
+	vectorsLock               sync.RWMutex
+	registered                map[string]modulecapabilities.Module
+	altNames                  map[string]string
+	schemaGetter              schemaGetter
+	hasMultipleVectorizers    bool
+	targetVectorNameValidator *regexp.Regexp
 }
 
 type schemaGetter interface {
@@ -50,8 +52,9 @@ type schemaGetter interface {
 
 func NewProvider() *Provider {
 	return &Provider{
-		registered: map[string]modulecapabilities.Module{},
-		altNames:   map[string]string{},
+		registered:                map[string]modulecapabilities.Module{},
+		altNames:                  map[string]string{},
+		targetVectorNameValidator: regexp.MustCompile(`^` + schema.TargetVectorNameRegex + `$`),
 	}
 }
 

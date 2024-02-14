@@ -29,24 +29,27 @@ import (
 )
 
 var (
-	className             = "NamedVectors"
-	c11y                  = "c11y"
-	c11y_pq               = "c11y_pq"
-	c11y_flat             = "c11y_flat"
-	c11y_bq               = "c11y_bq"
-	transformers          = "transformers"
-	transformers_flat     = "transformers_flat"
-	transformers_pq       = "transformers_pq"
-	transformers_bq       = "transformers_bq"
-	text2vecContextionary = "text2vec-contextionary"
-	text2vecTransformers  = "text2vec-transformers"
-	id1                   = "00000000-0000-0000-0000-000000000001"
-	id2                   = "00000000-0000-0000-0000-000000000002"
+	className                           = "NamedVectors"
+	c11y                                = "c11y"
+	c11y_pq                             = "c11y_pq"
+	c11y_flat                           = "c11y_flat"
+	c11y_bq                             = "c11y_bq"
+	c11y_pq_very_long_230_chars         = "c11y_pq______bq_b9mgu3N7rCUWufddpfCqaVvr4IUjB9xpMBrmiQFIqyuUxKx5s8wCTD7iWb5gPkwNhECumphBMWXD67G9gvN4CQkylG3bDrR8p9sK02RLOGvE96jcaSKjpZrIRvjJuQliGf8BMNmzXEqH39UWGGt4zPNnZNvdPP6pIzxWG5zNpymGmJJLCHk6yP1eO3QgSdXMt0arzfcrAA1L9uZNIVT7tM"
+	transformers                        = "transformers"
+	transformers_flat                   = "transformers_flat"
+	transformers_pq                     = "transformers_pq"
+	transformers_bq                     = "transformers_bq"
+	transformers_bq_very_long_230_chars = "transformers_bq_b9mgu3N7rCUWufddpfCqaVvr4IUjB9xpMBrmiQFIqyuUxKx5s8wCTD7iWb5gPkwNhECumphBMWXD67G9gvN4CQkylG3bDrR8p9sK02RLOGvE96jcaSKjpZrIRvjJuQliGf8BMNmzXEqH39UWGGt4zPNnZNvdPP6pIzxWG5zNpymGmJJLCHk6yP1eO3QgSdXMt0arzfcrAA1L9uZNIVT7tM"
+	text2vecContextionary               = "text2vec-contextionary"
+	text2vecTransformers                = "text2vec-transformers"
+	id1                                 = "00000000-0000-0000-0000-000000000001"
+	id2                                 = "00000000-0000-0000-0000-000000000002"
 )
 
 var targetVectors = []string{
 	c11y, c11y_flat, c11y_pq, c11y_bq,
 	transformers, transformers_flat, transformers_pq, transformers_bq,
+	transformers_bq_very_long_230_chars, c11y_pq_very_long_230_chars,
 }
 
 func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
@@ -93,6 +96,15 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				VectorIndexType:   "flat",
 				VectorIndexConfig: bqFlatIndexConfig(),
 			},
+			c11y_pq_very_long_230_chars: {
+				Vectorizer: map[string]interface{}{
+					text2vecContextionary: map[string]interface{}{
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: pqVectorIndexConfig(),
+			},
 			transformers: {
 				Vectorizer: map[string]interface{}{
 					text2vecTransformers: map[string]interface{}{
@@ -127,6 +139,15 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				VectorIndexType:   "flat",
 				VectorIndexConfig: bqFlatIndexConfig(),
 			},
+			transformers_bq_very_long_230_chars: {
+				Vectorizer: map[string]interface{}{
+					text2vecTransformers: map[string]interface{}{
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType:   "flat",
+				VectorIndexConfig: bqFlatIndexConfig(),
+			},
 		},
 		Vectorizer: text2vecContextionary,
 	}
@@ -138,11 +159,7 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 	require.NoError(t, err)
 	assert.Equal(t, class.Class, cls.Class)
 	require.NotEmpty(t, cls.VectorConfig)
-	require.Len(t, cls.VectorConfig, 8)
-	targetVectors := []string{
-		c11y, c11y_flat, c11y_pq, c11y_bq,
-		transformers, transformers_flat, transformers_pq, transformers_bq,
-	}
+	require.Len(t, cls.VectorConfig, len(targetVectors))
 	for _, name := range targetVectors {
 		require.NotEmpty(t, cls.VectorConfig[name])
 		assert.Equal(t, class.VectorConfig[name].VectorIndexType, cls.VectorConfig[name].VectorIndexType)
