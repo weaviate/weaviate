@@ -24,6 +24,7 @@ type ClassSettings interface {
 	PropertyIndexed(property string) bool
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
+	Properties() []string
 }
 
 type ObjectVectorizer struct{}

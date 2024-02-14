@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 func Test_classSettings_Validate(t *testing.T) {
@@ -140,4 +141,48 @@ func Test_classSettings_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_classSettings(t *testing.T) {
+	t.Run("with target vector and properties", func(t *testing.T) {
+		targetVector := "targetVector"
+		propertyToIndex := "someProp"
+		class := &models.Class{
+			Class: "MyClass",
+			VectorConfig: map[string]models.VectorConfig{
+				targetVector: {
+					Vectorizer: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"vectorizeClassName": false,
+							"properties":         []interface{}{propertyToIndex},
+						},
+					},
+					VectorIndexType: "hnsw",
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name: propertyToIndex,
+					ModuleConfig: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"skip":                  true,
+							"vectorizePropertyName": true,
+						},
+					},
+				},
+				{
+					Name: "otherProp",
+				},
+			},
+		}
+
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
+		ic := NewClassSettings(cfg)
+
+		assert.True(t, ic.PropertyIndexed(propertyToIndex))
+		assert.True(t, ic.VectorizePropertyName(propertyToIndex))
+		assert.False(t, ic.PropertyIndexed("otherProp"))
+		assert.False(t, ic.VectorizePropertyName("otherProp"))
+		assert.False(t, ic.VectorizeClassName())
+	})
 }
