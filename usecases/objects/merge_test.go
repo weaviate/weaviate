@@ -429,9 +429,6 @@ func Test_MergeObject(t *testing.T) {
 				cls = tc.updated.Class
 			}
 			if tc.previous != nil {
-				if tc.previous.Properties != nil && tc.updated.Vector == nil {
-					m.modulesProvider.On("VectorizerName", mock.Anything).Return("some-module", nil)
-				}
 				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return(&search.Result{
 						Schema:    tc.previous.Properties,

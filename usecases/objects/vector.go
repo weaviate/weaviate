@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -38,8 +39,11 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 		if err != nil {
 			return err
 		}
+		compFactory := func() (moduletools.VectorizablePropsComparator, error) {
+			return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, obj.Properties), nil
+		}
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, class, nil, m.findObject, m.logger); err != nil {
+			ctx, obj, class, compFactory, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}

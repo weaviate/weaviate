@@ -82,7 +82,7 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 }
 
 func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-	objectDiff *moduletools.ObjectDiff, findObjectFn modulecapabilities.FindObjectFn,
+	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
 	hnswConfig, okHnsw := class.VectorIndexConfig.(hnsw.UserConfig)
@@ -127,7 +127,11 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if object.Vector == nil {
-			if err := vectorizer.VectorizeObject(ctx, object, objectDiff, cfg); err != nil {
+			comp, err := compFactory()
+			if err != nil {
+				return fmt.Errorf("failed creating properties comparator: %w", err)
+			}
+			if err := vectorizer.VectorizeObject(ctx, object, comp, cfg); err != nil {
 				return fmt.Errorf("update vector: %w", err)
 			}
 		}
