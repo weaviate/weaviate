@@ -21,6 +21,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+type DimensionCategory int
+
+const (
+	DimensionCategoryStandard DimensionCategory = iota
+	DimensionCategoryPQ
+	DimensionCategoryBQ
+)
+
 func (s *Shard) Dimensions() int {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
@@ -71,11 +79,16 @@ func (s *Shard) clearDimensionMetrics() {
 func (s *Shard) publishDimensionMetrics() {
 	className := s.index.Config.ClassName.String()
 
-	if pqEnabled, segments := getPQSegments(s.index.vectorIndexUserConfig); pqEnabled {
+	switch category, segments := getDimensionCategory(s.index.vectorIndexUserConfig); category {
+	case DimensionCategoryPQ:
 		count := s.QuantizedDimensions(segments)
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
-	} else {
+	case DimensionCategoryBQ:
+		count := s.Dimensions() / 8 // BQ has a flat 8x reduction in the dimensions metric
+		sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
+		sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
+	default:
 		count := s.Dimensions()
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, count)
 	}
@@ -101,12 +114,18 @@ func (s *Shard) initDimensionTracking() {
 	}
 }
 
-func getPQSegments(cfg schema.VectorIndexConfig) (bool, int) {
-	// Detect if vector index is HNSW
-	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok && hnswUserConfig.PQ.Enabled {
-		return true, hnswUserConfig.PQ.Segments
+func getDimensionCategory(cfg schema.VectorIndexConfig) (DimensionCategory, int) {
+	// We have special dimension tracking for BQ and PQ to represent reduced costs
+	// these are published under the separate vector_segments_dimensions metric
+	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
+		if hnswUserConfig.PQ.Enabled {
+			return DimensionCategoryPQ, hnswUserConfig.PQ.Segments
+		}
+		if hnswUserConfig.BQ.Enabled {
+			return DimensionCategoryBQ, 0
+		}
 	}
-	return false, 0
+	return DimensionCategoryStandard, 0
 }
 
 func sendVectorSegmentsMetric(promMetrics *monitoring.PrometheusMetrics,
@@ -144,9 +163,10 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
 	className, shardName string, cfg schema.VectorIndexConfig,
 ) {
-	if pqEnabled, _ := getPQSegments(cfg); pqEnabled {
+	category, _ := getDimensionCategory(cfg)
+	if category == DimensionCategoryPQ || category == DimensionCategoryBQ {
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
-		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
 	} else {
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
 	}
