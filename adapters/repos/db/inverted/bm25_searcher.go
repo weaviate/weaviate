@@ -100,6 +100,12 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
+	return b.wandMem(ctx, filterDocIds, class, params, limit)
+}
+
+func (b *BM25Searcher) wandMem(
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
+) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
 	var stopWordDetector *stopwords.Detector
