@@ -226,7 +226,7 @@ func TestGRPCReply(t *testing.T) {
 			},
 			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},
 			outSearch: []*pb.SearchResult{
-				{Metadata: &pb.MetadataResult{VectorsNamed: []*pb.Vectors{
+				{Metadata: &pb.MetadataResult{Vectors: []*pb.Vectors{
 					{Name: "custom", VectorBytes: byteVector([]float32{1})},
 					{Name: "first", VectorBytes: byteVector([]float32{2})},
 				}}, Properties: &pb.PropertiesResult{}},

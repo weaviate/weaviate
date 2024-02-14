@@ -605,7 +605,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		Score:              prop.Score,
 		ExplainScore:       prop.ExplainScore,
 		IsConsistent:       prop.IsConsistent,
-		Vectors:            prop.VectorsNamed,
+		Vectors:            prop.Vectors,
 	}
 
 	vectorIndex, err := schema.TypeAssertVectorIndex(class)
