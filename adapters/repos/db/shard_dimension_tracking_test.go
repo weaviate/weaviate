@@ -456,7 +456,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "HNSW", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 
@@ -509,7 +509,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "BQ", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 
@@ -573,7 +573,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "PQ", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
 
