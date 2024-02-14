@@ -282,7 +282,7 @@ func sendVectorDimensionsForVecMetric(promMetrics *monitoring.PrometheusMetrics,
 	}
 }
 
-func getDimensionCategory(cfg schema.VectorIndexConfig) (DimensionCategory, int) {
+func getDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
