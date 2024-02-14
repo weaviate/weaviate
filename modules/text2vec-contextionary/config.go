@@ -19,11 +19,12 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 func (m *ContextionaryModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
+		"vectorizeClassName": basesettings.DefaultVectorizeClassName,
 	}
 }
 
@@ -31,8 +32,8 @@ func (m *ContextionaryModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"skip":                  !vectorizer.DefaultPropertyIndexed,
-		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
+		"skip":                  !basesettings.DefaultPropertyIndexed,
+		"vectorizePropertyName": basesettings.DefaultVectorizePropertyName,
 	}
 }
 
