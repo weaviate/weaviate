@@ -147,13 +147,12 @@ type Index struct {
 	Config                    IndexConfig
 	vectorIndexUserConfig     schema.VectorIndexConfig
 	vectorIndexUserConfigLock sync.Mutex
+	vectorIndexUserConfigs    map[string]schema.VectorIndexConfig
 	getSchema                 schemaUC.SchemaGetter
 	logger                    logrus.FieldLogger
 	remote                    *sharding.RemoteIndex
 	stopwords                 *stopwords.Detector
 	replicator                *replica.Replicator
-
-	targetVectorIndexUserConfigs map[string]schema.VectorIndexConfig
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex

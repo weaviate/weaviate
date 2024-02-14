@@ -79,6 +79,8 @@ func (s *Shard) clearDimensionMetrics() {
 func (s *Shard) publishDimensionMetrics() {
 	className := s.index.Config.ClassName.String()
 
+	// TODO[named-vectors] dimensions can be obtained by looping through s.index.vectorIndexUserConfigs
+
 	switch category, segments := getDimensionCategory(s.index.vectorIndexUserConfig); category {
 	case DimensionCategoryPQ:
 		count := s.QuantizedDimensions(segments)
