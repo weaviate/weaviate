@@ -12,53 +12,77 @@
 package lsmkv
 
 import (
-	"bufio"
 	"encoding/binary"
+	"fmt"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (p *commitloggerParser) doCollection() error {
-	f, err := os.Open(p.path)
+	for {
+		var version uint8
+
+		err := binary.Read(p.checksumReader, binary.LittleEndian, &version)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return errors.Wrap(err, "read commit version")
+		}
+
+		switch version {
+		case 0:
+			{
+				err = p.parseCollectionNodeV0()
+			}
+		case 1:
+			{
+				err = p.parseCollectionNodeV1()
+			}
+		default:
+			{
+				return fmt.Errorf("unsupported commit version %d", version)
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *commitloggerParser) parseCollectionNodeV0() error {
+	var commitType CommitType
+
+	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
+	if err != nil {
+		return errors.Wrap(err, "read commit type")
+	}
+
+	if !CommitTypeReplace.Is(commitType) {
+		return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
+	}
+
+	return p.parseCollectionNode(p.reader)
+}
+
+func (p *commitloggerParser) parseCollectionNodeV1() error {
+	commitType, reader, err := p.doRecord()
 	if err != nil {
 		return err
 	}
 
-	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
-	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
-
-	for {
-		var commitType CommitType
-
-		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			f.Close()
-			return errors.Wrap(err, "read commit type")
-		}
-
-		if CommitTypeCollection.Is(commitType) {
-			if err := p.parseCollectionNode(); err != nil {
-				f.Close()
-				return errors.Wrap(err, "read collection node")
-			}
-		} else {
-			f.Close()
-			return errors.Errorf("found a %s commit on collection bucket", commitType.String())
-		}
+	if !CommitTypeCollection.Is(commitType) {
+		return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
 	}
 
-	return f.Close()
+	return p.parseCollectionNode(reader)
 }
 
-func (p *commitloggerParser) parseCollectionNode() error {
-	n, err := ParseCollectionNode(p.reader)
+func (p *commitloggerParser) parseCollectionNode(reader io.Reader) error {
+	n, err := ParseCollectionNode(reader)
 	if err != nil {
 		return err
 	}
@@ -66,6 +90,7 @@ func (p *commitloggerParser) parseCollectionNode() error {
 	if p.strategy == StrategyMapCollection {
 		return p.parseMapNode(n)
 	}
+
 	return p.memtable.append(n.primaryKey, n.values)
 }
 
