@@ -107,4 +107,46 @@ func TestClassSettings(t *testing.T) {
 		assert.False(t, ic.VectorizeClassName())
 		assert.Equal(t, ic.PoolingStrategy(), "cls")
 	})
+
+	t.Run("with target vector and properties", func(t *testing.T) {
+		targetVector := "targetVector"
+		propertyToIndex := "someProp"
+		class := &models.Class{
+			Class: "MyClass",
+			VectorConfig: map[string]models.VectorConfig{
+				targetVector: {
+					Vectorizer: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"vectorizeClassName": false,
+							"properties":         []interface{}{propertyToIndex},
+						},
+					},
+					VectorIndexType: "hnsw",
+				},
+			},
+			Properties: []*models.Property{
+				{
+					Name: propertyToIndex,
+					ModuleConfig: map[string]interface{}{
+						"my-module": map[string]interface{}{
+							"skip":                  true,
+							"vectorizePropertyName": true,
+						},
+					},
+				},
+				{
+					Name: "otherProp",
+				},
+			},
+		}
+
+		cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
+		ic := NewClassSettings(cfg)
+
+		assert.True(t, ic.PropertyIndexed(propertyToIndex))
+		assert.True(t, ic.VectorizePropertyName(propertyToIndex))
+		assert.False(t, ic.PropertyIndexed("otherProp"))
+		assert.False(t, ic.VectorizePropertyName("otherProp"))
+		assert.False(t, ic.VectorizeClassName())
+	})
 }
