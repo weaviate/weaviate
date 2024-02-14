@@ -12,7 +12,6 @@
 package commitlog
 
 import (
-	"bufio"
 	"encoding/binary"
 	"os"
 
@@ -22,7 +21,7 @@ import (
 
 type Logger struct {
 	file *os.File
-	bufw *bufio.Writer
+	bufw *bufWriter
 }
 
 // TODO: these are duplicates with the hnsw package, unify them
@@ -50,11 +49,11 @@ func NewLogger(fileName string) *Logger {
 		panic(err)
 	}
 
-	return &Logger{file: file, bufw: bufio.NewWriterSize(file, 32*1024)}
+	return &Logger{file: file, bufw: NewWriter(file)}
 }
 
 func NewLoggerWithFile(file *os.File) *Logger {
-	return &Logger{file: file, bufw: bufio.NewWriterSize(file, 32*1024)}
+	return &Logger{file: file, bufw: NewWriterSize(file, 32*1024)}
 }
 
 func (l *Logger) SetEntryPointWithMaxLayer(id uint64, level int) error {
