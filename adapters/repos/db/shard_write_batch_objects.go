@@ -325,7 +325,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	if err != nil {
 		ob.setErrorAtIndex(err, 0)
 	}
-	// TODO[named-vectors]: how to handle queues here?
+	// TODO[named-vectors][asdine]: how to handle queues here?
 }
 
 func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int, status objectInsertStatus) bool {
@@ -393,7 +393,6 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 				return
 			}
 		}
-		// TODO[named-vectors]: add test
 		if len(object.Vectors) > 0 {
 			if err := ob.shard.updateVectorIndexesIgnoreDelete(object.Vectors, status); err != nil {
 				ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)

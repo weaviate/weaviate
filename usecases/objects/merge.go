@@ -103,7 +103,6 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
-	// TODO[named-vectors]: [andrzej] create a new comparator object to pass also vectors
 	mergeDoc := MergeDocument{
 		Class:              cls,
 		ID:                 id,
