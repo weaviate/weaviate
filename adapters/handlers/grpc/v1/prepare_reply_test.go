@@ -91,7 +91,7 @@ func TestGRPCReply(t *testing.T) {
 	refClass2 := "RefClass2"
 	className := "className"
 	objClass := "objClass"
-	NamedVecClass := "objClass"
+	NamedVecClass := "NamedVecs"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
