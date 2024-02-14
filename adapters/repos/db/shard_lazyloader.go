@@ -351,6 +351,11 @@ func (l *LazyLoadShard) QuantizedDimensions(segments int) int {
 	return l.shard.QuantizedDimensions(segments)
 }
 
+func (l *LazyLoadShard) publishDimensionMetrics() {
+	l.mustLoad()
+	l.shard.publishDimensionMetrics()
+}
+
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
