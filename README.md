@@ -5,12 +5,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/weaviate/weaviate)](https://goreportcard.com/report/github.com/weaviate/weaviate)
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
+[![GitHub Tutorials](https://img.shields.io/badge/Weaviate_Tutorials-green)](https://github.com/weaviate-tutorials/)
 
 ## Overview
 
 Weaviate is an **open source vector database** that is robust, scalable, cloud-native, and fast.
 
 If you just want to get started, great! Try:
+
 - the [quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) if you are looking to use Weaviate, or
 - the [contributor guide](https://weaviate.io/developers/contributor-guide) if you are looking to contribute to the project.
 
@@ -18,7 +20,7 @@ And you can find our [documentation here](https://weaviate.io/developers/weaviat
 
 If you have a bit more time, stick around and check out our summary below 😉
 
------
+---
 
 ## Why Weaviate?
 
@@ -52,7 +54,7 @@ For starters, you can build vector databases with text, images, or a combination
 
 You can also build question and answer extraction, summarization and classification systems.
 
-You can see [code examples here](https://github.com/weaviate/weaviate-examples), and you might find these blog posts useful:
+You can see [project examples here](https://github.com/weaviate-tutorials) or [quick notebook tutorials here](https://github.com/weaviate/recipes), and you might find these blog posts useful:
 
 - [The ChatGPT Retrieval Plugin - Weaviate as a Long-term Memory Store for Generative AI](https://weaviate.io/blog/weaviate-retrieval-plugin)
 - [Giving Auto-GPT Long-Term Memory with Weaviate](https://weaviate.io/blog/autogpt-and-weaviate)
@@ -61,6 +63,7 @@ You can see [code examples here](https://github.com/weaviate/weaviate-examples),
 - [Cohere Multilingual ML Models with Weaviate](https://weaviate.io/blog/cohere-multilingual-with-weaviate)
 - [Weaviate Podcast Search](https://weaviate.io/blog/weaviate-podcast-search)
 - [The Sphere Dataset in Weaviate](https://weaviate.io/blog/sphere-dataset-in-weaviate)
+- [Building Multimodal AI in TypeScript](https://weaviate.io/blog/multimodal-search-in-typescript)
 
 ### Integrations
 
@@ -102,37 +105,47 @@ Some of our past favorites include:
 - [BERTopic](https://www.youtube.com/watch?v=IwXOaHanfUU)
 - [Jina AI's Neural Search Framework](https://www.youtube.com/watch?v=o6MD0tWl0SM)
 
+### ⚙️ Demos
+
+- [Verba, the Golden RAGtreiver](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba))
+- [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo))
+- [Awesome-Moviate](https://awesome-moviate.weaviate.io/) ([GitHub](https://github.com/weaviate-tutorials/awesome-moviate))
+
 ### 📰 Newsletter
 
-Subscribe to our [🗞️ newsletter](https://newsletter.weaviate.io/) to keep up to date including new releases, meetup news and of course all of the content,.
+Subscribe to our [🗞️ newsletter](https://newsletter.weaviate.io/) to keep up to date including new releases, meetup news and of course all of the content.
 
 ## Join our community!
 
 We invite you to:
+
 - Join our [Slack](https://weaviate.io/slack) community, and
 - Ask questions at our [forum](https://forum.weaviate.io/).
 
 You can also say hi to us below:
+
 - [Twitter](https://twitter.com/weaviate_io)
 - [LinkedIn](https://www.linkedin.com/company/weaviate-io)
 
------
+---
 
 ## Weaviate helps ...
 
 1. **Software Engineers** - Who use Weaviate as an ML-first database for your applications.
-    * Out-of-the-box modules for: AI-powered searches, Q&A, integrating LLMs with your data, and automatic classification.
-    * With full CRUD support like you're used to from other OSS databases.
-    * Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
+
+   - Out-of-the-box modules for: AI-powered searches, Q&A, integrating LLMs with your data, and automatic classification.
+   - With full CRUD support like you're used to from other OSS databases.
+   - Cloud-native, distributed, runs well on Kubernetes and scales with your workloads.
 
 2. **Data Engineers** - Who use Weaviate as fast, flexible vector database
-    * Use your own ML mode or out-of-the-box ML models, locally or with an inference service.
-    * Weaviate takes care of the scalability, so that you don't have to.
+
+   - Use your own ML mode or out-of-the-box ML models, locally or with an inference service.
+   - Weaviate takes care of the scalability, so that you don't have to.
 
 3. **Data Scientists** - Who use Weaviate for a seamless handover of their Machine Learning models to MLOps.
-    * Deploy and maintain your ML models in production reliably and efficiently.
-    * Easily package any custom trained model you want.
-    * Smooth and accelerated handover of your ML models to engineers.
+   - Deploy and maintain your ML models in production reliably and efficiently.
+   - Easily package any custom trained model you want.
+   - Smooth and accelerated handover of your ML models to engineers.
 
 Read more in our [documentation](https://weaviate.io/developers/weaviate)
 
@@ -150,7 +163,6 @@ You can also use its GraphQL API to retrieve objects and properties.
 ### GraphQL interface demo
 
 <a href="https://weaviate.io/developers/weaviate/current/" target="_blank"><img src="https://weaviate.io/img/site/weaviate-demo.gif?i=9" alt="Demo of Weaviate" width="100%"></a>
-
 
 ## Additional material
 
