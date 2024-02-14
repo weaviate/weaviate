@@ -272,7 +272,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) error {
 	vectorIndexConfigs := s.getVectorIndexConfigs(class)
 	if len(vectorIndexConfigs) > 0 {
-		s.index.targetVectorIndexUserConfigs = vectorIndexConfigs
+		s.index.vectorIndexUserConfigs = vectorIndexConfigs
 		s.vectorIndexes = make(map[string]VectorIndex)
 		s.queues = make(map[string]*IndexQueue)
 
