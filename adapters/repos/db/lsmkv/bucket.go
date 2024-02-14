@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -194,11 +194,12 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 
 	b.disk = sg
 
-	if err := b.setNewActiveMemtable(); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
 
-	if err := b.recoverFromCommitLogs(ctx); err != nil {
+	err = b.setNewActiveMemtable()
+	if err != nil {
 		return nil, err
 	}
 
@@ -766,8 +767,14 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 // meant to be called from situations where a lock is already held, does not
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
-	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
-		time.Now().UnixNano())), b.strategy, b.secondaryIndices, b.metrics)
+	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
+
+	cl, err := newCommitLogger(path)
+	if err != nil {
+		return errors.Wrap(err, "init commit logger")
+	}
+
+	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
 	if err != nil {
 		return err
 	}
