@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -45,7 +46,7 @@ type Aggregator struct {
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
-	bitmapFactory          *inverted.BitmapFactory
+	bitmapFactory          *roaringset.InvertedBitmapFactory
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -55,7 +56,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	propLenTracker *inverted.JsonPropertyLengthTracker,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
-	bitmapFactory *inverted.BitmapFactory,
+	bitmapFactory *roaringset.InvertedBitmapFactory,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,

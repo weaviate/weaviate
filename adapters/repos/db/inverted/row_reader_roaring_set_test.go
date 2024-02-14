@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -62,7 +62,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 					bm := sroar.NewBitmap()
 					bm.SetMany([]uint64{111, 222, 333})
 					return roaringset.NewInvertedBitmap(
-						bm, maxDocID+MaxIDBuffer).ToArray()
+						bm, maxDocID+roaringset.MaxValBuffer).ToArray()
 				}()},
 			},
 		},
@@ -292,7 +292,7 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, entlsmkv.NotFound
 		},
-		bitmapFactory: NewBitmapFactory(
+		bitmapFactory: roaringset.NewInvertedBitmapFactory(
 			func() uint64 { return maxDocID }),
 	}
 }

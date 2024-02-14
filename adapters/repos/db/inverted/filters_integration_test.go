@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -81,7 +82,7 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(200))
+	bitmapFactory := roaringset.NewInvertedBitmapFactory(newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -350,7 +351,7 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
+	bitmapFactory := roaringset.NewInvertedBitmapFactory(newFakeMaxIDGetter(maxDocID))
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -536,7 +537,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(200))
+	bitmapFactory := roaringset.NewInvertedBitmapFactory(newFakeMaxIDGetter(200))
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -687,7 +688,7 @@ func newFakeMaxIDGetter(maxID uint64) func() uint64 {
 }
 
 func notEqualsExpectedResults(maxID uint64, skip int) helpers.AllowList {
-	allow := make([]uint64, maxID+MaxIDBuffer+1)
+	allow := make([]uint64, maxID+roaringset.MaxValBuffer+1)
 	p := 0
 	for i := 0; i < len(allow); i++ {
 		if i != skip {

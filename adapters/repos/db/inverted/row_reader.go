@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -28,14 +29,14 @@ type RowReader struct {
 	bucket        *lsmkv.Bucket
 	operator      filters.Operator
 	keyOnly       bool
-	bitmapFactory *BitmapFactory
+	bitmapFactory *roaringset.InvertedBitmapFactory
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
 func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *BitmapFactory,
+	keyOnly bool, bitmapFactory *roaringset.InvertedBitmapFactory,
 ) *RowReader {
 	return &RowReader{
 		bucket:        bucket,

@@ -14,82 +14,11 @@ package inverted
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
-
-// MaxIDBuffer is the amount of bits greater than <maxDocID> to reduce
-// the amount of times BitmapFactory has to reallocate
-const MaxIDBuffer = uint64(1000)
-
-// BitmapFactory exists to prevent an expensive call to
-// NewBitmapPrefill each time NewInvertedBitmap is invoked
-type BitmapFactory struct {
-	bitmap       *sroar.Bitmap
-	maxIDGetter  MaxIDGetterFunc
-	currentMaxID uint64
-	lock         sync.RWMutex
-}
-
-func NewBitmapFactory(maxIDGetter MaxIDGetterFunc) *BitmapFactory {
-	maxID := maxIDGetter() + MaxIDBuffer
-	return &BitmapFactory{
-		bitmap:       roaringset.NewBitmapPrefill(maxID),
-		maxIDGetter:  maxIDGetter,
-		currentMaxID: maxID,
-	}
-}
-
-// GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
-// This method is safe to call concurrently. The purpose behind sharing an
-// internal bitmap, is that a Clone() operation is much cheaper than prefilling
-// a map up to <maxDocID> elements is an expensive operation, and this way we
-// only have to do it once.
-func (bmf *BitmapFactory) GetBitmap() *sroar.Bitmap {
-	bmf.lock.RLock()
-	maxID := bmf.maxIDGetter()
-
-	// We don't need to expand, maxID is unchanged
-	{
-		if maxID <= bmf.currentMaxID {
-			cloned := bmf.bitmap.Clone()
-			bmf.lock.RUnlock()
-			return cloned
-		}
-	}
-
-	bmf.lock.RUnlock()
-	bmf.lock.Lock()
-	defer bmf.lock.Unlock()
-
-	// 2nd check to ensure bitmap wasn't expanded by
-	// concurrent request white waiting for write lock
-	{
-		maxID = bmf.maxIDGetter()
-		if maxID <= bmf.currentMaxID {
-			return bmf.bitmap.Clone()
-		}
-	}
-
-	// MaxID has grown to exceed even the buffer,
-	// time to expand
-	{
-		length := maxID + MaxIDBuffer - bmf.currentMaxID
-		list := make([]uint64, length)
-		for i := uint64(0); i < length; i++ {
-			list[i] = bmf.currentMaxID + i + 1
-		}
-
-		bmf.bitmap.Or(sroar.FromSortedList(list))
-		bmf.currentMaxID = maxID + MaxIDBuffer
-	}
-
-	return bmf.bitmap.Clone()
-}
 
 func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,

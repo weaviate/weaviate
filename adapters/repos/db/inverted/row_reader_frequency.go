@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -29,12 +30,12 @@ type RowReaderFrequency struct {
 	operator      filters.Operator
 	keyOnly       bool
 	shardVersion  uint16
-	bitmapFactory *BitmapFactory
+	bitmapFactory *roaringset.InvertedBitmapFactory
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *BitmapFactory,
+	bitmapFactory *roaringset.InvertedBitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:        bucket,

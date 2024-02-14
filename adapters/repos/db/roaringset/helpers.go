@@ -130,3 +130,74 @@ func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
 	wg.Wait()
 	return finalBM
 }
+
+type MaxValGetterFunc func() uint64
+
+// MaxValBuffer is the amount of bits greater than <maxVal> to reduce
+// the amount of times InvertedBitmapFactory has to reallocate
+const MaxValBuffer = uint64(1000)
+
+// InvertedBitmapFactory exists to prevent an expensive call to
+// NewBitmapPrefill each time NewInvertedBitmap is invoked
+type InvertedBitmapFactory struct {
+	bitmap        *sroar.Bitmap
+	maxValGetter  MaxValGetterFunc
+	currentMaxVal uint64
+	lock          sync.RWMutex
+}
+
+func NewInvertedBitmapFactory(maxValGetter MaxValGetterFunc) *InvertedBitmapFactory {
+	maxVal := maxValGetter() + MaxValBuffer
+	return &InvertedBitmapFactory{
+		bitmap:        NewBitmapPrefill(maxVal),
+		maxValGetter:  maxValGetter,
+		currentMaxVal: maxVal,
+	}
+}
+
+// GetBitmap returns a prefilled bitmap, which is cloned from a shared internal.
+// This method is safe to call concurrently. The purpose behind sharing an
+// internal bitmap, is that a Clone() operation is much cheaper than prefilling
+// a map up to <maxDocID> elements is an expensive operation, and this way we
+// only have to do it once.
+func (bmf *InvertedBitmapFactory) GetBitmap() *sroar.Bitmap {
+	bmf.lock.RLock()
+	maxVal := bmf.maxValGetter()
+
+	// We don't need to expand, maxVal is unchanged
+	{
+		if maxVal <= bmf.currentMaxVal {
+			cloned := bmf.bitmap.Clone()
+			bmf.lock.RUnlock()
+			return cloned
+		}
+	}
+
+	bmf.lock.RUnlock()
+	bmf.lock.Lock()
+	defer bmf.lock.Unlock()
+
+	// 2nd check to ensure bitmap wasn't expanded by
+	// concurrent request white waiting for write lock
+	{
+		maxVal = bmf.maxValGetter()
+		if maxVal <= bmf.currentMaxVal {
+			return bmf.bitmap.Clone()
+		}
+	}
+
+	// maxVal has grown to exceed even the buffer,
+	// time to expand
+	{
+		length := maxVal + MaxValBuffer - bmf.currentMaxVal
+		list := make([]uint64, length)
+		for i := uint64(0); i < length; i++ {
+			list[i] = bmf.currentMaxVal + i + 1
+		}
+
+		bmf.bitmap.Or(sroar.FromSortedList(list))
+		bmf.currentMaxVal = maxVal + MaxValBuffer
+	}
+
+	return bmf.bitmap.Clone()
+}

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -183,7 +184,7 @@ type Shard struct {
 	fallbackToSearchable bool
 
 	cycleCallbacks *shardCycleCallbacks
-	bitmapFactory  *inverted.BitmapFactory
+	bitmapFactory  *roaringset.InvertedBitmapFactory
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -359,7 +360,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
-	s.bitmapFactory = inverted.NewBitmapFactory(s.counter.Get)
+	s.bitmapFactory = roaringset.NewInvertedBitmapFactory(s.counter.Get)
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")

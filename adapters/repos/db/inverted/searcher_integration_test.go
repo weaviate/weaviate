@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -96,7 +97,7 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+	bitmapFactory := roaringset.NewInvertedBitmapFactory(newFakeMaxIDGetter(docIDCounter))
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",

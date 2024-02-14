@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -47,7 +48,7 @@ type Searcher struct {
 	tenant                 string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
-	bitmapFactory       *BitmapFactory
+	bitmapFactory       *roaringset.InvertedBitmapFactory
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
@@ -55,7 +56,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
-	bitmapFactory *BitmapFactory,
+	bitmapFactory *roaringset.InvertedBitmapFactory,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
