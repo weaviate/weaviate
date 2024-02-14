@@ -129,6 +129,16 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.New("wrong OpenAI model name, available model names are: [ada babbage curie davinci text-embedding-3-small text-embedding-3-large]"),
 		},
+		{
+			name: "wrong properties",
+			cfg: &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":      "text-embedding-3-large",
+					"properties": "wrong-properties",
+				},
+			},
+			wantErr: errors.New("properties field needs to be of array type, got: string"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
