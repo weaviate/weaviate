@@ -48,6 +48,7 @@ message BatchObject {
   string collection = 4;
   string tenant = 5;
   bytes vector_bytes = 6;
+  repeated Vectors vectors_named = 23;
 }
 
 message BatchObjectsReply {

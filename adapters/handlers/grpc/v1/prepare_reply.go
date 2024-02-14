@@ -232,6 +232,23 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		}
 	}
 
+	if len(additionalPropsParams.Vectors) > 0 {
+		vectors, ok := additionalPropertiesMap["vectors"]
+		if ok {
+			vectorfmt, ok2 := vectors.(map[string][]float32)
+			if ok2 {
+				metadata.VectorsNamed = make([]*pb.Vectors, 0, len(vectorfmt))
+				for name, vector := range vectorfmt {
+					metadata.VectorsNamed = append(metadata.VectorsNamed, &pb.Vectors{
+						VectorBytes: byteops.Float32ToByteVector(vector),
+						Name:        name,
+					})
+				}
+			}
+
+		}
+	}
+
 	if additionalPropsParams.Certainty {
 		metadata.CertaintyPresent = false
 		certainty, ok := additionalPropertiesMap["certainty"]
