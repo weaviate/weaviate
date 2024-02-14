@@ -95,10 +95,6 @@ type ShardLike interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) //
 
-	// TODO tests only
-	Dimensions() int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(segments int) int
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) //
 	MergeObject(ctx context.Context, object objects.MergeDocument) error                   //
 	Queue() *IndexQueue
@@ -126,7 +122,12 @@ type ShardLike interface {
 	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	extendDimensionTrackerLSM(int, uint64) error
+	// TODO tests only
+	Dimensions() int // dim(vector)*number vectors
+	// TODO tests only
+	QuantizedDimensions(segments int) int
+	extendDimensionTrackerLSM(dimLength int, docID uint64) error
+	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
 	publishDimensionMetrics()
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -532,10 +533,8 @@ func (s *Shard) drop() error {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
-		if s.promMetrics != nil {
-			// send 0 in when index gets dropped
-			s.clearDimensionMetrics()
-		}
+		// send 0 in when index gets dropped
+		s.clearDimensionMetrics()
 	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
