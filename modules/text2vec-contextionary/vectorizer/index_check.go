@@ -16,12 +16,6 @@ import (
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
-const (
-	DefaultPropertyIndexed       = true
-	DefaultVectorizeClassName    = true
-	DefaultVectorizePropertyName = false
-)
-
 type indexChecker struct {
 	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
