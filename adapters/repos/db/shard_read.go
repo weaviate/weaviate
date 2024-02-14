@@ -160,7 +160,10 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	return storobj.VectorFromBinary(bytes, container.Slice)
 }
 
-func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
+	additional additional.Properties,
+) ([]*storobj.Object, []float32, error) {
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(

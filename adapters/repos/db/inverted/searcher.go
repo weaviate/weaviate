@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -84,22 +85,17 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	}
 
 	var it docIDsIterator
-	if filter.Root.Operator != filters.OperatorNotEqual {
-		if len(sort) > 0 {
-			docIDs, err := s.sort(ctx, limit, sort, allowList, className)
-			if err != nil {
-				return nil, fmt.Errorf("sort doc ids: %w", err)
-			}
-			it = newSliceDocIDsIterator(docIDs)
-		} else {
-			it = allowList.LimitedIterator(limit)
+	if len(sort) > 0 {
+		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
+		if err != nil {
+			return nil, fmt.Errorf("sort doc ids: %w", err)
 		}
+		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		// TODO: handle sort
 		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional, filter.Root.Operator, limit)
+	return s.objectsByDocID(it, additional, limit)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -112,8 +108,8 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties,
-	op filters.Operator, limit int,
+func (s *Searcher) objectsByDocID(it docIDsIterator,
+	additional additional.Properties, limit int,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -122,6 +118,11 @@ func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Prope
 
 	out := make([]*storobj.Object, it.Len())
 	docIDBytes := make([]byte, 8)
+
+	// Prevent unbounded iteration
+	if limit == 0 {
+		limit = int(config.DefaultQueryMaximumResults)
+	}
 
 	i := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -148,10 +149,8 @@ func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Prope
 		out[i] = unmarshalled
 		i++
 
-		if op == filters.OperatorNotEqual {
-			if i >= limit {
-				break
-			}
+		if i >= limit {
+			break
 		}
 	}
 
