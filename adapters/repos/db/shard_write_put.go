@@ -454,6 +454,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
 			return fmt.Errorf("track dimensions: %w", err)
 		}
+		// TODO[named-vectors][andrzej]: add tracking of object.Vectors dimensions
+		// for vectors use separate vector_dimensions_sum_by_vector metric
+		// where label will be the name of the vector
 	}
 
 	return nil
