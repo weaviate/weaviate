@@ -137,11 +137,11 @@ func TestGRPCReply(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"custom": {
 							VectorIndexType: "hnsw",
-							Vectorizer:      "none",
+							Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
 						},
 						"first": {
 							VectorIndexType: "flat",
-							Vectorizer:      "text2vec-contextionary",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
 					},
 				},
