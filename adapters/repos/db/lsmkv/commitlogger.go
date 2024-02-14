@@ -110,7 +110,7 @@ func newCommitLogger(path string) (*commitLogger, error) {
 
 	go func() {
 		for {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(1_000 * time.Millisecond)
 
 			if !out.syncRequired.Swap(false) {
 				continue
