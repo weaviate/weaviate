@@ -72,7 +72,6 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 
 	if includeVector {
 		t.Vector = r.Vector
-		// TODO[named-vectors]: test that it works
 		t.Vectors = r.Vectors
 	}
 
