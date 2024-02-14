@@ -56,6 +56,7 @@ type fakeClassConfig struct {
 	projectID             string
 	endpointID            string
 	modelID               string
+	properties            interface{}
 }
 
 func (f fakeClassConfig) Class() map[string]interface{} {
@@ -65,6 +66,9 @@ func (f fakeClassConfig) Class() map[string]interface{} {
 		"projectID":          f.projectID,
 		"endpointID":         f.endpointID,
 		"modelID":            f.modelID,
+	}
+	if f.properties != nil {
+		classSettings["properties"] = f.properties
 	}
 	return classSettings
 }

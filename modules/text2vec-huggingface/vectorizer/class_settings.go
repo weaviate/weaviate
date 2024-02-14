@@ -93,6 +93,10 @@ func (cs *classSettings) Validate(class *models.Class) error {
 }
 
 func (cs *classSettings) validateClassSettings() error {
+	if err := cs.BaseClassSettings.Validate(); err != nil {
+		return err
+	}
+
 	endpointURL := cs.getEndpointURL()
 	if endpointURL != "" {
 		// endpoint is set, should be used for feature extraction

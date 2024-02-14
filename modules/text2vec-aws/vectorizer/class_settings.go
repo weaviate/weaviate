@@ -67,6 +67,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	var errorMessages []string
 
+	if err := ic.BaseClassSettings.Validate(); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+
 	service := ic.Service()
 	if service == "" || !ic.validatAvailableAWSSetting(service, availableAWSServices) {
 		errorMessages = append(errorMessages, fmt.Sprintf("wrong %s, available services are: %v", serviceProperty, availableAWSServices))
