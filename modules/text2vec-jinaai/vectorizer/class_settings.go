@@ -55,6 +55,10 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
+	if err := cs.BaseClassSettings.Validate(); err != nil {
+		return err
+	}
+
 	err := cs.validateIndexState(class, cs)
 	if err != nil {
 		return err

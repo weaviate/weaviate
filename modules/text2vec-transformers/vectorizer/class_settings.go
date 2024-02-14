@@ -12,6 +12,7 @@
 package vectorizer
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
@@ -49,4 +50,8 @@ func (ic *classSettings) PoolingStrategy() string {
 	}
 
 	return asString
+}
+
+func (ic *classSettings) Validate(class *models.Class) error {
+	return ic.BaseClassSettings.Validate()
 }

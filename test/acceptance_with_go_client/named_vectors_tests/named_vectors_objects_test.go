@@ -58,7 +58,7 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 						Do(ctx)
 					require.NoError(t, err)
 					require.NotNil(t, objWrapper)
-					assert.Len(t, objWrapper.Object.Vectors, 8)
+					assert.Len(t, objWrapper.Object.Vectors, len(targetVectors))
 
 					objs, err := client.Data().ObjectsGetter().
 						WithClassName(className).
@@ -68,7 +68,7 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 					require.NoError(t, err)
 					require.Len(t, objs, 1)
 					require.NotNil(t, objs[0])
-					assert.Len(t, objs[0].Vectors, 8)
+					assert.Len(t, objs[0].Vectors, len(targetVectors))
 					properties, ok := objs[0].Properties.(map[string]interface{})
 					require.True(t, ok)
 					assert.Equal(t, object.text, properties["text"])
@@ -123,7 +123,7 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, objs, 1)
 				require.NotNil(t, objs[0])
-				assert.Len(t, objs[0].Vectors, 8)
+				assert.Len(t, objs[0].Vectors, len(targetVectors))
 				properties, ok := objs[0].Properties.(map[string]interface{})
 				require.True(t, ok)
 				assert.NotNil(t, properties["text"])
