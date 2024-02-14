@@ -529,14 +529,13 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context) error {
+	if err := l.commitLogger.Close(); err != nil {
+		return errors.Wrap(err, "close hnsw commit logger prior to delete")
+	}
+
 	// stop all goroutines
 	if err := l.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "drop commitlog")
-	}
-
-	// close the commit logger
-	if err := l.commitLogger.Close(); err != nil {
-		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}
 
 	// remove commit log directory if exists
