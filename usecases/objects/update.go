@@ -101,7 +101,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	// TODO[named-vectors]
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
