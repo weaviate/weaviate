@@ -557,6 +557,16 @@ func logger() *logrus.Logger {
 		logger.SetFormatter(&logrus.JSONFormatter{})
 	}
 	switch os.Getenv("LOG_LEVEL") {
+	case "panic":
+		logger.SetLevel(logrus.PanicLevel)
+	case "fatal":
+		logger.SetLevel(logrus.FatalLevel)
+	case "error":
+		logger.SetLevel(logrus.ErrorLevel)
+	case "warn":
+		logger.SetLevel(logrus.WarnLevel)
+	case "warning":
+		logger.SetLevel(logrus.WarnLevel)
 	case "debug":
 		logger.SetLevel(logrus.DebugLevel)
 	case "trace":
