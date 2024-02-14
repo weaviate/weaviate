@@ -50,13 +50,6 @@ type client interface {
 		overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error)
 }
 
-// IndexCheck returns whether a property of a class should be indexed
-type ClassIndexCheck interface {
-	PropertyIndexed(property string) bool
-	VectorizeClassName() bool
-	VectorizePropertyName(propertyName string) bool
-}
-
 // New from c11y client
 func New(client client) *Vectorizer {
 	return &Vectorizer{
@@ -101,7 +94,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	comp moduletools.VectorizablePropsComparator, overrides map[string]string,
-	icheck ClassIndexCheck,
+	icheck objectsvectorizer.ClassSettings,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	corpi, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, icheck)
 	// no property was changed, old vector can be used

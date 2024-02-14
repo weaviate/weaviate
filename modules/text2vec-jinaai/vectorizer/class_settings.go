@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 const (
@@ -32,11 +33,19 @@ const (
 )
 
 type classSettings struct {
+	*objectsvectorizer.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{
+		BaseClassSettings: objectsvectorizer.NewBaseClassSettings(cfg, &objectsvectorizer.ClassSettingDefaults{
+			DefaultVectorizeClassName:     DefaultVectorizeClassName,
+			DefaultPropertyIndexed:        DefaultPropertyIndexed,
+			DefaultVectorizePropertyName:  DefaultVectorizePropertyName,
+			DefaultLowerCasePropertyValue: true,
+		}),
+		cfg: cfg}
 }
 
 func (cs *classSettings) PropertyIndexed(propName string) bool {

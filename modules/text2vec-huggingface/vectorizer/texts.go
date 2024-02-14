@@ -16,13 +16,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
-	icheck vectorizer.ClassIndexCheck,
+	icheck objectsvectorizer.ClassSettings,
 ) ([]float32, error) {
 	res, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{})
 	if err != nil {
