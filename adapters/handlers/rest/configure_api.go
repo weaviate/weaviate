@@ -88,6 +88,7 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -419,7 +420,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
+	telemeter := telemetry.New(appState.DB, appState.Modules, appState.Logger)
+	if telemetryEnabled(appState) {
+		if err := telemeter.Start(context.Background()); err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				Errorf("telemetry failed to start: %s", err.Error())
+		}
+	}
+
 	api.ServerShutdown = func() {
+		if telemetryEnabled(appState) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			// must be shutdown before the db, to ensure the
+			// termination payload contains the correct
+			// object count
+			if err := telemeter.Stop(ctx); err != nil {
+				appState.Logger.WithField("action", "stop_telemetry").
+					Errorf("failed to stop telemetry: %s", err.Error())
+			}
+		}
+
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel()
 
@@ -930,4 +952,8 @@ func limitResources(appState *state.State) {
 		appState.Logger.Info("No resource limits set, weaviate will use all available memory and CPU. " +
 			"To limit resources, set LIMIT_RESOURCES=true")
 	}
+}
+
+func telemetryEnabled(state *state.State) bool {
+	return !state.ServerConfig.Config.DisableTelemetry
 }
