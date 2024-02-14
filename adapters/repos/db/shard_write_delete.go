@@ -163,9 +163,13 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	}
 
 	if s.index.Config.TrackVectorDimensions {
-		err = s.removeDimensionsLSM(len(previousObject.Vector), docID)
-		if err != nil {
+		if err = s.removeDimensionsLSM(len(previousObject.Vector), docID); err != nil {
 			return fmt.Errorf("track dimensions (delete): %w", err)
+		}
+		for vecName, vec := range previousObject.Vectors {
+			if err = s.removeDimensionsForVecLSM(len(vec), docID, vecName); err != nil {
+				return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+			}
 		}
 	}
 
