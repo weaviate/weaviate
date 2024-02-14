@@ -17,6 +17,7 @@ message SearchRequest {
   // parameters
   string tenant = 10;
   optional ConsistencyLevel consistency_level = 11;
+  repeated string target_vectors = 12;
 
   // what is returned
   optional PropertiesRequest properties = 20;
