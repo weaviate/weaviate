@@ -130,8 +130,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	origParams := params
 	params.Pagination = &filters.Pagination{
-		Limit: params.Pagination.Limit,
-		Offset: params.Pagination.Offset,
+		Limit:   params.Pagination.Limit,
+		Offset:  params.Pagination.Offset,
 		Autocut: params.Pagination.Autocut,
 	}
 
@@ -229,8 +229,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		pointerResultList = hybrid.Results{}
 	}
 
-	out := make([]search.Result, 0,len(pointerResultList))
-	for _,pointerResult := range pointerResultList {
+	out := make([]search.Result, 0, len(pointerResultList))
+	for _, pointerResult := range pointerResultList {
 		out = append(out, *pointerResult)
 	}
 
