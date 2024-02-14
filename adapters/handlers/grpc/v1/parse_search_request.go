@@ -52,6 +52,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 	out.Tenant = req.Tenant
 
+	if len(req.TargetVectors) > 0 {
+		// only one is supported right now
+		out.TargetVector = req.TargetVectors[0]
+	}
+
 	if req.Metadata != nil {
 		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata)
 		if err != nil {
@@ -147,6 +152,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearImageOut.TargetVectors = req.TargetVectors
 
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
@@ -159,6 +165,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearAudioOut.TargetVectors = req.TargetVectors
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -170,6 +178,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearVideoOut.TargetVectors = req.TargetVectors
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -181,6 +191,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearDepthOut.TargetVectors = req.TargetVectors
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -192,6 +204,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearThermalOut.TargetVectors = req.TargetVectors
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -203,6 +217,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearIMUOut.TargetVectors = req.TargetVectors
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -228,10 +243,11 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		}
 
 		nearText := &nearText2.NearTextParams{
-			Values:       req.NearText.Query,
-			Limit:        out.Pagination.Limit,
-			MoveAwayFrom: moveAwayOut,
-			MoveTo:       moveToOut,
+			Values:        req.NearText.Query,
+			Limit:         out.Pagination.Limit,
+			MoveAwayFrom:  moveAwayOut,
+			MoveTo:        moveToOut,
+			TargetVectors: req.TargetVectors,
 		}
 
 		if req.NearText.Certainty != nil {
