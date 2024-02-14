@@ -17,17 +17,20 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func Benchmark_Migration(b *testing.B) {
@@ -371,5 +374,234 @@ func Test_DimensionTracking(t *testing.T) {
 			assert.Equal(t, 12800, shard.QuantizedDimensions(0))
 			return nil
 		})
+	})
+}
+
+func publishDimensionMetricsFromRepo(repo *DB, className string) {
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		shard.publishDimensionMetrics()
+		return nil
+	})
+}
+
+func getSingleShardNameFromRepo(repo *DB, className string) string {
+	shardName := ""
+	if !repo.config.TrackVectorDimensions {
+		log.Printf("Vector dimensions tracking is disabled, returning 0")
+		return shardName
+	}
+	index := repo.GetIndex(schema.ClassName(className))
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		shardName = shard.Name()
+		return nil
+	})
+	return shardName
+}
+
+func Test_DimensionTrackingMetrics(t *testing.T) {
+	r := getRandomSeed()
+	dirName := t.TempDir()
+	var shardName string
+
+	shardState := singleShardState()
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
+	metrics := monitoring.GetMetrics()
+	repo, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		TrackVectorDimensions:     true,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(testCtx()))
+	defer repo.Shutdown(context.Background())
+
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("set schema type=HNSW", func(t *testing.T) {
+		class := &models.Class{
+			Class:               "HNSW",
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		schemaGetter.schema = schema
+	})
+
+	t.Run("import objects and validate metric", func(t *testing.T) {
+		dim := 64
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = r.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "HNSW", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec, nil)
+			require.Nil(t, err)
+		}
+
+		publishDimensionMetricsFromRepo(repo, "HNSW")
+
+		shardName = getSingleShardNameFromRepo(repo, "HNSW")
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("HNSW", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 6400.0, metricValue, "dimensions should not have changed")
+	})
+
+	t.Run("delete class", func(t *testing.T) {
+		err := migrator.DropClass(context.Background(), "HNSW")
+		require.Nil(t, err)
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("HNSW", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metric should be reset")
+	})
+
+	t.Run("set schema type=BQ", func(t *testing.T) {
+		vectorIndexConfig := enthnsw.NewDefaultUserConfig()
+		vectorIndexConfig.BQ.Enabled = true
+
+		class := &models.Class{
+			Class:               "BQ",
+			VectorIndexConfig:   vectorIndexConfig,
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		schemaGetter.schema = schema
+	})
+
+	t.Run("import objects and validate metric type=BQ", func(t *testing.T) {
+		dim := 64
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = r.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "BQ", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec, nil)
+			require.Nil(t, err)
+		}
+
+		publishDimensionMetricsFromRepo(repo, "BQ")
+
+		shardName = getSingleShardNameFromRepo(repo, "BQ")
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("BQ", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "dimensions should not have changed")
+
+		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("BQ", shardName)
+		require.Nil(t, err)
+		metricValue = testutil.ToFloat64(metric)
+		require.Equal(t, 800.0, metricValue, "segments should match")
+	})
+
+	t.Run("delete class type=BQ", func(t *testing.T) {
+		err := migrator.DropClass(context.Background(), "BQ")
+		require.Nil(t, err)
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("BQ", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metric should be still zero")
+
+		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("BQ", shardName)
+		require.Nil(t, err)
+		metricValue = testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metrics should be reset")
+	})
+
+	t.Run("set schema type=PQ", func(t *testing.T) {
+		vectorIndexConfig := enthnsw.NewDefaultUserConfig()
+		vectorIndexConfig.PQ.Enabled = true
+		vectorIndexConfig.PQ.Segments = 10
+
+		class := &models.Class{
+			Class:               "PQ",
+			VectorIndexConfig:   vectorIndexConfig,
+			InvertedIndexConfig: invertedConfig(),
+		}
+		schema := schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{class},
+			},
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+
+		schemaGetter.schema = schema
+	})
+
+	t.Run("import objects and validate metric type=PQ", func(t *testing.T) {
+		dim := 64
+		for i := 0; i < 100; i++ {
+			vec := make([]float32, dim)
+			for j := range vec {
+				vec[j] = r.Float32()
+			}
+
+			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+			obj := &models.Object{Class: "PQ", ID: id}
+			err := repo.PutObject(context.Background(), obj, vec, nil)
+			require.Nil(t, err)
+		}
+
+		publishDimensionMetricsFromRepo(repo, "PQ")
+
+		shardName = getSingleShardNameFromRepo(repo, "PQ")
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQ", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "dimensions should not have changed")
+
+		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("PQ", shardName)
+		require.Nil(t, err)
+		metricValue = testutil.ToFloat64(metric)
+		require.Equal(t, 1000.0, metricValue, "segments should match")
+	})
+
+	t.Run("delete class type=PQ", func(t *testing.T) {
+		err := migrator.DropClass(context.Background(), "PQ")
+		require.Nil(t, err)
+		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQ", shardName)
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metric should be still zero")
+
+		metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues("PQ", shardName)
+		require.Nil(t, err)
+		metricValue = testutil.ToFloat64(metric)
+		require.Equal(t, 0.0, metricValue, "metrics should be reset")
 	})
 }
