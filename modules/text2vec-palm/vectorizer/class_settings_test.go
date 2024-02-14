@@ -127,6 +127,19 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("wrong modelId available Generative AI model names are: [embedding-gecko-001]"),
 		},
+		{
+			name: "wrong properties",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+				},
+				properties: "wrong-properties",
+			},
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			wantProjectID:   "projectId",
+			wantModelID:     "textembedding-gecko@001",
+			wantErr:         errors.New("properties field needs to be of array type, got: string"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

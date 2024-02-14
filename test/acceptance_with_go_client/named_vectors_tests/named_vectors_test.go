@@ -43,12 +43,14 @@ func TestNamedVectors_Cluster(t *testing.T) {
 
 func allTests(t *testing.T, endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
-		t.Run("schema", testCreateSchemaWithNoneVectorizer(t, endpoint))
+		t.Run("schema", testCreateSchema(t, endpoint))
+		t.Run("schema with none vectorizer", testCreateSchemaWithNoneVectorizer(t, endpoint))
 		t.Run("object", testCreateObject(t, endpoint))
 		t.Run("batch", testBatchObject(t, endpoint))
 		t.Run("none vectorizer", testCreateSchemaWithNoneVectorizer(t, endpoint))
 		t.Run("mixed objects with none and vectorizer", testCreateSchemaWithMixedVectorizers(t, endpoint))
 		t.Run("classes with properties setting", testCreateWithModulePropertiesObject(t, endpoint))
+		t.Run("validation", testSchemaValidation(t, endpoint))
 	}
 }
 
