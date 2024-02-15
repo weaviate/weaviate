@@ -245,6 +245,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	s.initDimensionTracking()
+
 	if asyncEnabled() {
 		go func() {
 			// preload unindexed objects in the background
@@ -271,13 +273,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 }
 
 func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) error {
-	vectorIndexConfigs := s.getVectorIndexConfigs(class)
-	if len(vectorIndexConfigs) > 0 {
-		s.index.vectorIndexUserConfigs = vectorIndexConfigs
+	if len(s.index.vectorIndexUserConfigs) > 0 {
 		s.vectorIndexes = make(map[string]VectorIndex)
 		s.queues = make(map[string]*IndexQueue)
 
-		for targetVector, vectorIndexConfig := range vectorIndexConfigs {
+		for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 			vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
 			if err != nil {
 				return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
@@ -291,19 +291,6 @@ func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) erro
 			}
 			s.queues[targetVector] = queue
 		}
-	}
-	return nil
-}
-
-func (s *Shard) getVectorIndexConfigs(class *models.Class) map[string]schema.VectorIndexConfig {
-	if len(class.VectorConfig) > 0 {
-		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
-		for targetVector, vectorConfig := range class.VectorConfig {
-			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schema.VectorIndexConfig); ok {
-				vectorIndexConfigs[targetVector] = vectorIndexConfig
-			}
-		}
-		return vectorIndexConfigs
 	}
 	return nil
 }
@@ -451,8 +438,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
-
-	s.initDimensionTracking()
 
 	return nil
 }
