@@ -54,8 +54,15 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if err != nil {
 			return nil, err
 		}
-		params.SearchVector = searchVector
+
+		targetVector, err = t.targetVectorParamHelper.getTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+			className, targetVector)
+		if err != nil {
+			return nil, err
+		}
 		params.TargetVector = targetVector
+		params.SearchVector = searchVector
+
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
 			params.NearObject, params.ModuleParams)
 

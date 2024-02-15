@@ -693,7 +693,10 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 	if err != nil {
 		return nil, "", err
 	}
-	targetVector := p.getTargetVector(params)
+	targetVector, err := p.getTargetVector(class, params)
+	if err != nil {
+		return nil, "", err
+	}
 	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
@@ -746,7 +749,11 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 					if err != nil {
 						return nil, "", errors.Errorf("vectorize params: %v", err)
 					}
-					return vector, p.getTargetVector(params), nil
+					targetVector, err := p.getTargetVector(nil, params)
+					if err != nil {
+						return nil, "", errors.Errorf("get target vector: %v", err)
+					}
+					return vector, targetVector, nil
 				}
 			}
 		}
@@ -755,11 +762,22 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	panic("VectorFromParams was called without any known params present")
 }
 
-func (p *Provider) getTargetVector(params interface{}) string {
+func (p *Provider) getTargetVector(class *models.Class, params interface{}) (string, error) {
 	if nearParam, ok := params.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) == 1 {
-		return nearParam.GetTargetVectors()[0]
+		return nearParam.GetTargetVectors()[0], nil
 	}
-	return ""
+	if class != nil {
+		if len(class.VectorConfig) > 1 {
+			return "", fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
+		}
+
+		if len(class.VectorConfig) == 1 {
+			for name := range class.VectorConfig {
+				return name, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 func (p *Provider) getModuleNameForTargetVector(class *models.Class, targetVector string) string {
