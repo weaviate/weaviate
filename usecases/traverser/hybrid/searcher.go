@@ -250,7 +250,7 @@ func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSear
 		return nil, "", 0, nil
 	}
 
-	targetVector := params.TargetVectors[0] // TODO[named-vector]: support multiple target vectors
+	targetVector := getTargetVector(params.TargetVectors)
 
 	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], targetVector, modules)
 	if err != nil {
@@ -300,7 +300,7 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 		vector = params.Vector
 	} else {
 		if modules != nil {
-			targetVector := params.TargetVectors[0] // TODO[named-vector]: support multiple target vectors
+			targetVector := getTargetVector(params.TargetVectors)
 			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, targetVector, modules)
 			if err != nil {
 				return nil, err
@@ -317,4 +317,11 @@ func vectorFromModuleInput(ctx context.Context, class, input, targetVector strin
 		return nil, fmt.Errorf("get vector input from modules provider: %w", err)
 	}
 	return vector, nil
+}
+
+func getTargetVector(targetVectors []string) string {
+	if len(targetVectors) == 1 {
+		return targetVectors[0]
+	}
+	return ""
 }
