@@ -132,7 +132,8 @@ func TestSearchOnArrays(t *testing.T) {
 				results, err = c.GraphQL().Get().WithClassName(className).WithBM25(builder).WithFields(graphql.Field{Name: "num"}).Do(ctx)
 				require.Nil(t, err)
 			}
-			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+			result_int := results.Data["Get"].(map[string]interface{})[className]
+			result := result_int.([]interface{})
 			require.Len(t, result, 2)
 			require.Equal(t, 0., result[0].(map[string]interface{})["num"])
 			require.Equal(t, 1., result[1].(map[string]interface{})["num"])

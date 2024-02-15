@@ -138,8 +138,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	if params.HybridSearch.NearTextParams != nil {
 		res, name, err := nearTextSubSearch(ctx, e, params)
 		if err != nil {
-			return nil, err
 			e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
+			return nil, err
 		} else {
 			weights = append(weights, params.HybridSearch.Alpha)
 			results = append(results, res)
@@ -158,8 +158,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 		res, name, err := denseSearch(ctx, params.SearchVector, e, params)
 		if err != nil {
-			return nil, err
 			e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
+			return nil, err
 		} else {
 			weights = append(weights, params.HybridSearch.Alpha)
 			results = append(results, res)
@@ -169,8 +169,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	sparseResults, name, err := sparseSearch(ctx, e, params)
 	if err != nil {
-		return nil, err
 		e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
+		return nil, err
 	} else {
 		weights = append(weights, 1-params.HybridSearch.Alpha)
 		results = append(results, sparseResults)
