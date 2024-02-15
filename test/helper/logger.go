@@ -11,9 +11,9 @@
 
 package helper
 
-// Internal struct to link the HTTP client logging of the Weaviate API client to the test's logging output.
-
 import "testing"
+
+// Internal struct to link the HTTP client logging of the Weaviate API client to the test's logging output.
 
 type testLogger struct {
 	t *testing.T
