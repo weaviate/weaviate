@@ -21,12 +21,23 @@ import (
 
 func (p *commitloggerParser) doCollection() error {
 	for {
-		var version uint8
+		var commitType CommitType
 
-		err := binary.Read(p.checksumReader, binary.LittleEndian, &version)
+		err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
 		if errors.Is(err, io.EOF) {
 			break
 		}
+		if err != nil {
+			return errors.Wrap(err, "read commit type")
+		}
+
+		if !CommitTypeCollection.Is(commitType) {
+			return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
+		}
+
+		var version uint8
+
+		err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
 		if err != nil {
 			return errors.Wrap(err, "read commit version")
 		}
@@ -54,28 +65,13 @@ func (p *commitloggerParser) doCollection() error {
 }
 
 func (p *commitloggerParser) parseCollectionNodeV0() error {
-	var commitType CommitType
-
-	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-	if err != nil {
-		return errors.Wrap(err, "read commit type")
-	}
-
-	if !CommitTypeReplace.Is(commitType) {
-		return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
-	}
-
 	return p.parseCollectionNode(p.reader)
 }
 
 func (p *commitloggerParser) parseCollectionNodeV1() error {
-	commitType, reader, err := p.doRecord()
+	reader, err := p.doRecord()
 	if err != nil {
 		return err
-	}
-
-	if !CommitTypeCollection.Is(commitType) {
-		return errors.Errorf("found a %s commit on a collection bucket", commitType.String())
 	}
 
 	return p.parseCollectionNode(reader)

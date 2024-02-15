@@ -22,12 +22,23 @@ import (
 
 func (p *commitloggerParser) doRoaringSet() error {
 	for {
-		var version uint8
+		var commitType CommitType
 
-		err := binary.Read(p.checksumReader, binary.LittleEndian, &version)
+		err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
 		if errors.Is(err, io.EOF) {
 			break
 		}
+		if err != nil {
+			return errors.Wrap(err, "read commit type")
+		}
+
+		if !CommitTypeRoaringSet.Is(commitType) {
+			return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
+		}
+
+		var version uint8
+
+		err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
 		if err != nil {
 			return errors.Wrap(err, "read commit version")
 		}
@@ -55,28 +66,13 @@ func (p *commitloggerParser) doRoaringSet() error {
 }
 
 func (p *commitloggerParser) parseRoaringSetNodeV0() error {
-	var commitType CommitType
-
-	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-	if err != nil {
-		return errors.Wrap(err, "read commit type")
-	}
-
-	if !CommitTypeRoaringSet.Is(commitType) {
-		return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
-	}
-
 	return p.parseRoaringSetNode(p.reader)
 }
 
 func (p *commitloggerParser) parseRoaringSetNodeV1() error {
-	commitType, reader, err := p.doRecord()
+	reader, err := p.doRecord()
 	if err != nil {
 		return err
-	}
-
-	if !CommitTypeRoaringSet.Is(commitType) {
-		return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
 	}
 
 	return p.parseRoaringSetNode(reader)
