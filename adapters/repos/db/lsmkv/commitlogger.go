@@ -49,13 +49,14 @@ type commitLogger struct {
 
 // commit log entry data format
 // ---------------------------
+// | type (1byte)            |
 // | version == 0 (1byte)    |
 // | record (dynamic length) |
 // ---------------------------
 
 // ------------------------------------------------------
-// | version == 1 (1byte)                               |
 // | type (1byte)                                       |
+// | version == 1 (1byte)                               |
 // | node length (4bytes)                               |
 // | node (dynamic length)                              |
 // | checksum (crc32 4bytes non-checksum fields so far) |
