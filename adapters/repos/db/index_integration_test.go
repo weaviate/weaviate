@@ -106,7 +106,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
@@ -166,7 +166,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
@@ -276,7 +276,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
@@ -333,7 +333,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
