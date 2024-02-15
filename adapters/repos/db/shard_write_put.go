@@ -50,7 +50,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
-	// TODO[named-vectors]: write a test vector insert, maybe it can be done in parallel?
 	if len(object.Vectors) > 0 {
 		for targetVector, vector := range object.Vectors {
 			if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
@@ -76,7 +75,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "update vector index")
 	}
 
-	// TODO[named-vectors]: write a test vector insert, maybe it can be done in parallel?
 	for targetVector, vector := range object.Vectors {
 		if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)

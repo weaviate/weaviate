@@ -751,18 +751,23 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
 
-	targetVectorsLength := uint64(rw.ReadUint32())
-	targetVectors, err := rw.CopyBytesFromBuffer(targetVectorsLength, nil)
-	if err != nil {
-		return errors.Wrap(err, "Could not copy targetVectors")
-	}
-	var targetVectorsMap map[string][]float32
-	if len(targetVectors) > 0 {
-		if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
-			return err
+	// This check prevents from panic when somebody is upgrading from version that
+	// didn't have multi vector support. This check is needed bc with named vectors
+	// feature storage object can have vectors data prepended at the end of the file
+	if len(rw.Buffer) > int(rw.Position) {
+		targetVectorsLength := uint64(rw.ReadUint32())
+		targetVectors, err := rw.CopyBytesFromBuffer(targetVectorsLength, nil)
+		if err != nil {
+			return errors.Wrap(err, "Could not copy targetVectors")
 		}
+		var targetVectorsMap map[string][]float32
+		if len(targetVectors) > 0 {
+			if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
+				return err
+			}
+		}
+		ko.Vectors = targetVectorsMap
 	}
-	ko.Vectors = targetVectorsMap
 
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),

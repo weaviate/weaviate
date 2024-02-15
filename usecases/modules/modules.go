@@ -718,7 +718,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 			}
 			if vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					// TODO[named-vector]: add support for named targetVector param
+					// TODO[named-vectors]: add support for named targetVector param
 					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
 					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 					if err != nil {
