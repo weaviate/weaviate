@@ -668,10 +668,11 @@ func testNodesAPI(repo *DB) func(t *testing.T) {
 			}
 		}
 		assert.Equal(t, int64(3), testClassShardsCount)
-		assert.Equal(t, int64(20), testClassObjectsCount)
+		// a previous version of this test made assertions on object counts,
+		// however with object count becoming async, we can no longer make exact
+		// assertions here. See https://github.com/weaviate/weaviate/issues/4193
+		// for details.
 		assert.Equal(t, int64(3), testRefClassShardsCount)
-		assert.Equal(t, int64(0), testRefClassObjectsCount)
-		assert.Equal(t, int64(20), nodeStatus.Stats.ObjectCount)
 		assert.Equal(t, int64(6), nodeStatus.Stats.ShardCount)
 	}
 }
