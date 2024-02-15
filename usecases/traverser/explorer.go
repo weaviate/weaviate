@@ -42,13 +42,14 @@ import (
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
 type Explorer struct {
-	searcher         objectsSearcher
-	logger           logrus.FieldLogger
-	modulesProvider  ModulesProvider
-	schemaGetter     uc.SchemaGetter
-	nearParamsVector *nearParamsVector
-	metrics          explorerMetrics
-	config           config.Config
+	searcher          objectsSearcher
+	logger            logrus.FieldLogger
+	modulesProvider   ModulesProvider
+	schemaGetter      uc.SchemaGetter
+	nearParamsVector  *nearParamsVector
+	targetParamHelper *targetVectorParamHelper
+	metrics           explorerMetrics
+	config            config.Config
 }
 
 type explorerMetrics interface {
@@ -100,13 +101,14 @@ type hybridSearcher interface {
 // NewExplorer with search and connector repo
 func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesProvider ModulesProvider, metrics explorerMetrics, conf config.Config) *Explorer {
 	return &Explorer{
-		searcher:         searcher,
-		logger:           logger,
-		modulesProvider:  modulesProvider,
-		metrics:          metrics,
-		schemaGetter:     nil, // schemaGetter is set later
-		nearParamsVector: newNearParamsVector(modulesProvider, searcher),
-		config:           conf,
+		searcher:          searcher,
+		logger:            logger,
+		modulesProvider:   modulesProvider,
+		metrics:           metrics,
+		schemaGetter:      nil, // schemaGetter is set later
+		nearParamsVector:  newNearParamsVector(modulesProvider, searcher),
+		targetParamHelper: newTargetParamHelper(),
+		config:            conf,
 	}
 }
 
@@ -201,7 +203,8 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	targetVector, err = e.getTargetVectorOrDefault(params.ClassName, targetVector)
+	targetVector, err = e.targetParamHelper.getTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+		params.ClassName, targetVector)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
@@ -713,24 +716,6 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 ) ([]float32, string, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
 		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
-}
-
-func (e *Explorer) getTargetVectorOrDefault(className, targetVector string) (string, error) {
-	if targetVector == "" {
-		sch := e.schemaGetter.GetSchemaSkipAuth()
-		class := sch.FindClassByName(schema.ClassName(className))
-
-		if len(class.VectorConfig) > 1 {
-			return "", fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
-		}
-
-		if len(class.VectorConfig) == 1 {
-			for name := range class.VectorConfig {
-				return name, nil
-			}
-		}
-	}
-	return targetVector, nil
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
