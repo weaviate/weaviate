@@ -131,5 +131,49 @@ func testSchemaValidation(t *testing.T, host string) func(t *testing.T) {
 				assert.ErrorContains(t, err, tt.validationErrorMsg)
 			}
 		})
+
+		t.Run("default vector", func(t *testing.T) {
+			cleanup()
+			oneTargetVector := "oneTargetVector"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					oneTargetVector: {
+						Vectorizer: map[string]interface{}{
+							text2vecContextionary: map[string]interface{}{
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType:   "flat",
+						VectorIndexConfig: bqFlatIndexConfig(),
+					},
+				},
+			}
+
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.NoError(t, err)
+
+			objWrapper, err := client.Data().Creator().
+				WithClassName(className).
+				WithID(id1).
+				WithProperties(map[string]interface{}{
+					"text": "default target vector",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, objWrapper)
+			assert.Len(t, objWrapper.Object.Vectors, 1)
+
+			nearTextWithoutTargetVector := client.GraphQL().NearTextArgBuilder().
+				WithConcepts([]string{"book"})
+
+			resultVectors := getVectorsWithNearText(t, client, className, id1, nearTextWithoutTargetVector, oneTargetVector)
+			assert.Len(t, resultVectors, 1)
+		})
 	}
 }

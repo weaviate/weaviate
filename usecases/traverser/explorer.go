@@ -201,8 +201,12 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	params.SearchVector = searchVector
+	targetVector, err = e.getTargetVectorOrDefault(params.ClassName, targetVector)
+	if err != nil {
+		return nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+	}
 	params.TargetVector = targetVector
+	params.SearchVector = searchVector
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
@@ -709,6 +713,24 @@ func (e *Explorer) vectorFromParams(ctx context.Context,
 ) ([]float32, string, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
 		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
+}
+
+func (e *Explorer) getTargetVectorOrDefault(className, targetVector string) (string, error) {
+	if targetVector == "" {
+		sch := e.schemaGetter.GetSchemaSkipAuth()
+		class := sch.FindClassByName(schema.ClassName(className))
+
+		if len(class.VectorConfig) > 1 {
+			return "", fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
+		}
+
+		if len(class.VectorConfig) == 1 {
+			for name := range class.VectorConfig {
+				return name, nil
+			}
+		}
+	}
+	return targetVector, nil
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
