@@ -213,7 +213,9 @@ type nodeResolver interface {
 // the shards that are local to a node
 func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
-	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
+	vectorIndexUserConfig schema.VectorIndexConfig,
+	vectorIndexUserConfigs map[string]schema.VectorIndexConfig,
+	sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -233,14 +235,15 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	index := &Index{
-		Config:                cfg,
-		getSchema:             sg,
-		logger:                logger,
-		classSearcher:         cs,
-		vectorIndexUserConfig: vectorIndexUserConfig,
-		invertedIndexConfig:   invertedIndexConfig,
-		stopwords:             sd,
-		replicator:            repl,
+		Config:                 cfg,
+		getSchema:              sg,
+		logger:                 logger,
+		classSearcher:          cs,
+		vectorIndexUserConfig:  vectorIndexUserConfig,
+		vectorIndexUserConfigs: vectorIndexUserConfigs,
+		invertedIndexConfig:    invertedIndexConfig,
+		stopwords:              sd,
+		replicator:             repl,
 		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
@@ -2036,6 +2039,19 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
 		)
+	}
+	return nil
+}
+
+func convertVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
+	if len(configs) > 0 {
+		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
+		for targetVector, vectorConfig := range configs {
+			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schema.VectorIndexConfig); ok {
+				vectorIndexConfigs[targetVector] = vectorIndexConfig
+			}
+		}
+		return vectorIndexConfigs
 	}
 	return nil
 }

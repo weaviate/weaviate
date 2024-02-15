@@ -441,6 +441,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
 				return fmt.Errorf("track dimensions (delete): %w", err)
 			}
+			for vecName, vec := range prevObject.Vectors {
+				if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
+					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+				}
+			}
 		}
 	}
 
@@ -454,9 +459,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
 			return fmt.Errorf("track dimensions: %w", err)
 		}
-		// TODO[named-vectors][andrzej]: add tracking of object.Vectors dimensions
-		// for vectors use separate vector_dimensions_sum_by_vector metric
-		// where label will be the name of the vector
+		for vecName, vec := range object.Vectors {
+			if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
+				return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
+			}
+		}
 	}
 
 	return nil

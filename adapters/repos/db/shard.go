@@ -93,10 +93,6 @@ type ShardLike interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) //
 
-	// TODO tests only
-	Dimensions() int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(segments int) int
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) //
 	MergeObject(ctx context.Context, object objects.MergeDocument) error                   //
 	Queue() *IndexQueue
@@ -124,7 +120,12 @@ type ShardLike interface {
 	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	extendDimensionTrackerLSM(int, uint64) error
+	// TODO tests only
+	Dimensions() int // dim(vector)*number vectors
+	// TODO tests only
+	QuantizedDimensions(segments int) int
+	extendDimensionTrackerLSM(dimLength int, docID uint64) error
+	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
 	publishDimensionMetrics()
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -241,6 +242,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	s.initDimensionTracking()
+
 	if asyncEnabled() {
 		go func() {
 			// preload unindexed objects in the background
@@ -267,13 +270,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 }
 
 func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) error {
-	vectorIndexConfigs := s.getVectorIndexConfigs(class)
-	if len(vectorIndexConfigs) > 0 {
-		s.index.vectorIndexUserConfigs = vectorIndexConfigs
+	if len(s.index.vectorIndexUserConfigs) > 0 {
 		s.vectorIndexes = make(map[string]VectorIndex)
 		s.queues = make(map[string]*IndexQueue)
 
-		for targetVector, vectorIndexConfig := range vectorIndexConfigs {
+		for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
 			vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
 			if err != nil {
 				return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
@@ -287,19 +288,6 @@ func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) erro
 			}
 			s.queues[targetVector] = queue
 		}
-	}
-	return nil
-}
-
-func (s *Shard) getVectorIndexConfigs(class *models.Class) map[string]schema.VectorIndexConfig {
-	if len(class.VectorConfig) > 0 {
-		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
-		for targetVector, vectorConfig := range class.VectorConfig {
-			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schema.VectorIndexConfig); ok {
-				vectorIndexConfigs[targetVector] = vectorIndexConfig
-			}
-		}
-		return vectorIndexConfigs
 	}
 	return nil
 }
@@ -447,8 +435,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	s.initDimensionTracking()
-
 	return nil
 }
 
@@ -528,10 +514,8 @@ func (s *Shard) drop() error {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
-		if s.promMetrics != nil {
-			// send 0 in when index gets dropped
-			s.clearDimensionMetrics()
-		}
+		// send 0 in when index gets dropped
+		s.clearDimensionMetrics()
 	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)

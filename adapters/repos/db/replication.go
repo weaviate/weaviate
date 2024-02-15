@@ -303,6 +303,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 	}
 
 	s.initCycleCallbacks()
+	s.initDimensionTracking()
 
 	return nil
 }
