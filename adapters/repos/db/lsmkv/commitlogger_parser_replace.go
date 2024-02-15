@@ -27,12 +27,23 @@ func (p *commitloggerParser) doReplace() error {
 	var errWhileParsing error
 
 	for {
-		var version uint8
+		var commitType CommitType
 
-		err := binary.Read(p.checksumReader, binary.LittleEndian, &version)
+		err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
 		if errors.Is(err, io.EOF) {
 			break
 		}
+		if err != nil {
+			errWhileParsing = errors.Wrap(err, "read commit type")
+			break
+		}
+		if !CommitTypeReplace.Is(commitType) {
+			return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
+		}
+
+		var version uint8
+
+		err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
 		if err != nil {
 			errWhileParsing = errors.Wrap(err, "read commit version")
 			break
@@ -76,28 +87,13 @@ func (p *commitloggerParser) doReplace() error {
 }
 
 func (p *commitloggerParser) doReplaceRecordV0(nodeCache map[string]segmentReplaceNode) error {
-	var commitType CommitType
-
-	err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-	if err != nil {
-		return errors.Wrap(err, "read commit type")
-	}
-
-	if !CommitTypeReplace.Is(commitType) {
-		return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
-	}
-
 	return p.parseReplaceNode(p.reader, nodeCache)
 }
 
 func (p *commitloggerParser) doReplaceRecordV1(nodeCache map[string]segmentReplaceNode) error {
-	commitType, reader, err := p.doRecord()
+	reader, err := p.doRecord()
 	if err != nil {
 		return err
-	}
-
-	if !CommitTypeReplace.Is(commitType) {
-		return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
 	}
 
 	return p.parseReplaceNode(reader, nodeCache)

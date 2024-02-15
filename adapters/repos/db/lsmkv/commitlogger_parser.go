@@ -55,16 +55,11 @@ func (p *commitloggerParser) Do() error {
 	}
 }
 
-func (p *commitloggerParser) doRecord() (commitType CommitType, r io.Reader, err error) {
-	err = binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
-	if err != nil {
-		return commitType, nil, errors.Wrap(err, "read commit type")
-	}
-
+func (p *commitloggerParser) doRecord() (r io.Reader, err error) {
 	var nodeLen uint32
 	err = binary.Read(p.checksumReader, binary.LittleEndian, &nodeLen)
 	if err != nil {
-		return commitType, nil, errors.Wrap(err, "read commit node length")
+		return nil, errors.Wrap(err, "read commit node length")
 	}
 
 	p.bufNode.Reset()
@@ -75,13 +70,13 @@ func (p *commitloggerParser) doRecord() (commitType CommitType, r io.Reader, err
 	var checksum [4]byte
 	_, err = io.ReadFull(p.reader, checksum[:])
 	if err != nil {
-		return commitType, nil, errors.Wrap(err, "read commit checksum")
+		return nil, errors.Wrap(err, "read commit checksum")
 	}
 
 	// validate checksum
 	if !bytes.Equal(checksum[:], p.checksumReader.Hash()) {
-		return commitType, nil, errors.Wrap(ErrInvalidChecksum, "read commit entry")
+		return nil, errors.Wrap(ErrInvalidChecksum, "read commit entry")
 	}
 
-	return commitType, p.bufNode, nil
+	return p.bufNode, nil
 }
