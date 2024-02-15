@@ -303,6 +303,7 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
+	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
 		ctx,
 		tescontainersnetwork.WithCheckDuplicate(),

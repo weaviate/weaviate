@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -40,13 +40,8 @@ type Memtable struct {
 }
 
 func newMemtable(path string, strategy string,
-	secondaryIndices uint16, metrics *Metrics,
+	secondaryIndices uint16, cl *commitLogger, metrics *Metrics,
 ) (*Memtable, error) {
-	cl, err := newCommitLogger(path)
-	if err != nil {
-		return nil, errors.Wrap(err, "init commit logger")
-	}
-
 	m := &Memtable{
 		key:              &binarySearchTree{},
 		keyMulti:         &binarySearchTreeMulti{},

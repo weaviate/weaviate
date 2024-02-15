@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {

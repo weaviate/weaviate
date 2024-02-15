@@ -22,6 +22,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -31,11 +32,7 @@ func idByte(id string) []byte {
 }
 
 func TestGRPC(t *testing.T) {
-	conn, err := helper.CreateGrpcConnectionClient(":50051")
-	require.NoError(t, err)
-	require.NotNil(t, conn)
-	grpcClient := helper.CreateGrpcWeaviateClient(conn)
-	require.NotNil(t, grpcClient)
+	grpcClient, conn := newClient(t)
 
 	// delete if exists and then re-create Books class
 	booksClass := books.ClassContextionaryVectorizer()
@@ -215,4 +212,13 @@ func TestGRPC(t *testing.T) {
 		_, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{})
 		require.NotNil(t, err)
 	})
+}
+
+func newClient(t *testing.T) (pb.WeaviateClient, *grpc.ClientConn) {
+	conn, err := helper.CreateGrpcConnectionClient(":50051")
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	grpcClient := helper.CreateGrpcWeaviateClient(conn)
+	require.NotNil(t, grpcClient)
+	return grpcClient, conn
 }
