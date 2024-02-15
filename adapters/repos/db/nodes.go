@@ -171,7 +171,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		objectCount := int64(shard.ObjectCount())
+		objectCount := int64(shard.ObjectCountAsync())
 		totalCount += objectCount
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,
