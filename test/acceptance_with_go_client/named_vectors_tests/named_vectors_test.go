@@ -51,6 +51,7 @@ func allTests(t *testing.T, endpoint string) func(t *testing.T) {
 		t.Run("mixed objects with none and vectorizer", testCreateSchemaWithMixedVectorizers(t, endpoint))
 		t.Run("classes with properties setting", testCreateWithModulePropertiesObject(t, endpoint))
 		t.Run("validation", testSchemaValidation(t, endpoint))
+		t.Run("cross references", testReferenceProperties(t, endpoint))
 	}
 }
 

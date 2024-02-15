@@ -636,7 +636,6 @@ func (e *Explorer) extractAdditionalPropertiesFromRef(ref interface{},
 					additionalProperties["vector"] = innerRef.Fields["vector"]
 				}
 				if len(refClass.AdditionalProperties.Vectors) > 0 {
-					// TODO[named-vectors]: make a test for this case (ref props)
 					additionalProperties["vectors"] = innerRef.Fields["vectors"]
 				}
 				if refClass.AdditionalProperties.CreationTimeUnix {
