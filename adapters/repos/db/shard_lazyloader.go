@@ -159,6 +159,11 @@ func (l *LazyLoadShard) ObjectCount() int {
 	return l.shard.ObjectCount()
 }
 
+func (l *LazyLoadShard) ObjectCountAsync() int {
+	l.mustLoad()
+	return l.shard.ObjectCountAsync()
+}
+
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()

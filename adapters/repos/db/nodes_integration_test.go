@@ -134,9 +134,11 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Len(t, nodeStatus.Shards, 1)
 	assert.Equal(t, "ClassNodesAPI", nodeStatus.Shards[0].Class)
 	assert.True(t, len(nodeStatus.Shards[0].Name) > 0)
-	assert.Equal(t, int64(2), nodeStatus.Shards[0].ObjectCount)
+	// a previous version of this test made assertions on object counts,
+	// however with object count becoming async, we can no longer make exact
+	// assertions here. See https://github.com/weaviate/weaviate/issues/4193
+	// for details.
 	assert.Equal(t, "READY", nodeStatus.Shards[0].VectorIndexingStatus)
 	assert.Equal(t, int64(0), nodeStatus.Shards[0].VectorQueueLength)
-	assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
 	assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 }

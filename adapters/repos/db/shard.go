@@ -68,6 +68,7 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
+	ObjectCountAsync() int
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
 
 	PutObject(context.Context, *storobj.Object) error
@@ -780,6 +781,7 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
+// ObjectCount returns the exact count at any moment
 func (s *Shard) ObjectCount() int {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
@@ -787,6 +789,17 @@ func (s *Shard) ObjectCount() int {
 	}
 
 	return b.Count()
+}
+
+// ObjectCountAsync returns the eventually consistent "async" count which is
+// much cheaper to obtain
+func (s *Shard) ObjectCountAsync() int {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	return b.CountAsync()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
