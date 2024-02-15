@@ -317,7 +317,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	if err != lsmkv.NotFound {
+	if !errors.Is(err, lsmkv.NotFound) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
@@ -334,7 +334,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 			return nil, nil
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -396,7 +396,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		return nil, buffer, nil
 	}
 
-	if err != lsmkv.NotFound {
+	if !errors.Is(err, lsmkv.NotFound) {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -413,7 +413,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 			return nil, buffer, nil
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -433,7 +433,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err := b.disk.getCollection(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -442,7 +442,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
 		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		}
@@ -452,7 +452,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -625,7 +625,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -652,7 +652,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		}
@@ -663,7 +663,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}

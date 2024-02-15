@@ -1270,7 +1270,6 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 
-			// Sigh
 			for i := range expected {
 				expected[i].DocID = res[i].DocID
 			}
