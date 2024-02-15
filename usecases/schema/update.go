@@ -149,7 +149,7 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
-	// TODO[named-vectors] add logic that updates multiple vector indexes
+	// TODO[named-vectors][asdine] add logic that updates multiple vector indexes
 
 	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
 		updated.InvertedIndexConfig); err != nil {
