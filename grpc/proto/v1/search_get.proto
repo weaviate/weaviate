@@ -85,6 +85,7 @@ message MetadataRequest {
   bool score = 7;
   bool explain_score = 8;
   bool is_consistent = 9;
+  repeated string vectors = 10;
 }
 
 message PropertiesRequest {
@@ -129,42 +130,49 @@ message NearTextSearch {
   optional double distance = 3;
   optional Move move_to = 4;
   optional Move move_away = 5;
+  repeated string target_vectors = 6;
 };
 
 message NearImageSearch {
   string image = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 };
 
 message NearAudioSearch {
   string audio = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 };
 
 message NearVideoSearch {
   string video = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 };
 
 message NearDepthSearch {
   string depth = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 }
 
 message NearThermalSearch {
   string thermal = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 }
 
 message NearIMUSearch {
   string imu = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 }
 
 message BM25 {
@@ -185,12 +193,14 @@ message NearVector {
   optional double certainty = 2;
   optional double distance = 3;
   bytes vector_bytes = 4;
+  repeated string target_vectors = 5;
 }
 
 message NearObject {
   string id = 1;
   optional double certainty = 2;
   optional double distance = 3;
+  repeated string target_vectors = 4;
 }
 
 message Rerank {
@@ -252,6 +262,7 @@ message MetadataResult {
   bytes id_as_bytes = 20;
   double rerank_score = 21;
   bool rerank_score_present = 22;
+  repeated Vectors vectors = 23;
 }
 
 message PropertiesResult {
