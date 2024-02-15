@@ -19,8 +19,8 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 type commitLogger struct {

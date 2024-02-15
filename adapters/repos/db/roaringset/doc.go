@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// The "roaringset" package contains all the LSM business logic that is unique
+// Package roaringset contains all the LSM business logic that is unique
 // to the "RoaringSet" strategy
 //
 // This package alone does not contain an entire LSM store. It's intended to be

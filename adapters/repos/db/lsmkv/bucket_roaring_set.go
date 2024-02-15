@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -78,7 +79,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	if b.flushing != nil {
 		flushing, err := b.flushing.roaringSetGet(key)
 		if err != nil {
-			if err != lsmkv.NotFound {
+			if !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		} else {
@@ -88,7 +89,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 
 	memtable, err := b.active.roaringSetGet(key)
 	if err != nil {
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	} else {

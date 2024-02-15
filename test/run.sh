@@ -173,7 +173,7 @@ function run_acceptance_tests() {
     run_acceptance_graphql_tests "$@"
   fi
   if $run_acceptance_replication_tests || $run_acceptance_tests || $run_all_tests; then
-  echo "running acceptance replciation"
+  echo "running acceptance replication"
     run_acceptance_replication_tests "$@"
   fi  
 }
