@@ -105,12 +105,12 @@ func newCommitLogger(path string) (*commitLogger, error) {
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
-	err := binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
+	err := binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
 	if err != nil {
 		return err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
 	if err != nil {
 		return err
 	}
