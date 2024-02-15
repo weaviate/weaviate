@@ -46,7 +46,7 @@ type Aggregator struct {
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
-	bitmapFactory          *roaringset.InvertedBitmapFactory
+	bitmapFactory          *roaringset.BitmapFactory
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -56,7 +56,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	propLenTracker *inverted.JsonPropertyLengthTracker,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
-	bitmapFactory *roaringset.InvertedBitmapFactory,
+	bitmapFactory *roaringset.BitmapFactory,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,

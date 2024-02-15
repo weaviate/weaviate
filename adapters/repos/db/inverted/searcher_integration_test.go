@@ -97,7 +97,7 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewInvertedBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",

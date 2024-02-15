@@ -222,19 +222,19 @@ func TestBitmap_Inverted(t *testing.T) {
 	}
 }
 
-func TestInvertedBitmapFactory(t *testing.T) {
+func TestBitmapFactory(t *testing.T) {
 	maxVal := uint64(10)
 	maxValGetter := func() uint64 { return maxVal }
-	bmf := NewInvertedBitmapFactory(maxValGetter)
+	bmf := NewBitmapFactory(maxValGetter)
 	t.Logf("card: %d", bmf.bitmap.GetCardinality())
 
 	currMax := bmf.currentMaxVal
 	t.Run("max val set correctly", func(t *testing.T) {
-		assert.Equal(t, maxVal+MaxBufferIncrement, currMax)
+		assert.Equal(t, maxVal+DefaultBufferIncrement, currMax)
 	})
 
 	t.Run("max val increased to threshold does not change cardinality", func(t *testing.T) {
-		maxVal += 1000
+		maxVal += 100
 		assert.NotNil(t, bmf.GetBitmap())
 		assert.Equal(t, currMax, bmf.currentMaxVal)
 		assert.Equal(t, currMax+1, uint64(bmf.bitmap.GetCardinality()))

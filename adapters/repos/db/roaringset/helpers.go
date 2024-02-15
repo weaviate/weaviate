@@ -134,33 +134,26 @@ func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
 type MaxValGetterFunc func() uint64
 
 const (
-	// MaxBufferIncrement is the amount of bits greater than <maxVal> to reduce
-	// the amount of times InvertedBitmapFactory has to reallocate. Note
-	// that is only applied on the first initialization of the factory
-	MaxBufferIncrement = uint64(1000)
 	// DefaultBufferIncrement  is the amount of bits greater than <maxVal>
-	// to reduce the amount of times InvertedBitmapFactory has to reallocate.
-	// This value is used only on increments which occur after initialization
+	// to reduce the amount of times BitmapFactory has to reallocate.
 	DefaultBufferIncrement = uint64(100)
 )
 
-// InvertedBitmapFactory exists to prevent an expensive call to
+// BitmapFactory exists to prevent an expensive call to
 // NewBitmapPrefill each time NewInvertedBitmap is invoked
-type InvertedBitmapFactory struct {
-	bitmap          *sroar.Bitmap
-	maxValGetter    MaxValGetterFunc
-	currentMaxVal   uint64
-	bufferIncrement uint64
-	lock            sync.RWMutex
+type BitmapFactory struct {
+	bitmap        *sroar.Bitmap
+	maxValGetter  MaxValGetterFunc
+	currentMaxVal uint64
+	lock          sync.RWMutex
 }
 
-func NewInvertedBitmapFactory(maxValGetter MaxValGetterFunc) *InvertedBitmapFactory {
-	maxVal := maxValGetter() + MaxBufferIncrement
-	return &InvertedBitmapFactory{
-		bitmap:          NewBitmapPrefill(maxVal),
-		maxValGetter:    maxValGetter,
-		currentMaxVal:   maxVal,
-		bufferIncrement: DefaultBufferIncrement,
+func NewBitmapFactory(maxValGetter MaxValGetterFunc) *BitmapFactory {
+	maxVal := maxValGetter() + DefaultBufferIncrement
+	return &BitmapFactory{
+		bitmap:        NewBitmapPrefill(maxVal),
+		maxValGetter:  maxValGetter,
+		currentMaxVal: maxVal,
 	}
 }
 
@@ -169,7 +162,7 @@ func NewInvertedBitmapFactory(maxValGetter MaxValGetterFunc) *InvertedBitmapFact
 // internal bitmap, is that a Clone() operation is much cheaper than prefilling
 // a map up to <maxDocID> elements is an expensive operation, and this way we
 // only have to do it once.
-func (bmf *InvertedBitmapFactory) GetBitmap() *sroar.Bitmap {
+func (bmf *BitmapFactory) GetBitmap() *sroar.Bitmap {
 	bmf.lock.RLock()
 	maxVal := bmf.maxValGetter()
 
@@ -198,14 +191,14 @@ func (bmf *InvertedBitmapFactory) GetBitmap() *sroar.Bitmap {
 	// maxVal has grown to exceed even the buffer,
 	// time to expand
 	{
-		length := maxVal + bmf.bufferIncrement - bmf.currentMaxVal
+		length := maxVal + DefaultBufferIncrement - bmf.currentMaxVal
 		list := make([]uint64, length)
 		for i := uint64(0); i < length; i++ {
 			list[i] = bmf.currentMaxVal + i + 1
 		}
 
 		bmf.bitmap.Or(sroar.FromSortedList(list))
-		bmf.currentMaxVal = maxVal + bmf.bufferIncrement
+		bmf.currentMaxVal = maxVal + DefaultBufferIncrement
 	}
 
 	return bmf.bitmap.Clone()

@@ -62,7 +62,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 					bm := sroar.NewBitmap()
 					bm.SetMany([]uint64{111, 222, 333})
 					return roaringset.NewInvertedBitmap(
-						bm, maxDocID+roaringset.MaxBufferIncrement).ToArray()
+						bm, maxDocID+roaringset.DefaultBufferIncrement).ToArray()
 				}()},
 			},
 		},
@@ -292,7 +292,7 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, entlsmkv.NotFound
 		},
-		bitmapFactory: roaringset.NewInvertedBitmapFactory(
+		bitmapFactory: roaringset.NewBitmapFactory(
 			func() uint64 { return maxDocID }),
 	}
 }

@@ -30,12 +30,12 @@ type RowReaderFrequency struct {
 	operator      filters.Operator
 	keyOnly       bool
 	shardVersion  uint16
-	bitmapFactory *roaringset.InvertedBitmapFactory
+	bitmapFactory *roaringset.BitmapFactory
 }
 
 func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
-	bitmapFactory *roaringset.InvertedBitmapFactory,
+	bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
 	return &RowReaderFrequency{
 		bucket:        bucket,
