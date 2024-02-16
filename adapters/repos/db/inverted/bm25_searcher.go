@@ -297,10 +297,12 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			return nil, nil, err
 		}
 
-		if len(objectByte) == 0 && !loggedMissingObjects {
-			b.logger.Warnf("Skipping object in BM25: object with id %v has a length of 0 bytes (not found).", res.ID)
-			b.logger.Warnf("This is likely due to a partial WAL recovery. Further occurrences of this message for this query will be suppressed.")
-			loggedMissingObjects = true
+		if len(objectByte) == 0 {
+			if !loggedMissingObjects {
+				b.logger.Warnf("Skipping object in BM25: object with id %v has a length of 0 bytes (not found).", res.ID)
+				b.logger.Warnf("This is likely due to a partial WAL recovery. Further occurrences of this message for this query will be suppressed.")
+				loggedMissingObjects = true
+			}
 			continue
 		}
 
