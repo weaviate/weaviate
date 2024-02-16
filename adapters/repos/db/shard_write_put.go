@@ -482,6 +482,9 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 	if !common.VectorsEqual(prevObj.Vector, nextObj.Vector) {
 		return false, false
 	}
+	if !targetVectorsEqual(prevObj.Vectors, nextObj.Vectors) {
+		return false, false
+	}
 	if !addPropsEqual(prevObj.Object.Additional, nextObj.Object.Additional) {
 		return true, false
 	}
@@ -542,6 +545,29 @@ func uuidToString(u uuid.UUID) string {
 		return string(b)
 	}
 	return ""
+}
+
+func targetVectorsEqual(prevTargetVectors, nextTargetVectors map[string][]float32) bool {
+	if len(prevTargetVectors) == 0 && len(nextTargetVectors) == 0 {
+		return true
+	}
+
+	visited := map[string]struct{}{}
+	for vecName, vec := range prevTargetVectors {
+		if !common.VectorsEqual(vec, nextTargetVectors[vecName]) {
+			return false
+		}
+		visited[vecName] = struct{}{}
+	}
+	for vecName, vec := range nextTargetVectors {
+		if _, ok := visited[vecName]; !ok {
+			if !common.VectorsEqual(vec, prevTargetVectors[vecName]) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func addPropsEqual(prevAddProps, nextAddProps models.AdditionalProperties) bool {
