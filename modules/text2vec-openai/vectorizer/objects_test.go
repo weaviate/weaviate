@@ -27,17 +27,18 @@ import (
 // text2vec-contextionary module
 func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               *models.Object
-		expectedClientCall  string
-		expectedOpenAIType  string
-		expectedOpenAIModel string
-		noindex             string
-		excludedProperty    string // to simulate a schema where property names aren't vectorized
-		excludedClass       string // to simulate a schema where class names aren't vectorized
-		openAIType          string
-		openAIModel         string
-		openAIModelVersion  string
+		name                          string
+		input                         *models.Object
+		expectedClientCall            string
+		expectedOpenAIType            string
+		expectedOpenAIModel           string
+		noindex                       string
+		excludedProperty              string // to simulate a schema where property names aren't vectorized
+		excludedClass                 string // to simulate a schema where class names aren't vectorized
+		openAIType                    string
+		openAIModel                   string
+		openAIModelVersion            string
+		disableLowerCasePropertyValue bool
 	}
 
 	propsSchema := []*models.Property{
@@ -198,6 +199,17 @@ func TestVectorizingObjects(t *testing.T) {
 			},
 			expectedClientCall: "super car brand of the car best brand review a very great car",
 		},
+		{
+			name: "object with one upper case prop",
+			input: &models.Object{
+				Class: "Car",
+				Properties: map[string]interface{}{
+					"brand": "Mercedes",
+				},
+			},
+			expectedClientCall:            "car brand Mercedes",
+			disableLowerCasePropertyValue: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -216,6 +228,9 @@ func TestVectorizingObjects(t *testing.T) {
 				vectorizePropertyName: true,
 				skippedProperty:       test.noindex,
 				excludedProperty:      test.excludedProperty,
+			}
+			if test.disableLowerCasePropertyValue {
+				cfg.classConfig["lowerCasePropertyValue"] = false
 			}
 			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)
 			vector, _, err := v.Object(context.Background(), test.input, comp, cfg)

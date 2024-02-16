@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	DefaultPropertyIndexed       = true
-	DefaultVectorizeClassName    = true
-	DefaultVectorizePropertyName = false
+	DefaultPropertyIndexed        = true
+	DefaultVectorizeClassName     = true
+	DefaultVectorizePropertyName  = false
+	DefaultLowerCasePropertyValue = true
 )
 
 type BaseClassSettings struct {
@@ -115,6 +116,24 @@ func (s *BaseClassSettings) Properties() []string {
 	}
 
 	return nil
+}
+
+func (cs *BaseClassSettings) LowerCasePropertyValue() bool {
+	if cs.cfg == nil {
+		return DefaultLowerCasePropertyValue
+	}
+
+	lpv, ok := cs.cfg.Class()["lowerCasePropertyValue"]
+	if !ok {
+		return DefaultLowerCasePropertyValue
+	}
+
+	asBool, ok := lpv.(bool)
+	if !ok {
+		return DefaultLowerCasePropertyValue
+	}
+
+	return asBool
 }
 
 func (s *BaseClassSettings) Validate() error {
