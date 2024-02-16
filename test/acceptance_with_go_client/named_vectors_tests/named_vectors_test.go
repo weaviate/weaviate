@@ -30,9 +30,31 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 	t.Run("tests", allTests(t, endpoint))
 }
 
+func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironmentAsyncIndexing(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+	t.Run("tests", allTests(t, endpoint))
+}
+
 func TestNamedVectors_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := createClusterEnvironment(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+	t.Run("tests", allTests(t, endpoint))
+}
+
+func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createClusterEnvironmentAsyncIndexing(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
@@ -62,8 +84,24 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	return
 }
 
+func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
+	compose, err = composeModules().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviate().
+		Start(ctx)
+	return
+}
+
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
+		WithWeaviateCluster().
+		Start(ctx)
+	return
+}
+
+func createClusterEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
+	compose, err = composeModules().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateCluster().
 		Start(ctx)
 	return
