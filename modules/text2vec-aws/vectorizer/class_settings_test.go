@@ -104,6 +104,18 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("wrong service, available services are: [bedrock sagemaker], " +
 				"region cannot be empty"),
 		},
+		{
+			name: "wrong properties",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"service":    "bedrock",
+					"region":     "us-west-1",
+					"model":      "cohere.embed-multilingual-v3",
+					"properties": []interface{}{"prop1", 1111},
+				},
+			},
+			wantErr: errors.Errorf("properties field value: 1111 must be a string"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

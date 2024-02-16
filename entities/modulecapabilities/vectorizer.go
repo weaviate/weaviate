@@ -26,7 +26,7 @@ type Vectorizer interface {
 	// by extending it with the desired vector and - if applicable - any meta
 	// information as part of _additional properties
 	VectorizeObject(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) error
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 }
 
 type FindObjectFn = func(ctx context.Context, class string, id strfmt.UUID,
@@ -39,7 +39,7 @@ type ReferenceVectorizer interface {
 	// VectorizeObject should mutate the object which is passed in as a pointer-type
 	// by extending it with the desired vector, which is calculated by the module
 	VectorizeObject(ctx context.Context, object *models.Object,
-		cfg moduletools.ClassConfig, findObjectFn FindObjectFn) error
+		cfg moduletools.ClassConfig, findObjectFn FindObjectFn) ([]float32, error)
 }
 
 type InputVectorizer interface {

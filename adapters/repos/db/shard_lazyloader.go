@@ -204,11 +204,11 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVector, targetDist, limit, filters, sort, groupBy, additional)
+	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
@@ -267,12 +267,13 @@ func (l *LazyLoadShard) drop() error {
 
 		// cleanup dimensions
 		if idx.Config.TrackVectorDimensions {
-			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName, idx.vectorIndexUserConfig)
+			clearDimensionMetrics(l.shardOpts.promMetrics, className, shardName,
+				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
 		}
 
 		// cleanup queue
 		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.indexCheckpoints.Delete(shardId(idx.ID(), shardName)); err != nil {
+			if err := l.shardOpts.indexCheckpoints.Drop(); err != nil {
 				return fmt.Errorf("delete checkpoint: %w", err)
 			}
 		}
@@ -380,6 +381,11 @@ func (l *LazyLoadShard) Queue() *IndexQueue {
 	return l.shard.Queue()
 }
 
+func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
+	l.mustLoad()
+	return l.shard.Queues()
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
 		return nil
@@ -404,6 +410,11 @@ func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, e
 func (l *LazyLoadShard) VectorIndex() VectorIndex {
 	l.mustLoad()
 	return l.shard.VectorIndex()
+}
+
+func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
+	l.mustLoad()
+	return l.shard.VectorIndexes()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {
@@ -470,9 +481,18 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 	return l.shard.filePutter(ctx, shardID)
 }
 
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimensions int, docID uint64) error {
-	l.mustLoad()
-	return l.shard.extendDimensionTrackerLSM(dimensions, docID)
+func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64) error {
+	if err := l.Load(context.Background()); err != nil {
+		return err
+	}
+	return l.shard.extendDimensionTrackerLSM(dimLength, docID)
+}
+
+func (l *LazyLoadShard) extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error {
+	if err := l.Load(context.Background()); err != nil {
+		return err
+	}
+	return l.shard.extendDimensionTrackerForVecLSM(dimLength, docID, vecName)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
@@ -540,6 +560,11 @@ func (l *LazyLoadShard) updatePropertySpecificIndices(object *storobj.Object, st
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error {
 	l.mustLoad()
 	return l.shard.updateVectorIndexIgnoreDelete(vector, status)
+}
+
+func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error {
+	l.mustLoad()
+	return l.shard.updateVectorIndexesIgnoreDelete(vectors, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {

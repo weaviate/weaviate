@@ -19,6 +19,7 @@ import (
 
 type Config struct {
 	ID               string
+	TargetVector     string
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
 }

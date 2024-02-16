@@ -239,6 +239,14 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 			ob.setErrorAtIndex(err, pos)
 		}
 	}
+
+	for targetVector, queue := range ob.shard.Queues() {
+		if err := queue.Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
+			}
+		}
+	}
 }
 
 // storeAdditionalStorageWithWorkers stores the object in all non-key-value
@@ -281,6 +289,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 	vectors := make([]vectorDescriptor, 0, len(ob.objects))
+	targetVectors := make(map[string][]vectorDescriptor)
 	for i, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 
@@ -301,21 +310,44 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			continue
 		}
 
-		if len(object.Vector) == 0 {
+		if len(object.Vector) == 0 && len(object.Vectors) == 0 {
 			continue
 		}
 
-		desc := vectorDescriptor{
-			id:     status.docID,
-			vector: object.Vector,
+		if len(object.Vector) > 0 {
+			desc := vectorDescriptor{
+				id:     status.docID,
+				vector: object.Vector,
+			}
+
+			vectors = append(vectors, desc)
 		}
 
-		vectors = append(vectors, desc)
+		if len(object.Vectors) > 0 {
+			for targetVector, vector := range object.Vectors {
+				targetVectors[targetVector] = append(targetVectors[targetVector], vectorDescriptor{
+					id:     status.docID,
+					vector: vector,
+				})
+			}
+		}
 	}
 
 	err := ob.shard.Queue().Push(ctx, vectors...)
 	if err != nil {
 		ob.setErrorAtIndex(err, 0)
+	}
+
+	for targetVector, vectors := range targetVectors {
+		queue, ok := ob.shard.Queues()[targetVector]
+		if !ok {
+			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
+		} else {
+			err := queue.Push(ctx, vectors...)
+			if err != nil {
+				ob.setErrorAtIndex(err, 0)
+			}
+		}
 	}
 }
 
@@ -358,7 +390,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		return
 	}
 
-	if object.Vector != nil {
+	if object.Vector != nil || len(object.Vectors) > 0 {
 		// By this time all required deletes (e.g. because of DocID changes) have
 		// already been grouped and performed in bulk. Only the insertions are
 		// left. The motivation for this change is explained in
@@ -378,9 +410,17 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		// shard.updateVectorIndex which would also handle the delete as required
 		// for a non-batch update. Instead a new method has been introduced that
 		// ignores deletes.
-		if err := ob.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
-			ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
-			return
+		if object.Vector != nil {
+			if err := ob.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+				return
+			}
+		}
+		if len(object.Vectors) > 0 {
+			if err := ob.shard.updateVectorIndexesIgnoreDelete(object.Vectors, status); err != nil {
+				ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+				return
+			}
 		}
 	}
 
@@ -437,6 +477,14 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 	if err := ob.shard.VectorIndex().Flush(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
+		}
+	}
+
+	for targetVector, vectorIndex := range ob.shard.VectorIndexes() {
+		if err := vectorIndex.Flush(); err != nil {
+			for i := range ob.objects {
+				ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
 		}
 	}
 

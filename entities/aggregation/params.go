@@ -28,6 +28,7 @@ type Params struct {
 	Limit            *int                       `json:"limit"`
 	ObjectLimit      *int                       `json:"objectLimit"`
 	SearchVector     []float32                  `json:"searchVector"`
+	TargetVector     string                     `json:"targetVector"`
 	Certainty        float64                    `json:"certainty"`
 	Tenant           string                     `json:"tenant"`
 	ModuleParams     map[string]interface{}     `json:"moduleParams"`

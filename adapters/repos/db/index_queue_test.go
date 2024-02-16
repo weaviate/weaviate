@@ -147,7 +147,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 2,
 		})
 		require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestIndexQueue(t *testing.T) {
 			called <- struct{}{}
 			return nil
 		}
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     100,
 			IndexInterval: time.Microsecond,
 		})
@@ -210,7 +210,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 1,
 		})
 		require.NoError(t, err)
@@ -228,7 +228,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     3,
 			IndexInterval: 100 * time.Millisecond,
 		})
@@ -251,7 +251,7 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("search with empty index", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 6,
 		})
 		require.NoError(t, err)
@@ -274,7 +274,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 5,
 		})
 		require.NoError(t, err)
@@ -301,7 +301,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     4,
 			IndexInterval: 100 * time.Millisecond,
 		})
@@ -359,7 +359,7 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("brute force upper limit", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:             1000,
 			BruteForceSearchLimit: 2,
 		})
@@ -382,7 +382,7 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 
 		dir := t.TempDir()
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManagerWithDir(t, dir), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManagerWithDir(t, dir), IndexQueueOptions{
 			BatchSize:     5,
 			IndexInterval: time.Hour,
 		})
@@ -394,13 +394,13 @@ func TestIndexQueue(t *testing.T) {
 		writeIDs(q, 9, 13) // [5, 6, 9, 10, 11], [12]
 		writeIDs(q, 0, 5)  // [5, 6, 9, 10, 11], [12, 0, 1, 2, 3], [4]
 		time.Sleep(100 * time.Millisecond)
-		before, err := q.checkpoints.Get("1")
+		before, err := q.checkpoints.Get("1", "")
 		require.NoError(t, err)
 		q.pushToWorkers(-1, false)
 		// the checkpoint should be: 0, then 0
 		// the cursor should not be updated
 		wait(100 * time.Millisecond)
-		after, err := q.checkpoints.Get("1")
+		after, err := q.checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.Equal(t, before, after)
 
@@ -417,7 +417,7 @@ func TestIndexQueue(t *testing.T) {
 		wait()
 		// 29
 		wait()
-		v, err := q.checkpoints.Get("1")
+		v, err := q.checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.Equal(t, 29, int(v))
 	})
@@ -430,7 +430,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     5,
 			StaleTimeout:  100 * time.Millisecond,
 			IndexInterval: 10 * time.Millisecond,
@@ -467,7 +467,7 @@ func TestIndexQueue(t *testing.T) {
 			},
 		}
 
-		q, err := NewIndexQueue("1", &shard, &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", &shard, &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 100 * time.Millisecond,
 		})
@@ -508,7 +508,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 5,
 		})
 		require.NoError(t, err)
@@ -528,7 +528,7 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 		idx.distancerProvider = distancer.NewCosineDistanceProvider()
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     7, // 300 is not divisible by 7
 			IndexInterval: 100 * time.Second,
 		})
@@ -560,7 +560,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
 		})
@@ -614,7 +614,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
 		})
@@ -677,7 +677,7 @@ func TestIndexQueue(t *testing.T) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 		defer index.Shutdown(context.Background())
 
-		q, err := NewIndexQueue("1", new(mockShard), index, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), index, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
 		})
@@ -696,7 +696,7 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 100 * time.Second,
 		})
@@ -715,7 +715,7 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("release twice", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     10,
 			IndexInterval: time.Hour, // do not index automatically
 		})
@@ -748,7 +748,7 @@ func BenchmarkPush(b *testing.B) {
 		return nil
 	}
 
-	q, err := NewIndexQueue("1", new(mockShard), &idx, startWorker(b), newCheckpointManager(b), IndexQueueOptions{
+	q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(b), newCheckpointManager(b), IndexQueueOptions{
 		BatchSize:     1000,
 		IndexInterval: 1 * time.Millisecond,
 	})
