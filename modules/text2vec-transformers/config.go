@@ -44,6 +44,9 @@ func (m *TransformersModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := vectorizer.NewClassSettings(cfg)
+	if err := settings.Validate(class); err != nil {
+		return err
+	}
 	return NewConfigValidator(m.logger).Do(ctx, class, cfg, settings)
 }
 

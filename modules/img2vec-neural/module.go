@@ -38,9 +38,9 @@ type ImageModule struct {
 
 type imageVectorizer interface {
 	Object(ctx context.Context, object *models.Object, comp moduletools.VectorizablePropsComparator,
-		settings vectorizer.ClassSettings) error
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context,
-		id, image string) ([]float32, error)
+		id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (m *ImageModule) Name() string {
@@ -91,9 +91,8 @@ func (m *ImageModule) RootHandler() http.Handler {
 
 func (m *ImageModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, comp, icheck)
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
 func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {

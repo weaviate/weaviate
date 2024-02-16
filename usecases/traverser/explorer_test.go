@@ -2757,26 +2757,30 @@ type fakeModulesProvider struct {
 	customC11yModule *fakeText2vecContextionaryModule
 }
 
-func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	panic("not implemented")
 }
 
 func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn, tenant string,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	return vectorForParams(ctx, params, "", findVectorFn, nil)
+	targetVector := ""
+	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
+	return vec, targetVector, err
 }
 
 func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	return vectorForParams(ctx, params, "", findVectorFn, nil)
+	targetVector := ""
+	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
+	return vec, targetVector, err
 }
 
 func (p *fakeModulesProvider) CrossClassValidateSearchParam(name string, value interface{}) error {

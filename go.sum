@@ -562,11 +562,14 @@ github.com/tklauser/go-sysconf v0.3.12 h1:0QaGUFOdQaIVdPgfITYzaTegZvdCjmYO52cSFA
 github.com/tklauser/go-sysconf v0.3.12/go.mod h1:Ho14jnntGE1fpdOqQEEaiKRpvIavV0hSfmBq8nJbHYI=
 github.com/tklauser/numcpus v0.6.1 h1:ng9scYS7az0Bk4OZLvrNXNSAO2Pxr1XXRAPyjhIx+Fk=
 github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9fESEdAacY=
-github.com/urfave/cli v1.22.1/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
 github.com/vcaesar/cedar v0.20.1 h1:cDOmYWdprO7ZW8cngJrDi8Zivnscj9dA/y8Y+2SB1P0=
 github.com/vcaesar/cedar v0.20.1/go.mod h1:iMDweyuW76RvSrCkQeZeQk4iCbshiPzcCvcGCtpM7iI=
-github.com/vishvananda/netlink v1.1.0/go.mod h1:cTgwzPIzzgDAYoQrMm0EdrjRUBkTqKYppBueQtXaqoE=
-github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df/go.mod h1:JP3t17pCcGlemwknint6hfoeCVQrEMVwxRLRjXpq+BU=
+github.com/vcaesar/tt v0.20.0 h1:9t2Ycb9RNHcP0WgQgIaRKJBB+FrRdejuaL6uWIHuoBA=
+github.com/vcaesar/tt v0.20.0/go.mod h1:GHPxQYhn+7OgKakRusH7KJ0M5MhywoeLb8Fcffs/Gtg=
+github.com/vmihailenco/msgpack/v5 v5.4.1 h1:cQriyiUvjTwOHg8QZaPihLWeRAAVoCpE00IUPn0Bjt8=
+github.com/vmihailenco/msgpack/v5 v5.4.1/go.mod h1:GaZTsDaehaPpQVyxrf5mtQlH+pc21PIudVV/E3rRQok=
+github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAhO7/IwNM9g=
+github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
 github.com/weaviate/contextionary v1.2.1 h1:mmxHVc1mWpqivLHEA/ITHUiAOZziIDluYfKysIgEmnM=
 github.com/weaviate/contextionary v1.2.1/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
 github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d h1:bULMGmIS786YSmm/SssAmwu86y4saMoHhvuL0u7pWLc=
