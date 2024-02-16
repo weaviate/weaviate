@@ -121,10 +121,18 @@ func (t *DiskTree) Seek(key []byte) (Node, error) {
 		return Node{}, lsmkv.NotFound
 	}
 
-	return t.seekAt(0, key)
+	return t.seekAt(0, key, true)
 }
 
-func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
+func (t *DiskTree) Next(key []byte) (Node, error) {
+	if len(t.data) == 0 {
+		return Node{}, lsmkv.NotFound
+	}
+
+	return t.seekAt(0, key, false)
+}
+
+func (t *DiskTree) seekAt(offset int64, key []byte, includingKey bool) (Node, error) {
 	node, err := t.readNodeAt(offset)
 	if err != nil {
 		return Node{}, err
@@ -136,7 +144,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 		End:   node.endPos,
 	}
 
-	if bytes.Equal(key, node.key) {
+	if includingKey && bytes.Equal(key, node.key) {
 		return self, nil
 	}
 
@@ -145,7 +153,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 			return self, nil
 		}
 
-		left, err := t.seekAt(node.leftChild, key)
+		left, err := t.seekAt(node.leftChild, key, includingKey)
 		if err == nil {
 			return left, nil
 		}
@@ -160,7 +168,7 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 			return Node{}, lsmkv.NotFound
 		}
 
-		return t.seekAt(node.rightChild, key)
+		return t.seekAt(node.rightChild, key, includingKey)
 	}
 }
 
