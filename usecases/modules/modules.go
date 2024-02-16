@@ -705,20 +705,17 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 			var vectorSearches modulecapabilities.ArgumentVectorForParams
 			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 				if mod.Name() == targetModule {
-					// TODO[named-vectors]: dependecy modules like qna are tricky to handle
 					moduleName = mod.Name()
 					vectorSearches = searcher.VectorSearches()
 				}
 			} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
 				if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
-					// TODO[named-vectors]: check if here needs to be passed targetVector
 					moduleName = targetModule
 					vectorSearches = dependencySearchers[targetModule]
 				}
 			}
 			if vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					// TODO[named-vectors]: add support for named targetVector param
 					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
 					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 					if err != nil {

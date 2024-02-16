@@ -349,7 +349,6 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			}
 		}
 	}
-	// TODO[named-vectors][asdine]: how to handle queues here?
 }
 
 func (ob *objectsBatcher) shouldSkipInAdditionalStorage(i int, status objectInsertStatus) bool {

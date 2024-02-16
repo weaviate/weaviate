@@ -122,10 +122,6 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 
-	if args.TargetVectors == nil || len(args.TargetVectors) == 0 {
-		args.TargetVectors = []string{"default"}
-	}
-
 	args.Type = "hybrid"
 	return &args, nil
 }

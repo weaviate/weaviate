@@ -149,7 +149,9 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
 		return errors.Wrap(err, "vector index config")
 	}
-	// TODO[named-vectors][asdine] add logic that updates multiple vector indexes
+
+	// TODO[named-vectors] add logic that updates multiple vector indexes when
+	// someone chooses to enable PQ for a specific target vector
 
 	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
 		updated.InvertedIndexConfig); err != nil {
