@@ -65,6 +65,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		class.VectorIndexConfig.(schema.VectorIndexConfig),
+		convertVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
@@ -410,8 +411,15 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		// Iterate over all shards
 		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID)
-			return err
+			if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
+				return err
+			}
+			for vecName, vec := range object.Vectors {
+				if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
+					return err
+				}
+			}
+			return nil
 		}); err != nil {
 			return err
 		}

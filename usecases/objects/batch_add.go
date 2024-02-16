@@ -178,7 +178,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 				if searchObj != nil {
 					prevObj := searchObj.Object()
 					return moduletools.NewVectorizablePropsComparator(class.Properties,
-						object.Properties, prevObj.Properties, prevObj.Vector), nil
+						object.Properties, prevObj.Properties, prevObj.Vector, prevObj.Vectors), nil
 				}
 				return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
 			}

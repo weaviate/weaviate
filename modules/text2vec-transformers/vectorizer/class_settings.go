@@ -12,7 +12,9 @@
 package vectorizer
 
 import (
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -23,67 +25,12 @@ const (
 )
 
 type classSettings struct {
+	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
-}
-
-func (ic *classSettings) PropertyIndexed(propName string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultPropertyIndexed
-	}
-
-	vcn, ok := ic.cfg.Property(propName)["skip"]
-	if !ok {
-		return DefaultPropertyIndexed
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultPropertyIndexed
-	}
-
-	return !asBool
-}
-
-func (ic *classSettings) VectorizePropertyName(propName string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultVectorizePropertyName
-	}
-	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
-	if !ok {
-		return DefaultVectorizePropertyName
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultVectorizePropertyName
-	}
-
-	return asBool
-}
-
-func (ic *classSettings) VectorizeClassName() bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultVectorizeClassName
-	}
-
-	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
-	if !ok {
-		return DefaultVectorizeClassName
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultVectorizeClassName
-	}
-
-	return asBool
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
 func (ic *classSettings) PoolingStrategy() string {
@@ -103,4 +50,8 @@ func (ic *classSettings) PoolingStrategy() string {
 	}
 
 	return asString
+}
+
+func (ic *classSettings) Validate(class *models.Class) error {
+	return ic.BaseClassSettings.Validate()
 }

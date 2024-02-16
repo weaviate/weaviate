@@ -90,6 +90,7 @@ func (db *DB) init(ctx context.Context) error {
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				class.VectorIndexConfig.(schema.VectorIndexConfig),
+				convertVectorIndexConfigs(class.VectorConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
 			if err != nil {

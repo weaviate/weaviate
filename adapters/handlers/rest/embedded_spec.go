@@ -3580,6 +3580,12 @@ func init() {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -4159,11 +4165,15 @@ func init() {
           "type": "string"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         }
       }
     },
@@ -4689,9 +4699,41 @@ func init() {
         }
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -8796,6 +8838,12 @@ func init() {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -9401,11 +9449,15 @@ func init() {
           "type": "string"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         }
       }
     },
@@ -9949,9 +10001,41 @@ func init() {
         }
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
