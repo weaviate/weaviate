@@ -29,7 +29,7 @@ func (s *Shard) initHashBeater() {
 	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
 
 	go func() {
-		t := time.NewTicker(1 * time.Second)
+		t := time.NewTicker(100 * time.Millisecond)
 		defer t.Stop()
 		for {
 			select {
@@ -88,9 +88,6 @@ func (s *Shard) hashBeat() error {
 			if err != nil {
 				return fmt.Errorf("difference reading: %w", err)
 			}
-
-			// initialToken := uint64(0)
-			// finalToken := uint64(math.MaxUint64)
 
 			_, err = s.stepsTowardsShardConsistency(
 				s.hashBeaterCtx,
