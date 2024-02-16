@@ -704,3 +704,127 @@ func TestPropsEqual(t *testing.T) {
 		})
 	}
 }
+
+func TestTargetVectorsEqual(t *testing.T) {
+	vec1 := []float32{1, 2, 3}
+	vec2 := []float32{2, 3, 4}
+	vec3 := []float32{3, 4, 5}
+	vec4 := []float32{4, 5, 6}
+
+	type testCase struct {
+		prevVecs      map[string][]float32
+		nextVecs      map[string][]float32
+		expectedEqual bool
+	}
+
+	testCases := []testCase{
+		{
+			prevVecs:      nil,
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      map[string][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      nil,
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      map[string][]float32{},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      map[string][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+
+		{
+			prevVecs:      map[string][]float32{"vec": nil},
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][]float32{"vec": nil},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": nil},
+			nextVecs:      map[string][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      map[string][]float32{"vec": nil},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      map[string][]float32{"vec": nil},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": nil},
+			nextVecs:      map[string][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec4": vec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      map[string][]float32{"vec": vec2},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": vec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": vec4},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			expectedEqual: false,
+		},
+	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
+			eq := targetVectorsEqual(tc.prevVecs, tc.nextVecs)
+
+			if tc.expectedEqual {
+				assert.True(t, eq)
+			} else {
+				assert.False(t, eq)
+			}
+		})
+	}
+}
