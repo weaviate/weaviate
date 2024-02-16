@@ -35,9 +35,10 @@ import (
 // It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
 type IndexQueue struct {
-	Shard   shardStatusUpdater
-	Index   batchIndexer
-	shardID string
+	Shard        shardStatusUpdater
+	Index        batchIndexer
+	shardID      string
+	targetVector string
 
 	IndexQueueOptions
 
@@ -114,6 +115,7 @@ type shardStatusUpdater interface {
 
 func NewIndexQueue(
 	shardID string,
+	targetVector string,
 	shard shardStatusUpdater,
 	index batchIndexer,
 	centralJobQueue chan job,
@@ -143,6 +145,7 @@ func NewIndexQueue(
 
 	q := IndexQueue{
 		shardID:           shardID,
+		targetVector:      targetVector,
 		IndexQueueOptions: opts,
 		Shard:             shard,
 		Index:             index,
@@ -274,7 +277,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	}
 
 	// load non-indexed vectors and add them to the queue
-	checkpoint, err := q.checkpoints.Get(q.shardID)
+	checkpoint, err := q.checkpoints.Get(q.shardID, q.targetVector)
 	if err != nil {
 		return errors.Wrap(err, "get last indexed id")
 	}
@@ -306,18 +309,41 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
 		id := obj.DocID
-		if shard.VectorIndex().ContainsNode(id) {
-			continue
-		}
-		if len(obj.Vector) == 0 {
-			continue
+		if q.targetVector == "" {
+			if shard.VectorIndex().ContainsNode(id) {
+				continue
+			}
+			if len(obj.Vector) == 0 {
+				continue
+			}
+		} else {
+			if shard.VectorIndexes() == nil {
+				return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
+			}
+			vectorIndex, ok := shard.VectorIndexes()[q.targetVector]
+			if !ok {
+				return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
+			}
+			if vectorIndex.ContainsNode(id) {
+				continue
+			}
+			if len(obj.Vectors) == 0 {
+				continue
+			}
 		}
 		counter++
 
-		// TODO[named-vectors][asdine]: how we will handle target vectors
+		var vector []float32
+		if q.targetVector == "" {
+			vector = obj.Vector
+		} else {
+			if len(obj.Vectors) > 0 {
+				vector = obj.Vectors[q.targetVector]
+			}
+		}
 		desc := vectorDescriptor{
 			id:     id,
-			vector: obj.Vector,
+			vector: vector,
 		}
 		err = q.Push(ctx, desc)
 		if err != nil {
@@ -331,6 +357,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		WithField("count", counter).
 		WithField("took", time.Since(start)).
 		WithField("shard_id", q.shardID).
+		WithField("target_vector", q.targetVector).
 		Debug("enqueued vectors from last indexed checkpoint")
 
 	return nil
@@ -344,7 +371,7 @@ func (q *IndexQueue) Drop() error {
 	_ = q.Close()
 
 	if q.checkpoints != nil {
-		return q.checkpoints.Delete(q.shardID)
+		return q.checkpoints.Delete(q.shardID, q.targetVector)
 	}
 
 	return nil
@@ -849,7 +876,7 @@ func (q *vectorQueue) persistCheckpoint(ids []uint64) {
 		checkpoint = 0
 	}
 
-	err := q.IndexQueue.checkpoints.Update(q.IndexQueue.shardID, checkpoint)
+	err := q.IndexQueue.checkpoints.Update(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
 	if err != nil {
 		q.IndexQueue.Logger.WithError(err).Error("update checkpoint")
 	}

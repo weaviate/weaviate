@@ -236,7 +236,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+	s.queue, err = NewIndexQueue(s.ID(), "", s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +284,7 @@ func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) erro
 			}
 			s.vectorIndexes[targetVector] = vectorIndex
 
-			queue, err := NewIndexQueue(s.ID(), s, vectorIndex,
+			queue, err := NewIndexQueue(s.ID(), targetVector, s, vectorIndex,
 				s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
 			if err != nil {
 				return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)

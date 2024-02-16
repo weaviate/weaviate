@@ -289,6 +289,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 	shouldGeoIndex := ob.shard.hasGeoIndex()
 	vectors := make([]vectorDescriptor, 0, len(ob.objects))
+	targetVectors := make(map[string][]vectorDescriptor)
 	for i, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 
@@ -309,21 +310,44 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 			continue
 		}
 
-		if len(object.Vector) == 0 {
+		if len(object.Vector) == 0 && len(object.Vectors) == 0 {
 			continue
 		}
 
-		desc := vectorDescriptor{
-			id:     status.docID,
-			vector: object.Vector,
+		if len(object.Vector) > 0 {
+			desc := vectorDescriptor{
+				id:     status.docID,
+				vector: object.Vector,
+			}
+
+			vectors = append(vectors, desc)
 		}
 
-		vectors = append(vectors, desc)
+		if len(object.Vectors) > 0 {
+			for targetVector, vector := range object.Vectors {
+				targetVectors[targetVector] = append(targetVectors[targetVector], vectorDescriptor{
+					id:     status.docID,
+					vector: vector,
+				})
+			}
+		}
 	}
 
 	err := ob.shard.Queue().Push(ctx, vectors...)
 	if err != nil {
 		ob.setErrorAtIndex(err, 0)
+	}
+
+	for targetVector, vectors := range targetVectors {
+		queue, ok := ob.shard.Queues()[targetVector]
+		if !ok {
+			ob.setErrorAtIndex(fmt.Errorf("queue not found for target vector %s", targetVector), 0)
+		} else {
+			err := queue.Push(ctx, vectors...)
+			if err != nil {
+				ob.setErrorAtIndex(err, 0)
+			}
+		}
 	}
 	// TODO[named-vectors][asdine]: how to handle queues here?
 }
