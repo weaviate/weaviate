@@ -29,6 +29,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 	collection := "TestClass"
 	refClass1 := "OtherClass"
 	refClass2 := "AnotherClass"
+	multiVecClass := "MultiVec"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -53,6 +54,22 @@ func TestGRPCBatchRequest(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "else", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref3", DataType: []string{refClass2}},
+					},
+				},
+				{
+					Class: multiVecClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							VectorIndexType: "hnsw",
+							Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"first": {
+							VectorIndexType: "flat",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
 					},
 				},
 			},
@@ -104,6 +121,21 @@ func TestGRPCBatchRequest(t *testing.T) {
 					map[string]interface{}{"beacon": BEACON_START + refClass1 + "/" + UUID4},
 				},
 			}}},
+		},
+		{
+			name: "Named Vecs",
+			req: []*pb.BatchObject{{Collection: collection, Uuid: UUID4, Vectors: []*pb.Vectors{
+				{
+					Name:        "custom",
+					VectorBytes: byteVector([]float32{0.1, 0.2, 0.3}),
+				},
+			}}},
+			out: []*models.Object{{
+				Class: collection, ID: UUID4, Properties: nilMap,
+				Vectors: map[string]models.Vector{
+					"custom": []float32{0.1, 0.2, 0.3},
+				},
+			}},
 		},
 		{
 			name: "only mult ref",

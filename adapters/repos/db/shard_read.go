@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -217,7 +218,18 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
+	if targetVector != "" {
+		queue, ok := s.queues[targetVector]
+		if !ok {
+			return nil, fmt.Errorf("index queue for target vector: %s doesn't exist", targetVector)
+		}
+		return queue, nil
+	}
+	return s.queue, nil
+}
+
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
 		dists     []float32
@@ -235,15 +247,20 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
+	queue, err := s.getIndexQueue(targetVector)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	beforeVector := time.Now()
 	if limit < 0 {
-		ids, dists, err = s.queue.SearchByVectorDistance(
+		ids, dists, err = queue.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search by distance")
 		}
 	} else {
-		ids, dists, err = s.queue.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search")
 		}

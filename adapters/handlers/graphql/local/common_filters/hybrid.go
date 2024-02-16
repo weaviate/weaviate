@@ -114,6 +114,14 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 
+	if _, ok := source["targetVectors"]; ok {
+		targetVectors := source["targetVectors"].([]interface{})
+		args.TargetVectors = make([]string, len(targetVectors))
+		for i, value := range targetVectors {
+			args.TargetVectors[i] = value.(string)
+		}
+	}
+
 	args.Type = "hybrid"
 	return &args, nil
 }

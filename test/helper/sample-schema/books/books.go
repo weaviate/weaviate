@@ -63,6 +63,14 @@ func ClassCLIPVectorizer() *models.Class {
 	return c
 }
 
+func ClassBindVectorizer() *models.Class {
+	c := class(defaultClassName, "multi2vec-bind")
+	c.ModuleConfig.(map[string]interface{})["multi2vec-bind"] = map[string]interface{}{
+		"textFields": []string{"title", "tags", "description"},
+	}
+	return c
+}
+
 func class(className, vectorizer string, additionalModules ...string) *models.Class {
 	moduleConfig := map[string]interface{}{
 		vectorizer: map[string]interface{}{

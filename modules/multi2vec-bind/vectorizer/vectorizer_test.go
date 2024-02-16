@@ -30,7 +30,6 @@ func TestVectorizer(t *testing.T) {
 		client := &fakeClient{}
 		vectorizer := &Vectorizer{client}
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image"}).build()
-		settings := NewClassSettings(config)
 
 		propsSchema := []*models.Property{
 			{
@@ -48,11 +47,11 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, settings)
+		vector, _, err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
-		assert.NotNil(t, object.Vector)
+		assert.NotNil(t, vector)
 	})
 
 	t.Run("should vectorize 2 image fields", func(t *testing.T) {
@@ -60,7 +59,6 @@ func TestVectorizer(t *testing.T) {
 		client := &fakeClient{}
 		vectorizer := &Vectorizer{client}
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image1", "image2"}).build()
-		settings := NewClassSettings(config)
 
 		propsSchema := []*models.Property{
 			{
@@ -83,11 +81,11 @@ func TestVectorizer(t *testing.T) {
 		comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props)
 
 		// when
-		err := vectorizer.Object(context.Background(), object, comp, settings)
+		vector, _, err := vectorizer.Object(context.Background(), object, comp, config)
 
 		// then
 		require.Nil(t, err)
-		assert.NotNil(t, object.Vector)
+		assert.NotNil(t, vector)
 	})
 }
 
@@ -119,6 +117,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 		"description": "non-vectorizable",
 	}
 	vector := []float32{0, 0, 0, 0, 0}
+	var vectors models.Vectors
 
 	tests := []testCase{
 		{
@@ -136,7 +135,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				ID:         "some-uuid",
 				Properties: props,
 			},
-			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector),
+			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector, vectors),
 			expectedVectorize: false,
 		},
 		{
@@ -149,7 +148,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				"image":       nil,
 				"text":        "text",
 				"description": "non-vectorizable",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -162,7 +161,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				"image":       image,
 				"text":        "old text",
 				"description": "non-vectorizable",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -175,7 +174,7 @@ func TestVectorizerWithDiff(t *testing.T) {
 				"image":       image,
 				"text":        "text",
 				"description": "old non-vectorizable",
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: false,
 		},
 	}
@@ -188,15 +187,14 @@ func TestVectorizerWithDiff(t *testing.T) {
 				addSetting("imageFields", []interface{}{"image"}).
 				addSetting("textFields", []interface{}{"text"}).
 				build()
-			settings := NewClassSettings(config)
 
-			err := vectorizer.Object(context.Background(), test.input, test.comp, settings)
+			vector, _, err := vectorizer.Object(context.Background(), test.input, test.comp, config)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
-				assert.Equal(t, models.C11yVector{5.5, 11, 16.5, 22, 27.5}, test.input.Vector)
+				assert.Equal(t, []float32{5.5, 11, 16.5, 22, 27.5}, vector)
 			} else {
-				assert.Equal(t, models.C11yVector{0, 0, 0, 0, 0}, test.input.Vector)
+				assert.Equal(t, []float32{0, 0, 0, 0, 0}, vector)
 			}
 		})
 	}
