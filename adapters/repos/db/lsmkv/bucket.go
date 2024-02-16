@@ -812,6 +812,14 @@ func (b *Bucket) Count() int {
 	return memtableCount + diskCount
 }
 
+// CountAsync ignores the current memtable, that makes it async because it only
+// reflects what has been already flushed. This in turn makes it very cheap to
+// call, so it can be used for observability purposes where eventual
+// consistency on the count is fine, but a large cost is not.
+func (b *Bucket) CountAsync() int {
+	return b.disk.count()
+}
+
 func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
 	netCount := 0
 
