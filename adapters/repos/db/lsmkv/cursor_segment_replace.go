@@ -12,9 +12,6 @@
 package lsmkv
 
 import (
-	"errors"
-	"math"
-
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -109,17 +106,15 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 
 func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 	nextOffset, err := s.nextOffsetFn(s.reusableNode)
-	if err == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(err, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
+	if err != nil {
 		return nil, nil, err
 	}
 
 	if s.nextOffset >= s.segment.dataEndPos {
 		return nil, nil, lsmkv.NotFound
 	}
+
+	s.nextOffset = nextOffset
 
 	err = s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
@@ -146,13 +141,11 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
 	out := segmentReplaceNode{}
 
 	nextOffset, err := s.nextOffsetFn(s.reusableNode)
-	if err == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(err, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
+	if err != nil {
 		return out, err
 	}
+
+	s.nextOffset = nextOffset
 
 	if s.nextOffset >= s.segment.dataEndPos {
 		return out, lsmkv.NotFound
