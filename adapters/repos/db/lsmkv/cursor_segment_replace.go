@@ -100,20 +100,6 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 
 	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
 		s.segment.contents[node.Start:node.End])
-
-	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
-	// for the next cycle
-
-	nextOffset, nextErr := s.nextOffsetFn(s.reusableNode)
-	if nextErr == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(nextErr, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
-		return nil, nil, nextErr
-	}
-
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -122,26 +108,21 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 }
 
 func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
+	nextOffset, err := s.nextOffsetFn(s.reusableNode)
+	if err == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(err, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return nil, nil, err
+	}
+
 	if s.nextOffset >= s.segment.dataEndPos {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
-
-	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
-	// for the next cycle
-
-	nextOffset, nextErr := s.nextOffsetFn(s.reusableNode)
-	if nextErr == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(nextErr, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
-		return nil, nil, nextErr
-	}
-
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -154,20 +135,6 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 
 	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
-
-	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
-	// for the next cycle
-
-	nextOffset, nextErr := s.nextOffsetFn(s.reusableNode)
-	if nextErr == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(nextErr, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
-		return nil, nil, nextErr
-	}
-
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -177,24 +144,23 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 
 func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
 	out := segmentReplaceNode{}
+
+	nextOffset, err := s.nextOffsetFn(s.reusableNode)
+	if err == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(err, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return out, err
+	}
+
 	if s.nextOffset >= s.segment.dataEndPos {
 		return out, lsmkv.NotFound
 	}
 
 	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
 
-	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
-	// for the next cycle
-
-	nextOffset, nextErr := s.nextOffsetFn(&parsed)
-	if nextErr == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(nextErr, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
-		return parsed, nextErr
-	}
+	s.reusableNode = &parsed
 
 	return parsed, err
 }
@@ -203,18 +169,7 @@ func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
 
-	// make sure to set the next offset before checking the error. The error
-	// could be 'Deleted' which would require that the offset is still advanced
-	// for the next cycle
-
-	nextOffset, nextErr := s.nextOffsetFn(&parsed)
-	if nextErr == nil {
-		s.nextOffset = nextOffset
-	} else if errors.Is(nextErr, lsmkv.NotFound) {
-		s.nextOffset = math.MaxUint64
-	} else {
-		return parsed, nextErr
-	}
+	s.reusableNode = &parsed
 
 	return parsed, err
 }
