@@ -34,6 +34,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -497,6 +498,8 @@ func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, clas
 
 type fakeReplicationClient struct{}
 
+var _ replica.Client = (*fakeReplicationClient)(nil)
+
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object,
 ) (replica.SimpleResponse, error) {
@@ -569,5 +572,23 @@ func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
 func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
+	ids []strfmt.UUID,
+) ([]replica.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
+	initialToken, finalToken uint64, limit int,
+) ([]replica.RepairResponse, uint64, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
+	discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
 	return nil, nil
 }
