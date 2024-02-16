@@ -12,6 +12,9 @@
 package lsmkv
 
 import (
+	"errors"
+	"math"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -19,24 +22,49 @@ import (
 type segmentCursorReplace struct {
 	segment      *segment
 	index        diskIndex
+	keyFn        func(n *segmentReplaceNode) []byte
+	nextOffsetFn func(n *segmentReplaceNode) (uint64, error)
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
 	reusableBORW byteops.ReadWriter
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
-	return &segmentCursorReplace{
-		segment:      s,
-		index:        s.index,
+	cursor := &segmentCursorReplace{
+		segment: s,
+		index:   s.index,
+		keyFn: func(n *segmentReplaceNode) []byte {
+			return n.primaryKey
+		},
 		reusableNode: &segmentReplaceNode{},
 		reusableBORW: byteops.NewReadWriter(nil),
 	}
+
+	cursor.nextOffsetFn = func(n *segmentReplaceNode) (uint64, error) {
+		return cursor.nextOffset + uint64(n.offset), nil
+	}
+
+	return cursor
 }
+
+// Note: scanning over secondary keys is sub-optimal
+// i.e. no sequential scan is possible as when scanning over the primary key
 
 func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 	return &segmentCursorReplace{
-		segment:      s,
-		index:        s.secondaryIndices[pos],
+		segment: s,
+		index:   s.secondaryIndices[pos],
+		keyFn: func(n *segmentReplaceNode) []byte {
+			return n.secondaryKeys[pos]
+		},
+		nextOffsetFn: func(n *segmentReplaceNode) (uint64, error) {
+			index := s.secondaryIndices[pos]
+			next, err := index.Next(n.secondaryKeys[pos])
+			if err != nil {
+				return 0, err
+			}
+			return next.Start, nil
+		},
 		reusableNode: &segmentReplaceNode{},
 		reusableBORW: byteops.NewReadWriter(nil),
 	}
@@ -65,23 +93,32 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
-	node, err := s.segment.index.Seek(key)
+	node, err := s.index.Seek(key)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
 		s.segment.contents[node.Start:node.End])
+
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = node.End
 
-	if err != nil {
-		return s.reusableNode.primaryKey, nil, err
+	nextOffset, nextErr := s.nextOffsetFn(s.reusableNode)
+	if nextErr == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(nextErr, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return nil, nil, nextErr
 	}
 
-	return s.reusableNode.primaryKey, s.reusableNode.value, nil
+	if err != nil {
+		return s.keyFn(s.reusableNode), nil, err
+	}
+
+	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
 }
 
 func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
@@ -91,30 +128,51 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 
 	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
+
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(s.reusableNode.offset)
-	if err != nil {
-		return s.reusableNode.primaryKey, nil, err
+
+	nextOffset, nextErr := s.nextOffsetFn(s.reusableNode)
+	if nextErr == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(nextErr, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return nil, nil, nextErr
 	}
 
-	return s.reusableNode.primaryKey, s.reusableNode.value, nil
+	if err != nil {
+		return s.keyFn(s.reusableNode), nil, err
+	}
+
+	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
 }
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
+
 	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
+
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(s.reusableNode.offset)
-	if err != nil {
-		return s.reusableNode.primaryKey, nil, err
+
+	nextOffset, nextErr := s.nextOffsetFn(s.reusableNode)
+	if nextErr == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(nextErr, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return nil, nil, nextErr
 	}
 
-	return s.reusableNode.primaryKey, s.reusableNode.value, nil
+	if err != nil {
+		return s.keyFn(s.reusableNode), nil, err
+	}
+
+	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
 }
 
 func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
@@ -124,29 +182,41 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
 	}
 
 	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(parsed.offset)
-	if err != nil {
-		return parsed, err
+
+	nextOffset, nextErr := s.nextOffsetFn(&parsed)
+	if nextErr == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(nextErr, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return parsed, nextErr
 	}
 
-	return parsed, nil
+	return parsed, err
 }
 
 func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
-	s.nextOffset = s.nextOffset + uint64(parsed.offset)
-	if err != nil {
-		return parsed, err
+
+	nextOffset, nextErr := s.nextOffsetFn(&parsed)
+	if nextErr == nil {
+		s.nextOffset = nextOffset
+	} else if errors.Is(nextErr, lsmkv.NotFound) {
+		s.nextOffset = math.MaxUint64
+	} else {
+		return parsed, nextErr
 	}
 
-	return parsed, nil
+	return parsed, err
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
