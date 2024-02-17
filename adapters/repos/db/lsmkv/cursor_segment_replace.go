@@ -22,7 +22,7 @@ type segmentCursorReplace struct {
 	keyFn         func(n *segmentReplaceNode) []byte
 	firstOffsetFn func() (uint64, error)
 	nextOffsetFn  func(n *segmentReplaceNode) (uint64, error)
-	nextOffset    uint64
+	currOffset    uint64
 	reusableNode  *segmentReplaceNode
 	reusableBORW  byteops.ReadWriter
 }
@@ -42,7 +42,7 @@ func (s *segment) newCursor() *segmentCursorReplace {
 	}
 
 	cursor.nextOffsetFn = func(n *segmentReplaceNode) (uint64, error) {
-		return cursor.nextOffset + uint64(n.offset), nil
+		return cursor.currOffset + uint64(n.offset), nil
 	}
 
 	return cursor
@@ -126,10 +126,10 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	s.nextOffset = nextOffset
+	s.currOffset = nextOffset
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
-		s.segment.contents[s.nextOffset:])
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
+		s.segment.contents[s.currOffset:])
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -143,10 +143,10 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	s.nextOffset = firstOffset
+	s.currOffset = firstOffset
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
-		s.segment.contents[s.nextOffset:])
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
+		s.segment.contents[s.currOffset:])
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -164,9 +164,9 @@ func (s *segmentCursorReplace) nextWithAllKeys() (n segmentReplaceNode, err erro
 		return n, lsmkv.NotFound
 	}
 
-	s.nextOffset = nextOffset
+	s.currOffset = nextOffset
 
-	n, err = s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+	n, err = s.parseReplaceNode(nodeOffset{start: s.currOffset})
 
 	s.reusableNode = &n
 
@@ -179,9 +179,9 @@ func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err err
 		return n, err
 	}
 
-	s.nextOffset = firstOffset
+	s.currOffset = firstOffset
 
-	n, err = s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+	n, err = s.parseReplaceNode(nodeOffset{start: s.currOffset})
 
 	s.reusableNode = &n
 
