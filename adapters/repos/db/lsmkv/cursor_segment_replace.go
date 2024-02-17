@@ -17,19 +17,23 @@ import (
 )
 
 type segmentCursorReplace struct {
-	segment      *segment
-	index        diskIndex
-	keyFn        func(n *segmentReplaceNode) []byte
-	nextOffsetFn func(n *segmentReplaceNode) (uint64, error)
-	nextOffset   uint64
-	reusableNode *segmentReplaceNode
-	reusableBORW byteops.ReadWriter
+	segment       *segment
+	index         diskIndex
+	keyFn         func(n *segmentReplaceNode) []byte
+	firstOffsetFn func() (uint64, error)
+	nextOffsetFn  func(n *segmentReplaceNode) (uint64, error)
+	nextOffset    uint64
+	reusableNode  *segmentReplaceNode
+	reusableBORW  byteops.ReadWriter
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
 	cursor := &segmentCursorReplace{
 		segment: s,
 		index:   s.index,
+		firstOffsetFn: func() (uint64, error) {
+			return s.dataStartPos, nil
+		},
 		keyFn: func(n *segmentReplaceNode) []byte {
 			return n.primaryKey
 		},
@@ -53,6 +57,14 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 		index:   s.secondaryIndices[pos],
 		keyFn: func(n *segmentReplaceNode) []byte {
 			return n.secondaryKeys[pos]
+		},
+		firstOffsetFn: func() (uint64, error) {
+			index := s.secondaryIndices[pos]
+			n, err := index.Seek(nil)
+			if err != nil {
+				return 0, err
+			}
+			return n.Start, nil
 		},
 		nextOffsetFn: func(n *segmentReplaceNode) (uint64, error) {
 			index := s.secondaryIndices[pos]
@@ -110,7 +122,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	if s.nextOffset >= s.segment.dataEndPos {
+	if nextOffset >= s.segment.dataEndPos {
 		return nil, nil, lsmkv.NotFound
 	}
 
@@ -126,9 +138,14 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 }
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
-	s.nextOffset = s.segment.dataStartPos
+	firstOffset, err := s.firstOffsetFn()
+	if err != nil {
+		return nil, nil, err
+	}
 
-	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
+	s.nextOffset = firstOffset
+
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
@@ -137,34 +154,38 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	return s.keyFn(s.reusableNode), s.reusableNode.value, nil
 }
 
-func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
-	out := segmentReplaceNode{}
-
+func (s *segmentCursorReplace) nextWithAllKeys() (n segmentReplaceNode, err error) {
 	nextOffset, err := s.nextOffsetFn(s.reusableNode)
 	if err != nil {
-		return out, err
+		return n, err
+	}
+
+	if nextOffset >= s.segment.dataEndPos {
+		return n, lsmkv.NotFound
 	}
 
 	s.nextOffset = nextOffset
 
-	if s.nextOffset >= s.segment.dataEndPos {
-		return out, lsmkv.NotFound
-	}
+	n, err = s.parseReplaceNode(nodeOffset{start: s.nextOffset})
 
-	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+	s.reusableNode = &n
 
-	s.reusableNode = &parsed
-
-	return parsed, err
+	return n, err
 }
 
-func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
-	s.nextOffset = s.segment.dataStartPos
-	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err error) {
+	firstOffset, err := s.firstOffsetFn()
+	if err != nil {
+		return n, err
+	}
 
-	s.reusableNode = &parsed
+	s.nextOffset = firstOffset
 
-	return parsed, err
+	n, err = s.parseReplaceNode(nodeOffset{start: s.nextOffset})
+
+	s.reusableNode = &n
+
+	return n, err
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
