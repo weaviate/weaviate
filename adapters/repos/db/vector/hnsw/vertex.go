@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 type vertex struct {
@@ -20,26 +21,19 @@ type vertex struct {
 	sync.Mutex
 	level       int
 	connections [][]uint64
-	maintenance bool
+	maintenance atomic.Bool
 }
 
 func (v *vertex) markAsMaintenance() {
-	v.Lock()
-	v.maintenance = true
-	v.Unlock()
+	v.maintenance.Store(true)
 }
 
 func (v *vertex) unmarkAsMaintenance() {
-	v.Lock()
-	v.maintenance = false
-	v.Unlock()
+	v.maintenance.Store(false)
 }
 
 func (v *vertex) isUnderMaintenance() bool {
-	v.Lock()
-	m := v.maintenance
-	v.Unlock()
-	return m
+	return v.maintenance.Load()
 }
 
 func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
