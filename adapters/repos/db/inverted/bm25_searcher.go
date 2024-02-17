@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -172,16 +171,16 @@ func (b *BM25Searcher) wand(
 
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
-	// 100 is a reasonable expected capacity for the total number of terms to query.
-	results := make(terms, 0, 100)
-	indices := make([]map[uint64]int, 0, 100)
+	// lock-free results aggregation, each go-routine writes to its own slice.
+	termResults := make([][]term, len(helpers.Tokenizations))
+	indicesResults := make([][]map[uint64]int, len(helpers.Tokenizations))
 
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU)
 
-	var resultsLock sync.Mutex
+	for i, tokenization := range helpers.Tokenizations {
+		i := i
 
-	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
 		if len(propNames) > 0 {
 			queryTerms, duplicateBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
@@ -192,8 +191,14 @@ func (b *BM25Searcher) wand(
 					queryTerms, duplicateBoosts, stopWordDetector)
 			}
 
-			for i := range queryTerms {
-				j := i
+			if len(queryTerms) <= 0 {
+				continue
+			}
+
+			termResults[i] = make([]term, len(queryTerms))
+			indicesResults[i] = make([]map[uint64]int, len(queryTerms))
+			for j := range queryTerms {
+				j := j
 
 				eg.Go(func() (err error) {
 					defer func() {
@@ -215,10 +220,11 @@ func (b *BM25Searcher) wand(
 						err = termErr
 						return
 					}
-					resultsLock.Lock()
-					results = append(results, termResult)
-					indices = append(indices, docIndices)
-					resultsLock.Unlock()
+
+					// using append will re-allocate and brake total results number calculation down the line
+					termResults[i][j] = termResult
+					indicesResults[i][j] = docIndices
+
 					return
 				})
 			}
@@ -228,6 +234,21 @@ func (b *BM25Searcher) wand(
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+
+	// on each step slices were pre-allocated with the length equal to the exact number of results.
+	var numResults int
+	for r := range termResults {
+		numResults += len(termResults[r])
+	}
+
+	results := make(terms, 0, numResults)
+	indices := make([]map[uint64]int, 0, numResults)
+
+	for r := range termResults {
+		results = append(results, termResults[r]...)
+		indices = append(indices, indicesResults[r]...)
+	}
+
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, ind := range indices {
