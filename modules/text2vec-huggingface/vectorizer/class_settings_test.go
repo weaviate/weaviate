@@ -12,6 +12,7 @@
 package vectorizer
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,10 +91,11 @@ func Test_classSettings_getPassageModel(t *testing.T) {
 			wantEndpointURL:  "http://endpoint.cloud",
 		},
 		{
-			name: "Hugging Face Inference API - endpointUrl",
+			name: "Hugging Face Inference API - wrong properties",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"endpointUrl": "http://endpoint.cloud",
+					"properties":  "wrong-properties",
 				},
 			},
 			wantPassageModel: "",
@@ -102,6 +104,7 @@ func Test_classSettings_getPassageModel(t *testing.T) {
 			wantUseGPU:       false,
 			wantUseCache:     true,
 			wantEndpointURL:  "http://endpoint.cloud",
+			wantError:        errors.New("properties field needs to be of array type, got: string"),
 		},
 	}
 	for _, tt := range tests {

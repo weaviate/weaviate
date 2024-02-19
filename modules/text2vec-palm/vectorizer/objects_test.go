@@ -199,20 +199,21 @@ func TestVectorizingObjects(t *testing.T) {
 
 			v := New(client)
 
-			ic := &fakeSettings{
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Car",
-				excludedProperty:   test.excludedProperty,
-				apiEndpoint:        "",
-				projectID:          "",
-				endpointID:         "",
-				truncateType:       "",
+			ic := &fakeClassConfig{
+				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Car",
+				excludedProperty:      test.excludedProperty,
+				vectorizePropertyName: true,
+				apiEndpoint:           "",
+				projectID:             "",
+				endpointID:            "",
+				modelID:               "",
 			}
 			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)
-			err := v.Object(context.Background(), test.input, comp, ic)
+			vector, _, err := v.Object(context.Background(), test.input, comp, ic)
 
 			require.Nil(t, err)
-			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
+			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			expected := strings.Split(test.expectedClientCall, " ")
 			actual := strings.Split(client.lastInput[0], " ")
 			assert.Equal(t, expected, actual)
@@ -257,6 +258,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 		},
 	}
 	vector := []float32{0, 0, 0, 0}
+	var vectors models.Vectors
 
 	tests := []testCase{
 		{
@@ -274,7 +276,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 				Class:      "Car",
 				Properties: props,
 			},
-			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector),
+			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector, vectors),
 			expectedVectorize: false,
 		},
 		{
@@ -291,7 +293,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 					"a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -308,7 +310,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 					"a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -325,7 +327,7 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 					"old a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: true,
 		},
 		{
@@ -343,28 +345,28 @@ func TestVectorizingObjectsWithDiff(t *testing.T) {
 					"a very great car",
 					"you should consider buying one",
 				},
-			}, vector),
+			}, vector, vectors),
 			expectedVectorize: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeSettings{
+			ic := &fakeClassConfig{
 				skippedProperty: test.skipped,
 			}
 
 			client := &fakeClient{}
 			v := New(client)
 
-			err := v.Object(context.Background(), test.input, test.comp, ic)
+			vector, _, err := v.Object(context.Background(), test.input, test.comp, ic)
 
 			require.Nil(t, err)
 			if test.expectedVectorize {
-				assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
+				assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 				assert.NotEmpty(t, client.lastInput)
 			} else {
-				assert.Equal(t, models.C11yVector{0, 0, 0, 0}, test.input.Vector)
+				assert.Equal(t, []float32{0, 0, 0, 0}, vector)
 				assert.Empty(t, client.lastInput)
 			}
 		})

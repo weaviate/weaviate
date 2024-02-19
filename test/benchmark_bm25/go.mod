@@ -6,7 +6,7 @@ replace github.com/weaviate/weaviate => ../..
 
 require (
 	github.com/go-openapi/strfmt v0.21.7
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.4.0
 	github.com/spf13/cobra v1.7.0
 	github.com/weaviate/weaviate v1.23.0
 	github.com/weaviate/weaviate-go-client/v4 v4.12.1

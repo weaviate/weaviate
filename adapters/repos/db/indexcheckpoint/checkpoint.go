@@ -13,6 +13,8 @@ package indexcheckpoint
 
 import (
 	"encoding/binary"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -61,11 +63,18 @@ func (c *Checkpoints) Close() {
 	c.db.Close()
 }
 
-func (c *Checkpoints) Get(shardID string) (uint64, error) {
+func (c *Checkpoints) getID(shardID, targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", shardID, targetVector)
+	}
+	return shardID
+}
+
+func (c *Checkpoints) Get(shardID, targetVector string) (uint64, error) {
 	var count uint64
 	err := c.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		v := b.Get([]byte(shardID))
+		v := b.Get([]byte(c.getID(shardID, targetVector)))
 		if v == nil {
 			return nil
 		}
@@ -81,13 +90,13 @@ func (c *Checkpoints) Get(shardID string) (uint64, error) {
 	return count, nil
 }
 
-func (c *Checkpoints) Update(shardID string, id uint64) error {
+func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, id)
 
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Put([]byte(shardID), buf)
+		return b.Put([]byte(c.getID(shardID, targetVector)), buf)
 	})
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")
@@ -96,16 +105,21 @@ func (c *Checkpoints) Update(shardID string, id uint64) error {
 	return nil
 }
 
-func (c *Checkpoints) Delete(shardID string) error {
+func (c *Checkpoints) Delete(shardID, targetVector string) error {
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Delete([]byte(shardID))
+		return b.Delete([]byte(c.getID(shardID, targetVector)))
 	})
 	if err != nil {
 		return errors.Wrap(err, "delete checkpoint")
 	}
 
 	return nil
+}
+
+func (c *Checkpoints) Drop() error {
+	c.db.Close()
+	return os.Remove(c.Filename())
 }
 
 func (c *Checkpoints) Filename() string {

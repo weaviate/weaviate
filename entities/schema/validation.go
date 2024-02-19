@@ -42,6 +42,9 @@ const (
 	// Nested properties names are not used to build directory names (yet),
 	// no max length restriction is imposed
 	NestedPropertyNameRegex = `[_A-Za-z][_0-9A-Za-z]*`
+	// Target vector names must be GraphQL compliant names no longer then 230 characters
+	TargetVectorNameMaxLength = 230
+	TargetVectorNameRegex     = `[_A-Za-z][_0-9A-Za-z]{0,229}`
 )
 
 func init() {

@@ -70,12 +70,20 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 			continue
 		}
 
-		var vector []float32
+		var vector []float32 = nil
 		// bytes vector has precedent for being more efficient
 		if len(obj.VectorBytes) > 0 {
 			vector = byteops.Float32FromByteVector(obj.VectorBytes)
 		} else if len(obj.Vector) > 0 {
 			vector = obj.Vector
+		}
+
+		var vectors models.Vectors = nil
+		if len(obj.Vectors) > 0 {
+			vectors = make(models.Vectors, len(obj.Vectors))
+			for _, vec := range obj.Vectors {
+				vectors[vec.Name] = byteops.Float32FromByteVector(vec.VectorBytes)
+			}
 		}
 
 		objOriginalIndex[insertCounter] = i
@@ -85,6 +93,7 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 			Vector:     vector,
 			Properties: props,
 			ID:         strfmt.UUID(obj.Uuid),
+			Vectors:    vectors,
 		})
 		insertCounter += 1
 	}

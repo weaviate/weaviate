@@ -14,21 +14,23 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	"github.com/fatih/camelcase"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 type Vectorizer struct {
-	client Client
+	client           Client
+	objectVectorizer *objectsvectorizer.ObjectVectorizer
 }
 
 func New(client Client) *Vectorizer {
 	return &Vectorizer{
-		client: client,
+		client:           client,
+		objectVectorizer: objectsvectorizer.New(),
 	}
 }
 
@@ -51,90 +53,29 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, settings ClassSettings,
-) error {
-	vec, err := v.object(ctx, object.Class, comp, settings)
-	if err != nil {
-		return err
-	}
-
-	object.Vector = vec
-	return nil
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	vec, err := v.object(ctx, object.Class, comp, cfg)
+	return vec, nil, err
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, icheck ClassSettings,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	vectorize := comp.PrevVector() == nil
+	icheck := NewClassSettings(cfg)
 
-	var titlePropertyValue []string
-	var corpi []string
-
-	if icheck.VectorizeClassName() {
-		corpi = append(corpi, camelCaseToLower(className))
+	corpi, titlePropertyValue, vector := v.objectVectorizer.TextsOrVectorWithTitleProperty(ctx,
+		className, comp, icheck, icheck.TitleProperty(), cfg.TargetVector())
+	if vector != nil {
+		// dont' re-vectorize
+		return vector, nil
 	}
-
-	it := comp.PropsIterator()
-	for propName, value, ok := it.Next(); ok; propName, value, ok = it.Next() {
-		if !icheck.PropertyIndexed(propName) {
-			continue
-		}
-
-		switch typed := value.(type) {
-		case string:
-			vectorize = vectorize || comp.IsChanged(propName)
-
-			str := strings.ToLower(typed)
-			if icheck.VectorizePropertyName(propName) {
-				str = fmt.Sprintf("%s %s", camelCaseToLower(propName), str)
-			}
-			corpi = append(corpi, str)
-			if propName == icheck.TitleProperty() {
-				titlePropertyValue = append(titlePropertyValue, str)
-			}
-
-		case []string:
-			vectorize = vectorize || comp.IsChanged(propName)
-
-			if len(typed) > 0 {
-				isNameVectorizable := icheck.VectorizePropertyName(propName)
-				lowerPropertyName := camelCaseToLower(propName)
-				isTitleProperty := propName == icheck.TitleProperty()
-
-				for i := range typed {
-					str := strings.ToLower(typed[i])
-					if isNameVectorizable {
-						str = fmt.Sprintf("%s %s", lowerPropertyName, str)
-					}
-					corpi = append(corpi, str)
-					if isTitleProperty {
-						titlePropertyValue = append(titlePropertyValue, str)
-					}
-				}
-			}
-
-		case nil:
-			vectorize = vectorize || comp.IsChanged(propName)
-		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return comp.PrevVector(), nil
-	}
-
-	if len(corpi) == 0 {
-		// fall back to using the class name
-		corpi = append(corpi, camelCaseToLower(className))
-	}
-
-	text := []string{strings.Join(corpi, " ")}
-	titleProperty := strings.Join(titlePropertyValue, " ")
-	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
+	// vectorize text
+	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),
 		ProjectID:   icheck.ProjectID(),
 		Model:       icheck.ModelID(),
-	}, titleProperty)
+	}, titlePropertyValue)
 	if err != nil {
 		return nil, err
 	}
@@ -143,25 +84,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 	}
 
 	if len(res.Vectors) > 1 {
-		return v.CombineVectors(res.Vectors), nil
+		return libvectorizer.CombineVectors(res.Vectors), nil
 	}
 	return res.Vectors[0], nil
-}
-
-func camelCaseToLower(in string) string {
-	parts := camelcase.Split(in)
-	var sb strings.Builder
-	for i, part := range parts {
-		if part == " " {
-			continue
-		}
-
-		if i > 0 {
-			sb.WriteString(" ")
-		}
-
-		sb.WriteString(strings.ToLower(part))
-	}
-
-	return sb.String()
 }
