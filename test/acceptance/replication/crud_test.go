@@ -436,7 +436,7 @@ func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompo
 		return nil
 	})
 	eg.Go(func() error { // restart node 2
-		time.Sleep(2 * time.Second) // wait for member list initialization
+		time.Sleep(3 * time.Second) // wait for member list initialization
 		stopNodeAt(ctx, t, compose, 2)
 		require.Nil(t, compose.StartAt(ctx, 2))
 		return nil
