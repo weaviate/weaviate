@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -288,6 +289,8 @@ func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName strin
 
 type fakeReplicationClient struct{}
 
+var _ replica.Client = (*fakeReplicationClient)(nil)
+
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
@@ -360,5 +363,17 @@ func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
+	initialToken, finalToken uint64, limit int,
+) ([]replica.RepairResponse, uint64, error) {
+	return nil, 0, nil
+}
+
+func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
+	discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
 	return nil, nil
 }

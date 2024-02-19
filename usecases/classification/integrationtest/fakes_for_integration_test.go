@@ -598,16 +598,10 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID,
-) ([]replica.RepairResponse, error) {
-	return nil, nil
-}
-
 func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
 	initialToken, finalToken uint64, limit int,
 ) ([]replica.RepairResponse, uint64, error) {
-	return nil, nil
+	return nil, 0, nil
 }
 
 func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
