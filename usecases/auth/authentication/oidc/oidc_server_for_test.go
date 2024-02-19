@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -36,18 +37,8 @@ type oidcDiscovery struct {
 	JWKSUri string `json:"jwks_uri"`
 }
 
-type JSONWebKey struct {
-	// Cryptographic key, can be a symmetric or asymmetric key.
-	Key interface{}
-	// Key identifier, parsed from `kid` header.
-	KeyID string
-	// Key algorithm, parsed from `alg` header.
-	Algorithm string
-	// Key use, parsed from `use` header.
-	Use string
-}
 type jwksResponse struct {
-	Keys []JSONWebKey `json:"keys"`
+	Keys []jose.JSONWebKey `json:"keys"`
 }
 
 func oidcHandler(t *testing.T, url string) http.Handler {
@@ -70,11 +61,11 @@ func oidcHandler(t *testing.T, url string) http.Handler {
 	mux.HandleFunc("/.well-known/jwks", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		d := jwksResponse{
-			Keys: []JSONWebKey{
+			Keys: []jose.JSONWebKey{
 				{
 					Key:       publicKey,
 					Use:       "sig",
-					Algorithm: "RS256",
+					Algorithm: string(jose.RS256),
 					KeyID:     "my-key",
 				},
 			},
