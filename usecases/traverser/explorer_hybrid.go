@@ -136,7 +136,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
-	if params.HybridSearch.NearTextParams != nil {
+	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.Alpha > 0 {
 		res, name, err := nearTextSubSearch(ctx, e, params)
 		if err != nil {
 			e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
@@ -154,7 +154,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 
 		vectoriser := class.Vectorizer
-		if vectoriser != "none" && 1-params.HybridSearch.Alpha>0{
+		if vectoriser != "none" && 1-params.HybridSearch.Alpha > 0 {
 			if len(params.HybridSearch.Vector) == 0 {
 				var err error
 				params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query)
