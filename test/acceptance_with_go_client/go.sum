@@ -369,8 +369,10 @@ github.com/tklauser/go-sysconf v0.3.12 h1:0QaGUFOdQaIVdPgfITYzaTegZvdCjmYO52cSFA
 github.com/tklauser/go-sysconf v0.3.12/go.mod h1:Ho14jnntGE1fpdOqQEEaiKRpvIavV0hSfmBq8nJbHYI=
 github.com/tklauser/numcpus v0.6.1 h1:ng9scYS7az0Bk4OZLvrNXNSAO2Pxr1XXRAPyjhIx+Fk=
 github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9fESEdAacY=
-github.com/weaviate/weaviate-go-client/v4 v4.12.1 h1:XFKL49BgSOcxrFs5IV+Q5pydLTsh0HQHuWbKNSLMWLU=
-github.com/weaviate/weaviate-go-client/v4 v4.12.1/go.mod h1:r1PlU5sAZKFvAPgymEHQj0hjSAuEV9X77PJ/ffZ6cEo=
+github.com/weaviate/weaviate-go-client/v4 v4.12.2-0.20240211133132-069f70419160 h1:gLR3EjjusEEwlHL5Qyoy2y/La1l+hoiYnJ4WCUu29aE=
+github.com/weaviate/weaviate-go-client/v4 v4.12.2-0.20240211133132-069f70419160/go.mod h1:r1PlU5sAZKFvAPgymEHQj0hjSAuEV9X77PJ/ffZ6cEo=
+github.com/weaviate/weaviate-go-client/v4 v4.12.2-0.20240213193217-8173ed2cd164 h1:1wr1cBRbUb4J8kkwWUWPKZIktVJK7exfOmxOYXxR5q4=
+github.com/weaviate/weaviate-go-client/v4 v4.12.2-0.20240213193217-8173ed2cd164/go.mod h1:Xt0iPo0PG+Ed8rHr5gopUbien5L3Cxagnyk9VJCqLBw=
 github.com/xdg-go/pbkdf2 v1.0.0/go.mod h1:jrpuAogTd400dnrH08LKmI/xc1MbPOebTwRqcT5RDeI=
 github.com/xdg-go/scram v1.0.2/go.mod h1:1WAq6h33pAW+iRreB34OORO2Nf7qel3VV3fjBj+hCSs=
 github.com/xdg-go/scram v1.1.1/go.mod h1:RaEWvsqvNKKvBPvcKeFjrG2cJqOkHTiyTpzz23ni57g=

@@ -503,10 +503,11 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	verifyVectorSearch := func(shard ShardLike, vectorToBeFound, vectorNotToBeFound []float32) func(t *testing.T) {
 		vectorSearchLimit := -1 // negative to limit results by distance
 		vectorSearchDist := float32(1)
+		targetVector := ""
 
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorToBeFound,
+				found, _, err := shard.ObjectVectorSearch(ctx, vectorToBeFound, targetVector,
 					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
 				require.NoError(t, err)
 				require.Len(t, found, 1)
@@ -514,7 +515,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("not to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorNotToBeFound,
+				found, _, err := shard.ObjectVectorSearch(ctx, vectorNotToBeFound, targetVector,
 					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
 				require.NoError(t, err)
 				require.Len(t, found, 0)

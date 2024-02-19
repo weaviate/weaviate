@@ -14,39 +14,30 @@ package v1
 import (
 	"fmt"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/usecases/byteops"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearVideo"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearAudio"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearImage"
-
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
-
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/search"
-
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
 func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
@@ -90,7 +81,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			vector = nv.Vector
 		}
 		out.NearVector = &searchparams.NearVector{
-			Vector: vector,
+			Vector:        vector,
+			TargetVectors: nv.TargetVectors,
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -112,7 +104,8 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 	if no := req.NearObject; no != nil {
 		out.NearObject = &searchparams.NearObject{
-			ID: req.NearObject.Id,
+			ID:            req.NearObject.Id,
+			TargetVectors: no.TargetVectors,
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -149,6 +142,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -160,6 +154,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -171,6 +166,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -182,6 +178,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -234,6 +231,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			Vector:          vector,
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
+			TargetVectors:   hs.TargetVectors,
 		}
 		if nearTxt != nil {
 			out.HybridSearch.NearTextParams = &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
@@ -246,6 +244,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
@@ -373,10 +372,11 @@ func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch)
 	}
 
 	nearText := &nearText2.NearTextParams{
-		Values:       nearTextIn.Query,
-		Limit:        limit,
-		MoveAwayFrom: moveAwayOut,
-		MoveTo:       moveToOut,
+		Values:        nearTextIn.Query,
+		Limit:         limit,
+		MoveAwayFrom:  moveAwayOut,
+		MoveTo:        moveToOut,
+		TargetVectors: nearTextIn.TargetVectors,
 	}
 
 	if nearTextIn.Certainty != nil {
@@ -641,6 +641,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		Score:              prop.Score,
 		ExplainScore:       prop.ExplainScore,
 		IsConsistent:       prop.IsConsistent,
+		Vectors:            prop.Vectors,
 	}
 
 	vectorIndex, err := schema.TypeAssertVectorIndex(class)
@@ -746,7 +747,8 @@ func getAllNonRefNonBlobNestedProperties[P schema.PropertyInterface](property P)
 
 func parseNearImage(n *pb.NearImageSearch) (*nearImage.NearImageParams, error) {
 	out := &nearImage.NearImageParams{
-		Image: n.Image,
+		Image:         n.Image,
+		TargetVectors: n.TargetVectors,
 	}
 
 	// The following business logic should not sit in the API. However, it is
@@ -770,7 +772,8 @@ func parseNearImage(n *pb.NearImageSearch) (*nearImage.NearImageParams, error) {
 
 func parseNearAudio(n *pb.NearAudioSearch) (*nearAudio.NearAudioParams, error) {
 	out := &nearAudio.NearAudioParams{
-		Audio: n.Audio,
+		Audio:         n.Audio,
+		TargetVectors: n.TargetVectors,
 	}
 
 	// The following business logic should not sit in the API. However, it is
@@ -794,7 +797,8 @@ func parseNearAudio(n *pb.NearAudioSearch) (*nearAudio.NearAudioParams, error) {
 
 func parseNearVideo(n *pb.NearVideoSearch) (*nearVideo.NearVideoParams, error) {
 	out := &nearVideo.NearVideoParams{
-		Video: n.Video,
+		Video:         n.Video,
+		TargetVectors: n.TargetVectors,
 	}
 
 	// The following business logic should not sit in the API. However, it is
@@ -816,9 +820,10 @@ func parseNearVideo(n *pb.NearVideoSearch) (*nearVideo.NearVideoParams, error) {
 	return out, nil
 }
 
-func parseNearDepth(n *pb.NearDepthSearch) (*neardepth.NearDepthParams, error) {
-	out := &neardepth.NearDepthParams{
-		Depth: n.Depth,
+func parseNearDepth(n *pb.NearDepthSearch) (*nearDepth.NearDepthParams, error) {
+	out := &nearDepth.NearDepthParams{
+		Depth:         n.Depth,
+		TargetVectors: n.TargetVectors,
 	}
 
 	// The following business logic should not sit in the API. However, it is
@@ -840,9 +845,10 @@ func parseNearDepth(n *pb.NearDepthSearch) (*neardepth.NearDepthParams, error) {
 	return out, nil
 }
 
-func parseNearThermal(n *pb.NearThermalSearch) (*nearthermal.NearThermalParams, error) {
-	out := &nearthermal.NearThermalParams{
-		Thermal: n.Thermal,
+func parseNearThermal(n *pb.NearThermalSearch) (*nearThermal.NearThermalParams, error) {
+	out := &nearThermal.NearThermalParams{
+		Thermal:       n.Thermal,
+		TargetVectors: n.TargetVectors,
 	}
 
 	// The following business logic should not sit in the API. However, it is
@@ -864,9 +870,10 @@ func parseNearThermal(n *pb.NearThermalSearch) (*nearthermal.NearThermalParams, 
 	return out, nil
 }
 
-func parseNearIMU(n *pb.NearIMUSearch) (*nearimu.NearIMUParams, error) {
-	out := &nearimu.NearIMUParams{
-		IMU: n.Imu,
+func parseNearIMU(n *pb.NearIMUSearch) (*nearImu.NearIMUParams, error) {
+	out := &nearImu.NearIMUParams{
+		IMU:           n.Imu,
+		TargetVectors: n.TargetVectors,
 	}
 
 	// The following business logic should not sit in the API. However, it is

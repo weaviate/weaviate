@@ -91,6 +91,7 @@ func TestGRPCReply(t *testing.T) {
 	refClass2 := "RefClass2"
 	className := "className"
 	objClass := "objClass"
+	NamedVecClass := "NamedVecs"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -126,6 +127,22 @@ func TestGRPCReply(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "else", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref3", DataType: []string{refClass2}},
+					},
+				},
+				{
+					Class: NamedVecClass,
+					Properties: []*models.Property{
+						{Name: "name", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							VectorIndexType: "hnsw",
+							Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"first": {
+							VectorIndexType: "flat",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
 					},
 				},
 				{
@@ -197,6 +214,22 @@ func TestGRPCReply(t *testing.T) {
 			outSearch: []*pb.SearchResult{
 				{Metadata: &pb.MetadataResult{Vector: []float32{1}, VectorBytes: byteVector([]float32{1})}, Properties: &pb.PropertiesResult{}},
 				{Metadata: &pb.MetadataResult{Vector: []float32{2}, VectorBytes: byteVector([]float32{2})}, Properties: &pb.PropertiesResult{}},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
+			name: "named vector only",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{"vectors": map[string][]float32{"custom": {1}, "first": {2}}},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},
+			outSearch: []*pb.SearchResult{
+				{Metadata: &pb.MetadataResult{Vectors: []*pb.Vectors{
+					{Name: "custom", VectorBytes: byteVector([]float32{1})},
+					{Name: "first", VectorBytes: byteVector([]float32{2})},
+				}}, Properties: &pb.PropertiesResult{}},
 			},
 			usesWeaviateStruct: true,
 		},

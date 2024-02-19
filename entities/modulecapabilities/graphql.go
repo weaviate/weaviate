@@ -31,6 +31,7 @@ type ExtractFn = func(param map[string]interface{}) interface{}
 type NearParam interface {
 	GetCertainty() float64
 	GetDistance() float64
+	GetTargetVectors() []string
 	SimilarityMetricProvided() bool
 }
 
