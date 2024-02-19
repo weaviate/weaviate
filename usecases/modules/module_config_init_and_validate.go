@@ -161,8 +161,30 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 				}
 			}
 		}
+		// check module config configuration in case that there are other none vectorizer modules defined
+		if err := p.validateClassesModuleConfigNoneVectorizers(ctx, class, "", class.ModuleConfig); err != nil {
+			return err
+		}
 		return nil
 	}
+}
+
+func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Context,
+	class *models.Class, targetVector string, moduleConfig interface{},
+) error {
+	modConfig, ok := moduleConfig.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	for modName := range modConfig {
+		mod := p.GetByName(modName)
+		if !p.isVectorizerModule(mod.Type()) {
+			if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Provider) validateClassesModuleConfig(ctx context.Context,
@@ -181,19 +203,19 @@ func (p *Provider) validateClassesModuleConfig(ctx context.Context,
 }
 
 func (p *Provider) validateClassModuleConfig(ctx context.Context,
-	class *models.Class, vectorizerName, targetVector string,
+	class *models.Class, moduleName, targetVector string,
 ) error {
-	mod := p.GetByName(vectorizerName)
+	mod := p.GetByName(moduleName)
 	cc, ok := mod.(modulecapabilities.ClassConfigurator)
 	if !ok {
 		// the module exists, but is not a class configurator, nothing to do for us
 		return nil
 	}
 
-	cfg := NewClassBasedModuleConfig(class, vectorizerName, "", targetVector)
+	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector)
 	err := cc.ValidateClass(ctx, class, cfg)
 	if err != nil {
-		return errors.Wrapf(err, "module '%s'", vectorizerName)
+		return errors.Wrapf(err, "module '%s'", moduleName)
 	}
 	return nil
 }
