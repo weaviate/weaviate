@@ -399,6 +399,24 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
+// UpdateIndex creates index if does not exists and it's upsert Op.
+// if index exists it will delete it and re-create it (fully in memory and file system), it's costly op but
+// the safest
+func (m *Migrator) UpdateIndex(ctx context.Context, class *models.Class, state *sharding.State) error {
+	idx := m.db.GetIndex(schema.ClassName(class.Class))
+	if idx == nil {
+		return m.AddClass(ctx, class, state)
+	}
+	// TODO-DB - this is costly Ops, we made that decision
+	// for now to unblock the RAFT work, however it has to be revisited
+	// and handle updating the index if exists with diff only without deleting it.
+	if err := m.DropClass(ctx, class.Class); err != nil {
+		return err
+	}
+
+	return m.AddClass(ctx, class, state)
+}
+
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
 	m.logger.
