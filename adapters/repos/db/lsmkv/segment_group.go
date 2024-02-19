@@ -22,7 +22,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -99,6 +99,79 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	segmentIndex := 0
 	for _, entry := range list {
+		if filepath.Ext(entry.Name()) == ".tmp" {
+			potentialCompactedSegmentFileName := strings.TrimSuffix(entry.Name(), ".tmp")
+
+			if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
+				// another kind of temporal file, ignore at this point but it may need to be deleted...
+				continue
+			}
+
+			jointSegments := segmentID(potentialCompactedSegmentFileName)
+			jointSegmentsIDs := strings.Split(jointSegments, "_")
+
+			if len(jointSegmentsIDs) != 2 {
+				return nil, fmt.Errorf("invalid compacted segment file name %q", entry.Name())
+			}
+
+			leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
+			rightSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+
+			leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
+			rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
+
+			leftSegmentFound, err := fileExists(leftSegmentPath)
+			if err != nil {
+				return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
+			}
+
+			rightSegmentFound, err := fileExists(rightSegmentPath)
+			if err != nil {
+				return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
+			}
+
+			if leftSegmentFound && rightSegmentFound {
+				if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+					return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
+				}
+				continue
+			}
+
+			if leftSegmentFound && !rightSegmentFound {
+				return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
+			}
+
+			if !leftSegmentFound && rightSegmentFound {
+				rightSegment, err := newSegment(rightSegmentPath, logger,
+					metrics, sg.makeExistsOnLower(segmentIndex),
+					sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+				if err != nil {
+					return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+				}
+
+				err = rightSegment.drop()
+				if err != nil {
+					return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+				}
+			}
+
+			if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
+				return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
+			}
+
+			segment, err := newSegment(rightSegmentPath, logger,
+				metrics, sg.makeExistsOnLower(segmentIndex),
+				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+			}
+
+			sg.segments[segmentIndex] = segment
+			segmentIndex++
+
+			continue
+		}
+
 		if filepath.Ext(entry.Name()) != ".db" {
 			// skip, this could be commit log, etc.
 			continue
@@ -107,39 +180,31 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		// before we can mount this file, we need to check if a WAL exists for it.
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
-		potentialWALFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(sg.dir, potentialWALFileName))
+		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
+		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
 		if err != nil {
 			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
 				entry.Name(), err)
 		}
-
 		if ok {
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, fmt.Errorf("delete corrupt segment %s: %w", entry.Name(), err)
+			// the segment will be recovered from the WAL
+			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
+			if err != nil {
+				return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)
 			}
 
 			logger.WithField("action", "lsm_segment_init").
 				WithField("path", filepath.Join(sg.dir, entry.Name())).
-				WithField("wal_path", potentialWALFileName).
+				WithField("wal_path", walFileName).
 				Info("Discarded (partially written) LSM segment, because an active WAL for " +
 					"the same segment was found. A recovery from the WAL will follow.")
 
 			continue
 		}
 
-		info, err := entry.Info()
-		if err != nil {
-			return nil, fmt.Errorf("obtain file info: %w", err)
-		}
-
-		if info.Size() == 0 {
-			continue
-		}
-
 		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
-			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
+			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
@@ -185,7 +250,7 @@ func (sg *SegmentGroup) add(path string) error {
 	newSegmentIndex := len(sg.segments)
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
-		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions)
+		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
 	}

@@ -66,12 +66,24 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("delete from vector index: %w", err)
 	}
 
+	for targetVector, queue := range s.queues {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index for target vector %s: %w", targetVector, err)
+		}
+	}
+
 	if err = s.store.WriteWALs(); err != nil {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
 	if err = s.VectorIndex().Flush(); err != nil {
 		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+	}
+
+	for targetVector, vectorIndex := range s.VectorIndexes() {
+		if err := vectorIndex.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs for target vector %s: %w", targetVector, err)
+		}
 	}
 
 	return nil
@@ -151,9 +163,13 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	}
 
 	if s.index.Config.TrackVectorDimensions {
-		err = s.removeDimensionsLSM(len(previousObject.Vector), docID)
-		if err != nil {
+		if err = s.removeDimensionsLSM(len(previousObject.Vector), docID); err != nil {
 			return fmt.Errorf("track dimensions (delete): %w", err)
+		}
+		for vecName, vec := range previousObject.Vectors {
+			if err = s.removeDimensionsForVecLSM(len(vec), docID, vecName); err != nil {
+				return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+			}
 		}
 	}
 

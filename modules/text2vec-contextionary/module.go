@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	text2vecprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
-	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
 // MinimumRequiredRemoteVersion describes the minimal semver version
@@ -211,7 +211,7 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 

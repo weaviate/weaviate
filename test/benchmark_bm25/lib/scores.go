@@ -58,6 +58,14 @@ func (n *Scores) CurrentNDCG() float64 {
 	return n.NDCG / float64(n.numQueries)
 }
 
+func (n *Scores) CurrentPrecisionAt1() float64 {
+	return float64(n.hitsAt1) / float64(n.numQueries)
+}
+
+func (n *Scores) CurrentPrecisionAt5() float64 {
+	return float64(n.hitsAt5) / float64(n.numQueries) / float64(5)
+}
+
 func (n *Scores) PrettyPrint() {
-	fmt.Printf("nDCG score: %.04f, hits at 1: %d, hits at 5: %d\n", n.NDCG/float64(n.numQueries), n.hitsAt1, n.hitsAt5)
+	fmt.Printf("nDCG score: %.04f, hits at 1: %d, hits at 5: %d\n", n.CurrentNDCG(), n.hitsAt1, n.hitsAt5)
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -68,6 +69,7 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
+	ObjectCountAsync() int
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
 
 	PutObject(context.Context, *storobj.Object) error
@@ -75,7 +77,7 @@ type ShardLike interface {
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
@@ -93,18 +95,16 @@ type ShardLike interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) //
 
-	// TODO tests only
-	Dimensions() int // dim(vector)*number vectors
-	// TODO tests only
-	QuantizedDimensions(segments int) int
 	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) //
 	MergeObject(ctx context.Context, object objects.MergeDocument) error                   //
 	Queue() *IndexQueue
+	Queues() map[string]*IndexQueue
 	Shutdown(context.Context) error // Shutdown the shard
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error)                                                                                                                    // Check if an object was deleted
 	VectorIndex() VectorIndex                                                                                                                                                        // Get the vector index
+	VectorIndexes() map[string]VectorIndex                                                                                                                                           // Get the vector indexes
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
@@ -122,7 +122,13 @@ type ShardLike interface {
 	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	extendDimensionTrackerLSM(int, uint64) error
+	// TODO tests only
+	Dimensions() int // dim(vector)*number vectors
+	// TODO tests only
+	QuantizedDimensions(segments int) int
+	extendDimensionTrackerLSM(dimLength int, docID uint64) error
+	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
+	publishDimensionMetrics()
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
@@ -138,6 +144,7 @@ type ShardLike interface {
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
+	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
@@ -149,11 +156,13 @@ type ShardLike interface {
 type Shard struct {
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
+	queues           map[string]*IndexQueue
 	name             string
 	store            *lsmkv.Store
 	counter          *indexcounter.Counter
 	indexCheckpoints *indexcheckpoint.Checkpoints
 	vectorIndex      VectorIndex
+	vectorIndexes    map[string]VectorIndex
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
@@ -183,6 +192,7 @@ type Shard struct {
 	fallbackToSearchable bool
 
 	cycleCallbacks *shardCycleCallbacks
+	bitmapFactory  *roaringset.BitmapFactory
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -226,10 +236,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	s.queue, err = NewIndexQueue(s.ID(), s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+	s.queue, err = NewIndexQueue(s.ID(), "", s, s.VectorIndex(), s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
 	if err != nil {
 		return nil, err
 	}
+
+	if err := s.initTargetVectors(ctx, class); err != nil {
+		return nil, err
+	}
+
+	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		go func() {
@@ -237,6 +253,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			err = s.queue.PreloadShard(s)
 			if err != nil {
 				s.queue.Logger.WithError(err).Error("preload shard")
+			}
+			for targetVector, queue := range s.queues {
+				err = queue.PreloadShard(s)
+				if err != nil {
+					queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
+				}
 			}
 		}()
 	}
@@ -250,10 +272,44 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	return s, nil
 }
 
+func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) error {
+	if len(s.index.vectorIndexUserConfigs) > 0 {
+		s.vectorIndexes = make(map[string]VectorIndex)
+		s.queues = make(map[string]*IndexQueue)
+
+		for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
+			vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
+			if err != nil {
+				return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+			}
+			s.vectorIndexes[targetVector] = vectorIndex
+
+			queue, err := NewIndexQueue(s.ID(), targetVector, s, vectorIndex,
+				s.centralJobQueue, s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+			if err != nil {
+				return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
+			}
+			s.queues[targetVector] = queue
+		}
+	}
+	return nil
+}
+
 func (s *Shard) initVector(ctx context.Context) error {
+	vectorindex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+	if err != nil {
+		return err
+	}
+	s.vectorIndex = vectorindex
+	return nil
+}
+
+func (s *Shard) initVectorIndex(ctx context.Context,
+	targetVector string, vectorIndexUserConfig schema.VectorIndexConfig,
+) (VectorIndex, error) {
 	var distProv distancer.Provider
 
-	switch s.index.vectorIndexUserConfig.DistanceName() {
+	switch vectorIndexUserConfig.DistanceName() {
 	case "", common.DistanceCosine:
 		distProv = distancer.NewCosineDistanceProvider()
 	case common.DistanceDot:
@@ -265,21 +321,23 @@ func (s *Shard) initVector(ctx context.Context) error {
 	case common.DistanceHamming:
 		distProv = distancer.NewHammingProvider()
 	default:
-		return fmt.Errorf("init vector index: %w",
+		return nil, fmt.Errorf("init vector index: %w",
 			errors.Errorf("unrecognized distance metric %q,"+
-				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", s.index.vectorIndexUserConfig.DistanceName()))
+				"choose one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]", vectorIndexUserConfig.DistanceName()))
 	}
 
-	switch s.index.vectorIndexUserConfig.IndexType() {
+	var vectorIndex VectorIndex
+
+	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
-		hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
+		hnswUserConfig, ok := vectorIndexUserConfig.(hnswent.UserConfig)
 		if !ok {
-			return errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-				s.index.vectorIndexUserConfig)
+			return nil, errors.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
+				vectorIndexUserConfig)
 		}
 
 		if hnswUserConfig.Skip {
-			s.vectorIndex = noop.NewIndex()
+			vectorIndex = noop.NewIndex()
 		} else {
 			// starts vector cycles if vector is configured
 			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
@@ -290,7 +348,7 @@ func (s *Shard) initVector(ctx context.Context) error {
 			// - a geo property index for each geo prop in the schema
 			//
 			// here we label the main vector index as such.
-			vecIdxID := "main"
+			vecIdxID := s.vectorIndexID(targetVector)
 
 			vi, err := hnsw.New(hnsw.Config{
 				Logger:               s.index.logger,
@@ -309,17 +367,17 @@ func (s *Shard) initVector(ctx context.Context) error {
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {
-				return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
-			s.vectorIndex = vi
+			vectorIndex = vi
 
-			defer s.vectorIndex.PostStartup()
+			defer vectorIndex.PostStartup()
 		}
 	case vectorindex.VectorIndexTypeFLAT:
-		flatUserConfig, ok := s.index.vectorIndexUserConfig.(flatent.UserConfig)
+		flatUserConfig, ok := vectorIndexUserConfig.(flatent.UserConfig)
 		if !ok {
-			return errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
-				s.index.vectorIndexUserConfig)
+			return nil, errors.Errorf("flat vector index: config is not flat.UserConfig: %T",
+				vectorIndexUserConfig)
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 
@@ -328,23 +386,24 @@ func (s *Shard) initVector(ctx context.Context) error {
 		// - a geo property index for each geo prop in the schema
 		//
 		// here we label the main vector index as such.
-		vecIdxID := "main"
+		vecIdxID := s.vectorIndexID(targetVector)
 
 		vi, err := flat.New(flat.Config{
 			ID:               vecIdxID,
+			TargetVector:     targetVector,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 		}, flatUserConfig, s.store)
 		if err != nil {
-			return errors.Wrapf(err, "init shard %q: flat index", s.ID())
+			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
-		s.vectorIndex = vi
+		vectorIndex = vi
 	default:
-		return fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
-			s.index.vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
 	}
 
-	return nil
+	return vectorIndex, nil
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -358,6 +417,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get)
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")
@@ -379,8 +439,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	s.initDimensionTracking()
-
 	return nil
 }
 
@@ -394,6 +452,13 @@ func (s *Shard) path() string {
 
 func (s *Shard) pathLSM() string {
 	return path.Join(s.path(), "lsm")
+}
+
+func (s *Shard) vectorIndexID(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("vectors_%s", targetVector)
+	}
+	return "main"
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
@@ -453,10 +518,8 @@ func (s *Shard) drop() error {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
-		if s.promMetrics != nil {
-			// send 0 in when index gets dropped
-			s.clearDimensionMetrics()
-		}
+		// send 0 in when index gets dropped
+		s.clearDimensionMetrics()
 	}
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
@@ -778,6 +841,7 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
+// ObjectCount returns the exact count at any moment
 func (s *Shard) ObjectCount() int {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
@@ -785,6 +849,17 @@ func (s *Shard) ObjectCount() int {
 	}
 
 	return b.Count()
+}
+
+// ObjectCountAsync returns the eventually consistent "async" count which is
+// much cheaper to obtain
+func (s *Shard) ObjectCountAsync() int {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	return b.CountAsync()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

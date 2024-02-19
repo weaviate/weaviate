@@ -42,18 +42,13 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, settings ClassSettings,
-) error {
-	vec, err := v.object(ctx, object.ID, comp, settings)
-	if err != nil {
-		return err
-	}
-
-	object.Vector = vec
-	return nil
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	vec, err := v.object(ctx, object.ID, comp, cfg)
+	return vec, nil, err
 }
 
-func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]float32, error) {
+func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, id, image)
 	if err != nil {
 		return nil, err
@@ -63,9 +58,15 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string) ([]fl
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, ichek ClassSettings,
+	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	vectorize := comp.PrevVector() == nil
+	ichek := NewClassSettings(cfg)
+	prevVector := comp.PrevVector()
+	if cfg.TargetVector() != "" {
+		prevVector = comp.PrevVectorForName(cfg.TargetVector())
+	}
+
+	vectorize := prevVector == nil
 
 	// vectorize image
 	images := []string{}
@@ -88,13 +89,13 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 
 	// no property was changed, old vector can be used
 	if !vectorize {
-		return comp.PrevVector(), nil
+		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
 	for i, image := range images {
 		imgID := fmt.Sprintf("%s_%v", id, i)
-		vector, err := v.VectorizeImage(ctx, imgID, image)
+		vector, err := v.VectorizeImage(ctx, imgID, image, cfg)
 		if err != nil {
 			return nil, err
 		}

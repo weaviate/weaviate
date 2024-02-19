@@ -25,6 +25,7 @@ var (
 	QueriesCount           int
 	MultiplyProperties     int
 	FilterObjectPercentage int
+	QueriesInterval        int
 	Alpha                  float32
 	Ranking                string
 	Vectorizer             bool
@@ -35,6 +36,7 @@ const (
 	DefaultDatasetConfigPath      = "datasets.yml"
 	DefaultBatchSize              = 100
 	DefaultQueriesCount           = -1
+	DefaultQueriesInterval        = -1
 	DefaultMultiplyProperties     = 1
 	DefaultFilterObjectPercentage = 0
 	DefaultAlpha                  = 0

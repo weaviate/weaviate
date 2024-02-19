@@ -56,20 +56,15 @@ type ClassSettings interface {
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
+) ([]float32, models.AdditionalProperties, error) {
 	vec, err := v.object(ctx, object.Class, comp, cfg)
-	if err != nil {
-		return err
-	}
-
-	object.Vector = vec
-	return nil
+	return vec, nil, err
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
 	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg))
+	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg), cfg.TargetVector())
 	if vector != nil {
 		// dont' re-vectorize
 		return vector, nil
