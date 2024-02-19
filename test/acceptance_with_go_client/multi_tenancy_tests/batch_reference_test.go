@@ -26,7 +26,6 @@ import (
 )
 
 func TestBatchReferenceCreate_MultiTenancy(t *testing.T) {
-	t.Skip("to be adjusted to work with eventual consistency on follower node")
 	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
 	require.Nil(t, err)
 
