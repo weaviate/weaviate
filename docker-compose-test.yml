@@ -29,6 +29,7 @@ services:
       RAFT_JOIN: "weaviate-test"
       RAFT_BOOTSTRAP_EXPECT: "1"
       ASYNC_INDEXING: ${ASYNC_INDEXING:-false}
+      DISABLE_TELEMETRY: true
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in

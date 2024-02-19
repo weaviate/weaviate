@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -126,13 +128,16 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if object.Vector == nil {
-			comp, err := compFactory()
-			if err != nil {
-				return fmt.Errorf("failed creating properties comparator: %w", err)
-			}
-			if err := vectorizer.VectorizeObject(ctx, object, comp, cfg); err != nil {
-				return fmt.Errorf("update vector: %w", err)
-			}
+			backoff.Retry(func() error {
+				comp, err := compFactory()
+				if err != nil {
+					return fmt.Errorf("failed creating properties comparator: %w", err)
+				}
+				if err := vectorizer.VectorizeObject(ctx, object, comp, cfg); err != nil {
+					return fmt.Errorf("update vector: %w", err)
+				}
+				return nil
+			}, utils.NewBackoff())
 		}
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)

@@ -155,7 +155,7 @@ func TestExecutor(t *testing.T) {
 		req := &cluster.UpdateTenantsRequest{Tenants: tenants}
 		migrator.On("UpdateTenants", Anything, cls, Anything).Return(commit, ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.UpdateTenants("A", req))
+		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrAny)
 	})
 
 	t.Run("AddTenants", func(t *testing.T) {
