@@ -40,6 +40,11 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	if err != nil && strings.Contains(err.Error(), "exists") {
+		return
+	}
 	AssertRequestOk(t, resp, err, nil)
 }
 
