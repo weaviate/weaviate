@@ -66,6 +66,10 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 		return nil, fmt.Errorf("no params provided")
 	}
 
+	if len(in[0].Vector) == 0 && len(in[0].Vectors) > 0 {
+		return nil, fmt.Errorf("feature projection doesn't work for multiple vectors")
+	}
+
 	dims := len(in[0].Vector)
 
 	if err := params.SetDefaultsAndValidate(len(in), dims); err != nil {

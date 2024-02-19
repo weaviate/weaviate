@@ -179,7 +179,7 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 	for {
 		node, readLength, err := t.readNode(t.data[bufferPos:])
 		bufferPos += readLength
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

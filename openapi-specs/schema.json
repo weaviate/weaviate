@@ -136,6 +136,21 @@
         "format": "float"
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
+    },
     "C11yVectorBasedQuestion": {
       "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
@@ -623,6 +638,12 @@
           "description": "Name of the class as URI relative to the schema URL.",
           "type": "string"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexType": {
           "description": "Name of the vector index to use, eg. (HNSW)",
           "type": "string"
@@ -722,6 +743,23 @@
             "type": "array",
             "x-omitempty": true
           }
+      },
+      "type": "object"
+    },
+    "VectorConfig": {
+      "properties": {
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        }
       },
       "type": "object"
     },
@@ -1402,8 +1440,12 @@
           "type": "integer"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         },
         "tenant": {
           "description": "Name of the Objects tenant.",
@@ -1928,7 +1970,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.23.9"
+    "version": "1.24.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

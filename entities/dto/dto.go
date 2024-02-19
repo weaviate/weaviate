@@ -36,6 +36,7 @@ type GetParams struct {
 	HybridSearch          *searchparams.HybridSearch
 	GroupBy               *searchparams.GroupBy
 	SearchVector          []float32
+	TargetVector          string
 	Group                 *GroupParams
 	ModuleParams          map[string]interface{}
 	AdditionalProperties  additional.Properties

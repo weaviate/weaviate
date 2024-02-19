@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -42,29 +43,38 @@ func countNetPathFromSegmentPath(segPath string) string {
 	return fmt.Sprintf("%s.cna", extless)
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}
 
-	ok, err := fileExists(s.countNetPath())
+	path := s.countNetPath()
+
+	ok, err := fileExists(path)
 	if err != nil {
 		return err
 	}
 
 	if ok {
-		err = s.loadCountNetFromDisk()
-		if err == nil {
-			return nil
-		}
+		if overwrite {
+			err := os.Remove(path)
+			if err != nil {
+				return fmt.Errorf("delete existing net additions counter %s: %w", path, err)
+			}
+		} else {
+			err = s.loadCountNetFromDisk()
+			if err == nil {
+				return nil
+			}
 
-		if err != ErrInvalidChecksum {
-			// not a recoverable error
-			return err
-		}
+			if !errors.Is(err, ErrInvalidChecksum) {
+				// not a recoverable error
+				return err
+			}
 
-		// now continue re-calculating
+			// now continue re-calculating
+		}
 	}
 
 	var lastErr error

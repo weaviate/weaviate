@@ -165,7 +165,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
 
 		assert.Nil(t, err)
 	})
@@ -188,7 +188,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
 		assert.Equal(t,
 			fmt.Errorf("import into non-existing index for WrongClass"), err)
 	})
@@ -226,7 +226,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
 		assert.Nil(t, err)
 	})
 
@@ -370,7 +370,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
 		assert.Nil(t, err)
 	})
 
@@ -413,7 +413,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
-		err := repo.PutObject(context.Background(), action, vector, nil)
+		err := repo.PutObject(context.Background(), action, vector, nil, nil)
 
 		assert.Nil(t, err)
 	})
@@ -423,7 +423,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, 0, 10, nil)
+		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, "", 0, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -532,7 +532,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
 
 		assert.Nil(t, err)
 	})
@@ -838,7 +838,7 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector, nil)
+			err := repo.PutObject(context.Background(), object, vector, nil, nil)
 			assert.Nil(t, err)
 		}
 		// run sorting tests
@@ -1233,7 +1233,7 @@ func TestCRUD(t *testing.T) {
 				Class:  "TheBestActionClass",
 				Vector: vec,
 			}
-			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil, nil))
 		})
 
 		t.Run("perform search with id filter", func(t *testing.T) {
@@ -1270,7 +1270,6 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 
-			// Sigh
 			for i := range expected {
 				expected[i].DocID = res[i].DocID
 			}
@@ -1388,7 +1387,7 @@ func TestCRUD_Query(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector, nil)
+			err := repo.PutObject(context.Background(), object, vector, nil, nil)
 			assert.Nil(t, err)
 		}
 		// toParams helper method
@@ -1590,7 +1589,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("import individual objects without vector", func(t *testing.T) {
 		for i := 0; i < individual; i++ {
-			err := repo.PutObject(context.Background(), data[i], nil, nil) // nil vector !
+			err := repo.PutObject(context.Background(), data[i], nil, nil, nil) // nil vector !
 			require.Nil(t, err)
 		}
 	})
@@ -1649,7 +1648,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 
 			data[i].Vector = randomVector(r, 7)
-			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil)
+			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -1765,7 +1764,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -1904,7 +1903,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -2016,7 +2015,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			ID:         testID,
 			Class:      testClass.Class,
 			Properties: map[string]interface{}{"description": "test object init"},
-		}, testVec, nil)
+		}, testVec, nil, nil)
 		require.Nil(t, err)
 	})
 
@@ -2028,7 +2027,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, nil, nil)
+			}, nil, nil, nil)
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
@@ -2175,8 +2174,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, nil))
 
 		res, err := repo.ObjectByID(context.Background(), objID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
@@ -2192,7 +2191,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 				"stringProp": "string prop value",
 			},
 		}
-		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil, nil))
 
 		obj1ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 		obj1 := &models.Object{
@@ -2227,8 +2226,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, nil))
 
 		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
 			additional.Properties{}, nil, "")
@@ -2316,7 +2315,7 @@ func TestOverwriteObjects(t *testing.T) {
 	}
 
 	t.Run("insert stale object", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), stale, stale.Vector, nil)
+		err := repo.PutObject(context.Background(), stale, stale.Vector, nil, nil)
 		require.Nil(t, err)
 	})
 
@@ -2417,9 +2416,9 @@ func TestIndexDigestObjects(t *testing.T) {
 	}
 
 	t.Run("insert test objects", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil)
+		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil, nil)
 		require.Nil(t, err)
-		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil)
+		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil, nil)
 		require.Nil(t, err)
 	})
 
@@ -2521,7 +2520,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil, nil))
 		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil,
 			additional.Properties{}, nil, "")
 		require.Nil(t, err)
@@ -2535,7 +2534,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil, nil))
 	})
 
 	t.Run("Add object with different vector length", func(t *testing.T) {
@@ -2544,7 +2543,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3, 4},
 		}
-		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil))
+		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil, nil))
 		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil,
 			additional.Properties{}, nil, "")
 		require.Nil(t, err)
@@ -2587,7 +2586,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil, nil))
 		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil,
 			additional.Properties{}, nil, "")
 		require.Nil(t, err)

@@ -517,20 +517,44 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	if class.VectorIndexType != "hnsw" && class.VectorIndexType != "flat" {
-		return errors.Errorf(
-			"parse vector index config: unsupported vector index type: %q",
-			class.VectorIndexType)
-	}
-
-	parsed, err := m.configParser(class.VectorIndexConfig, class.VectorIndexType)
+	parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
 	if err != nil {
-		return errors.Wrap(err, "parse vector index config")
+		return err
 	}
-
 	class.VectorIndexConfig = parsed
 
+	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (m *Manager) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+	for targetVector, vectorConfig := range class.VectorConfig {
+		parsed, err := m.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		if err != nil {
+			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		vectorConfig.VectorIndexConfig = parsed
+		class.VectorConfig[targetVector] = vectorConfig
+	}
+	return nil
+}
+
+func (m *Manager) parseGivenVectorIndexConfig(vectorIndexType string,
+	vectorIndexConfig interface{},
+) (schema.VectorIndexConfig, error) {
+	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
+		return nil, errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
+			vectorIndexType)
+	}
+
+	parsed, err := m.configParser(vectorIndexConfig, vectorIndexType)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse vector index config")
+	}
+	return parsed, nil
 }
 
 func (m *Manager) parseShardingConfig(ctx context.Context, class *models.Class) (err error) {

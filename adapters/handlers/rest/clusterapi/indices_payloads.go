@@ -343,13 +343,14 @@ func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
 
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vector []float32, limit int,
+func (p searchParamsPayload) Marshal(vector []float32, targetVector string, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties,
 ) ([]byte, error) {
 	type params struct {
 		SearchVector   []float32                    `json:"searchVector"`
+		TargetVector   string                       `json:"targetVector"`
 		Limit          int                          `json:"limit"`
 		Filters        *filters.LocalFilter         `json:"filters"`
 		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
@@ -359,16 +360,17 @@ func (p searchParamsPayload) Marshal(vector []float32, limit int,
 		Additional     additional.Properties        `json:"additional"`
 	}
 
-	par := params{vector, limit, filter, keywordRanking, sort, cursor, groupBy, addP}
+	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP}
 	return json.Marshal(par)
 }
 
-func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
+func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, error,
 ) {
 	type searchParametersPayload struct {
 		SearchVector   []float32                    `json:"searchVector"`
+		TargetVector   string                       `json:"targetVector"`
 		Distance       float32                      `json:"distance"`
 		Limit          int                          `json:"limit"`
 		Filters        *filters.LocalFilter         `json:"filters"`
@@ -380,7 +382,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, float32, int,
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.SearchVector, par.Distance, par.Limit,
+	return par.SearchVector, par.TargetVector, par.Distance, par.Limit,
 		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, err
 }
 

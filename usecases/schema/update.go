@@ -150,6 +150,9 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		return errors.Wrap(err, "vector index config")
 	}
 
+	// TODO[named-vectors] add logic that updates multiple vector indexes when
+	// someone chooses to enable PQ for a specific target vector
+
 	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
 		updated.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
