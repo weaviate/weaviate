@@ -39,7 +39,6 @@ func TestBatchAddTenantObjects(t *testing.T) {
 }
 
 func withImplicitTenantCreation(t *testing.T, tests []func(*testing.T, bool)) {
-	t.Skip("to be adjusted to work with eventual consistency on follower node")
 	for _, test := range tests {
 		t.Run("with implicit tenant creation", func(t *testing.T) {
 			test(t, true)
@@ -106,17 +105,7 @@ func testBatchAddTenantObjects(t *testing.T, implicitTenants bool) {
 		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: tenantName}})
 	}
 
-	t.Run("add and get tenant objects", func(t *testing.T) {
-		helper.CreateObjectsBatch(t, tenantObjects)
-
-		for _, obj := range tenantObjects {
-			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
-			require.Nil(t, err)
-			assert.Equal(t, obj.ID, resp.ID)
-			assert.Equal(t, obj.Class, resp.Class)
-			assert.Equal(t, obj.Tenant, resp.Tenant)
-		}
-	})
+	assertAddedTenantObjects(t, tenantName, tenantObjects)
 }
 
 func testBatchAddTenantObjectsWithMixedClasses(t *testing.T, implicitTenants bool) {
@@ -184,27 +173,17 @@ func testBatchAddTenantObjectsWithMixedClasses(t *testing.T, implicitTenants boo
 
 	helper.CreateClass(t, &testClass1)
 	helper.CreateClass(t, &testClass2)
-	if !implicitTenants {
-		helper.CreateTenants(t, testClass1.Class, []*models.Tenant{{Name: tenantName}})
-		helper.CreateTenants(t, testClass2.Class, []*models.Tenant{{Name: tenantName}})
-	}
-
 	defer func() {
 		helper.DeleteClass(t, testClass1.Class)
 		helper.DeleteClass(t, testClass2.Class)
 	}()
 
-	t.Run("add and get tenant objects", func(t *testing.T) {
-		helper.CreateObjectsBatch(t, tenantObjects)
+	if !implicitTenants {
+		helper.CreateTenants(t, testClass1.Class, []*models.Tenant{{Name: tenantName}})
+		helper.CreateTenants(t, testClass2.Class, []*models.Tenant{{Name: tenantName}})
+	}
 
-		for _, obj := range tenantObjects {
-			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
-			require.Nil(t, err)
-			assert.Equal(t, obj.ID, resp.ID)
-			assert.Equal(t, obj.Class, resp.Class)
-			assert.Equal(t, obj.Tenant, resp.Tenant)
-		}
-	})
+	assertAddedTenantObjects(t, tenantName, tenantObjects)
 }
 
 func testBatchWithMixedTenants(t *testing.T, implicitTenants bool) {
@@ -402,4 +381,18 @@ func TestAddBatchToNonMultiClass(t *testing.T) {
 	for i := range resp.Payload {
 		require.NotNil(t, resp.Payload[i].Result.Errors)
 	}
+}
+
+func assertAddedTenantObjects(t *testing.T, tenantName string, objects []*models.Object) {
+	t.Run("add and get tenant objects", func(t *testing.T) {
+		helper.CreateObjectsBatch(t, objects)
+
+		for _, obj := range objects {
+			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantName)
+			require.Nil(t, err)
+			assert.Equal(t, obj.ID, resp.ID)
+			assert.Equal(t, obj.Class, resp.Class)
+			assert.Equal(t, obj.Tenant, resp.Tenant)
+		}
+	})
 }
