@@ -210,7 +210,7 @@ func TestBackup_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
-			assert.Len(t, files, 4)
+			assert.Len(t, files, 5)
 
 			// build regex to get very close approximation to the expected
 			// contents of the ListFiles result. the only thing we can't
@@ -222,7 +222,8 @@ func TestBackup_BucketLevel(t *testing.T) {
 			//   1. a *.db file - the segment itself
 			//   2. a *.bloom file - the segments' bloom filter (only since v1.17)
 			//   3. a *.secondary.0.bloom file - the bloom filter for the secondary index at pos 0 (only since v1.17)
-			//   4. a *.cna file - th segment's count net additions (only since v1.17)
+			//   4. a *.secondary.1.bloom file - the bloom filter for the secondary index at pos 1 (only since v1.25)
+			//   5. a *.cna file - th segment's count net additions (only since v1.17)
 			//
 			// These files are created when the memtable is flushed, and the new
 			// segment is initialized. Both happens as a result of calling
@@ -234,13 +235,13 @@ func TestBackup_BucketLevel(t *testing.T) {
 			}
 
 			// check that we have one of each: *.db
-			exts := make([]string, 4)
+			exts := make([]string, 5)
 			for i, file := range files {
 				exts[i] = filepath.Ext(file)
 			}
 			assert.Contains(t, exts, ".db")    // the main segment
 			assert.Contains(t, exts, ".cna")   // the segment's count net additions
-			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary)
+			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary ones)
 		})
 
 		err = shard.Store().ResumeCompaction(ctx)
