@@ -21,8 +21,18 @@ import (
 func (s *Shard) Aggregate(ctx context.Context,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
+	var queue *IndexQueue
+	if params.TargetVector != "" {
+		var err error
+		queue, err = s.getIndexQueue(params.TargetVector)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		queue = s.queue
+	}
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
-		s.index.stopwords, s.versioner.Version(), s.queue, s.index.logger, s.GetPropertyLengthTracker(),
+		s.index.stopwords, s.versioner.Version(), queue, s.index.logger, s.GetPropertyLengthTracker(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		Do(ctx)
 }
