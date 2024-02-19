@@ -327,6 +327,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	envSettings := make(map[string]string)
 	envSettings["network"] = networkName
+	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
 		container, err := startMinIO(ctx, networkName)
@@ -529,6 +530,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	cs := make([]*DockerContainer, size)
 	image := os.Getenv(envTestWeaviateImage)
 	networkName := settings["network"]
+	settings["DISABLE_TELEMETRY"] = "true"
 	if d.withWeaviateBasicAuth {
 		settings["CLUSTER_BASIC_AUTH_USERNAME"] = d.withWeaviateBasicAuthUsername
 		settings["CLUSTER_BASIC_AUTH_PASSWORD"] = d.withWeaviateBasicAuthPassword
@@ -547,7 +549,6 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
 	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.size)
-	settings["RAFT_RECOVERY_TIMEOUT"] = "2"
 
 	// first node
 	config1 := copySettings(settings)
