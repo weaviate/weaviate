@@ -12,12 +12,10 @@
 package oidc
 
 import (
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -47,15 +45,6 @@ type JSONWebKey struct {
 	Algorithm string
 	// Key use, parsed from `use` header.
 	Use string
-
-	// X.509 certificate chain, parsed from `x5c` header.
-	Certificates []*x509.Certificate
-	// X.509 certificate URL, parsed from `x5u` header.
-	CertificatesURL *url.URL
-	// X.509 certificate thumbprint (SHA-1), parsed from `x5t` header.
-	CertificateThumbprintSHA1 []byte
-	// X.509 certificate thumbprint (SHA-256), parsed from `x5t#S256` header.
-	CertificateThumbprintSHA256 []byte
 }
 type jwksResponse struct {
 	Keys []JSONWebKey `json:"keys"`
