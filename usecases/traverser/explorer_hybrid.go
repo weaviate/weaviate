@@ -180,13 +180,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 	}
 
-	if params.HybridSearch.Alpha > 0 {
+	if 1-params.HybridSearch.Alpha > 0 {
 		sparseResults, name, err := sparseSearch(ctx, e, params)
 		if err != nil {
 			e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
 			return nil, err
 		} else {
-			weights = append(weights, 1arams.HybridSearch.Alpha)
+			weights = append(weights, 1-params.HybridSearch.Alpha)
 			results = append(results, sparseResults)
 			names = append(names, name)
 		}
