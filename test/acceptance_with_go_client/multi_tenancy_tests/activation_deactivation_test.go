@@ -12,11 +12,12 @@
 package multi_tenancy_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,11 +25,10 @@ import (
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestActivationDeactivation(t *testing.T) {
-	t.Skip("to be adjusted to work with eventual consistency on follower node")
-
 	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
 	require.Nil(t, err)
 
@@ -186,9 +186,13 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
+				eg := errgroup.Group{}
 				require.Nil(t, compose.Stop(ctx, container.Name(), nil))
-				require.Nil(t, compose.Start(ctx, container.Name()))
-
+				eg.Go(func() error {
+					require.Nil(t, compose.Start(ctx, container.Name()))
+					return nil
+				})
+				eg.Wait()
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: container.URI()})
 				require.Nil(t, err)
 
@@ -210,9 +214,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			compose, err := docker.New().WithWeaviateCluster().Start(ctx)
 			require.Nil(t, err)
 
-			container1 := compose.GetWeaviate()
-			container2 := compose.GetWeaviateNode2()
-			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: container1.URI()})
+			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
 			require.Nil(t, err)
 
 			cleanupFn = func(t *testing.T, ctx context.Context) {
@@ -221,14 +223,23 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				require.Nil(t, compose.Stop(ctx, container1.Name(), nil))
-				require.Nil(t, compose.Start(ctx, container1.Name()))
-				require.Nil(t, compose.Stop(ctx, container2.Name(), nil))
-				require.Nil(t, compose.Start(ctx, container2.Name()))
+				eg := errgroup.Group{}
+				require.Nil(t, compose.StopAt(ctx, 0, nil))
+				eg.Go(func() error {
+					require.Nil(t, compose.StartAt(ctx, 0))
+					return nil
+				})
 
-				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: container1.URI()})
+				require.Nil(t, compose.StopAt(ctx, 1, nil))
+				eg.Go(func() error {
+					time.Sleep(4 * time.Second) // wait for member list initialization
+					require.Nil(t, compose.StartAt(ctx, 1))
+					return nil
+				})
+
+				eg.Wait()
+				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
 				require.Nil(t, err)
-
 				return client
 			}
 
