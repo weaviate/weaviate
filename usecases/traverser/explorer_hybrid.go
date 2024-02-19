@@ -136,44 +136,45 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
-	if 1-params.HybridSearch.Alpha > 0 {
-	if params.HybridSearch.NearTextParams != nil && {
-		res, name, err := nearTextSubSearch(ctx, e, params)
-		if err != nil {
-			e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
-			return nil, err
-		} else {
-			weights = append(weights, 1-params.HybridSearch.Alpha)
-			results = append(results, res)
-			names = append(names, name)
-		}
-	} else {
-		sch := e.schemaGetter.GetSchemaSkipAuth()
-		class := sch.FindClassByName(schema.ClassName(params.ClassName))
-		if class == nil {
-			return nil, fmt.Errorf("class %q not found", params.ClassName)
-		}
-
-		vectoriser := class.Vectorizer
-		if vectoriser != "none" && 1-params.HybridSearch.Alpha > 0 {
-			if len(params.HybridSearch.Vector) == 0 {
-				var err error
-				params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query)
-				if err != nil {
-					return nil, err
-				}
-			} else {
-				params.SearchVector = params.HybridSearch.Vector
-			}
-
-			res, name, err := denseSearch(ctx, params.SearchVector, e, params)
+	if (1 - params.HybridSearch.Alpha) > 0 {
+		if params.HybridSearch.NearTextParams != nil {
+			res, name, err := nearTextSubSearch(ctx, e, params)
 			if err != nil {
-				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
+				e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
 				return nil, err
 			} else {
 				weights = append(weights, 1-params.HybridSearch.Alpha)
 				results = append(results, res)
 				names = append(names, name)
+			}
+		} else {
+			sch := e.schemaGetter.GetSchemaSkipAuth()
+			class := sch.FindClassByName(schema.ClassName(params.ClassName))
+			if class == nil {
+				return nil, fmt.Errorf("class %q not found", params.ClassName)
+			}
+
+			vectoriser := class.Vectorizer
+			if vectoriser != "none" {
+				if len(params.HybridSearch.Vector) == 0 {
+					var err error
+					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					params.SearchVector = params.HybridSearch.Vector
+				}
+
+				res, name, err := denseSearch(ctx, params.SearchVector, e, params)
+				if err != nil {
+					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
+					return nil, err
+				} else {
+					weights = append(weights, 1-params.HybridSearch.Alpha)
+					results = append(results, res)
+					names = append(names, name)
+				}
 			}
 		}
 	}
