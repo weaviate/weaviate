@@ -12,13 +12,14 @@
 package oidc
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
-	jose "github.com/go-jose/go-jose"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -37,8 +38,27 @@ type oidcDiscovery struct {
 	JWKSUri string `json:"jwks_uri"`
 }
 
+type JSONWebKey struct {
+	// Cryptographic key, can be a symmetric or asymmetric key.
+	Key interface{}
+	// Key identifier, parsed from `kid` header.
+	KeyID string
+	// Key algorithm, parsed from `alg` header.
+	Algorithm string
+	// Key use, parsed from `use` header.
+	Use string
+
+	// X.509 certificate chain, parsed from `x5c` header.
+	Certificates []*x509.Certificate
+	// X.509 certificate URL, parsed from `x5u` header.
+	CertificatesURL *url.URL
+	// X.509 certificate thumbprint (SHA-1), parsed from `x5t` header.
+	CertificateThumbprintSHA1 []byte
+	// X.509 certificate thumbprint (SHA-256), parsed from `x5t#S256` header.
+	CertificateThumbprintSHA256 []byte
+}
 type jwksResponse struct {
-	Keys []jose.JSONWebKey `json:"keys"`
+	Keys []JSONWebKey `json:"keys"`
 }
 
 func oidcHandler(t *testing.T, url string) http.Handler {
@@ -61,11 +81,11 @@ func oidcHandler(t *testing.T, url string) http.Handler {
 	mux.HandleFunc("/.well-known/jwks", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		d := jwksResponse{
-			Keys: []jose.JSONWebKey{
+			Keys: []JSONWebKey{
 				{
 					Key:       publicKey,
 					Use:       "sig",
-					Algorithm: string(jose.RS256),
+					Algorithm: "RS256",
 					KeyID:     "my-key",
 				},
 			},
