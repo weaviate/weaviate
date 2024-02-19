@@ -44,6 +44,7 @@ func TestGRPCRequest(t *testing.T) {
 	refClass2 := "AnotherClass"
 	dotClass := "DotClass"
 	objClass := "ObjClass"
+	multiVecClass := "MultiVecClass"
 
 	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
 
@@ -120,6 +121,23 @@ func TestGRPCRequest(t *testing.T) {
 						},
 					},
 					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DefaultDistanceMetric},
+				},
+				{
+					Class: multiVecClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorIndexConfig: hnsw.UserConfig{},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							VectorIndexType: "hnsw",
+							Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"first": {
+							VectorIndexType: "flat",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+					},
 				},
 			},
 		},
@@ -222,6 +240,14 @@ func TestGRPCRequest(t *testing.T) {
 			req:  &pb.SearchRequest{Collection: classname},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, Properties: defaultTestClassProps,
+			},
+			error: false,
+		},
+		{
+			name: "Vectors returns all named vectors",
+			req:  &pb.SearchRequest{Collection: multiVecClass, Metadata: &pb.MetadataRequest{Vector: true}, Properties: &pb.PropertiesRequest{}},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
 			},
 			error: false,
 		},

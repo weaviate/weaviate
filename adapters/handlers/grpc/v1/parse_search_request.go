@@ -615,6 +615,15 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		Vectors:            prop.Vectors,
 	}
 
+	// return all named vectors if vector is true
+	if prop.Vector && len(class.VectorConfig) > 0 {
+		props.Vectors = make([]string, 0, len(class.VectorConfig))
+		for vectorName := range class.VectorConfig {
+			props.Vectors = append(props.Vectors, vectorName)
+		}
+
+	}
+
 	vectorIndex, err := schema.TypeAssertVectorIndex(class)
 	if err != nil {
 		return props, err
