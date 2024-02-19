@@ -136,13 +136,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
-	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.Alpha > 0 {
+	if 1-params.HybridSearch.Alpha > 0 {
+	if params.HybridSearch.NearTextParams != nil && {
 		res, name, err := nearTextSubSearch(ctx, e, params)
 		if err != nil {
 			e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
 			return nil, err
 		} else {
-			weights = append(weights, params.HybridSearch.Alpha)
+			weights = append(weights, 1-params.HybridSearch.Alpha)
 			results = append(results, res)
 			names = append(names, name)
 		}
