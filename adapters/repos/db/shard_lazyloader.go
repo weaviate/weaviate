@@ -218,6 +218,15 @@ func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated sch
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
+func (l *LazyLoadShard) UpdateVectorConfigForName(ctx context.Context, updated schema.VectorIndexConfig,
+	targetVector string,
+) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.UpdateVectorConfigForName(ctx, updated, targetVector)
+}
+
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if err := l.Load(ctx); err != nil {
 		return []error{err}
