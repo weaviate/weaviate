@@ -366,6 +366,17 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 	return idx.updateVectorIndexConfig(ctx, updated)
 }
 
+func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
+	className string, updated map[string]schema.VectorIndexConfig,
+) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update vector config of non-existing index for %s", className)
+	}
+
+	return idx.updateVectorIndexConfigs(ctx, updated)
+}
+
 func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	old, updated schema.VectorIndexConfig,
 ) error {
@@ -379,6 +390,17 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 		return flat.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
+}
+
+func (m *Migrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
+	old, updated map[string]schema.VectorIndexConfig,
+) error {
+	for vecName := range old {
+		if err := m.ValidateVectorIndexConfigUpdate(ctx, old[vecName], updated[vecName]); err != nil {
+			return fmt.Errorf("vector %q", vecName)
+		}
+	}
+	return nil
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
