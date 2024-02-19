@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
+	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
 // Explorer is a helper construct to perform vector-based searches. It does not
@@ -210,7 +211,6 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, []float32, error) {
 	searchVector, targetVector, err := e.vectorFromParams(ctx, params)
-
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
