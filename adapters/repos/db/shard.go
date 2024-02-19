@@ -272,6 +272,17 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	return s, nil
 }
 
+// target vectors and legacy vector are (supposed to be) exclusive
+// method allows to distinguish which of them is configured for the class
+// target vectors are default configuration
+func hasTargetVectors(cfg schema.VectorIndexConfig, targetCfgs map[string]schema.VectorIndexConfig) bool {
+	if len(targetCfgs) == 0 &&
+		cfg != nil {
+		return false
+	}
+	return true
+}
+
 func (s *Shard) initTargetVectors(ctx context.Context, class *models.Class) error {
 	if len(s.index.vectorIndexUserConfigs) > 0 {
 		s.vectorIndexes = make(map[string]VectorIndex)
