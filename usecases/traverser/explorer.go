@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
 // Explorer is a helper construct to perform vector-based searches. It does not
@@ -218,7 +217,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	targetVector, err = e.targetParamHelper.getTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
 		params.ClassName, targetVector)
 	if err != nil {
-		return nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 	params.TargetVector = targetVector
 	params.SearchVector = searchVector
@@ -299,115 +298,6 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 	totalLimit := pagination.Offset + pagination.Limit
 
 	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
-}
-
-func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	sparseSearch := func() ([]*storobj.Object, []float32, error) {
-		params.KeywordRanking = &searchparams.KeywordRanking{
-			Query:      params.HybridSearch.Query,
-			Type:       "bm25",
-			Properties: params.HybridSearch.Properties,
-		}
-
-		if params.Pagination == nil {
-			return nil, nil, fmt.Errorf("invalid params, pagination object is nil")
-		}
-
-		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
-
-		oldLimit := params.Pagination.Limit
-		params.Pagination.Limit = enforcedMin - params.Pagination.Offset
-
-		res, scores, err := e.searcher.SparseObjectSearch(ctx, params)
-		if err != nil {
-			return nil, nil, err
-		}
-		params.Pagination.Limit = oldLimit
-
-		return res, scores, nil
-	}
-
-	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
-		baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-		var hybridSearchLimit int
-		if baseSearchLimit <= hybrid.DefaultLimit {
-			hybridSearchLimit = hybrid.DefaultLimit
-		} else {
-			hybridSearchLimit = baseSearchLimit
-		}
-		res, dists, err := e.searcher.DenseObjectSearch(ctx,
-			params.ClassName, vec, params.TargetVector, 0, hybridSearchLimit, params.Filters,
-			params.AdditionalProperties, params.Tenant)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return res, dists, nil
-	}
-
-	postProcess := func(results []*search.Result) ([]search.Result, error) {
-		totalLimit, err := e.CalculateTotalLimit(params.Pagination)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(results) > totalLimit {
-			results = results[:totalLimit]
-		}
-
-		res1 := make([]search.Result, 0, len(results))
-		for _, res := range results {
-			res1 = append(res1, *res)
-		}
-
-		res, err := e.searcher.ResolveReferences(ctx, res1, params.Properties, nil, params.AdditionalProperties, params.Tenant)
-		if err != nil {
-			return nil, err
-		}
-		return res, nil
-	}
-
-	res, err := hybrid.Search(ctx, &hybrid.Params{
-		HybridSearch: params.HybridSearch,
-		Keyword:      params.KeywordRanking,
-		Class:        params.ClassName,
-		Autocut:      params.Pagination.Autocut,
-	}, e.logger, sparseSearch, denseSearch, postProcess, e.modulesProvider)
-	if err != nil {
-		return nil, err
-	}
-
-	var pointerResultList hybrid.Results
-
-	if params.Pagination.Limit <= 0 {
-		params.Pagination.Limit = hybrid.DefaultLimit
-	}
-
-	if params.Pagination.Offset < 0 {
-		params.Pagination.Offset = 0
-	}
-
-	if len(res) >= params.Pagination.Limit+params.Pagination.Offset {
-		pointerResultList = res[params.Pagination.Offset : params.Pagination.Limit+params.Pagination.Offset]
-	}
-	if len(res) < params.Pagination.Limit+params.Pagination.Offset && len(res) > params.Pagination.Offset {
-		pointerResultList = res[params.Pagination.Offset:]
-	}
-	if len(res) <= params.Pagination.Offset {
-		pointerResultList = hybrid.Results{}
-	}
-
-	out := make([]search.Result, len(pointerResultList))
-	for i := range pointerResultList {
-		out[i] = *pointerResultList[i]
-	}
-
-	return out, nil
 }
 
 func (e *Explorer) getClassList(ctx context.Context,

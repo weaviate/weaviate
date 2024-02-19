@@ -61,7 +61,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	return out, "keyword,dunno", nil
 }
 
-func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+func denseSearch(ctx context.Context, vec []float32, targetVector string, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
 	/* FIXME
 	baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
 	var hybridSearchLimit int
@@ -73,7 +73,8 @@ func denseSearch(ctx context.Context, vec []float32, e *Explorer, params dto.Get
 	*/
 
 	params.NearVector = &searchparams.NearVector{
-		Vector: vec,
+		Vector:        vec,
+		TargetVectors: []string{targetVector},
 	}
 
 	params.Pagination.Offset = 0
@@ -136,14 +137,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
-	if (1 - params.HybridSearch.Alpha) > 0 {
+	if (params.HybridSearch.Alpha) > 0 {
 		if params.HybridSearch.NearTextParams != nil {
 			res, name, err := nearTextSubSearch(ctx, e, params)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
 				return nil, err
 			} else {
-				weights = append(weights, 1-params.HybridSearch.Alpha)
+				weights = append(weights, params.HybridSearch.Alpha)
 				results = append(results, res)
 				names = append(names, name)
 			}
@@ -158,7 +159,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			if vectoriser != "none" {
 				if len(params.HybridSearch.Vector) == 0 {
 					var err error
-					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query)
+					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, params.HybridSearch.TargetVectors[0])
 					if err != nil {
 						return nil, err
 					}
@@ -166,7 +167,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					params.SearchVector = params.HybridSearch.Vector
 				}
 
-				res, name, err := denseSearch(ctx, params.SearchVector, e, params)
+				res, name, err := denseSearch(ctx, params.SearchVector, origParams.HybridSearch.TargetVectors[0], e, params)
 				if err != nil {
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err
@@ -185,7 +186,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
 			return nil, err
 		} else {
-			weights = append(weights, 1-params.HybridSearch.Alpha)
+			weights = append(weights, 1arams.HybridSearch.Alpha)
 			results = append(results, sparseResults)
 			names = append(names, name)
 		}
