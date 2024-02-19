@@ -171,6 +171,7 @@ type ShardLike interface {
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
 	index            *Index // a reference to the underlying index, which in turn contains schema information
+	class            *models.Class
 	queue            *IndexQueue
 	queues           map[string]*IndexQueue
 	name             string
@@ -224,6 +225,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	var err error
 	s := &Shard{
 		index:       index,
+		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
