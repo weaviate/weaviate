@@ -146,7 +146,7 @@ func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
 ) {
 	if pqEnabled, _ := getPQSegments(cfg); pqEnabled {
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
-		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
 	} else {
 		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
 	}
