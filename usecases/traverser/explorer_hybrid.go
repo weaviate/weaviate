@@ -129,6 +129,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var results [][]*search.Result
 	var weights []float64
 	var names []string
+	var targetVector string
+
+	if len(params.HybridSearch.TargetVectors) > 0 {
+		targetVector = params.HybridSearch.TargetVectors[0]
+	}
 
 	origParams := params
 	params.Pagination = &filters.Pagination{
@@ -159,7 +164,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			if vectoriser != "none" {
 				if len(params.HybridSearch.Vector) == 0 {
 					var err error
-					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, params.HybridSearch.TargetVectors[0])
+					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 					if err != nil {
 						return nil, err
 					}
@@ -167,7 +172,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					params.SearchVector = params.HybridSearch.Vector
 				}
 
-				res, name, err := denseSearch(ctx, params.SearchVector, origParams.HybridSearch.TargetVectors[0], e, params)
+				res, name, err := denseSearch(ctx, params.SearchVector, targetVector, e, params)
 				if err != nil {
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err
