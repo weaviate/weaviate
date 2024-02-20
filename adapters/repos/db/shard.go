@@ -665,12 +665,14 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	return nil
 }
 
+/*
 func (s *Shard) buildCompactHashTree() {
 	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
 	if s.hashtree != nil {
 		return
 	}
 }
+*/
 
 func (s *Shard) buildMultiSegmentHashTree() {
 	shardState := s.index.shardState
