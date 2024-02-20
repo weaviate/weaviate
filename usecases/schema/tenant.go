@@ -472,5 +472,5 @@ func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal,
 			return nil
 		}
 	}
-	return fmt.Errorf("Tenant not exist")
+	return ErrNotFound
 }
