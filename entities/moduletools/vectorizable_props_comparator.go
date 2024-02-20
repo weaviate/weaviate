@@ -24,10 +24,12 @@ type VectorizablePropsComparator interface {
 	PropsIterator() VectorizablePropsIterator
 	IsChanged(propName string) bool
 	PrevVector() []float32
+	PrevVectorForName(targetVector string) []float32
 }
 
 func NewVectorizablePropsComparator(propsSchema []*models.Property,
 	nextProps, prevProps models.PropertySchema, prevVector []float32,
+	prevVectors models.Vectors,
 ) VectorizablePropsComparator {
 	props, propsMap := extractVectorizablePropNames(propsSchema)
 	return &vectorizablePropsComparator{
@@ -36,6 +38,7 @@ func NewVectorizablePropsComparator(propsSchema []*models.Property,
 		vectorizableProps:    props,
 		vectorizablePropsMap: propsMap,
 		prevVector:           prevVector,
+		prevVectors:          prevVectors,
 	}
 }
 
@@ -45,6 +48,7 @@ type vectorizablePropsComparator struct {
 	vectorizableProps    []string
 	vectorizablePropsMap map[string]struct{}
 	prevVector           []float32
+	prevVectors          models.Vectors
 }
 
 func (c *vectorizablePropsComparator) PropsIterator() VectorizablePropsIterator {
@@ -116,6 +120,13 @@ func (c *vectorizablePropsComparator) PrevVector() []float32 {
 	return c.prevVector
 }
 
+func (c *vectorizablePropsComparator) PrevVectorForName(targetVector string) []float32 {
+	if c.prevVectors != nil {
+		return c.prevVectors[targetVector]
+	}
+	return nil
+}
+
 func NewVectorizablePropsComparatorDummy(propsSchema []*models.Property, nextProps models.PropertySchema,
 ) VectorizablePropsComparator {
 	props, propsMap := extractVectorizablePropNames(propsSchema)
@@ -159,6 +170,10 @@ func (c *vectorizablePropsComparatorDummy) IsChanged(propName string) bool {
 }
 
 func (c *vectorizablePropsComparatorDummy) PrevVector() []float32 {
+	return nil
+}
+
+func (c *vectorizablePropsComparatorDummy) PrevVectorForName(targetVector string) []float32 {
 	return nil
 }
 

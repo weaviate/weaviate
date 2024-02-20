@@ -66,6 +66,9 @@ func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 		return errors.Wrap(err, "vector index config")
 	}
 
+	// TODO[named-vectors] add logic that updates multiple vector indexes when
+	// someone chooses to enable PQ for a specific target vector
+
 	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
 		req.Class.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")

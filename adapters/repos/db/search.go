@@ -117,7 +117,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	}
 
 	targetDist := extractDistanceFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
+	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, params.TargetVector,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
 		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
 	if err != nil {
@@ -150,8 +150,8 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 // Class VectorSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
 func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []float32,
-	offset int, limit int, filters *filters.LocalFilter, addl additional.Properties,
-	tenant string,
+	targetVector string, offset int, limit int, filters *filters.LocalFilter,
+	addl additional.Properties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
@@ -161,7 +161,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 	}
 
 	// TODO: groupBy think of this
-	objs, dist, err := index.objectVectorSearch(ctx, vector, 0,
+	objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector, 0,
 		totalLimit, filters, nil, nil, addl, nil, tenant)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
@@ -170,7 +170,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 	return objs, dist, nil
 }
 
-func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offset, limit int,
+func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	var found search.Results
@@ -186,7 +186,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offs
 		go func(index *Index, wg *sync.WaitGroup) {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, vector,
+			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "")
 			if err != nil {

@@ -26,9 +26,11 @@ func TestVectorizablePropsComparator(t *testing.T) {
 	nextProps := createNextProps()
 	prevProps := createPrevProps()
 	prevVector := []float32{1, 2, 3}
+	// nil prevVectors
+	var prevVectors models.Vectors
 
 	t.Run("iterator", func(t *testing.T) {
-		comp := NewVectorizablePropsComparator(propsSchema, nextProps, prevProps, prevVector)
+		comp := NewVectorizablePropsComparator(propsSchema, nextProps, prevProps, prevVector, prevVectors)
 
 		t.Run("returns props in asc order", func(t *testing.T) {
 			expectedNames := []string{"blob", "text", "texts"}
@@ -60,7 +62,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 	})
 
 	t.Run("returns prev vector", func(t *testing.T) {
-		comp := NewVectorizablePropsComparator(propsSchema, nextProps, prevProps, prevVector)
+		comp := NewVectorizablePropsComparator(propsSchema, nextProps, prevProps, prevVector, prevVectors)
 
 		vector := comp.PrevVector()
 
@@ -69,7 +71,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 
 	t.Run("considers non-vectorizable props as not changed", func(t *testing.T) {
 		t.Run("all different", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, nextProps, prevProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, nextProps, prevProps, prevVector, prevVectors)
 
 			for _, propSchema := range propsSchema {
 				switch propSchema.Name {
@@ -82,7 +84,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("next nils", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, map[string]interface{}{}, prevProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, map[string]interface{}{}, prevProps, prevVector, prevVectors)
 
 			for _, propSchema := range propsSchema {
 				switch propSchema.Name {
@@ -95,7 +97,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("prev nils", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, nextProps, map[string]interface{}{}, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, nextProps, map[string]interface{}{}, prevVector, prevVectors)
 
 			for _, propSchema := range propsSchema {
 				switch propSchema.Name {
@@ -123,7 +125,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		}
 
 		t.Run("nil -> nil", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, nilProps, nilProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, nilProps, nilProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"blob", "text", "texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -131,7 +133,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("missing -> nil", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, nilProps, missingProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, nilProps, missingProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"blob", "text", "texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -139,7 +141,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("nil -> missing", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, missingProps, nilProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, missingProps, nilProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"blob", "text", "texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -147,7 +149,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("missing -> missing", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, missingProps, missingProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, missingProps, missingProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"blob", "text", "texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -155,7 +157,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("missing -> empty array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, emptyArrayProps, missingProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, emptyArrayProps, missingProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -163,7 +165,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("nil -> empty array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, emptyArrayProps, nilProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, emptyArrayProps, nilProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -171,7 +173,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("empty array -> missing", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, missingProps, emptyArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, missingProps, emptyArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -179,7 +181,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("empty array -> nil", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, nilProps, emptyArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, nilProps, emptyArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -187,7 +189,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("empty interface array -> missing", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, missingProps, emptyIfArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, missingProps, emptyIfArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -195,7 +197,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("empty interface array -> nil", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, nilProps, emptyIfArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, nilProps, emptyIfArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -203,7 +205,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("empty interface array -> empty array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, emptyArrayProps, emptyIfArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, emptyArrayProps, emptyIfArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.False(t, comp.IsChanged(propName))
@@ -223,7 +225,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		}
 
 		t.Run("different array sizes (1)", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, textPropsABCD, textPropsABC, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, textPropsABCD, textPropsABC, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -231,7 +233,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("different array sizes (2)", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, textPropsABC, textPropsABCD, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, textPropsABC, textPropsABCD, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -239,7 +241,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("different array order", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, textPropsCBA, textPropsABC, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, textPropsCBA, textPropsABC, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -266,7 +268,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		}
 
 		t.Run("interface array -> array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, arrayProps, ifArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, arrayProps, ifArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -274,7 +276,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("array -> interface array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, ifArrayProps, arrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, ifArrayProps, arrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -282,7 +284,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("missing -> empty interface array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, emptyIfArrayProps, missingProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, emptyIfArrayProps, missingProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -290,7 +292,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("nil -> empty interface array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, emptyIfArrayProps, nilProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, emptyIfArrayProps, nilProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))
@@ -298,7 +300,7 @@ func TestVectorizablePropsComparator(t *testing.T) {
 		})
 
 		t.Run("empty array -> empty interface array", func(t *testing.T) {
-			comp := NewVectorizablePropsComparator(propsSchema, emptyIfArrayProps, emptyArrayProps, prevVector)
+			comp := NewVectorizablePropsComparator(propsSchema, emptyIfArrayProps, emptyArrayProps, prevVector, prevVectors)
 
 			for _, propName := range []string{"texts"} {
 				assert.True(t, comp.IsChanged(propName))

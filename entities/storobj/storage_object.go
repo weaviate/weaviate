@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -31,6 +32,8 @@ import (
 )
 
 var bufPool *bufferPool
+
+type Vectors map[string][]float32
 
 func init() {
 	// a 10kB buffer should be large enough for typical cases, it can fit a
@@ -49,6 +52,7 @@ type Object struct {
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
+	Vectors           map[string][]float32 `json:"vectors"`
 }
 
 func New(docID uint64) *Object {
@@ -58,7 +62,7 @@ func New(docID uint64) *Object {
 	}
 }
 
-func FromObject(object *models.Object, vector []float32) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -70,11 +74,20 @@ func FromObject(object *models.Object, vector []float32) *Object {
 		object.Properties = properties
 	}
 
+	var vecs map[string][]float32
+	if vectors != nil {
+		vecs = make(map[string][]float32)
+		for targetVector, vector := range vectors {
+			vecs[targetVector] = vector
+		}
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
+		Vectors:           vecs,
 	}
 }
 
@@ -174,6 +187,25 @@ func FromBinaryOptional(data []byte,
 
 	vectorWeightsLength := rw.ReadUint32()
 	vectorWeights := rw.ReadBytesFromBuffer(uint64(vectorWeightsLength))
+
+	var vecs map[string][]float32
+	if len(addProp.Vectors) > 0 {
+		vectorsLength := rw.ReadUint32()
+		vectors := rw.ReadBytesFromBuffer(uint64(vectorsLength))
+		ko.Object.Vectors = make(models.Vectors, vectorsLength)
+		if len(vectors) > 0 {
+			if err := msgpack.Unmarshal(vectors, &ko.Object.Vectors); err != nil {
+				return nil, fmt.Errorf("parse vectors: %w", err)
+			}
+			vecs = make(map[string][]float32, vectorsLength)
+			for targetVector, vector := range ko.Object.Vectors {
+				vecs[targetVector] = vector
+			}
+		}
+	} else {
+		ko.Object.Vectors = nil
+	}
+	ko.Vectors = vecs
 
 	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
 	if len(props) > 0 ||
@@ -380,6 +412,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
+		Vectors:   ko.asVectors(ko.Vectors),
 		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
@@ -391,6 +424,17 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
+}
+
+func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
+	if len(in) > 0 {
+		out := make(models.Vectors)
+		for targetVector, vector := range in {
+			out[targetVector] = vector
+		}
+		return out
+	}
+	return nil
 }
 
 func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
@@ -473,6 +517,9 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // n          | []byte    | meta as json
 // 2          | uint32    | length of vectorweights json
 // n          | []byte    | vectorweights as json
+// 4          | uint32    | length of packed targetvectors
+// n          | []byte    | packed targetvectors
+
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -509,7 +556,14 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
+	targetVectors, err := msgpack.Marshal(ko.Vectors)
+	if err != nil {
+		return nil, err
+	}
+
+	targetVectorsLength := uint32(len(targetVectors))
+
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength + 4 + targetVectorsLength
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
 	rw.WriteByte(ko.MarshallerVersion)
@@ -547,6 +601,12 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	err = rw.CopyBytesToBuffer(vectorWeights)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	rw.WriteUint32(targetVectorsLength)
+	err = rw.CopyBytesToBuffer(targetVectors)
+	if err != nil {
+		return byteBuffer, errors.Wrap(err, "Could not copy targetVectors")
 	}
 
 	return byteBuffer, nil
@@ -691,6 +751,24 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
 
+	// This check prevents from panic when somebody is upgrading from version that
+	// didn't have multi vector support. This check is needed bc with named vectors
+	// feature storage object can have vectors data prepended at the end of the file
+	if len(rw.Buffer) > int(rw.Position) {
+		targetVectorsLength := uint64(rw.ReadUint32())
+		targetVectors, err := rw.CopyBytesFromBuffer(targetVectorsLength, nil)
+		if err != nil {
+			return errors.Wrap(err, "Could not copy targetVectors")
+		}
+		var targetVectorsMap map[string][]float32
+		if len(targetVectors) > 0 {
+			if err := msgpack.Unmarshal(targetVectors, &targetVectorsMap); err != nil {
+				return err
+			}
+		}
+		ko.Vectors = targetVectorsMap
+	}
+
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
@@ -827,12 +905,15 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 // "Dangerous". If needed, make sure everything is copied and remove the
 // suffix.
 func (ko *Object) DeepCopyDangerous() *Object {
-	return &Object{
+	o := &Object{
 		MarshallerVersion: ko.MarshallerVersion,
 		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
+		Vectors:           deepCopyVectors(ko.Vectors),
 	}
+
+	return o
 }
 
 func AddOwnership(objs []*Object, node, shard string) {
@@ -848,6 +929,14 @@ func deepCopyVector(orig []float32) []float32 {
 	return out
 }
 
+func deepCopyVectors[V []float32 | models.Vector](orig map[string]V) map[string]V {
+	out := make(map[string]V, len(orig))
+	for key, vec := range orig {
+		out[key] = deepCopyVector(vec)
+	}
+	return out
+}
+
 func deepCopyObject(orig models.Object) models.Object {
 	return models.Object{
 		Class:              orig.Class,
@@ -858,6 +947,7 @@ func deepCopyObject(orig models.Object) models.Object {
 		VectorWeights:      orig.VectorWeights,
 		Additional:         orig.Additional, // WARNING: not a deep copy!!
 		Properties:         deepCopyProperties(orig.Properties),
+		Vectors:            deepCopyVectors(orig.Vectors),
 	}
 }
 

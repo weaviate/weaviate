@@ -328,6 +328,14 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 			b.setErrorAtIndex(err, i)
 		}
 	}
+
+	for targetVector, vectorIndex := range b.shard.VectorIndexes() {
+		if err := vectorIndex.Flush(); err != nil {
+			for i := range b.refs {
+				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+	}
 }
 
 func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {

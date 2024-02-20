@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -194,11 +194,12 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 
 	b.disk = sg
 
-	if err := b.setNewActiveMemtable(); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
 
-	if err := b.recoverFromCommitLogs(ctx); err != nil {
+	err = b.setNewActiveMemtable()
+	if err != nil {
 		return nil, err
 	}
 
@@ -316,7 +317,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	if err != lsmkv.NotFound {
+	if !errors.Is(err, lsmkv.NotFound) {
 		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
@@ -333,7 +334,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 			return nil, nil
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -395,7 +396,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		return nil, buffer, nil
 	}
 
-	if err != lsmkv.NotFound {
+	if !errors.Is(err, lsmkv.NotFound) {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -412,7 +413,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 			return nil, buffer, nil
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -432,7 +433,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err := b.disk.getCollection(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -441,7 +442,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
 		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		}
@@ -451,7 +452,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -624,7 +625,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -651,7 +652,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		}
@@ -662,7 +663,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -766,8 +767,14 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 // meant to be called from situations where a lock is already held, does not
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
-	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
-		time.Now().UnixNano())), b.strategy, b.secondaryIndices, b.metrics)
+	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
+
+	cl, err := newCommitLogger(path)
+	if err != nil {
+		return errors.Wrap(err, "init commit logger")
+	}
+
+	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
 	if err != nil {
 		return err
 	}
@@ -803,6 +810,14 @@ func (b *Bucket) Count() int {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
 	return memtableCount + diskCount
+}
+
+// CountAsync ignores the current memtable, that makes it async because it only
+// reflects what has been already flushed. This in turn makes it very cheap to
+// call, so it can be used for observability purposes where eventual
+// consistency on the count is fine, but a large cost is not.
+func (b *Bucket) CountAsync() int {
+	return b.disk.count()
 }
 
 func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {

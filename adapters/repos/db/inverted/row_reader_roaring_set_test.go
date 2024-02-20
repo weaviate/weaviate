@@ -19,10 +19,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
+
+const maxDocID = 33333333
 
 func TestRowReaderRoaringSet(t *testing.T) {
 	data := []kvData{
@@ -56,29 +58,19 @@ func TestRowReaderRoaringSet(t *testing.T) {
 			value:    "ccc",
 			operator: filters.OperatorNotEqual,
 			expected: []kvData{
-				{"aaa", []uint64{1, 2, 3}},
-				{"bbb", []uint64{11, 22, 33}},
-				{"ddd", []uint64{1111, 2222, 3333}},
-				{"eee", []uint64{11111, 22222, 33333}},
-				{"fff", []uint64{111111, 222222, 333333}},
-				{"ggg", []uint64{1111111, 2222222, 3333333}},
-				{"hhh", []uint64{11111111, 2222222, 33333333}},
+				{"ccc", func() []uint64 {
+					bm := sroar.NewBitmap()
+					bm.SetMany([]uint64{111, 222, 333})
+					return roaringset.NewInvertedBitmap(
+						bm, maxDocID+roaringset.DefaultBufferIncrement).ToArray()
+				}()},
 			},
 		},
 		{
 			name:     "not equal non-matching value",
 			value:    "fgh",
 			operator: filters.OperatorNotEqual,
-			expected: []kvData{
-				{"aaa", []uint64{1, 2, 3}},
-				{"bbb", []uint64{11, 22, 33}},
-				{"ccc", []uint64{111, 222, 333}},
-				{"ddd", []uint64{1111, 2222, 3333}},
-				{"eee", []uint64{11111, 22222, 33333}},
-				{"fff", []uint64{111111, 222222, 333333}},
-				{"ggg", []uint64{1111111, 2222222, 3333333}},
-				{"hhh", []uint64{11111111, 2222222, 33333333}},
-			},
+			expected: []kvData{},
 		},
 		{
 			name:     "greater than 'ddd' value",
@@ -300,5 +292,7 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			}
 			return nil, entlsmkv.NotFound
 		},
+		bitmapFactory: roaringset.NewBitmapFactory(
+			func() uint64 { return maxDocID }),
 	}
 }

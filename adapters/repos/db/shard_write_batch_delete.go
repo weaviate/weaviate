@@ -115,6 +115,14 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
+	for targetVector, vectorIndex := range b.shard.VectorIndexes() {
+		if err := vectorIndex.Flush(); err != nil {
+			for i := range b.objects {
+				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+			}
+		}
+	}
+
 	if err := b.shard.GetPropertyLengthTracker().Flush(false); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
@@ -131,7 +139,7 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
-		s.tenant(), s.index.Config.QueryNestedRefLimit).
+		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {
 		return nil, err

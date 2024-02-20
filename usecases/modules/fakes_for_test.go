@@ -65,9 +65,8 @@ func (m dummyText2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType 
 
 func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	in *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) error {
-	in.Vector = []float32{1, 2, 3}
-	return nil
+) ([]float32, models.AdditionalProperties, error) {
+	return []float32{1, 2, 3}, nil, nil
 }
 
 func newDummyRef2VecModule(name string) dummyRef2VecModuleNoCapabilities {
@@ -100,9 +99,8 @@ func (m dummyRef2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType {
 func (m dummyRef2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	in *models.Object, cfg moduletools.ClassConfig,
 	findRefVecsFn modulecapabilities.FindObjectFn,
-) error {
-	in.Vector = []float32{1, 2, 3}
-	return nil
+) ([]float32, error) {
+	return []float32{1, 2, 3}, nil
 }
 
 func newDummyNonVectorizerModule(name string) dummyNonVectorizerModule {

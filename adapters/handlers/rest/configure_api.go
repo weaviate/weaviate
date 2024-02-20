@@ -483,11 +483,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	telemeter := telemetry.New(appState.DB, appState.Modules, appState.Logger)
 	if telemetryEnabled(appState) {
-		if err := telemeter.Start(context.Background()); err != nil {
-			appState.Logger.
-				WithField("action", "startup").
-				Errorf("telemetry failed to start: %s", err.Error())
-		}
+		go func() {
+			if err := telemeter.Start(context.Background()); err != nil {
+				appState.Logger.
+					WithField("action", "startup").
+					Errorf("telemetry failed to start: %s", err.Error())
+			}
+		}()
 	}
 
 	api.ServerShutdown = func() {

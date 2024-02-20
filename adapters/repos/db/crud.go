@@ -30,9 +30,9 @@ import (
 )
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, repl *additional.ReplicationProperties,
+	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
 ) error {
-	object := storobj.FromObject(obj, vector)
+	object := storobj.FromObject(obj, vector, vectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())

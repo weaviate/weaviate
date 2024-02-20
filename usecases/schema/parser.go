@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -54,20 +53,44 @@ func (m *Parser) ParseClass(class *models.Class) error {
 
 func (m *Parser) parseVectorIndexConfig(class *models.Class,
 ) error {
-	if class.VectorIndexType != vIndex.VectorIndexTypeHNSW && class.VectorIndexType != vIndex.VectorIndexTypeFLAT {
-		return errors.Errorf(
-			"parse vector index config: unsupported vector index type: %q",
-			class.VectorIndexType)
-	}
-
-	parsed, err := m.configParser(class.VectorIndexConfig, class.VectorIndexType)
+	parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
 	if err != nil {
-		return errors.Wrap(err, "parse vector index config")
+		return err
 	}
-
 	class.VectorIndexConfig = parsed
 
+	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (m *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+	for targetVector, vectorConfig := range class.VectorConfig {
+		parsed, err := m.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		if err != nil {
+			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		vectorConfig.VectorIndexConfig = parsed
+		class.VectorConfig[targetVector] = vectorConfig
+	}
+	return nil
+}
+
+func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
+	vectorIndexConfig interface{},
+) (schemaConfig.VectorIndexConfig, error) {
+	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
+		return nil, errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
+			vectorIndexType)
+	}
+
+	parsed, err := m.configParser(vectorIndexConfig, vectorIndexType)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse vector index config")
+	}
+	return parsed, nil
 }
 
 func (m *Parser) parseShardingConfig(class *models.Class) (err error) {

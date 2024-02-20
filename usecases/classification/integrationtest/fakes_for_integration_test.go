@@ -423,7 +423,7 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
+	shardName string, vector []float32, targetVector string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {

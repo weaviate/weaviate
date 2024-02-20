@@ -14,6 +14,7 @@ package modules
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -25,7 +26,10 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
+	"golang.org/x/sync/errgroup"
 )
+
+var _NUMCPU = runtime.NumCPU()
 
 const (
 	errorVectorizerCapability = "module %q exists, but does not provide the " +
@@ -86,68 +90,252 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	hnswConfig, okHnsw := class.VectorIndexConfig.(hnsw.UserConfig)
-	_, okFlat := class.VectorIndexConfig.(flat.UserConfig)
-	if !(okHnsw || okFlat) {
-		return fmt.Errorf(errorVectorIndexType, class.VectorIndexConfig)
+	if !p.hasMultipleVectorsConfiguration(class) {
+		// legacy vectorizer configuration
+		vectorize, err := p.shouldVectorize(object, class, "", logger)
+		if err != nil {
+			return err
+		}
+		if !vectorize {
+			return nil
+		}
 	}
 
-	if class.Vectorizer == config.VectorizerModuleNone {
-		if hnswConfig.Skip && len(object.Vector) > 0 {
-			logger.WithField("className", object.Class).
+	modConfigs, err := p.getModuleConfigs(object, class)
+	if err != nil {
+		return err
+	}
+
+	if !p.hasMultipleVectorsConfiguration(class) {
+		// legacy vectorizer configuration
+		for targetVector, modConfig := range modConfigs {
+			return p.vectorize(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger)
+		}
+	}
+	return p.vectorizeMultiple(ctx, object, class, compFactory, findObjectFn, modConfigs, logger)
+}
+
+func (p *Provider) hasMultipleVectorsConfiguration(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
+}
+
+func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object, class *models.Class,
+	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	modConfigs map[string]map[string]interface{}, logger logrus.FieldLogger,
+) error {
+	eg := &errgroup.Group{}
+	eg.SetLimit(_NUMCPU)
+
+	for targetVector, modConfig := range modConfigs {
+		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
+		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
+		eg.Go(func() error {
+			err := p.vectorizeOne(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *Provider) lockGuard(mutate func()) {
+	p.vectorsLock.Lock()
+	defer p.vectorsLock.Unlock()
+	mutate()
+}
+
+func (p *Provider) addVectorToObject(object *models.Object,
+	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
+) *models.Object {
+	if len(additional) > 0 {
+		if object.Additional == nil {
+			object.Additional = models.AdditionalProperties{}
+		}
+		for additionalName, additionalValue := range additional {
+			object.Additional[additionalName] = additionalValue
+		}
+	}
+	if cfg.TargetVector() == "" {
+		object.Vector = vector
+		return object
+	}
+	if object.Vectors == nil {
+		object.Vectors = models.Vectors{}
+	}
+	object.Vectors[cfg.TargetVector()] = vector
+	return object
+}
+
+func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
+	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	targetVector string, modConfig map[string]interface{},
+	logger logrus.FieldLogger,
+) error {
+	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
+	if err != nil {
+		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
+	}
+	if vectorize {
+		if err := p.vectorize(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger); err != nil {
+			return fmt.Errorf("vectorize target vector %s: %w", targetVector, err)
+		}
+	}
+	return nil
+}
+
+func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *models.Class,
+	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	targetVector string, modConfig map[string]interface{},
+	logger logrus.FieldLogger,
+) error {
+	found := p.getModule(class, modConfig)
+	if found == nil {
+		return fmt.Errorf(
+			"no vectorizer found for class %q", object.Class)
+	}
+
+	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector)
+
+	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
+		if p.shouldVectorizeObject(object, cfg) {
+			backoff.Retry(func() error {
+				comp, err := compFactory()
+				if err != nil {
+					return fmt.Errorf("failed creating properties comparator: %w", err)
+				}
+				vector, additionalProperties, err := vectorizer.VectorizeObject(ctx, object, comp, cfg)
+				if err != nil {
+					return fmt.Errorf("update vector: %w", err)
+				}
+				p.lockGuard(func() {
+					object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+				})
+				return nil
+			}, utils.NewBackoff())
+		}
+	} else {
+		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
+		vector, err := refVectorizer.VectorizeObject(ctx, object, cfg, findObjectFn)
+		if err != nil {
+			return fmt.Errorf("update reference vector: %w", err)
+		}
+		p.lockGuard(func() {
+			object = p.addVectorToObject(object, vector, nil, cfg)
+		})
+	}
+	return nil
+}
+
+func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.ClassConfig) bool {
+	if cfg.TargetVector() == "" {
+		return object.Vector == nil
+	}
+	return true
+}
+
+func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
+	targetVector string, logger logrus.FieldLogger,
+) (bool, error) {
+	hnswConfig, err := p.getVectorIndexConfig(class, targetVector)
+	if err != nil {
+		return false, err
+	}
+
+	vectorizer := p.getVectorizer(class, targetVector)
+	if vectorizer == config.VectorizerModuleNone {
+		vector := p.getVector(object, targetVector)
+		if hnswConfig.Skip && len(vector) > 0 {
+			logger.WithField("className", class.Class).
 				Warningf(warningSkipVectorProvided)
 		}
 
-		return nil
+		return false, nil
 	}
 
 	if hnswConfig.Skip {
-		logger.WithField("className", object.Class).
-			WithField("vectorizer", class.Vectorizer).
-			Warningf(warningSkipVectorGenerated, class.Vectorizer)
+		logger.WithField("className", class.Class).
+			WithField("vectorizer", vectorizer).
+			Warningf(warningSkipVectorGenerated, vectorizer)
 	}
+	return true, nil
+}
 
+func (p *Provider) getVectorizer(class *models.Class, targetVector string) string {
+	if targetVector != "" && len(class.VectorConfig) > 0 {
+		if vectorConfig, ok := class.VectorConfig[targetVector]; ok {
+			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(vectorizer) == 1 {
+				for vectorizerName := range vectorizer {
+					return vectorizerName
+				}
+			}
+		}
+		return ""
+	}
+	return class.Vectorizer
+}
+
+func (p *Provider) getVector(object *models.Object, targetVector string) []float32 {
+	if targetVector != "" {
+		if len(object.Vectors) == 0 {
+			return nil
+		}
+		return object.Vectors[targetVector]
+	}
+	return object.Vector
+}
+
+func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string) (hnsw.UserConfig, error) {
+	vectorIndexConfig := class.VectorIndexConfig
+	if targetVector != "" {
+		vectorIndexConfig = class.VectorConfig[targetVector].VectorIndexConfig
+	}
+	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
+	_, okFlat := vectorIndexConfig.(flat.UserConfig)
+	if !(okHnsw || okFlat) {
+		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
+	}
+	return hnswConfig, nil
+}
+
+func (p *Provider) getModuleConfigs(object *models.Object, class *models.Class) (map[string]map[string]interface{}, error) {
+	modConfigs := map[string]map[string]interface{}{}
+	if len(class.VectorConfig) > 0 {
+		// get all named vectorizers for classs
+		for name, vectorConfig := range class.VectorConfig {
+			modConfig, ok := vectorConfig.Vectorizer.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("class %v vectorizer %s not present", object.Class, name)
+			}
+			modConfigs[name] = modConfig
+		}
+		return modConfigs, nil
+	}
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("class %v not present", object.Class)
+		return nil, fmt.Errorf("class %v not present", object.Class)
 	}
-	var found modulecapabilities.Module
+	if modConfig != nil {
+		// get vectorizer
+		modConfigs[""] = modConfig
+	}
+	return modConfigs, nil
+}
+
+func (p *Provider) getModule(class *models.Class,
+	modConfig map[string]interface{},
+) (found modulecapabilities.Module) {
 	for modName := range modConfig {
 		if err := p.ValidateVectorizer(modName); err == nil {
 			found = p.GetByName(modName)
 			break
 		}
 	}
-
-	if found == nil {
-		return fmt.Errorf(
-			"no vectorizer found for class %q", object.Class)
-	}
-
-	cfg := NewClassBasedModuleConfig(class, found.Name(), "")
-
-	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
-		if object.Vector == nil {
-			backoff.Retry(func() error {
-				comp, err := compFactory()
-				if err != nil {
-					return fmt.Errorf("failed creating properties comparator: %w", err)
-				}
-				if err := vectorizer.VectorizeObject(ctx, object, comp, cfg); err != nil {
-					return fmt.Errorf("update vector: %w", err)
-				}
-				return nil
-			}, utils.NewBackoff())
-		}
-	} else {
-		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
-		if err := refVectorizer.VectorizeObject(
-			ctx, object, cfg, findObjectFn); err != nil {
-			return fmt.Errorf("update reference vector: %w", err)
-		}
-	}
-
-	return nil
+	return
 }
 
 func (p *Provider) VectorizerName(className string) (string, error) {

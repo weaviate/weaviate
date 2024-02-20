@@ -50,6 +50,16 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		}
 	}
 
+	if len(object.Vectors) > 0 {
+		for targetVector, vector := range object.Vectors {
+			if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+				if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+					return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, object.ID())
+				}
+			}
+		}
+	}
+
 	status, err := s.putObjectLSM(object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -63,6 +73,12 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.updateVectorIndex(object.Vector, status); err != nil {
 		return errors.Wrap(err, "update vector index")
+	}
+
+	for targetVector, vector := range object.Vectors {
+		if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
+		}
 	}
 
 	if err := s.updatePropertySpecificIndices(object, status); err != nil {
@@ -106,15 +122,65 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 	return nil
 }
 
+// as the name implies this method only performs the insertions, but completely
+// ignores any deletes. It thus assumes that the caller has already taken care
+// of all the deletes in another way
+func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
+	status objectInsertStatus,
+) error {
+	// vector was not changed, object was not changed or changed without changing vector
+	// https://github.com/weaviate/weaviate/issues/3948
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.docIDPreserved || status.skipUpsert {
+		return nil
+	}
+
+	// vector is now optional as of
+	// https://github.com/weaviate/weaviate/issues/1800
+	if len(vectors) == 0 {
+		return nil
+	}
+
+	for targetVector, vector := range vectors {
+		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+			if err := vectorIndex.Add(status.docID, vector); err != nil {
+				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus,
+) error {
+	return s.updateVectorInVectorIndex(vector, status, s.queue, s.VectorIndex())
+}
+
+func (s *Shard) updateVectorIndexForName(vector []float32,
+	status objectInsertStatus, targetVector string,
+) error {
+	queue, ok := s.queues[targetVector]
+	if !ok {
+		return fmt.Errorf("vector queue not found for target vector %s", targetVector)
+	}
+	vectorIndex := s.VectorIndexForName(targetVector)
+	if vectorIndex == nil {
+		return fmt.Errorf("vector index not found for target vector %s", targetVector)
+	}
+	return s.updateVectorInVectorIndex(vector, status, queue, vectorIndex)
+}
+
+func (s *Shard) updateVectorInVectorIndex(vector []float32,
+	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
 ) error {
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
 	// exists. otherwise, the associated doc id is left dangling,
 	// resulting in failed attempts to merge an object on restarts.
 	if status.docIDChanged {
-		if err := s.queue.Delete(status.oldDocID); err != nil {
+		if err := queue.Delete(status.oldDocID); err != nil {
 			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
 		}
 	}
@@ -131,11 +197,11 @@ func (s *Shard) updateVectorIndex(vector []float32,
 		return nil
 	}
 
-	if err := s.VectorIndex().Add(status.docID, vector); err != nil {
+	if err := vectorIndex.Add(status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
-	if err := s.VectorIndex().Flush(); err != nil {
+	if err := vectorIndex.Flush(); err != nil {
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
@@ -373,6 +439,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
 				return fmt.Errorf("track dimensions (delete): %w", err)
 			}
+			for vecName, vec := range prevObject.Vectors {
+				if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
+					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+				}
+			}
 		}
 	}
 
@@ -385,6 +456,11 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	if s.index.Config.TrackVectorDimensions {
 		if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
 			return fmt.Errorf("track dimensions: %w", err)
+		}
+		for vecName, vec := range object.Vectors {
+			if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
+				return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
+			}
 		}
 	}
 
@@ -404,6 +480,9 @@ func compareObjsForInsertStatus(prevObj, nextObj *storobj.Object) (preserve, ski
 		return false, false
 	}
 	if !common.VectorsEqual(prevObj.Vector, nextObj.Vector) {
+		return false, false
+	}
+	if !targetVectorsEqual(prevObj.Vectors, nextObj.Vectors) {
 		return false, false
 	}
 	if !addPropsEqual(prevObj.Object.Additional, nextObj.Object.Additional) {
@@ -466,6 +545,29 @@ func uuidToString(u uuid.UUID) string {
 		return string(b)
 	}
 	return ""
+}
+
+func targetVectorsEqual(prevTargetVectors, nextTargetVectors map[string][]float32) bool {
+	if len(prevTargetVectors) == 0 && len(nextTargetVectors) == 0 {
+		return true
+	}
+
+	visited := map[string]struct{}{}
+	for vecName, vec := range prevTargetVectors {
+		if !common.VectorsEqual(vec, nextTargetVectors[vecName]) {
+			return false
+		}
+		visited[vecName] = struct{}{}
+	}
+	for vecName, vec := range nextTargetVectors {
+		if _, ok := visited[vecName]; !ok {
+			if !common.VectorsEqual(vec, prevTargetVectors[vecName]) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func addPropsEqual(prevAddProps, nextAddProps models.AdditionalProperties) bool {

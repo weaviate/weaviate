@@ -14,51 +14,38 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
-	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
-	value    []byte
-	bucket   *lsmkv.Bucket
-	operator filters.Operator
-
-	keyOnly bool
+	value         []byte
+	bucket        *lsmkv.Bucket
+	operator      filters.Operator
+	keyOnly       bool
+	bitmapFactory *roaringset.BitmapFactory
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
-func NewRowReader(bucket *lsmkv.Bucket, value []byte,
-	operator filters.Operator, keyOnly bool,
+func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
+	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
 ) *RowReader {
 	return &RowReader{
-		bucket:   bucket,
-		value:    value,
-		operator: operator,
-		keyOnly:  keyOnly,
+		bucket:        bucket,
+		value:         value,
+		operator:      operator,
+		keyOnly:       keyOnly,
+		bitmapFactory: bitmapFactory,
 	}
 }
-
-// ReadFn will be called 1..n times per match. This means it will also be
-// called on a non-match, in this case v == nil.
-// It is up to the caller to decide if that is an error case or not.
-//
-// Note that because what we are parsing is an inverted index row, it can
-// sometimes become confusing what a key and value actually resembles. The
-// variables k and v are the literal row key and value. So this means, the
-// data-value as in "less than 17" where 17 would be the "value" is in the key
-// variable "k". The value will contain the docCount, hash and list of pointers
-// (with optional frequency) to the docIDs
-//
-// The boolean return argument is a way to stop iteration (e.g. when a limit is
-// reached) without producing an error. In normal operation always return true,
-// if false is returned once, the loop is broken.
-type ReadFn func(k []byte, values [][]byte) (bool, error)
 
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
@@ -89,16 +76,25 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.bucket.SetList(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
 
-	_, err = readFn(rr.value, v)
+	_, err = readFn(rr.value, rr.transformToBitmap(v))
+	return err
+}
+
+func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(rr.transformToBitmap(v))
+	_, err = readFn(rr.value, inverted)
 	return err
 }
 
@@ -119,7 +115,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -150,35 +146,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
-			continue
-		}
-
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -194,7 +162,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
-		return errors.Wrapf(err, "parse like value")
+		return fmt.Errorf("parse like value: %w", err)
 	}
 
 	c := rr.newCursor()
@@ -233,7 +201,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -254,4 +222,25 @@ func (rr *RowReader) newCursor() *lsmkv.CursorSet {
 	}
 
 	return rr.bucket.SetCursor()
+}
+
+func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
+	out := sroar.NewBitmap()
+	for _, asBytes := range ids {
+		out.Set(binary.LittleEndian.Uint64(asBytes))
+	}
+	return out
+}
+
+// equalHelper exists, because the Equal and NotEqual operators share this functionality
+func (rr *RowReader) equalHelper(ctx context.Context) ([][]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	v, err := rr.bucket.SetList(rr.value)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
 }
