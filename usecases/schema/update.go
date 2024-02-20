@@ -65,6 +65,15 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return errors.Wrap(err, "vector index config")
 	}
 
+	if err := validateVectorConfigsParityAndImmutables(initial, updated); err != nil {
+		return err
+	}
+	if err := m.migrator.ValidateVectorIndexConfigsUpdate(ctx,
+		asVectorIndexConfigs(initial), asVectorIndexConfigs(updated),
+	); err != nil {
+		return err
+	}
+
 	if err := m.migrator.ValidateInvertedIndexConfigUpdate(ctx,
 		initial.InvertedIndexConfig, updated.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
@@ -147,12 +156,11 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	}
 	if err := m.migrator.UpdateVectorIndexConfig(ctx,
 		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
-		return errors.Wrap(err, "vector index config")
+		return fmt.Errorf("vector index config update: %w", err)
 	}
-
-	// TODO[named-vectors] add logic that updates multiple vector indexes when
-	// someone chooses to enable PQ for a specific target vector
-
+	if err := m.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(updated)); err != nil {
+		return fmt.Errorf("vector index configs update: %w", err)
+	}
 	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
 		updated.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
@@ -234,6 +242,87 @@ func (m *Manager) validateImmutableTextField(u immutableText,
 	}
 
 	return nil
+}
+
+func validateVectorConfigsParityAndImmutables(initial, updated *models.Class) error {
+	initialVecCount := len(initial.VectorConfig)
+	updatedVecCount := len(updated.VectorConfig)
+
+	// no cfgs for target vectors
+	if initialVecCount == 0 && updatedVecCount == 0 {
+		return nil
+	}
+	// no cfgs for target vectors in initial
+	if initialVecCount == 0 && updatedVecCount > 0 {
+		return fmt.Errorf("additional configs for vectors")
+	}
+	// no cfgs for target vectors in updated
+	if initialVecCount > 0 && updatedVecCount == 0 {
+		return fmt.Errorf("missing configs for vectors")
+	}
+
+	// matching cfgs on both sides
+	for vecName := range initial.VectorConfig {
+		if _, ok := updated.VectorConfig[vecName]; !ok {
+			return fmt.Errorf("missing config for vector %q", vecName)
+		}
+	}
+
+	if initialVecCount != updatedVecCount {
+		for vecName := range updated.VectorConfig {
+			if _, ok := initial.VectorConfig[vecName]; !ok {
+				return fmt.Errorf("additional config for vector %q", vecName)
+			}
+		}
+		// fallback, error should be returned in loop
+		return fmt.Errorf("number of configs for vectors does not match")
+	}
+
+	// compare matching cfgs
+	for vecName, initialCfg := range initial.VectorConfig {
+		updatedCfg := updated.VectorConfig[vecName]
+
+		// immutable vector type
+		if initialCfg.VectorIndexType != updatedCfg.VectorIndexType {
+			return fmt.Errorf("vector index type of vector %q is immutable: attempted change from %q to %q",
+				vecName, initialCfg.VectorIndexType, updatedCfg.VectorIndexType)
+		}
+
+		// immutable vectorizer
+		if imap, ok := initialCfg.Vectorizer.(map[string]interface{}); ok && len(imap) == 1 {
+			umap, ok := updatedCfg.Vectorizer.(map[string]interface{})
+			if !ok || len(umap) != 1 {
+				return fmt.Errorf("invalid vectorizer config for vector %q", vecName)
+			}
+
+			ivectorizer := ""
+			for k := range imap {
+				ivectorizer = k
+			}
+			uvectorizer := ""
+			for k := range umap {
+				uvectorizer = k
+			}
+
+			if ivectorizer != uvectorizer {
+				return fmt.Errorf("vectorizer of vector %q is immutable: attempted change from %q to %q",
+					vecName, ivectorizer, uvectorizer)
+			}
+		}
+	}
+	return nil
+}
+
+func asVectorIndexConfigs(c *models.Class) map[string]schema.VectorIndexConfig {
+	if c.VectorConfig == nil {
+		return nil
+	}
+
+	cfgs := map[string]schema.VectorIndexConfig{}
+	for vecName := range c.VectorConfig {
+		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schema.VectorIndexConfig)
+	}
+	return cfgs
 }
 
 func (m *Manager) UpdateShardStatus(ctx context.Context, principal *models.Principal,
