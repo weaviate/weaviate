@@ -177,7 +177,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err
 				} else {
-					weights = append(weights, 1-params.HybridSearch.Alpha)
+					weights = append(weights, params.HybridSearch.Alpha)
 					results = append(results, res)
 					names = append(names, name)
 				}
