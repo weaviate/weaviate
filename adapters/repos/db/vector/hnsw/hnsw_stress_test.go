@@ -20,6 +20,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"runtime/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -68,6 +69,11 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 	siftFile := "datasets/ann-benchmarks/sift/sift_base.fvecs"
 	siftFileQuery := "datasets/ann-benchmarks/sift/sift_query.fvecs"
 
+	_, err2 := os.Stat(siftFileQuery)
+	if _, err := os.Stat(siftFile); err != nil || err2 != nil {
+		b.Skip(`Sift data needs to be present.`)
+	}
+
 	vectors := readSiftFloat(siftFile, 1000000)
 	vectorsQuery := readSiftFloat(siftFileQuery, 10000)
 
@@ -76,6 +82,15 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 	for k, vec := range vectors {
 		err := index.Add(uint64(k), vec)
 		require.Nil(b, err)
+	}
+
+	// Start profiling
+	f, err := os.Create("cpu.out")
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		b.Fatal(err)
 	}
 
 	b.ResetTimer()
@@ -99,6 +114,8 @@ func BenchmarkConcurrentSearch(b *testing.B) {
 		}
 		wg.Wait()
 	}
+	// Stop profiling
+	pprof.StopCPUProfile()
 }
 
 func TestHnswStress(t *testing.T) {
