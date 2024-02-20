@@ -193,6 +193,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
+				n.graph.pools.visitedLists[n.graph.pools.atomicSwitch.Load()].Return(visited)
 				return err
 			}
 		}

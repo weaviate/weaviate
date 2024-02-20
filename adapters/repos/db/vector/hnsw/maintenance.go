@@ -62,7 +62,7 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	}
 
 	oldPool := h.pools.atomicSwitch.Load()
-	nextPool := (oldPool + 1) % 2
+	nextPool := (oldPool + 1) % int32(len(h.pools.visitedLists))
 	h.pools.visitedLists[nextPool] = visited.NewPool(1, len(newIndex)+512)
 	h.pools.atomicSwitch.Store(nextPool)
 
@@ -71,9 +71,12 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	h.shardedNodeLocks.UnlockAll()
 
 	// wait until all current lists are returned before destroying the old one. As we switched the pool, we can be sure
-	// that no new lists are handed out from this pool
+	// that no new lists are handed out from this pool. Have a timeout to avoid deadlocks
+	start := time.Now()
 	for h.pools.visitedLists[oldPool].CurrentlyBorrowed() > 0 {
-		continue
+		if time.Since(start) > 10*time.Millisecond {
+			break
+		}
 	}
 	h.pools.visitedLists[oldPool].Destroy()
 	h.pools.visitedLists[oldPool] = nil

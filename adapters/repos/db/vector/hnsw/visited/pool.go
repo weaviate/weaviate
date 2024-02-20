@@ -67,7 +67,6 @@ func (p *Pool) Return(l ListSet) {
 	n := l.Len()
 	if n < p.listSetSize || n > p.listSetSize*11/10 { // 11/10 could be tuned
 		p.counter.Add(-1)
-
 		return
 	}
 	l.Reset()
