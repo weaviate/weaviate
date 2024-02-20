@@ -587,6 +587,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return err
 	}
 
+	partitioningEnabled := s.index.shardState.PartitioningEnabled
+
 	// load the most recent hashtree file
 	dirEntries, err := os.ReadDir(s.pathHashTree())
 	if err != nil {
@@ -615,8 +617,11 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		}
 
 		// attempt to load hashtree from file
-		// s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
-		s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
+		if partitioningEnabled {
+			s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+		} else {
+			s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
+		}
 		if err != nil {
 			s.index.logger.Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
 		}
@@ -630,8 +635,11 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
-	// s.buildCompactHashTree()
-	s.buildMultiSegmentHashTree()
+	if partitioningEnabled {
+		s.buildCompactHashTree()
+	} else {
+		s.buildMultiSegmentHashTree()
+	}
 
 	// sync hashtree with current object states
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
@@ -665,14 +673,12 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	return nil
 }
 
-/*
 func (s *Shard) buildCompactHashTree() {
 	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
 	if s.hashtree != nil {
 		return
 	}
 }
-*/
 
 func (s *Shard) buildMultiSegmentHashTree() {
 	shardState := s.index.shardState
