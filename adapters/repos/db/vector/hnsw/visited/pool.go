@@ -13,12 +13,15 @@ package visited
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 type Pool struct {
-	sync.Mutex
+	outLock     sync.Mutex
+	inLock      sync.Mutex
 	listSetSize int
-	listSets    []ListSet
+	listSets    [][]ListSet
+	switcher    atomic.Int32
 }
 
 // NewPool creates a new pool with specified size.
@@ -26,11 +29,15 @@ type Pool struct {
 func NewPool(size int, listSetSize int) *Pool {
 	p := &Pool{
 		listSetSize: listSetSize,
-		listSets:    make([]ListSet, size), // make enough room
+		listSets:    make([][]ListSet, 2), // make enough room
+		switcher:    atomic.Int32{},
 	}
 
+	p.listSets[0] = make([]ListSet, size)
+	p.listSets[1] = make([]ListSet, 0, size)
+
 	for i := 0; i < size; i++ {
-		p.listSets[i] = NewList(listSetSize)
+		p.listSets[0][i] = NewList(listSetSize)
 	}
 
 	return p
@@ -38,17 +45,27 @@ func NewPool(size int, listSetSize int) *Pool {
 
 // Borrow return a free list
 func (p *Pool) Borrow() ListSet {
-	p.Lock()
-
-	if n := len(p.listSets); n > 0 {
-		l := p.listSets[n-1]
-		p.listSets[n-1].free() // prevent memory leak
-		p.listSets = p.listSets[:n-1]
-		p.Unlock()
+	p.outLock.Lock()
+	readListIndex := p.switcher.Load()
+	readList := p.listSets[readListIndex]
+	if n := len(p.listSets[readListIndex]); n > 0 {
+		l := readList[n-1]
+		p.listSets[readListIndex][n-1].free() // prevent memory leak
+		p.listSets[readListIndex] = p.listSets[readListIndex][:n-1]
+		p.outLock.Unlock()
 
 		return l
 	}
-	p.Unlock()
+	// check if we can switch
+	p.inLock.Lock()
+	writeListIndex := (readListIndex + 1) % 2
+	writeList := p.listSets[writeListIndex]
+	if len(writeList) > 0 {
+		p.switcher.Store(writeListIndex)
+	}
+
+	p.inLock.Unlock()
+	p.outLock.Unlock()
 	return NewList(p.listSetSize)
 }
 
@@ -61,19 +78,24 @@ func (p *Pool) Return(l ListSet) {
 	}
 	l.Reset()
 
-	p.Lock()
-	defer p.Unlock()
-
-	p.listSets = append(p.listSets, l)
+	p.inLock.Lock()
+	writeListIndex := (p.switcher.Load() + 1) % 2
+	p.listSets[writeListIndex] = append(p.listSets[writeListIndex], l)
+	p.inLock.Unlock()
 }
 
 // Destroy and empty pool
 func (p *Pool) Destroy() {
-	p.Lock()
-	defer p.Unlock()
-	for i := range p.listSets {
-		p.listSets[i].free()
+	p.inLock.Lock()
+	p.outLock.Lock()
+	defer p.inLock.Unlock()
+	defer p.outLock.Unlock()
+	for i := range p.listSets[0] {
+		p.listSets[0][i].free()
 	}
-
-	p.listSets = nil
+	for i := range p.listSets[1] {
+		p.listSets[1][i].free()
+	}
+	p.listSets[0] = nil
+	p.listSets[1] = nil
 }
