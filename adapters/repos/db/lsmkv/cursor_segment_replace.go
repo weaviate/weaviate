@@ -34,6 +34,7 @@ func (s *segment) newCursor() *segmentCursorReplace {
 		firstOffsetFn: func() (uint64, error) {
 			return s.dataStartPos, nil
 		},
+		currOffset: s.dataStartPos,
 		keyFn: func(n *segmentReplaceNode) []byte {
 			return n.primaryKey
 		},
@@ -106,6 +107,8 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	s.currOffset = node.Start
 
 	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
 		s.segment.contents[node.Start:node.End])
