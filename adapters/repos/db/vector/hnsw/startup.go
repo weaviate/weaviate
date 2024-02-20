@@ -165,9 +165,9 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	// make sure the visited list pool fits the current size
-	h.pools.visitedLists.Destroy()
-	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512)
+	h.pools.visitedLists[h.pools.atomicSwitch.Load()].Destroy()
+	h.pools.visitedLists[h.pools.atomicSwitch.Load()] = nil
+	h.pools.visitedLists[h.pools.atomicSwitch.Load()] = visited.NewPool(1, len(h.nodes)+512)
 
 	return nil
 }

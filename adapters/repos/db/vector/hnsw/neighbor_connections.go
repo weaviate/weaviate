@@ -170,9 +170,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
-		n.graph.pools.visitedListsLock.RLock()
-		visited := n.graph.pools.visitedLists.Borrow()
-		n.graph.pools.visitedListsLock.RUnlock()
+		visited := n.graph.pools.visitedLists[n.graph.pools.atomicSwitch.Load()].Borrow()
 		n.node.Lock()
 		connections := make([]uint64, len(n.node.connections[level]))
 		copy(connections, n.node.connections[level])
@@ -198,9 +196,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 				return err
 			}
 		}
-		n.graph.pools.visitedListsLock.RLock()
-		n.graph.pools.visitedLists.Return(visited)
-		n.graph.pools.visitedListsLock.RUnlock()
+		n.graph.pools.visitedLists[n.graph.pools.atomicSwitch.Load()].Return(visited)
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}

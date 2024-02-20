@@ -13,12 +13,14 @@ package visited
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 type Pool struct {
 	sync.Mutex
 	listSetSize int
 	listSets    []ListSet
+	counter     atomic.Int32
 }
 
 // NewPool creates a new pool with specified size.
@@ -27,6 +29,7 @@ func NewPool(size int, listSetSize int) *Pool {
 	p := &Pool{
 		listSetSize: listSetSize,
 		listSets:    make([]ListSet, size), // make enough room
+		counter:     atomic.Int32{},
 	}
 
 	for i := 0; i < size; i++ {
@@ -38,6 +41,7 @@ func NewPool(size int, listSetSize int) *Pool {
 
 // Borrow return a free list
 func (p *Pool) Borrow() ListSet {
+	p.counter.Add(1)
 	p.Lock()
 
 	if n := len(p.listSets); n > 0 {
@@ -52,19 +56,26 @@ func (p *Pool) Borrow() ListSet {
 	return NewList(p.listSetSize)
 }
 
+// CurrentlyBorrowed returns how many lists are currently borrowed and in use by other goroutines
+func (p *Pool) CurrentlyBorrowed() int32 {
+	return p.counter.Load()
+}
+
 // Return list l to the pool
 // The list l might be thrown if l.Len() > listSetSize*1.10
 func (p *Pool) Return(l ListSet) {
 	n := l.Len()
 	if n < p.listSetSize || n > p.listSetSize*11/10 { // 11/10 could be tuned
+		p.counter.Add(-1)
+
 		return
 	}
 	l.Reset()
 
 	p.Lock()
-	defer p.Unlock()
-
 	p.listSets = append(p.listSets, l)
+	p.Unlock()
+	p.counter.Add(-1)
 }
 
 // Destroy and empty pool

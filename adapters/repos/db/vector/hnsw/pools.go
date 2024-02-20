@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -21,8 +22,8 @@ import (
 )
 
 type pools struct {
-	visitedLists     *visited.Pool
-	visitedListsLock *sync.RWMutex
+	visitedLists []*visited.Pool
+	atomicSwitch atomic.Int32
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -34,8 +35,8 @@ type pools struct {
 
 func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500),
-		visitedListsLock: &sync.RWMutex{},
+		visitedLists: []*visited.Pool{visited.NewPool(1, cache.InitialSize+500), nil},
+		atomicSwitch: atomic.Int32{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)

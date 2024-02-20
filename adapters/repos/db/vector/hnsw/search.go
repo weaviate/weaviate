@@ -174,9 +174,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
 ) {
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
+	visited := h.pools.visitedLists[h.pools.atomicSwitch.Load()].Borrow()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -327,9 +325,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.RUnlock()
+	h.pools.visitedLists[h.pools.atomicSwitch.Load()].Return(visited)
 
 	return results, nil
 }
