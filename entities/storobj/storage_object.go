@@ -560,11 +560,10 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 
 	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
 	if len(ko.Vectors) > 0 {
-		offset := uint32(0)
 		offsetsMap := map[string]uint32{}
 		for name, vec := range ko.Vectors {
-			offsetsMap[name] = offset
-			offset += 2 + 4*uint32(len(vec)) // 2 for vec length + vec bytes
+			offsetsMap[name] = targetVectorsSegmentLength
+			targetVectorsSegmentLength += 2 + 4*uint32(len(vec)) // 2 for vec length + vec bytes
 			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
 		}
 
@@ -573,7 +572,6 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 			return nil, fmt.Errorf("Could not marshal target vectors offsets: %w", err)
 		}
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
-		targetVectorsSegmentLength = offset
 	}
 
 	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
@@ -806,7 +804,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error) {
 	// This check prevents from panic when somebody is upgrading from version that
 	// didn't have multi vector support. This check is needed bc with named vectors
-	// feature storage object can have vectors data prepended at the end of the file
+	// feature storage object can have vectors data appended at the end of the file
 	if rw.Position < uint64(len(rw.Buffer)) {
 		targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
 		targetVectorsSegmentLength := rw.ReadUint32()
