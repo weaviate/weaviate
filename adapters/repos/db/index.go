@@ -464,6 +464,27 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) updateVectorIndexConfigs(ctx context.Context,
+	updated map[string]schema.VectorIndexConfig,
+) error {
+	for vecName, updatedCfg := range updated {
+		err := i.ForEachShard(func(name string, shard ShardLike) error {
+			if err := shard.UpdateVectorConfigForName(ctx, updatedCfg, vecName); err != nil {
+				return fmt.Errorf("shard '%s', target vector '%s': %w", name, vecName, err)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		i.vectorIndexUserConfigLock.Lock()
+		i.vectorIndexUserConfigs[vecName] = updatedCfg
+		i.vectorIndexUserConfigLock.Unlock()
+	}
+	return nil
+}
+
 func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()

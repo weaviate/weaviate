@@ -254,6 +254,18 @@ func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className str
 	return nil
 }
 
+func (n *NilMigrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
+	old, updated map[string]schemaent.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
+	updated map[string]schemaent.VectorIndexConfig,
+) error {
+	return nil
+}
+
 func (n *NilMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
 	return nil
 }
