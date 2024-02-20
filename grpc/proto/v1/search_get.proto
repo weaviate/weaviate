@@ -116,6 +116,7 @@ message Hybrid {
   bytes vector_bytes = 6;
   repeated string target_vectors = 7;
   NearTextSearch near_text = 8;
+  NearVector near_vector = 9;
 
 }
 

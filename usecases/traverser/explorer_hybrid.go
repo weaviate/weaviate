@@ -61,7 +61,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	return out, "keyword,dunno", nil
 }
 
-func denseSearch(ctx context.Context, vec []float32, targetVector string, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
 	/* FIXME
 	baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
 	var hybridSearchLimit int
@@ -72,11 +72,7 @@ func denseSearch(ctx context.Context, vec []float32, targetVector string, e *Exp
 	}
 	*/
 
-	params.NearVector = &searchparams.NearVector{
-		Vector:        vec,
-		TargetVectors: []string{targetVector},
-	}
-
+	params.NearVector = nearVecParams
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < hybrid.DefaultLimit {
 		params.Pagination.Limit = hybrid.DefaultLimit
@@ -153,6 +149,15 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				results = append(results, res)
 				names = append(names, name)
 			}
+		} else if params.HybridSearch.NearVectorParams != nil {
+			res, name, err := denseSearch(ctx, params.HybridSearch.NearVectorParams, e, params)
+			if err != nil {
+				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
+				return nil, err
+			}
+			weights = append(weights, params.HybridSearch.Alpha)
+			results = append(results, res)
+			names = append(names, name)
 		} else {
 			sch := e.schemaGetter.GetSchemaSkipAuth()
 			class := sch.FindClassByName(schema.ClassName(params.ClassName))
@@ -172,7 +177,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					params.SearchVector = params.HybridSearch.Vector
 				}
 
-				res, name, err := denseSearch(ctx, params.SearchVector, targetVector, e, params)
+				//Build a new vearvec search
+				nearVecParams := &searchparams.NearVector{
+					Vector:        params.SearchVector,
+					TargetVectors: params.HybridSearch.TargetVectors,
+				}
+
+				res, name, err := denseSearch(ctx, nearVecParams, e, params)
 				if err != nil {
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err
@@ -219,7 +230,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return res, nil
 	}
 
-	res, err := hybrid.Do(ctx, &hybrid.Params{
+	res, err := hybrid.HybridSubsearch(ctx, &hybrid.Params{
 		HybridSearch: origParams.HybridSearch,
 		Keyword:      origParams.KeywordRanking,
 		Class:        origParams.ClassName,

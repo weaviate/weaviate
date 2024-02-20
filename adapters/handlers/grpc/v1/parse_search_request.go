@@ -224,6 +224,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		if err != nil {
 			return dto.GetParams{}, err
 		}
+		nearVec := req.NearVector
 
 		out.HybridSearch = &searchparams.HybridSearch{
 			Query:           hs.Query,
@@ -233,6 +234,21 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 			FusionAlgorithm: fusionType,
 			TargetVectors:   hs.TargetVectors,
 		}
+
+		if nearVec != nil {
+			out.HybridSearch.NearVectorParams = &searchparams.NearVector{
+			Vector:        nearVec.Vector,
+			TargetVectors: nearVec.TargetVectors,
+			}
+			if nearVec.Distance != nil {
+				out.HybridSearch.NearVectorParams.Distance = *nearVec.Distance
+				out.HybridSearch.NearVectorParams.WithDistance = true
+			}
+			if nearVec.Certainty != nil {
+			out.HybridSearch.NearVectorParams.Certainty = *nearVec.Certainty
+		}
+
+
 		if nearTxt != nil {
 			out.HybridSearch.NearTextParams = &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
 		}

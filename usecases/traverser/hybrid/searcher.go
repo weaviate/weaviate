@@ -177,7 +177,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Do(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
+func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
 	if len(weights) != len(resultSet) {
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(resultSet))
 	}
