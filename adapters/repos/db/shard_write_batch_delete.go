@@ -109,16 +109,18 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := b.shard.VectorIndex().Flush(); err != nil {
-		for i := range b.objects {
-			b.setErrorAtIndex(err, i)
+	if b.shard.hasTargetVectors() {
+		for targetVector, vectorIndex := range b.shard.VectorIndexes() {
+			if err := vectorIndex.Flush(); err != nil {
+				for i := range b.objects {
+					b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+				}
+			}
 		}
-	}
-
-	for targetVector, vectorIndex := range b.shard.VectorIndexes() {
-		if err := vectorIndex.Flush(); err != nil {
+	} else {
+		if err := b.shard.VectorIndex().Flush(); err != nil {
 			for i := range b.objects {
-				b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+				b.setErrorAtIndex(err, i)
 			}
 		}
 	}

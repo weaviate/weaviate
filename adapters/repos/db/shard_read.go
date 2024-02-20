@@ -219,7 +219,10 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 }
 
 func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
-	if targetVector != "" {
+	if s.hasTargetVectors() {
+		if targetVector == "" {
+			return nil, fmt.Errorf("index queue: missing target vector")
+		}
 		queue, ok := s.queues[targetVector]
 		if !ok {
 			return nil, fmt.Errorf("index queue for target vector: %s doesn't exist", targetVector)
@@ -451,8 +454,16 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
-	if err := s.queue.Delete(docID); err != nil {
-		return errors.Wrap(err, "delete from vector index")
+	if s.hasTargetVectors() {
+		for targetVector, queue := range s.queues {
+			if err = queue.Delete(docID); err != nil {
+				return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
+			}
+		}
+	} else {
+		if err = s.queue.Delete(docID); err != nil {
+			return errors.Wrap(err, "delete from vector index queue")
+		}
 	}
 
 	return nil
