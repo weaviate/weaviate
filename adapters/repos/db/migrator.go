@@ -433,11 +433,14 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		// Iterate over all shards
 		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
-				return err
-			}
-			for vecName, vec := range object.Vectors {
-				if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
+			if shard.hasTargetVectors() {
+				for vecName, vec := range object.Vectors {
+					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
+						return err
+					}
+				}
+			} else {
+				if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
 					return err
 				}
 			}
