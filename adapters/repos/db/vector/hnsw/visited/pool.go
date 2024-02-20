@@ -43,6 +43,13 @@ func NewPool(size int, listSetSize int) *Pool {
 	return p
 }
 
+func (p *Pool) Size() int {
+	if len(p.listSets[0]) > len(p.listSets[1]) {
+		return len(p.listSets[0])
+	}
+	return len(p.listSets[1])
+}
+
 // Borrow return a free list
 func (p *Pool) Borrow() ListSet {
 	p.outLock.Lock()
