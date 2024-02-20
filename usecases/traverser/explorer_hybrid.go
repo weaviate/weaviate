@@ -177,7 +177,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					params.SearchVector = params.HybridSearch.Vector
 				}
 
-				//Build a new vearvec search
+				// Build a new vearvec search
 				nearVecParams := &searchparams.NearVector{
 					Vector:        params.SearchVector,
 					TargetVectors: params.HybridSearch.TargetVectors,
