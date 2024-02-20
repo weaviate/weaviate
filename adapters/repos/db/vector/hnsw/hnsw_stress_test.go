@@ -64,6 +64,56 @@ func int32FromBytes(bytes []byte) int {
 	return int(binary.LittleEndian.Uint32(bytes))
 }
 
+func BenchmarkConcurrentSearch(b *testing.B) {
+	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
+	siftFileQuery := "datasets/ann-benchmarks/siftsmall/sift_query.fvecs"
+
+	_, err2 := os.Stat(siftFileQuery)
+	if _, err := os.Stat(siftFile); err != nil || err2 != nil {
+		if false {
+			b.Skip(`Sift data needs to be present.
+Run test with -download to automatically download the dataset.
+Ex: go test -v -run TestHnswStress . -download
+`)
+		}
+		downloadDatasetFile(b, siftFile)
+	}
+	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
+	vectorsQuery := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
+
+	index := createEmptyHnswIndexForTests(b, idVector)
+	// add elements
+	for k, vec := range vectors {
+		err := index.Add(uint64(k), vec)
+		require.Nil(b, err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+
+		vectorsPerGoroutineSearch := len(vectorsQuery) / parallelSearchGoroutines
+		wg := sync.WaitGroup{}
+
+		for i := 0; i < 10; i++ { // increase if you don't want to reread SIFT for every run
+			for k := 0; k < parallelSearchGoroutines; k++ {
+				wg.Add(1)
+				k := k
+				go func() {
+					goroutineIndex := k * vectorsPerGoroutineSearch
+					for j := 0; j < vectorsPerGoroutineSearch; j++ {
+						_, _, err := index.SearchByVector(vectors[goroutineIndex+j], 0, nil)
+						require.Nil(b, err)
+
+					}
+					wg.Done()
+				}()
+			}
+		}
+		wg.Wait()
+
+	}
+}
+
 func TestHnswStress(t *testing.T) {
 	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
 	siftFileQuery := "datasets/ann-benchmarks/siftsmall/sift_query.fvecs"
