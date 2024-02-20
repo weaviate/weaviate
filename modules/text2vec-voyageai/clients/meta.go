@@ -14,6 +14,6 @@ package clients
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "VoyageAI Module",
-		"documentationHref": "https://docs.voyageai.ai/embedding-wiki/",
+		"documentationHref": "https://docs.voyageai.com/docs/embeddings",
 	}, nil
 }

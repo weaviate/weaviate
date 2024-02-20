@@ -68,6 +68,7 @@ import (
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
@@ -809,6 +810,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modcohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modvoyageai.Name]; ok {
+		appState.Modules.Register(modvoyageai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modvoyageai.Name).
 			Debug("enabled module")
 	}
 

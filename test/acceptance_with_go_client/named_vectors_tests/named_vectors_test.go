@@ -112,6 +112,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecContextionary().
 		WithText2VecTransformers().
 		WithText2VecOpenAI().
-		WithText2VecCohere()
+		WithText2VecCohere().
+		WithText2VecVoyageAI()
 	return
 }

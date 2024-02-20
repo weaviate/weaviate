@@ -205,7 +205,7 @@ func TestVectorizingObjects(t *testing.T) {
 				excludedProperty:      test.excludedProperty,
 				skippedProperty:       test.noindex,
 				vectorizeClassName:    test.excludedClass != "Car",
-				voyageaiModel:           tesvoyageaireModel,
+				voyageaiModel:         test.voyageaiModel,
 				vectorizePropertyName: true,
 			}
 			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)

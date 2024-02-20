@@ -25,7 +25,7 @@ import (
 
 const (
 	DefaultBaseURL               = "https://api.voyageai.ai"
-	DefaultVoyageAIModel           = "embed-multilingual-v3.0"
+	DefaultVoyageAIModel           = "voyage-2"
 	DefaultTruncate              = "END"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
@@ -34,13 +34,10 @@ const (
 
 var (
 	availableVoyageAIModels = []string{
-		"medium",
-		"large", "small", "multilingual-22-12",
-		"embed-english-v2.0", "embed-english-light-v2.0", "embed-multilingual-v2.0",
-		"embed-english-v3.0", "embed-english-light-v3.0", "embed-multilingual-v3.0", "embed-multilingual-light-v3.0",
+		"voyage-large-2", "voyage-code-2", "voyage-2", "voyage-lite-02-instruct",
 	}
-	experimetnalVoyageAIModels = []string{"multilingual-2210-alpha"}
-	availableTruncates       = []string{"NONE", "START", "END", "LEFT", "RIGHT"}
+	experimetnalVoyageAIModels = []string{}
+	availableTruncates       = []string{"True", "False"}
 )
 
 type classSettings struct {

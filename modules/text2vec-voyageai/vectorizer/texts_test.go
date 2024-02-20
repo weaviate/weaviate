@@ -80,7 +80,7 @@ func TestVectorizingTexts(t *testing.T) {
 			v := New(client)
 
 			settings := &fakeClassConfig{
-				voyageaiModel: tesvoyageaireModel,
+				voyageaiModel: test.voyageaiModel,
 			}
 			vec, err := v.Texts(context.Background(), test.input, settings)
 

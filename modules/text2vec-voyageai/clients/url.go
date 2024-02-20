@@ -21,7 +21,7 @@ type voyageaiUrlBuilder struct {
 func newVoyageAIUrlBuilder() *voyageaiUrlBuilder {
 	return &voyageaiUrlBuilder{
 		origin:   "https://api.voyageai.ai",
-		pathMask: "/v1/embed",
+		pathMask: "/v1/embeddings",
 	}
 }
 
