@@ -65,21 +65,11 @@ func int32FromBytes(bytes []byte) int {
 }
 
 func BenchmarkConcurrentSearch(b *testing.B) {
-	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
-	siftFileQuery := "datasets/ann-benchmarks/siftsmall/sift_query.fvecs"
+	siftFile := "datasets/ann-benchmarks/sift/sift_base.fvecs"
+	siftFileQuery := "datasets/ann-benchmarks/sift/sift_query.fvecs"
 
-	_, err2 := os.Stat(siftFileQuery)
-	if _, err := os.Stat(siftFile); err != nil || err2 != nil {
-		if false {
-			b.Skip(`Sift data needs to be present.
-Run test with -download to automatically download the dataset.
-Ex: go test -v -run TestHnswStress . -download
-`)
-		}
-		downloadDatasetFile(b, siftFile)
-	}
-	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
-	vectorsQuery := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
+	vectors := readSiftFloat(siftFile, 1000000)
+	vectorsQuery := readSiftFloat(siftFileQuery, 10000)
 
 	index := createEmptyHnswIndexForTests(b, idVector)
 	// add elements
@@ -125,7 +115,7 @@ Ex: go test -v -run TestHnswStress . -download
 		downloadDatasetFile(t, siftFile)
 	}
 	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
-	vectorsQuery := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
+	vectorsQuery := readSiftFloat(siftFileQuery, parallelGoroutines*vectorsPerGoroutine)
 
 	t.Run("Insert and search and maybe delete", func(t *testing.T) {
 		for n := 0; n < 1; n++ { // increase if you don't want to reread SIFT for every run
