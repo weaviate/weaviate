@@ -154,12 +154,22 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]
 	if err != nil {
 		return nil, err
 	}
-	uuids := make([]strfmt.UUID, len(docs))
-	for i, doc := range docs {
-		uuids[i], err = s.uuidFromDocID(doc)
+
+	var (
+		uuids   = make([]strfmt.UUID, len(docs))
+		currIdx = 0
+	)
+
+	for _, doc := range docs {
+		uuid, err := s.uuidFromDocID(doc)
 		if err != nil {
-			return nil, fmt.Errorf("could not get uuid from doc_id=%v", doc)
+			// TODO: More than likely this will occur due to an object which has already been deleted.
+			//       However, this is not a guarantee. This can be improved by logging, or handling
+			//       errors other than `id not found` rather than skipping them entirely.
+			continue
 		}
+		uuids[currIdx] = uuid
+		currIdx++
 	}
-	return uuids, nil
+	return uuids[:currIdx], nil
 }
