@@ -329,42 +329,43 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 	return groupOut, nil
 }
 
-func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, error) {
-	var targetVectors []string
+func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string, error) {
+	var targetVectors *[]string
 	if hs := req.HybridSearch; hs != nil {
-		targetVectors = hs.TargetVectors
+		targetVectors = &hs.TargetVectors
 	}
 	if na := req.NearAudio; na != nil {
-		targetVectors = na.TargetVectors
+		targetVectors = &na.TargetVectors
 	}
 	if nd := req.NearDepth; nd != nil {
-		targetVectors = nd.TargetVectors
+		targetVectors = &nd.TargetVectors
 	}
 	if ni := req.NearImage; ni != nil {
-		targetVectors = ni.TargetVectors
+		targetVectors = &ni.TargetVectors
 	}
 	if ni := req.NearImu; ni != nil {
-		targetVectors = ni.TargetVectors
+		targetVectors = &ni.TargetVectors
 	}
 	if no := req.NearObject; no != nil {
-		targetVectors = no.TargetVectors
+		targetVectors = &no.TargetVectors
 	}
 	if nt := req.NearText; nt != nil {
-		targetVectors = nt.TargetVectors
+		targetVectors = &nt.TargetVectors
 	}
 	if nt := req.NearThermal; nt != nil {
-		targetVectors = nt.TargetVectors
+		targetVectors = &nt.TargetVectors
 	}
 	if nv := req.NearVector; nv != nil {
-		targetVectors = nv.TargetVectors
+		targetVectors = &nv.TargetVectors
 	}
 	if nv := req.NearVideo; nv != nil {
-		targetVectors = nv.TargetVectors
+		targetVectors = &nv.TargetVectors
 	}
-	if len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
+
+	if targetVectors != nil && len(*targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
-	if len(targetVectors) > 1 {
+	if targetVectors != nil && len(*targetVectors) > 1 {
 		return nil, fmt.Errorf("cannot provide multiple target vectors when searching, only one is allowed")
 	}
 	return targetVectors, nil
@@ -430,7 +431,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool, targetVectors []string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, usesNewDefaultLogic bool, targetVectors *[]string) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -538,7 +539,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, scheme schema.Sche
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, targetVectors []string) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, scheme schema.Schema, className string, targetVectors *[]string) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -648,7 +649,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	return selectProps
 }
 
-func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors []string) (additional.Properties, error) {
+func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors *[]string) (additional.Properties, error) {
 	props := additional.Properties{
 		Vector:             prop.Vector,
 		ID:                 prop.Uuid,
@@ -670,16 +671,18 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 
 	}
 
-	vectorIndex, err := schema.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
-		return props, errors.Wrap(err, "get vector index config from class")
-	}
+	if targetVectors != nil {
+		vectorIndex, err := schema.TypeAssertVectorIndex(class, *targetVectors)
+		if err != nil {
+			return props, errors.Wrap(err, "get vector index config from class")
+		}
 
-	// certainty is only compatible with cosine distance
-	if vectorIndex.DistanceName() == common.DistanceCosine && prop.Certainty {
-		props.Certainty = true
-	} else {
-		props.Certainty = false
+		// certainty is only compatible with cosine distance
+		if vectorIndex.DistanceName() == common.DistanceCosine && prop.Certainty {
+			props.Certainty = true
+		} else {
+			props.Certainty = false
+		}
 	}
 
 	return props, nil
