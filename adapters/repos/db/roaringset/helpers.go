@@ -203,3 +203,10 @@ func (bmf *BitmapFactory) GetBitmap() *sroar.Bitmap {
 
 	return bmf.bitmap.Clone()
 }
+
+// ActualMaxVal returns the highest value in the bitmap not including the buffer
+func (bmf *BitmapFactory) ActualMaxVal() uint64 {
+	bmf.lock.RLock()
+	defer bmf.lock.RUnlock()
+	return bmf.maxValGetter()
+}
