@@ -204,6 +204,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.Pagination.Limit = 10
 	}
 
+	//Hybrid search now has the ability to run subsearches using the real nearvector and neartext searches.  So we need to extract those settings the same way we prepare for the real searches.
 	if hs := req.HybridSearch; hs != nil {
 		fusionType := common_filters.HybridFusionDefault
 		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RANKED {

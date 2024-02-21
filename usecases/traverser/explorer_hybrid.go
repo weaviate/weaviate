@@ -22,8 +22,10 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
+// Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
@@ -61,17 +63,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	return out, "keyword,dunno", nil
 }
 
-func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
-	/* FIXME
-	baseSearchLimit := params.Pagination.Limit + params.Pagination.Offset
-	var hybridSearchLimit int
-	if baseSearchLimit <= hybrid.DefaultLimit {
-		hybridSearchLimit = hybrid.DefaultLimit
-	} else {
-		hybridSearchLimit = baseSearchLimit
-	}
-	*/
-
+// Do a nearvector search.  The results will be used in the hybrid algorithm
+func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e *Explorer, params dto.GetParams, searchname string) ([]*search.Result, string, error) {
 	params.NearVector = nearVecParams
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < hybrid.DefaultLimit {
@@ -95,14 +88,53 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 		out = append(out, &out_sr)
 	}
 
-	return out, "vector,nearVector", nil
+	return out, "vector," + searchname, nil
 }
-
+/*
+type NearTextParams struct {
+    Values        []string
+    Limit         int
+    MoveTo        ExploreMove
+    MoveAwayFrom  ExploreMove
+    Certainty     float64
+    Distance      float64
+    WithDistance  bool
+    Network       bool
+    Autocorrect   bool
+    TargetVectors []string
+}
+*/
+// Do a nearText search.  The results will be used in the hybrid algorithm
 func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
-	subSearchParams := params
-	subSearchParams.ModuleParams["nearText"] = params.HybridSearch.NearTextParams
-	subSearchParams.HybridSearch = nil
-	partial_results, vector, err := e.getClassVectorSearch(ctx, subSearchParams)
+	var subSearchParams nearText2.NearTextParams
+
+	subSearchParams.Values = params.HybridSearch.NearTextParams.Values
+	subSearchParams.Limit = params.HybridSearch.NearTextParams.Limit
+
+	subSearchParams.Certainty = params.HybridSearch.NearTextParams.Certainty
+	subSearchParams.Distance = params.HybridSearch.NearTextParams.Distance
+	subSearchParams.Limit = params.HybridSearch.NearTextParams.Limit
+	subSearchParams.MoveTo.Force = params.HybridSearch.NearTextParams.MoveTo.Force
+	subSearchParams.MoveTo.Values = params.HybridSearch.NearTextParams.MoveTo.Values
+	// TODO objects
+
+	subSearchParams.MoveAwayFrom.Force = params.HybridSearch.NearTextParams.MoveAwayFrom.Force
+	subSearchParams.MoveAwayFrom.Values = params.HybridSearch.NearTextParams.MoveAwayFrom.Values
+	// TODO objects
+
+	subSearchParams.Network = params.HybridSearch.NearTextParams.Network
+	subSearchParams.TargetVectors = params.HybridSearch.TargetVectors
+
+	subSearchParams.WithDistance = params.HybridSearch.NearTextParams.WithDistance
+
+
+	subsearchWrap := params
+	if subsearchWrap.ModuleParams == nil {
+		subsearchWrap.ModuleParams = map[string]interface{}{}
+	}
+	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
+	subsearchWrap.HybridSearch = nil
+	partial_results, vector, err := e.getClassVectorSearch(ctx, subsearchWrap)
 	if err != nil {
 		return nil, "", err
 	}
@@ -121,6 +153,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	return out, "vector,nearText", nil
 }
 
+// Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	var results [][]*search.Result
 	var weights []float64
@@ -138,6 +171,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	// If the user has given any weight to the vector search, choose 1 of three possible vector searches
+	//
+	// 1. If the user hase provided nearText parameters, use them in a nearText search
+	// 2. If the user has provided nearVector parameters, use them in a nearVector search
+	// 3. (Default) Do a vector search with the default parameters (the old hybrid search)
 	if (params.HybridSearch.Alpha) > 0 {
 		if params.HybridSearch.NearTextParams != nil {
 			res, name, err := nearTextSubSearch(ctx, e, params)
@@ -150,7 +188,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				names = append(names, name)
 			}
 		} else if params.HybridSearch.NearVectorParams != nil {
-			res, name, err := denseSearch(ctx, params.HybridSearch.NearVectorParams, e, params)
+			res, name, err := denseSearch(ctx, params.HybridSearch.NearVectorParams, e, params, "nearVector")
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 				return nil, err
@@ -183,7 +221,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					TargetVectors: params.HybridSearch.TargetVectors,
 				}
 
-				res, name, err := denseSearch(ctx, nearVecParams, e, params)
+				res, name, err := denseSearch(ctx, nearVecParams, e, params,"hybridVector")
 				if err != nil {
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err
@@ -196,6 +234,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 	}
 
+	// If the user has given any weight to the keyword search, do a keyword search
 	if 1-params.HybridSearch.Alpha > 0 {
 		sparseResults, name, err := sparseSearch(ctx, e, params)
 		if err != nil {
@@ -208,6 +247,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 	}
 
+	// The postProcess function is used to limit the number of results and to resolve references
+	// in the results.  It is called after all the subsearches have been completed, and before autocut
 	postProcess := func(results []*search.Result) ([]search.Result, error) {
 		totalLimit, err := e.CalculateTotalLimit(origParams.Pagination)
 		if err != nil {

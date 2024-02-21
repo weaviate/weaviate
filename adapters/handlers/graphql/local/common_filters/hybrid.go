@@ -37,6 +37,22 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 	var weightedSearchResults []searchparams.WeightedSearchResult
 	var args searchparams.HybridSearch
+
+	if source["nearText"] != nil {
+		nearText := source["nearText"].(map[string]interface{})
+		arguments, _ := ExtractNearText(nearText)
+
+		args.NearTextParams = &arguments
+	}
+
+	if source["nearVector"] != nil {
+		nearVector := source["nearVector"].(map[string]interface{})
+		arguments, _ := ExtractNearVector(nearVector)
+		args.NearVectorParams = &arguments
+
+	}
+
+
 	for _, ss := range subsearches {
 		subsearch := ss.(map[string]interface{})
 		switch {

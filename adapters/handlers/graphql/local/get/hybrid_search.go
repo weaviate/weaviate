@@ -43,6 +43,8 @@ func hybridOperands(classObject *graphql.Object,
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
 	})
 
+	prefixName := class.Class + "SubSearch"
+
 	fieldMap := graphql.InputObjectConfigFieldMap{
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "Query string",
@@ -68,6 +70,18 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Target vectors",
 			Type:        graphql.NewList(graphql.String),
 		},
+		"nearText": &graphql.InputObjectFieldConfig{
+			Description: "nearText element",
+
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
+					Fields:      nearTextFields(prefixName),
+					Description: descriptions.GetWhereInpObj,
+				},
+			),
+		},
+
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {
