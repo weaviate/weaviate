@@ -227,19 +227,22 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
-	if class.Vectorizer == "" {
-		class.Vectorizer = m.config.DefaultVectorizerModule
-	}
+	// set only when no target vectors configured
+	if !hasTargetVectors(class) {
+		if class.Vectorizer == "" {
+			class.Vectorizer = m.config.DefaultVectorizerModule
+		}
 
-	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
-	}
+		if class.VectorIndexType == "" {
+			class.VectorIndexType = "hnsw"
+		}
 
-	if m.config.DefaultVectorDistanceMetric != "" {
-		if class.VectorIndexConfig == nil {
-			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
-		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
-			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+		if m.config.DefaultVectorDistanceMetric != "" {
+			if class.VectorIndexConfig == nil {
+				class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
+			} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+				class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+			}
 		}
 	}
 
@@ -517,11 +520,13 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
-	if err != nil {
-		return err
+	if !hasTargetVectors(class) {
+		parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+		if err != nil {
+			return err
+		}
+		class.VectorIndexConfig = parsed
 	}
-	class.VectorIndexConfig = parsed
 
 	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
 		return err
@@ -620,4 +625,8 @@ func CreateClassPayload(class *models.Class,
 		}
 	}
 	return pl, nil
+}
+
+func hasTargetVectors(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
 }
