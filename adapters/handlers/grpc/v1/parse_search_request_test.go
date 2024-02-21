@@ -282,6 +282,20 @@ func TestGRPCRequest(t *testing.T) {
 			error: true,
 		},
 		{
+			name: "Vectors throws error if more than one target vectors are given",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:        []float32{1, 2, 3},
+					TargetVectors: []string{"custom", "first"},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
 			name: "Properties return all nonref values with new default logic",
 			req:  &pb.SearchRequest{Uses_123Api: true, Collection: classname, Properties: &pb.PropertiesRequest{ReturnAllNonrefProperties: true}},
 			out: dto.GetParams{
