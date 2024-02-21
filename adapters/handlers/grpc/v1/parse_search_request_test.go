@@ -1335,7 +1335,7 @@ func TestGRPCRequest(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Nil(t, err)
-				require.Equal(t, tt.out, out)
+				require.EqualValues(t, tt.out, out)
 			}
 		})
 	}
