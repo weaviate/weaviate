@@ -59,19 +59,21 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	if err := m.migrator.ValidateVectorIndexConfigUpdate(ctx,
-		initial.VectorIndexConfig.(schema.VectorIndexConfig),
-		updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
-		return errors.Wrap(err, "vector index config")
-	}
-
-	if err := validateVectorConfigsParityAndImmutables(initial, updated); err != nil {
-		return err
-	}
-	if err := m.migrator.ValidateVectorIndexConfigsUpdate(ctx,
-		asVectorIndexConfigs(initial), asVectorIndexConfigs(updated),
-	); err != nil {
-		return err
+	if hasTargetVectors(updated) {
+		if err := validateVectorConfigsParityAndImmutables(initial, updated); err != nil {
+			return err
+		}
+		if err := m.migrator.ValidateVectorIndexConfigsUpdate(ctx,
+			asVectorIndexConfigs(initial), asVectorIndexConfigs(updated),
+		); err != nil {
+			return err
+		}
+	} else {
+		if err := m.migrator.ValidateVectorIndexConfigUpdate(ctx,
+			initial.VectorIndexConfig.(schema.VectorIndexConfig),
+			updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+			return errors.Wrap(err, "vector index config")
+		}
 	}
 
 	if err := m.migrator.ValidateInvertedIndexConfigUpdate(ctx,
@@ -154,12 +156,15 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		// explicitly now.
 		updatedShardingState.SetLocalName(m.clusterState.LocalName())
 	}
-	if err := m.migrator.UpdateVectorIndexConfig(ctx,
-		className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
-		return fmt.Errorf("vector index config update: %w", err)
-	}
-	if err := m.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(updated)); err != nil {
-		return fmt.Errorf("vector index configs update: %w", err)
+	if hasTargetVectors(updated) {
+		if err := m.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(updated)); err != nil {
+			return fmt.Errorf("vector index configs update: %w", err)
+		}
+	} else {
+		if err := m.migrator.UpdateVectorIndexConfig(ctx,
+			className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+			return fmt.Errorf("vector index config update: %w", err)
+		}
 	}
 	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
 		updated.InvertedIndexConfig); err != nil {
