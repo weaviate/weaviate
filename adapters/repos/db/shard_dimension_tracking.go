@@ -136,7 +136,7 @@ func (s *Shard) publishDimensionMetrics() {
 	if s.promMetrics != nil {
 		className := s.index.Config.ClassName.String()
 
-		if !hasTargetVectors(s.index.vectorIndexUserConfig, s.index.vectorIndexUserConfigs) {
+		if !s.hasTargetVectors() {
 			// send stats for legacy vector only
 			switch category, segments := getDimensionCategory(s.index.vectorIndexUserConfig); category {
 			case DimensionCategoryPQ:

@@ -426,6 +426,11 @@ func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
 	return l.shard.VectorIndexes()
 }
 
+func (l *LazyLoadShard) hasTargetVectors() bool {
+	l.mustLoad()
+	return l.shard.hasTargetVectors()
+}
+
 func (l *LazyLoadShard) Versioner() *shardVersioner {
 	l.mustLoad()
 	return l.shard.Versioner()
