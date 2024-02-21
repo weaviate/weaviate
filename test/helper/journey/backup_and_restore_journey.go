@@ -12,6 +12,7 @@
 package journey
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
 	}
 
-	backupID := "backup-1"
+	backupID := "backup-1_named_vectors" + strconv.FormatBool(namedVectors)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
