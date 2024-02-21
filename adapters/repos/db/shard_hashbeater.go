@@ -26,8 +26,6 @@ import (
 )
 
 func (s *Shard) initHashBeater() {
-	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-
 	go func() {
 		t := time.NewTicker(100 * time.Millisecond)
 		defer t.Stop()

@@ -331,10 +331,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
 
-	if s.hashtree != nil {
-		s.initHashBeater()
-	}
-
 	return s, nil
 }
 
@@ -661,6 +657,8 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) initHashTree(ctx context.Context) error {
+	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
+
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
@@ -710,6 +708,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 	if s.hashtree != nil {
 		s.hashtreeInitialized.Store(true)
+		s.initHashBeater()
 		return nil
 	}
 
@@ -746,6 +745,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		}
 
 		s.hashtreeInitialized.Store(true)
+		s.initHashBeater()
 	}()
 
 	return nil
@@ -753,9 +753,6 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 func (s *Shard) buildCompactHashTree() {
 	s.hashtree = hashtree.NewCompactHashTree(math.MaxUint64, 16)
-	if s.hashtree != nil {
-		return
-	}
 }
 
 func (s *Shard) buildMultiSegmentHashTree() {
@@ -825,7 +822,7 @@ func (s *Shard) closeHashTree() error {
 }
 
 func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	if s.hashtree == nil || !s.hashtreeInitialized.Load() {
+	if !s.hashtreeInitialized.Load() {
 		return nil, fmt.Errorf("hashtree was not initialized")
 	}
 
