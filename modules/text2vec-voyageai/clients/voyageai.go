@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"time"
+	"strconv"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -28,15 +29,20 @@ import (
 )
 
 type embeddingsRequest struct {
-	Texts     []string  `json:"texts"`
-	Model     string    `json:"model,omitempty"`
-	Truncate  string    `json:"truncate,omitempty"`
-	InputType inputType `json:"input_type,omitempty"`
+	Input      []string  `json:"input"`
+	Model      string    `json:"model"`
+	Truncation bool      `json:"truncation,omitempty"`
+	InputType  inputType `json:"input_type,omitempty"`
+}
+
+type embeddingsDataResponse struct {
+	Embeddings []float32 `json:"embedding"`
 }
 
 type embeddingsResponse struct {
-	Embeddings [][]float32 `json:"embeddings,omitempty"`
-	Message    string      `json:"message,omitempty"`
+	Data   []embeddingsDataResponse `json:"data,omitempty"`
+	Model  string                   `json:"model,omitempty"`
+	Detail string                   `json:"detail,omitempty"`
 }
 
 type vectorizer struct {
@@ -49,8 +55,8 @@ type vectorizer struct {
 type inputType string
 
 const (
-	searchDocument inputType = "search_document"
-	searchQuery    inputType = "search_query"
+	searchDocument inputType = "query"
+	searchQuery    inputType = "query"
 )
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
@@ -79,11 +85,16 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, inputType inputType,
 ) (*ent.VectorizationResult, error) {
+	truncation, err := strconv.ParseBool(truncate)
+	if err != nil && truncate != "" {
+		return nil, errors.Wrap(err, "create POST request")
+	}
+
 	body, err := json.Marshal(embeddingsRequest{
-		Texts:     input,
-		Model:     model,
-		Truncate:  truncate,
-		InputType: inputType,
+		Input:      input,
+		Model:      model,
+		Truncation: truncation,
+		InputType:  inputType,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -117,21 +128,26 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 
 	if res.StatusCode >= 500 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Message, "connection to VoyageAI failed with status: %d error: %v")
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "connection to VoyageAI failed with status: %d error: %v")
 		return nil, errors.Errorf(errorMessage)
 	} else if res.StatusCode > 200 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Message, "failed with status: %d error: %v")
+		errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "failed with status: %d error: %v")
 		return nil, errors.Errorf(errorMessage)
 	}
 
-	if len(resBody.Embeddings) == 0 {
+	if len(resBody.Data) == 0 || len(resBody.Data[0].Embeddings) == 0 {
 		return nil, errors.Errorf("empty embeddings response")
+	}
+
+	vectors := make([][]float32, len(resBody.Data))
+	for i, data := range resBody.Data {
+		vectors[i] = data.Embeddings
 	}
 
 	return &ent.VectorizationResult{
 		Text:       input,
-		Dimensions: len(resBody.Embeddings[0]),
-		Vectors:    resBody.Embeddings,
+		Dimensions: len(resBody.Data[0].Embeddings),
+		Vectors:    vectors,
 	}, nil
 }
 

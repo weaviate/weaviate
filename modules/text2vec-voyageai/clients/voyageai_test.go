@@ -48,7 +48,8 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "large",
+				Model: "voyage-2",
+				BaseURL: "https://api.voyageai.com",
 			})
 
 		assert.Nil(t, err)
@@ -63,14 +64,17 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings",
 			},
 			logger: nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
+			Model: "voyage-2",
+			BaseURL: "https://api.voyageai.com",
+		})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -87,12 +91,15 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings",
 			},
 			logger: nullLogger(),
 		}
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{})
+			ent.VectorizationConfig{
+				Model: "voyage-2",
+				BaseURL: "https://api.voyageai.com",
+			})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to VoyageAI failed with status: 500 error: nope, not gonna happen")
@@ -106,7 +113,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -120,7 +127,8 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "large",
+				Model: "voyage-2",
+				BaseURL: "https://api.voyageai.com",
 			})
 
 		require.Nil(t, err)
@@ -135,14 +143,17 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings",
 			},
 			logger: nullLogger(),
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
+			Model: "voyage-2",
+			BaseURL: "https://api.voyageai.com",
+		})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "VoyageAI API Key: no api key found "+
@@ -158,7 +169,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -167,7 +178,8 @@ func TestClient(t *testing.T) {
 
 		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "large",
+				Model: "voyage-2",
+				BaseURL: "https://api.voyageai.com",
 			})
 
 		require.NotNil(t, err)
@@ -184,7 +196,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -194,10 +206,10 @@ func TestClient(t *testing.T) {
 			"X-VoyageAI-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL := c.getVoyageAIUrl(ctxWithValue, baseURL)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embed", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings", buildURL)
 
 		buildURL = c.getVoyageAIUrl(context.TODO(), baseURL)
-		assert.Equal(t, "http://default-url.com/v1/embed", buildURL)
+		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 }
 

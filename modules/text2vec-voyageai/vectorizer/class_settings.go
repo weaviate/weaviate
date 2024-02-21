@@ -24,9 +24,9 @@ import (
 )
 
 const (
-	DefaultBaseURL               = "https://api.voyageai.ai"
-	DefaultVoyageAIModel           = "voyage-2"
-	DefaultTruncate              = "END"
+	DefaultBaseURL               = "https://api.voyageai.com"
+	DefaultVoyageAIModel         = "voyage-2"
+	DefaultTruncate              = "True"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
@@ -37,7 +37,7 @@ var (
 		"voyage-large-2", "voyage-code-2", "voyage-2", "voyage-lite-02-instruct",
 	}
 	experimetnalVoyageAIModels = []string{}
-	availableTruncates       = []string{"True", "False"}
+	availableTruncates         = []string{"True", "False"}
 )
 
 type classSettings struct {
