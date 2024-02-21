@@ -46,6 +46,20 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
 	}
 
+	vectorsForDune := func() map[string][]float32 {
+		vectors := map[string][]float32{}
+		duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
+
+		if namedVectors {
+			for name := range booksClass.VectorConfig {
+				vectors[name] = duneBook.Vectors[name]
+			}
+		} else {
+			vectors["vector"] = duneBook.Vector
+		}
+		return vectors
+	}
+
 	backupID := "backup-1_named_vectors" + strconv.FormatBool(namedVectors)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
@@ -57,6 +71,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	t.Run("verify that Books objects exist", func(t *testing.T) {
 		verifyThatAllBooksExist(t)
 	})
+	initialVectors := vectorsForDune()
 
 	t.Run("verify invalid compression config", func(t *testing.T) {
 		// unknown compression level
@@ -198,5 +213,10 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 
 	t.Run("verify that Books objects exist after restore", func(t *testing.T) {
 		verifyThatAllBooksExist(t)
+	})
+
+	t.Run("verify that vectors are the same after restore", func(t *testing.T) {
+		restoredVectors := vectorsForDune()
+		require.Equal(t, initialVectors, restoredVectors)
 	})
 }
