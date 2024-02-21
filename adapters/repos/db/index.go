@@ -2077,7 +2077,14 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 	return nil
 }
 
-func convertVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
+func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
+	if config == nil {
+		return nil
+	}
+	return config.(schema.VectorIndexConfig)
+}
+
+func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
 	if len(configs) > 0 {
 		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
 		for targetVector, vectorConfig := range configs {

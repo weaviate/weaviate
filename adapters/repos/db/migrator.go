@@ -64,8 +64,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
-		class.VectorIndexConfig.(schema.VectorIndexConfig),
-		convertVectorIndexConfigs(class.VectorConfig),
+		convertToVectorIndexConfig(class.VectorIndexConfig),
+		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
