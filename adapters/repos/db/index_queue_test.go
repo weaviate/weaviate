@@ -396,7 +396,7 @@ func TestIndexQueue(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		before, exists, err := q.checkpoints.Get("1", "")
 		require.NoError(t, err)
-		require.True(t, exists)
+		require.False(t, exists)
 		q.pushToWorkers(-1, false)
 		// the checkpoint should be: 0, then 0
 		// the cursor should not be updated
