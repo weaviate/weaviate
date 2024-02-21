@@ -282,11 +282,8 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		return errors.Wrap(err, "get last indexed id")
 	}
 	if !exists {
-		q.Logger.Debug("no checkpoint found, skipping preload")
 		return nil
 	}
-
-	q.Logger.WithField("checkpoint", checkpoint).Debug("preloading queue from last checkpoint")
 
 	start := time.Now()
 
