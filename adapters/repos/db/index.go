@@ -1822,7 +1822,13 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			if shard == nil {
 				err = errors.Errorf("shard %s does not exist", shardName)
 			} else {
-				size = shard.Queue().Size()
+				if shard.hasTargetVectors() {
+					for _, queue := range shard.Queues() {
+						size += queue.Size()
+					}
+				} else {
+					size = shard.Queue().Size()
+				}
 			}
 		}
 		if err != nil {
@@ -1840,7 +1846,14 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	if shard == nil {
 		return 0, errShardNotFound
 	}
-	return shard.Queue().Size(), nil
+	if !shard.hasTargetVectors() {
+		return shard.Queue().Size(), nil
+	}
+	size := int64(0)
+	for _, queue := range shard.Queues() {
+		size += queue.Size()
+	}
+	return size, nil
 }
 
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
