@@ -22,11 +22,17 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors bool) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
-	booksClass := books.ClassContextionaryVectorizer()
+
+	var booksClass *models.Class
+	if namedVectors {
+		booksClass = books.ClassNamedContextionaryVectorizer()
+	} else {
+		booksClass = books.ClassContextionaryVectorizer()
+	}
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 

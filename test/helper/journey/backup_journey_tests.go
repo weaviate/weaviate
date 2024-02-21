@@ -30,7 +30,11 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 		// like adding there a new reference property and trying to run the test with 2 classes which
 		// one of those classes is a class with a reference property
 		t.Run("backup and restore Books", func(t *testing.T) {
-			backupAndRestoreJourneyTest(t, weaviateEndpoint, backend)
+			backupAndRestoreJourneyTest(t, weaviateEndpoint, backend, false)
+		})
+
+		t.Run("backup and restore Books with named vectors", func(t *testing.T) {
+			backupAndRestoreJourneyTest(t, weaviateEndpoint, backend, true)
 		})
 
 		t.Run("single-tenant single node backup", func(t *testing.T) {
