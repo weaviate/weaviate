@@ -52,7 +52,10 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 
 	out.Tenant = req.Tenant
 
-	targetVectors := extractTargetVectors(req)
+	targetVectors, err := extractTargetVectors(req, class)
+	if err != nil {
+		return dto.GetParams{}, errors.Wrap(err, "extract target vectors")
+	}
 
 	if req.Metadata != nil {
 		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata, targetVectors)
@@ -326,7 +329,7 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 	return groupOut, nil
 }
 
-func extractTargetVectors(req *pb.SearchRequest) []string {
+func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, error) {
 	var targetVectors []string
 	if hs := req.HybridSearch; hs != nil {
 		targetVectors = hs.TargetVectors
@@ -358,7 +361,13 @@ func extractTargetVectors(req *pb.SearchRequest) []string {
 	if nv := req.NearVideo; nv != nil {
 		targetVectors = nv.TargetVectors
 	}
-	return targetVectors
+	if len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
+		return nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
+	}
+	if len(targetVectors) > 1 {
+		return nil, fmt.Errorf("cannot provide multiple target vectors when searching, only one is allowed")
+	}
+	return targetVectors, nil
 }
 
 func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
