@@ -51,6 +51,15 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// run target vectors validation first, as it will reject classes
+	// where legacy vector was changed to target vectors and vice versa
+	if err := validateVectorConfigsParityAndImmutables(initial, updated); err != nil {
+		return err
+	}
+	if err := validateVectorIndexConfigImmutableFields(initial, updated); err != nil {
+		return err
+	}
+
 	if err := m.parseVectorIndexConfig(ctx, updated); err != nil {
 		return err
 	}
@@ -60,9 +69,6 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	if hasTargetVectors(updated) {
-		if err := validateVectorConfigsParityAndImmutables(initial, updated); err != nil {
-			return err
-		}
 		if err := m.migrator.ValidateVectorIndexConfigsUpdate(ctx,
 			asVectorIndexConfigs(initial), asVectorIndexConfigs(updated),
 		); err != nil {
@@ -201,20 +207,10 @@ func (m *Manager) validateImmutableFields(initial, updated *models.Class) error 
 			name:     "class name",
 			accessor: func(c *models.Class) string { return c.Class },
 		},
-		{
-			name:     "vectorizer",
-			accessor: func(c *models.Class) string { return c.Vectorizer },
-		},
-		{
-			name:     "vector index type",
-			accessor: func(c *models.Class) string { return c.VectorIndexType },
-		},
 	}
 
-	for _, u := range immutableFields {
-		if err := m.validateImmutableTextField(u, initial, updated); err != nil {
-			return err
-		}
+	if err := validateImmutableTextFields(initial, updated, immutableFields...); err != nil {
+		return err
 	}
 
 	if !reflect.DeepEqual(initial.Properties, updated.Properties) {
@@ -236,16 +232,17 @@ type immutableText struct {
 	name     string
 }
 
-func (m *Manager) validateImmutableTextField(u immutableText,
-	previous, next *models.Class,
+func validateImmutableTextFields(previous, next *models.Class,
+	immutables ...immutableText,
 ) error {
-	oldField := u.accessor(previous)
-	newField := u.accessor(next)
-	if oldField != newField {
-		return errors.Errorf("%s is immutable: attempted change from %q to %q",
-			u.name, oldField, newField)
+	for _, immutable := range immutables {
+		oldField := immutable.accessor(previous)
+		newField := immutable.accessor(next)
+		if oldField != newField {
+			return errors.Errorf("%s is immutable: attempted change from %q to %q",
+				immutable.name, oldField, newField)
+		}
 	}
-
 	return nil
 }
 
@@ -316,6 +313,19 @@ func validateVectorConfigsParityAndImmutables(initial, updated *models.Class) er
 		}
 	}
 	return nil
+}
+
+func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
+	return validateImmutableTextFields(initial, updated, []immutableText{
+		{
+			name:     "vectorizer",
+			accessor: func(c *models.Class) string { return c.Vectorizer },
+		},
+		{
+			name:     "vector index type",
+			accessor: func(c *models.Class) string { return c.VectorIndexType },
+		},
+	}...)
 }
 
 func asVectorIndexConfigs(c *models.Class) map[string]schema.VectorIndexConfig {
