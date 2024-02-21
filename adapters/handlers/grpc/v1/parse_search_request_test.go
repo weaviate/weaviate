@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -127,15 +128,16 @@ func TestGRPCRequest(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "first", DataType: schema.DataTypeText.PropString()},
 					},
-					VectorIndexConfig: hnsw.UserConfig{},
 					VectorConfig: map[string]models.VectorConfig{
 						"custom": {
-							VectorIndexType: "hnsw",
-							Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 						"first": {
-							VectorIndexType: "flat",
-							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
 					},
 				},
@@ -245,9 +247,24 @@ func TestGRPCRequest(t *testing.T) {
 		},
 		{
 			name: "Vectors returns all named vectors",
-			req:  &pb.SearchRequest{Collection: multiVecClass, Metadata: &pb.MetadataRequest{Vector: true}, Properties: &pb.PropertiesRequest{}},
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vector:        []float32{1, 2, 3},
+					TargetVectors: []string{"custom"},
+				},
+			},
 			out: dto.GetParams{
-				ClassName: multiVecClass, Pagination: defaultPagination, Properties: search.SelectProperties{}, AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					Vector:        []float32{1, 2, 3},
+					TargetVectors: []string{"custom"},
+				},
 			},
 			error: false,
 		},

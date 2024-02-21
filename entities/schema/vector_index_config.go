@@ -31,9 +31,21 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) (VectorI
 				class.Class, class.VectorIndexConfig)
 		}
 		return vectorIndexConfig, nil
+	} else if len(class.VectorConfig) == 1 {
+		var vectorConfig models.VectorConfig
+		for _, v := range class.VectorConfig {
+			vectorConfig = v
+			break
+		}
+		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				class.Class, class.VectorIndexConfig)
+		}
+		return vectorIndexConfig, nil
 	} else {
 		if len(targetVectors) != 1 {
-			return nil, errors.Errorf("target vectors must be exactly one, got: %d", len(targetVectors))
+			return nil, errors.Errorf("multiple vector configs found for class '%s', but no target vector specified", class.Class)
 		}
 		vectorConfig, ok := class.VectorConfig[targetVectors[0]]
 		if !ok {
@@ -41,8 +53,8 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) (VectorI
 		}
 		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(VectorIndexConfig)
 		if !ok {
-			return nil, fmt.Errorf("vectorConfig '%s' vector index: config is not schema.VectorIndexConfig: %T",
-				vectorConfig, class.VectorIndexConfig)
+			return nil, fmt.Errorf("targetVector '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				targetVectors[0], class.VectorIndexConfig)
 		}
 		return vectorIndexConfig, nil
 	}
