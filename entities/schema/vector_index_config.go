@@ -14,6 +14,7 @@ package schema
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -22,11 +23,27 @@ type VectorIndexConfig interface {
 	DistanceName() string
 }
 
-func TypeAssertVectorIndex(class *models.Class) (VectorIndexConfig, error) {
-	if config, ok := class.VectorIndexConfig.(VectorIndexConfig); ok {
-		return config, nil
+func TypeAssertVectorIndex(class *models.Class, targetVectors []string) (VectorIndexConfig, error) {
+	if len(class.VectorConfig) == 0 {
+		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				class.Class, class.VectorIndexConfig)
+		}
+		return vectorIndexConfig, nil
+	} else {
+		if len(targetVectors) != 1 {
+			return nil, errors.Errorf("target vectors must be exactly one, got: %d", len(targetVectors))
+		}
+		vectorConfig, ok := class.VectorConfig[targetVectors[0]]
+		if !ok {
+			return nil, errors.Errorf("vector config not found for target vector: %s", targetVectors[0])
+		}
+		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(VectorIndexConfig)
+		if !ok {
+			return nil, fmt.Errorf("vectorConfig '%s' vector index: config is not schema.VectorIndexConfig: %T",
+				vectorConfig, class.VectorIndexConfig)
+		}
+		return vectorIndexConfig, nil
 	}
-
-	return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
-		class.Class, class.VectorIndexConfig)
 }
