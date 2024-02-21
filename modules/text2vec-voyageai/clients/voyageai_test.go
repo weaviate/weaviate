@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -64,7 +64,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -91,7 +91,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -113,7 +113,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -143,7 +143,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -169,7 +169,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
@@ -196,7 +196,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &voyageaiUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embeddings",
+				pathMask: "/embeddings",
 			},
 			logger: nullLogger(),
 		}
