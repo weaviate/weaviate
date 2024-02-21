@@ -577,7 +577,6 @@ func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
 	})
 
 	t.Run("full update", func(t *testing.T) {
-		t.Skip("fix")
 		ctx := context.Background()
 
 		for _, tc := range testCases {
@@ -593,21 +592,21 @@ func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
 
 				if tc.expectedErrMsg == "" {
 					assert.NoError(t, err)
-					assert.True(t, m.vectorConfigsUpdateCalled)
-
-					var uvic map[string]schema.VectorIndexConfig
-					if tc.updated.VectorConfig != nil {
-						uvic = map[string]schema.VectorIndexConfig{}
-						for vecName, vecCfg := range tc.updated.VectorConfig {
-							uvic[vecName] = vecCfg.VectorIndexConfig.(schema.VectorIndexConfig)
-						}
-					}
-					assert.Equal(t, uvic, m.vectorConfigsValidateCalledWith)
-					assert.Equal(t, uvic, m.vectorConfigsUpdateCalledWith)
-
 				} else {
 					assert.ErrorContains(t, err, tc.expectedErrMsg)
+				}
 
+				// migrator's validation and update are called only for configured target vectors
+				if tc.expectedErrMsg == "" && len(tc.updated.VectorConfig) > 0 {
+					cfgs := map[string]schema.VectorIndexConfig{}
+					for vecName, vecCfg := range tc.updated.VectorConfig {
+						cfgs[vecName] = vecCfg.VectorIndexConfig.(schema.VectorIndexConfig)
+					}
+
+					assert.True(t, m.vectorConfigsUpdateCalled)
+					assert.Equal(t, cfgs, m.vectorConfigsValidateCalledWith)
+					assert.Equal(t, cfgs, m.vectorConfigsUpdateCalledWith)
+				} else {
 					assert.False(t, m.vectorConfigsUpdateCalled)
 					assert.Nil(t, m.vectorConfigsValidateCalledWith)
 					assert.Nil(t, m.vectorConfigsUpdateCalledWith)
