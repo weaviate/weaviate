@@ -56,8 +56,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64,
-	bitmapFactory *roaringset.BitmapFactory,
+	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -170,7 +169,16 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, 0)
+	allow, err := s.docIDs(ctx, filter, additional, className, 0)
+	if err != nil {
+		return nil, err
+	}
+	// Some filters, such as NotEqual, return a theoretical range of docIDs
+	// which also includes a buffer in the underlying bitmap, to reduce the
+	// overhead of repopulating the base bitmap. Here we can truncate that
+	// buffer to ensure that the caller is receiving only the possible range
+	// of docIDs
+	return allow.Truncate(s.bitmapFactory.ActualMaxVal()), nil
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,

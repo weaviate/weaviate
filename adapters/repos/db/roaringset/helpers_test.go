@@ -238,6 +238,7 @@ func TestBitmapFactory(t *testing.T) {
 		assert.NotNil(t, bmf.GetBitmap())
 		assert.Equal(t, currMax, bmf.currentMaxVal)
 		assert.Equal(t, currMax+1, uint64(bmf.bitmap.GetCardinality()))
+		assert.Equal(t, maxVal, bmf.ActualMaxVal())
 	})
 
 	t.Run("max val surpasses threshold, cardinality increased", func(t *testing.T) {
@@ -246,6 +247,7 @@ func TestBitmapFactory(t *testing.T) {
 		currMax += 1 + DefaultBufferIncrement
 		assert.Equal(t, currMax, bmf.currentMaxVal)
 		assert.Equal(t, currMax+1, uint64(bmf.bitmap.GetCardinality()))
+		assert.Equal(t, maxVal, bmf.ActualMaxVal())
 	})
 }
 
