@@ -43,7 +43,8 @@ func TestBm25MultiNode(t *testing.T) {
 
 func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		WithWeaviate().
+		WithWeaviateClusterSize(2).
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {

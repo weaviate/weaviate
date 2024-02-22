@@ -84,7 +84,7 @@ type Compose struct {
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
-	withWeaviateCluster           bool
+	withWeaviateClusterSize       int
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -267,33 +267,22 @@ func (d *Compose) WithWeaviate() *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateWithGRPC() *Compose {
-	d.withWeaviate = true
-	d.withWeaviateExposeGRPCPort = true
-	return d
-}
-
 func (d *Compose) WithSecondWeaviate() *Compose {
 	d.withSecondWeaviate = true
 	return d
 }
 
-func (d *Compose) WithWeaviateCluster() *Compose {
-	d.withWeaviate = true
-	d.withWeaviateCluster = true
+func (d *Compose) WithWeaviateClusterSize(size int) *Compose {
+	d.withWeaviateClusterSize = size
 	return d
 }
 
-func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.withWeaviate = true
-	d.withWeaviateCluster = true
+func (d *Compose) WithWeaviateGRPC() *Compose {
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
 
-func (d *Compose) WithWeaviateClusterWithBasicAuth(username, password string) *Compose {
-	d.withWeaviate = true
-	d.withWeaviateCluster = true
+func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 	d.withWeaviateBasicAuth = true
 	d.withWeaviateBasicAuthUsername = username
 	d.withWeaviateBasicAuthPassword = password
@@ -301,7 +290,6 @@ func (d *Compose) WithWeaviateClusterWithBasicAuth(username, password string) *C
 }
 
 func (d *Compose) WithWeaviateAuth() *Compose {
-	d.withWeaviate = true
 	d.withWeaviateAuth = true
 	return d
 }
@@ -318,10 +306,12 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
-	networkName := network.Name
 	if err != nil {
-		return nil, errors.Wrapf(err, "network: %s", networkName)
+		return nil, errors.Wrapf(err, "connecting to network")
 	}
+
+	networkName := network.Name
+
 	envSettings := make(map[string]string)
 	containers := []*DockerContainer{}
 	if d.withMinIO {
@@ -457,7 +447,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
 		hostname := Weaviate
-		if d.withWeaviateCluster {
+		if d.withWeaviateClusterSize > 1 {
 			envSettings["CLUSTER_HOSTNAME"] = "node1"
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 			envSettings["CLUSTER_DATA_BIND_PORT"] = "7101"
@@ -485,12 +475,13 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withWeaviateCluster {
+
+	for i := 2; i <= d.withWeaviateClusterSize; i++ {
 		image := os.Getenv(envTestWeaviateImage)
-		hostname := WeaviateNode2
-		envSettings["CLUSTER_HOSTNAME"] = "node2"
-		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
-		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
+		hostname := fmt.Sprintf("%s%d", Weaviate, i)
+		envSettings["CLUSTER_HOSTNAME"] = fmt.Sprintf("node%d", i)
+		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = fmt.Sprintf("%d", 7100+(i-1)*2)
+		envSettings["CLUSTER_DATA_BIND_PORT"] = fmt.Sprintf("%d", 7100+(i-1)*2+1)
 		envSettings["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate)
 		for k, v := range d.weaviateEnvs {
 			envSettings[k] = v
