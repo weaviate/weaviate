@@ -300,6 +300,24 @@ func TestRFJourney(t *testing.T) {
 	resultSet1 := []*search.Result{doc1, doc2, doc3}
 	resultSet2 := []*search.Result{doc2, doc1, doc3}
 
+
+	t.Run("check secondary sort", func(t *testing.T) {
+		results := hybrid.FusionRanked([]float64{0.5, 0.5},
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+		fmt.Println("--- Start results for Fusion Reciprocal ---")
+		for _, result := range results {
+			schema := result.Schema.(map[string]interface{})
+			fmt.Println(schema["title"], result.ID, result.Score)
+		}
+		require.Equal(t, 3, len(results))
+		require.Equal(t, resultSet2[0].ID, results[0].ID)
+		require.Equal(t, resultSet2[1].ID, results[1].ID)
+		require.Equal(t, resultSet2[2].ID, results[2].ID)
+		require.Equal(t, float32(0.016557377), results[0].Score)
+		require.Equal(t, float32(0.016502732), results[1].Score)
+	})
+
+
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.4, 0.6},
 			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
