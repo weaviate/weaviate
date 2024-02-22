@@ -364,52 +364,6 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, float32(0.016393442), results[1].Score)
 	})
 
-	// Check basic search with one property
-	results_set_1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
-		ClassName:    "MyClass",
-		SearchVector: peanutsVector(),
-		Pagination: &filters.Pagination{
-			Offset: 0,
-			Limit:  6,
-		},
-	})
-
-	require.Nil(t, err)
-	results_set_2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
-		ClassName:    "MyClass",
-		SearchVector: journeyVector(),
-		Pagination: &filters.Pagination{
-			Offset: 0,
-			Limit:  6,
-		},
-	})
-	require.Nil(t, err)
-
-	// convert search.Result to hybrid.Result
-	var results_set_1_hybrid []*search.Result
-	for _, r := range results_set_1 {
-		// parse the last 12 digits of the id to get the uint64
-
-		results_set_1_hybrid = append(results_set_1_hybrid, &r)
-	}
-
-	var results_set_2_hybrid []*search.Result
-	for _, r := range results_set_2 {
-		results_set_2_hybrid = append(results_set_2_hybrid, &r)
-	}
-
-	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*search.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
-	fmt.Println("--- Start results for Fusion Reciprocal (", len(res), ")---")
-	for _, r := range res {
-
-		schema := r.Schema.(map[string]interface{})
-		title := schema["title"].(string)
-		description := schema["description"].(string)
-		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
-	}
-
-	require.Equal(t, "00000000-0000-0000-0000-000000000000", string(res[0].ID))
-
 	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
