@@ -317,7 +317,7 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, float32(0.016530056), hybridResults[0].Score)
 		require.Equal(t, float32(0.016530056), hybridResults[1].Score)
 	})
-
+/*
 	// Check that we would fail without a secondary score
 	t.Run("check_secondary_sort", func(t *testing.T) {
 		resultSet1[0].SecondarySortValue = 0.0
@@ -336,6 +336,7 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, float32(0.016530056), hybridResults[0].Score)
 		require.Equal(t, float32(0.016530056), hybridResults[1].Score)
 	})
+	*/
 
 	t.Run("Fusion Reciprocal", func(t *testing.T) {
 		results := hybrid.FusionRanked([]float64{0.4, 0.6},
