@@ -14,7 +14,6 @@ package store
 import (
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/hashicorp/raft"
@@ -118,17 +117,17 @@ func TestRecoverable(t *testing.T) {
 				{
 					ID:       raft.ServerID("1"),
 					Suffrage: raft.Voter,
-					Address:  raft.ServerAddress("localhost:8001"),
+					Address:  raft.ServerAddress("localhost:8080"),
 				},
 				{
 					ID:       raft.ServerID("2"),
 					Suffrage: raft.Voter,
-					Address:  raft.ServerAddress("localhost:8002"),
+					Address:  raft.ServerAddress("localhost:8080"),
 				},
 				{
 					ID:       raft.ServerID("3"),
 					Suffrage: raft.Nonvoter,
-					Address:  raft.ServerAddress("localhost:8003"),
+					Address:  raft.ServerAddress("localhost:8080"),
 				},
 			},
 			recoverable: true,
@@ -170,13 +169,13 @@ func testRaftLog(lt raft.LogType, idx int, data []byte) *raft.Log {
 }
 
 type MockCluster struct {
-	list map[string]bool
+	list map[string]raft.Server
 }
 
 func NewMockCluster(servers []raft.Server) *MockCluster {
-	list := map[string]bool{}
+	list := map[string]raft.Server{}
 	for _, s := range servers {
-		list[strings.Split(string(s.ID), ":")[0]] = true
+		list[string(s.ID)] = s
 	}
 	return &MockCluster{list}
 }
@@ -189,6 +188,6 @@ func (m *MockCluster) AllHostnames() []string {
 	return ks
 }
 
-func (m *MockCluster) Alive(ip string) bool {
-	return m.list[ip]
+func (m *MockCluster) NodeHostname(nodeName string) (string, bool) {
+	return string(m.list[nodeName].Address), true
 }

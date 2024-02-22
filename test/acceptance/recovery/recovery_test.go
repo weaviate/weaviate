@@ -21,7 +21,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// TODO-RAFT current tests doesn't force containers to change their IPs
+// we need to add test were the actual container ip changes on stop if possible with testcontainer
+// if not we need to terminate the whole container to pick up new IP and copy the old container filesystem
+// to the new one to force recovery
 func TestRecovery(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -43,28 +48,18 @@ func TestRecovery(t *testing.T) {
 
 	<-time.After(3 * time.Second) // wait for memberlist
 
-	// restart cluster with different IPs
 	eg := errgroup.Group{}
-
-	require.Nil(t, compose.StopAt(ctx, 1, nil))
-	eg.Go(func() error {
-		require.Nil(t, compose.StartAt(ctx, 1))
-		return nil
-	})
-
-	require.Nil(t, compose.StopAt(ctx, 2, nil))
-	eg.Go(func() error {
-		time.Sleep(4 * time.Second)
-		require.Nil(t, compose.StartAt(ctx, 2))
-		return nil
-	})
-
-	require.Nil(t, compose.StopAt(ctx, 3, nil))
-	eg.Go(func() error {
-		time.Sleep(4 * time.Second)
-		require.Nil(t, compose.StartAt(ctx, 3))
-		return nil
-	})
+	for idx := 1; idx <= 3; idx++ {
+		require.Nil(t, compose.StopAt(ctx, idx, nil))
+		i := idx // catch idx for eg
+		if i > 1 {
+			time.Sleep(2 * time.Second)
+		}
+		eg.Go(func() error {
+			require.Nil(t, compose.StartAt(ctx, i))
+			return nil
+		})
+	}
 
 	eg.Wait()
 	// ips shouldn't be equal
