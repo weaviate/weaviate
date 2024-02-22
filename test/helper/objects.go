@@ -212,6 +212,12 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	return resp, err
 }
 
+func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
+	params := schema.NewTenantExistsParams().WithClassName(class).WithTenantName(tenant)
+	resp, err := Client(t).Schema.TenantExists(params, nil)
+	return resp, err
+}
+
 func DeleteTenants(t *testing.T, class string, tenants []string) error {
 	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
 	_, err := Client(t).Schema.TenantsDelete(params, nil)
