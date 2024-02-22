@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -170,13 +171,13 @@ func (st *Store) configViaPeers(peerFilePath string) (raft.Configuration, error)
 }
 
 // recoverable validates that the peers.json file servers are is still alive
-func (st *Store) recoverable(peers []raft.Server) ([]raft.Server, bool) {
-	if len(peers) == 0 {
+func (st *Store) recoverable(providedPeers []raft.Server) ([]raft.Server, bool) {
+	if len(providedPeers) == 0 {
 		return nil, false
 	}
 
 	var aliveServes []raft.Server
-	serversMap := make(map[string]bool, len(peers))
+	serversMap := make(map[string]bool, len(providedPeers))
 	// sleep to wait for members to join memberlist
 	t := time.NewTicker(st.recoveryTimeout)
 	for {
@@ -185,13 +186,17 @@ func (st *Store) recoverable(peers []raft.Server) ([]raft.Server, bool) {
 			return aliveServes, len(aliveServes) > 1
 		default:
 			st.log.Info("existing members in memberlist", "IPs", fmt.Sprintf("%v", st.cluster.AllHostnames()))
-			for _, s := range peers {
+			for _, s := range providedPeers {
 				serverID := string(s.ID)
 				// ignore not reachable based on their ID to be able to detect if they changed their IP.
-				if !st.cluster.Alive(serverID) {
+				newNodeAddr, exists := st.cluster.NodeHostname(serverID)
+				if !exists {
 					st.log.Warn("node is not reachable, removing it from subsequent recovery", "ID", serverID)
 					continue
 				}
+				// TODO-RAFT this impl. makes the assumption that the raft config port is the same in all nodes
+				// node is reachable let's update it's ip with the new one
+				s.Address = raft.ServerAddress(fmt.Sprintf("%s:%d", strings.Split(newNodeAddr, ":")[0], st.raftPort))
 
 				if _, exists := serversMap[serverID]; exists {
 					continue
@@ -200,7 +205,7 @@ func (st *Store) recoverable(peers []raft.Server) ([]raft.Server, bool) {
 				serversMap[serverID] = true
 			}
 
-			if len(aliveServes) == len(peers) {
+			if len(aliveServes) == len(providedPeers) {
 				return aliveServes, len(aliveServes) > 1
 			}
 			time.Sleep(500 * time.Millisecond)

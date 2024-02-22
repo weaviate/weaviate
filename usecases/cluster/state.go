@@ -23,7 +23,7 @@ import (
 
 type Reader interface {
 	AllHostnames() []string
-	Alive(ID string) bool
+	NodeHostname(nodeName string) (string, bool)
 }
 
 type State struct {
@@ -161,19 +161,6 @@ func (s *State) AllHostnames() []string {
 	}
 
 	return out
-}
-
-// Alive detects if the specified node is a member and in Alive state, including self.
-func (s *State) Alive(nodeName string) bool {
-	if s.list == nil {
-		return false
-	}
-	for _, mem := range s.list.Members() {
-		if mem.Name == nodeName {
-			return true
-		}
-	}
-	return false
 }
 
 // All node names (not their hostnames!) for live members, including self.
