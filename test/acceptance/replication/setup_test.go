@@ -21,6 +21,7 @@ func TestReplication(t *testing.T) {
 	t.Run("EventualConsistency", eventualReplicaCRUD)
 	t.Run("ScaleOut", multiShardScaleOut)
 	t.Run("ReadRepair", readRepair)
+	t.Run("AsyncRepair", asyncRepair)
 	t.Run("GraphqlSearch", graphqlSearch)
 	t.Run("MultiTenancy", multiTenancyEnabled)
 }

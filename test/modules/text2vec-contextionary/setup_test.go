@@ -28,14 +28,14 @@ const (
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviateCluster().WithText2VecContextionary().
+		WithWeaviate().WithWeaviateClusterSize(2).WithText2VecContextionary().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
 	}
 
 	os.Setenv(weaviateNode1Endpoint, compose.GetWeaviate().URI())
-	os.Setenv(weaviateNode2Endpoint, compose.GetWeaviateNode2().URI())
+	os.Setenv(weaviateNode2Endpoint, compose.GetWeaviateNode(2).URI())
 	code := m.Run()
 
 	if err := compose.Terminate(ctx); err != nil {

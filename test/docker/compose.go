@@ -89,13 +89,14 @@ type Compose struct {
 	withQnATransformers        bool
 	withWeaviateExposeGRPCPort bool
 	withSecondWeaviate         bool
+	withWeaviateCluster        bool
 	size                       int
 
 	withWeaviateAuth              bool
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
-	withWeaviateCluster           bool
+	withWeaviateClusterSize       int
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -359,13 +360,22 @@ func (d *Compose) WithWeaviateCluster() *Compose {
 	return d.With2NodeCluster()
 }
 
+func (d *Compose) WithWeaviateClusterSize(size int) *Compose {
+	d.withWeaviateClusterSize = size
+	return d
+}
+
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
 	d.With2NodeCluster()
+	return d
+}
+
+func (d *Compose) WithWeaviateGRPC() *Compose {
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
 
-func (d *Compose) WithBasicAuth(username, password string) *Compose {
+func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 	d.withWeaviateBasicAuth = true
 	d.withWeaviateBasicAuthUsername = username
 	d.withWeaviateBasicAuthPassword = password
@@ -389,10 +399,12 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
-	networkName := network.Name
 	if err != nil {
-		return nil, errors.Wrapf(err, "network: %s", networkName)
+		return nil, errors.Wrapf(err, "connecting to network")
 	}
+
+	networkName := network.Name
+
 	envSettings := make(map[string]string)
 	envSettings["network"] = networkName
 	envSettings["DISABLE_TELEMETRY"] = "true"
@@ -553,6 +565,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
+
 	if d.withWeaviateCluster {
 		cs, err := d.startCluster(ctx, d.size, envSettings)
 		for _, c := range cs {

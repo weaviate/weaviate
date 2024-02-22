@@ -90,7 +90,7 @@ func (c *replicationClient) DigestObjectsInTokenRange(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", "digestsInTokenRange", bytes.NewReader(body))
+		"", "digestsInTokenRange", bytes.NewReader(body), 0)
 	if err != nil {
 		return nil, 0, fmt.Errorf("create http request: %w", err)
 	}
@@ -110,7 +110,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	}
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/%d", level), bytes.NewReader(body))
+		"", fmt.Sprintf("hashtree/%d", level), bytes.NewReader(body), 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}

@@ -424,12 +424,12 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 func (i *Index) DigestObjectsInTokenRange(ctx context.Context,
 	shardName string, initialToken, finalToken uint64, limit int,
 ) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
-	s, err := i.getOrInitLocalShard(ctx, shardName)
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
-		return nil, 0, fmt.Errorf("shard %q not found locally", shardName)
+		return nil, 0, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	return s.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
+	return shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
 }
 
 func (i *Index) IncomingDigestObjectsInTokenRange(ctx context.Context,
@@ -441,11 +441,12 @@ func (i *Index) IncomingDigestObjectsInTokenRange(ctx context.Context,
 func (i *Index) HashTreeLevel(ctx context.Context,
 	shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
-	s, err := i.getOrInitLocalShard(ctx, shardName)
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shardName)
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
-	return s.HashTreeLevel(ctx, level, discriminant)
+
+	return shard.HashTreeLevel(ctx, level, discriminant)
 }
 
 func (i *Index) IncomingHashTreeLevel(ctx context.Context,
