@@ -42,7 +42,7 @@ func readRepair(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviateNode(1).URI())
+	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
 
@@ -66,7 +66,7 @@ func readRepair(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode(1).URI(), batch)
+		createObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("insert articles", func(t *testing.T) {
@@ -94,7 +94,7 @@ func readRepair(t *testing.T) {
 	}
 
 	t.Run("add new object to node one", func(t *testing.T) {
-		createObjectCL(t, compose.GetWeaviateNode(1).URI(), &repairObj, replica.One)
+		createObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
@@ -103,12 +103,12 @@ func readRepair(t *testing.T) {
 	})
 
 	t.Run("run fetch to trigger read repair", func(t *testing.T) {
-		_, err := getObject(t, compose.GetWeaviateNode(1).URI(), repairObj.Class, repairObj.ID, true)
+		_, err := getObject(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, true)
 		require.Nil(t, err)
 	})
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode(1).Name())
+		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
 		time.Sleep(10 * time.Second)
 
 		resp, err := getObjectCL(t, compose.GetWeaviateNode(2).URI(),
@@ -144,12 +144,12 @@ func readRepair(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviateNode(2).Name())
 		time.Sleep(10 * time.Second)
 
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode(1).URI(),
+		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
 
-		resp, err := getObjectCL(t, compose.GetWeaviateNode(1).URI(),
+		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, replaceObj.ID, resp.ID)
