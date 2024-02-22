@@ -81,7 +81,8 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviate().
+			WithWeaviateClusterSize(2).
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -98,7 +99,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				gcsBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

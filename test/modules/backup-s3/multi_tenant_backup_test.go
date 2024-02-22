@@ -75,7 +75,8 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendS3(s3BackupJourneyBucketName).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviate().
+			WithWeaviateClusterSize(2).
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -92,7 +93,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
 				s3BackupJourneyBackupIDCluster, tenantNames,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }
