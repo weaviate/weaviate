@@ -33,8 +33,7 @@ import (
 )
 
 const (
-	defaultConsumer = "aHR0cHM6Ly91cy1jZW50cmFsMS1zZW1pLXByb2R1Y3Rpb24uY2x" +
-		"vdWRmdW5jdGlvbnMubmV0L3dlYXZpYXRlLXRlbGVtZXRyeQ=="
+	defaultConsumer     = "aHR0cHM6Ly90ZWxlbWV0cnkud2VhdmlhdGUuaW8="
 	defaultPushInterval = 24 * time.Hour
 )
 
