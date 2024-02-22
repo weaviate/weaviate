@@ -57,7 +57,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 	// Sort the results
 	var (
 		sortList = make([]*search.Result, len(combinedResults))
-		i      = 0
+		i        = 0
 	)
 	for _, res := range combinedResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
