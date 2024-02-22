@@ -231,7 +231,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 
 	if servers, recover := st.recoverable(existedConfig.Servers); recover {
-		st.log.Info("recovery: start recovery with",
+		st.log.Info("recovery: start recovery with provided",
 			"peers", servers,
 			"snapshot_index", snapshotIndex(snapshotStore),
 			"last_applied_log_index", st.initialLastAppliedIndex)
@@ -256,7 +256,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 			st.loadDatabase(ctx)
 		}
 
-		st.log.Info("recovery: succeeded from previous configuration",
+		st.log.Info("recovery: succeeded from previous configuration with new",
 			"peers", servers,
 			"snapshot_index", snapshotIndex(snapshotStore),
 			"last_applied_log_index", st.initialLastAppliedIndex)
