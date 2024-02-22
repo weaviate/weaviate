@@ -12,6 +12,7 @@
 package v1
 
 import (
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -1379,8 +1380,18 @@ func TestGRPCRequest(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Nil(t, err)
+				// The order of vector names in slice is non-deterministic,
+				// causing this test to be flaky. Sort first, no more flake
+				sortNamedVecs(tt.out.AdditionalProperties.Vectors)
+				sortNamedVecs(out.AdditionalProperties.Vectors)
 				require.EqualValues(t, tt.out, out)
 			}
 		})
 	}
+}
+
+func sortNamedVecs(vecs []string) {
+	sort.Slice(vecs, func(i, j int) bool {
+		return vecs[i] < vecs[j]
+	})
 }
