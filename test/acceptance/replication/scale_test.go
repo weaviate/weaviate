@@ -44,7 +44,7 @@ func multiShardScaleOut(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviateNode(1).URI())
+	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.ShardingConfig = map[string]interface{}{
 		"desiredCount": 1,
@@ -67,7 +67,7 @@ func multiShardScaleOut(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode(1).URI(), batch)
+		createObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("insert articles", func(t *testing.T) {
@@ -89,17 +89,17 @@ func multiShardScaleOut(t *testing.T) {
 				To:   strfmt.URI(crossref.NewLocalhost("Paragraph", paragraphIDs[i]).String()),
 			}
 		}
-		addReferences(t, compose.GetWeaviateNode(1).URI(), refs)
+		addReferences(t, compose.GetWeaviate().URI(), refs)
 	})
 
 	t.Run("scale out paragraphs", func(t *testing.T) {
-		c := getClass(t, compose.GetWeaviateNode(1).URI(), paragraphClass.Class)
+		c := getClass(t, compose.GetWeaviate().URI(), paragraphClass.Class)
 		c.ReplicationConfig.Factor = 2
-		updateClass(t, compose.GetWeaviateNode(1).URI(), c)
+		updateClass(t, compose.GetWeaviate().URI(), c)
 	})
 
 	t.Run("assert paragraphs were scaled out", func(t *testing.T) {
-		n := getNodes(t, compose.GetWeaviateNode(1).URI())
+		n := getNodes(t, compose.GetWeaviate().URI())
 		var shardsFound int
 		for _, node := range n.Nodes {
 			for _, shard := range node.Shards {
@@ -113,13 +113,13 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("scale out articles", func(t *testing.T) {
-		c := getClass(t, compose.GetWeaviateNode(1).URI(), articleClass.Class)
+		c := getClass(t, compose.GetWeaviate().URI(), articleClass.Class)
 		c.ReplicationConfig.Factor = 2
-		updateClass(t, compose.GetWeaviateNode(1).URI(), c)
+		updateClass(t, compose.GetWeaviate().URI(), c)
 	})
 
 	t.Run("assert articles were scaled out", func(t *testing.T) {
-		n := getNodes(t, compose.GetWeaviateNode(1).URI())
+		n := getNodes(t, compose.GetWeaviate().URI())
 		var shardsFound int
 		for _, node := range n.Nodes {
 			for _, shard := range node.Shards {
@@ -134,9 +134,9 @@ func multiShardScaleOut(t *testing.T) {
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviateNode(2).Name())
-		p := gqlGet(t, compose.GetWeaviateNode(1).URI(), paragraphClass.Class, replica.One)
+		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
-		a := gqlGet(t, compose.GetWeaviateNode(1).URI(), articleClass.Class, replica.One)
+		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)
 		assert.Len(t, a, 10)
 	})
 }
