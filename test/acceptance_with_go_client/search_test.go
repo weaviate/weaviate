@@ -371,7 +371,7 @@ func TestHybridExplainScore(t *testing.T) {
 			require.NotNil(t, score)
 		}
 		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
-		require.Contains(t, explainScore, "contributed 0.004166666666666667 to the score")
+		require.Contains(t, explainScore, "contributed 0.004166667 to the score")
 		require.Contains(t, explainScore, "contributed 0.0125 to the score")
 	})
 	t.Run("hybrid explainscore relative score fusion", func(t *testing.T) {
