@@ -275,7 +275,7 @@ func TestRFJourney(t *testing.T) {
 		},
 		Vector: []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 		Score:  0.1,
-		SecondarySortValue: 0.1,
+		SecondarySortValue: 0.2,
 	}
 
 	doc2 := &search.Result{
@@ -286,7 +286,7 @@ func TestRFJourney(t *testing.T) {
 		},
 		Vector: []float32{0.5, 0.4, 0.3, 0.3, 0.1},
 		Score:  0.2,
-		SecondarySortValue: 0.2,
+		SecondarySortValue: 0.1,
 	}
 
 	doc3 := &search.Result{
@@ -307,6 +307,25 @@ func TestRFJourney(t *testing.T) {
 		hybridResults := hybrid.FusionRanked([]float64{0.5, 0.5},
 			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
 		fmt.Println("--- Start results for Fusion Reciprocal secondary sort ---")
+		for _, result := range hybridResults {
+			schema := result.Schema.(map[string]interface{})
+			fmt.Println(schema["title"], result.ID, result.Score)
+		}
+		require.Equal(t, 3, len(hybridResults))
+		require.Equal(t, doc1.ID, hybridResults[0].ID)
+		require.Equal(t, doc2.ID, hybridResults[1].ID)
+		require.Equal(t, doc3.ID, hybridResults[2].ID)
+		require.Equal(t, float32(0.016530056), hybridResults[0].Score)
+		require.Equal(t, float32(0.016530056), hybridResults[1].Score)
+	})
+
+	//Check that we would fail without a secondary score
+	t.Run("check_secondary_sort", func(t *testing.T) {
+		resultSet1[0].SecondarySortValue = 0.0
+		resultSet1[1].SecondarySortValue = 0.0
+		hybridResults := hybrid.FusionRanked([]float64{0.5, 0.5},
+			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
+		fmt.Println("--- Start results for Fusion Reciprocal secondary sort fail ---")
 		for _, result := range hybridResults {
 			schema := result.Schema.(map[string]interface{})
 			fmt.Println(schema["title"], result.ID, result.Score)
