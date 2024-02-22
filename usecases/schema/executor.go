@@ -73,7 +73,7 @@ func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 		}
 	}
 
-	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
+	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
 		req.Class.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}

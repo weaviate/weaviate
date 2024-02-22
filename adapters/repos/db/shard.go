@@ -337,7 +337,7 @@ func (s *Shard) initLegacyQueue() error {
 }
 
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schema.VectorIndexConfig,
+	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 

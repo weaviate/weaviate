@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -191,7 +190,7 @@ func (s *Shard) clearDimensionMetrics() {
 
 func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
 	className, shardName string,
-	cfg schema.VectorIndexConfig, targetCfgs map[string]schema.VectorIndexConfig,
+	cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]schemaConfig.VectorIndexConfig,
 ) {
 	if promMetrics != nil {
 		if !hasTargetVectors(cfg, targetCfgs) {

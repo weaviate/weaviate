@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -653,7 +654,7 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 	return out
 }
 
-func createSchema() *schema.Schema {
+func createSchema() *schemaConfig.Schema {
 	vFalse := false
 	vTrue := true
 
