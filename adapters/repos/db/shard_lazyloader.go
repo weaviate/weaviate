@@ -160,7 +160,12 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync() int {
-	l.mustLoad()
+	l.mutex.Lock()
+	if !l.loaded {
+		l.mutex.Unlock()
+		return 0
+	}
+	l.mutex.Unlock()
 	return l.shard.ObjectCountAsync()
 }
 

@@ -33,7 +33,8 @@ import (
 )
 
 const (
-	defaultConsumer     = "aHR0cHM6Ly90ZWxlbWV0cnkud2VhdmlhdGUuaW8="
+	defaultConsumer = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
+		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
 	defaultPushInterval = 24 * time.Hour
 )
 
@@ -53,7 +54,7 @@ type Telemeter struct {
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
 	failedToStart     bool
-	consumerURL       string
+	consumer          string
 	pushInterval      time.Duration
 }
 
@@ -67,7 +68,7 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 		modulesProvider:   modulesProvider,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
-		consumerURL:       defaultConsumer,
+		consumer:          defaultConsumer,
 		pushInterval:      defaultPushInterval,
 	}
 	return tel
@@ -150,7 +151,7 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	url, err := base64.StdEncoding.DecodeString(tel.consumerURL)
+	url, err := base64.StdEncoding.DecodeString(tel.consumer)
 	if err != nil {
 		return nil, fmt.Errorf("decode url: %w", err)
 	}
