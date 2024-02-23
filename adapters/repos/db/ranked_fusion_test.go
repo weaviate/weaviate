@@ -275,7 +275,7 @@ func TestRFJourney(t *testing.T) {
 		},
 		Vector:             []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 		Score:              0.1,
-		SecondarySortValue: 0.2,
+		SecondarySortValue: 0.2,  // Adding a secondary sort value reverses the order of the results, when the two sets are equally weighted
 	}
 
 	doc2 := &search.Result{
@@ -286,7 +286,7 @@ func TestRFJourney(t *testing.T) {
 		},
 		Vector:             []float32{0.5, 0.4, 0.3, 0.3, 0.1},
 		Score:              0.2,
-		SecondarySortValue: 0.1,
+		SecondarySortValue: 0.1, // Adding a secondary sort value reverses the order of the results, when the two sets are equally weighted
 	}
 
 	doc3 := &search.Result{
@@ -302,6 +302,7 @@ func TestRFJourney(t *testing.T) {
 	resultSet1 := []*search.Result{doc1, doc2, doc3}
 	resultSet2 := []*search.Result{doc2, doc1, doc3}
 
+	// If two results have the same score, the secondary sort value is used to determine the order
 	t.Run("check_secondary_sort", func(t *testing.T) {
 		hybridResults := hybrid.FusionRanked([]float64{0.5, 0.5},
 			[][]*search.Result{resultSet1, resultSet2}, []string{"set1", "set2"})
@@ -319,6 +320,7 @@ func TestRFJourney(t *testing.T) {
 	})
 	/*
 		// Check that we would fail without a secondary score
+		disabled as the order is different on the github test servers!
 		t.Run("check_secondary_sort", func(t *testing.T) {
 			resultSet1[0].SecondarySortValue = 0.0
 			resultSet1[1].SecondarySortValue = 0.0
