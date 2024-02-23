@@ -192,8 +192,9 @@ type GRPC struct {
 }
 
 type Profiling struct {
-	BlockProfileRate     int `json:"blockProfileRate" yaml:"blockProfileRate"`
-	MutexProfileFraction int `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
+	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	Enabled              bool `json:"enabled" yaml:"enabled"`
 }
 
 type Persistence struct {
