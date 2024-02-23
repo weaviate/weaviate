@@ -26,14 +26,13 @@ require (
 	github.com/rs/cors v1.5.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spaolacci/murmur3 v1.1.0
-	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.8.4
 	github.com/testcontainers/testcontainers-go v0.27.0
 	github.com/weaviate/contextionary v1.2.1
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.8
 	golang.org/x/net v0.17.0
-	golang.org/x/oauth2 v0.11.0
+	golang.org/x/oauth2 v0.13.0
 	golang.org/x/sync v0.3.0
 	golang.org/x/sys v0.15.0
 	gonum.org/v1/gonum v0.12.0
@@ -46,9 +45,10 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.8.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
 	github.com/KimMachineGun/automemlimit v0.3.0
-	github.com/coreos/go-oidc/v3 v3.4.0
+	github.com/coreos/go-oidc/v3 v3.9.0
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/go-ego/gse v0.80.2
+	github.com/go-jose/go-jose/v3 v3.0.1
 	github.com/googleapis/gax-go/v2 v2.12.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkoukk/tiktoken-go v0.1.6
@@ -151,12 +151,11 @@ require (
 	golang.org/x/mod v0.11.0 // indirect
 	golang.org/x/tools v0.10.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
+	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
