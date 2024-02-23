@@ -188,7 +188,7 @@ type telemetryOpt func(*Telemeter)
 func withConsumerURL(url string) telemetryOpt {
 	encoded := base64.StdEncoding.EncodeToString([]byte(url))
 	return func(tel *Telemeter) {
-		tel.consumerURL = encoded
+		tel.consumer = encoded
 	}
 }
 
