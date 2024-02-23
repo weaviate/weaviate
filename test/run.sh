@@ -107,7 +107,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests
+    if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -177,6 +177,10 @@ function run_acceptance_tests() {
   echo "running acceptance fast only"
     run_acceptance_only_fast "$@"
   fi
+  if $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance go client"
+    run_acceptance_go_client "$@"
+  fi
   if $run_acceptance_graphql_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance graphql"
     run_acceptance_graphql_tests "$@"
@@ -202,8 +206,12 @@ function run_acceptance_only_fast() {
         echo "Test for $pkg failed" >&2
         return 1
       fi
-    done
-    # tests with go client are in a separate package with its own dependencies to isolate them
+    done 
+}
+
+function run_acceptance_go_client() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+   # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... ); do
       if ! go test -count 1 -race "$pkg"; then
