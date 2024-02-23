@@ -151,7 +151,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		if !leftSegmentFound && rightSegmentFound {
-			err = os.Remove(rightSegmentPath)
+			rightSegment, err := newSegment(rightSegmentPath, logger,
+				metrics, sg.makeExistsOnLower(segmentIndex),
+				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = rightSegment.drop()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
