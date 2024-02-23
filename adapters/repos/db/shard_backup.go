@@ -43,8 +43,16 @@ func (s *Shard) BeginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.VectorIndex().SwitchCommitLogs(ctx); err != nil {
-		return fmt.Errorf("switch commit logs: %w", err)
+	if s.hasTargetVectors() {
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
+				return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+			}
+		}
+	} else {
+		if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
+			return fmt.Errorf("switch commit logs: %w", err)
+		}
 	}
 	return nil
 }
@@ -59,12 +67,23 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
 		return err
 	}
-	files, err := s.VectorIndex().ListFiles(ctx, s.index.Config.RootPath)
-	if err != nil {
-		return err
+
+	if s.hasTargetVectors() {
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			files, err := vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+			if err != nil {
+				return fmt.Errorf("list files of vector %q: %w", targetVector, err)
+			}
+			ret.Files = append(ret.Files, files...)
+		}
+	} else {
+		files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return err
+		}
+		ret.Files = append(ret.Files, files...)
 	}
 
-	ret.Files = append(ret.Files, files...)
 	return nil
 }
 

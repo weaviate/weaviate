@@ -54,6 +54,10 @@ type Migrator interface {
 		old, updated schema.VectorIndexConfig) error
 	UpdateVectorIndexConfig(ctx context.Context, className string,
 		updated schema.VectorIndexConfig) error
+	ValidateVectorIndexConfigsUpdate(ctx context.Context,
+		old, updated map[string]schema.VectorIndexConfig) error
+	UpdateVectorIndexConfigs(ctx context.Context, className string,
+		updated map[string]schema.VectorIndexConfig) error
 	ValidateInvertedIndexConfigUpdate(ctx context.Context,
 		old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,

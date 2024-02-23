@@ -290,16 +290,14 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("reinit non-vector: %w", err)
 	}
 
-	if err := s.initVector(ctx); err != nil {
-		return fmt.Errorf("reinit vector: %w", err)
-	}
-
-	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
-		if err != nil {
-			return fmt.Errorf("reinit vector for target vector %s: %w", targetVector, err)
+	if s.hasTargetVectors() {
+		if err := s.initTargetVectors(ctx); err != nil {
+			return fmt.Errorf("reinit vector: %w", err)
 		}
-		s.vectorIndexes[targetVector] = vectorIndex
+	} else {
+		if err := s.initLegacyVector(ctx); err != nil {
+			return fmt.Errorf("reinit vector: %w", err)
+		}
 	}
 
 	s.initCycleCallbacks()
