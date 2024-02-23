@@ -62,13 +62,13 @@ func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
 
-	if hasTargetVectors(updated) {
-		if err := m.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(updated)); err != nil {
+	if hasTargetVectors(req.Class) {
+		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(req.Class)); err != nil {
 			return fmt.Errorf("vector index configs update: %w", err)
 		}
 	} else {
-		if err := m.migrator.UpdateVectorIndexConfig(ctx,
-			className, updated.VectorIndexConfig.(schema.VectorIndexConfig)); err != nil {
+		if err := e.migrator.UpdateVectorIndexConfig(ctx,
+			className, req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
 		}
 	}

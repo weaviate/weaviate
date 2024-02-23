@@ -139,8 +139,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(asVectorIndexConfigs(class), asVectorIndexConfigs(update),
-		); err != nil {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
 			return nil, err
 		}
 	} else {

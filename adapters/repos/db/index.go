@@ -467,7 +467,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 }
 
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
-	updated map[string]schema.VectorIndexConfig,
+	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName, updatedCfg := range updated {
 		err := i.ForEachShard(func(name string, shard ShardLike) error {
