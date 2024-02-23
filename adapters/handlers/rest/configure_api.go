@@ -902,11 +902,11 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 
 func setupGoProfiling(config config.Config) {
 	go func() {
-		portNumber, present := os.LookupEnv("PORT_NUMBER")
-		if present {
-			fmt.Println(http.ListenAndServe(":"+portNumber, nil))
-		} else {
+		portNumber := config.Profiling.Port
+		if portNumber == 0 {
 			fmt.Println(http.ListenAndServe(":6060", nil))
+		} else {
+			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
 		}
 	}()
 
