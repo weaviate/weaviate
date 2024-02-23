@@ -275,7 +275,7 @@ func TestRFJourney(t *testing.T) {
 		},
 		Vector:             []float32{0.1, 0.2, 0.3, 0.4, 0.5},
 		Score:              0.1,
-		SecondarySortValue: 0.2,  // Adding a secondary sort value reverses the order of the results, when the two sets are equally weighted
+		SecondarySortValue: 0.2, // Adding a secondary sort value reverses the order of the results, when the two sets are equally weighted
 	}
 
 	doc2 := &search.Result{
