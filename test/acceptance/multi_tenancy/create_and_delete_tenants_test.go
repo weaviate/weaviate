@@ -63,6 +63,12 @@ func TestCreateTenants(t *testing.T) {
 		require.NotNil(t, respGet)
 		require.ElementsMatch(t, respGet.Payload, tenants)
 
+		for _, tenant := range expectedTenants {
+			resp, err := helper.TenantExists(t, testClass.Class, tenant)
+			require.Nil(t, err)
+			require.True(t, resp.IsSuccess())
+		}
+
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, resp.Payload)
@@ -137,6 +143,9 @@ func TestDeleteTenants(t *testing.T) {
 		for _, shard := range resp.Payload.Nodes[0].Shards {
 			assert.NotEqual(t, "tenant4", shard.Name)
 		}
+		respExist, errExist := helper.TenantExists(t, testClass.Class, "tenant4")
+		require.Nil(t, respExist)
+		require.NotNil(t, errExist)
 
 		// idempotent operation
 		err = helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
@@ -211,6 +220,9 @@ func TestTenantsClassDoesNotExist(t *testing.T) {
 	require.NotNil(t, err)
 
 	_, err = helper.GetTenants(t, "DoesNotExist")
+	require.NotNil(t, err)
+
+	_, err = helper.TenantExists(t, "DoesNotExist", "SomeTenant")
 	require.NotNil(t, err)
 
 	err = helper.DeleteTenants(t, "DoesNotExist", []string{"doesNotMatter"})

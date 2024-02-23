@@ -277,11 +277,11 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	}
 
 	// load non-indexed vectors and add them to the queue
-	checkpoint, err := q.checkpoints.Get(q.shardID, q.targetVector)
+	checkpoint, exists, err := q.checkpoints.Get(q.shardID, q.targetVector)
 	if err != nil {
 		return errors.Wrap(err, "get last indexed id")
 	}
-	if checkpoint == 0 {
+	if !exists {
 		return nil
 	}
 
