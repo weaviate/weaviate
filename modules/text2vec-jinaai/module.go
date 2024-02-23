@@ -129,6 +129,17 @@ func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 	return true, nil, nil
 }
 
+func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		_, _, err := m.vectorizer.Object(ctx, obj, cfg)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
