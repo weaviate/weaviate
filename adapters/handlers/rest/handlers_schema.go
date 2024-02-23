@@ -301,6 +301,25 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	return schema.NewTenantsGetOK().WithPayload(tenants)
 }
 
+func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
+	if err := s.manager.TenantExists(params.HTTPRequest.Context(), principal, params.ClassName, params.TenantName); err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		if err == schemaUC.ErrNotFound {
+			return schema.NewTenantExistsNotFound()
+		}
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantExistsForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantExistsUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return schema.NewTenantExistsOK()
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
 	h := &schemaHandlers{manager, newSchemaRequestsTotal(metrics, logger)}
 
@@ -330,6 +349,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	api.SchemaTenantsUpdateHandler = schema.TenantsUpdateHandlerFunc(h.updateTenants)
 	api.SchemaTenantsDeleteHandler = schema.TenantsDeleteHandlerFunc(h.deleteTenants)
 	api.SchemaTenantsGetHandler = schema.TenantsGetHandlerFunc(h.getTenants)
+	api.SchemaTenantExistsHandler = schema.TenantExistsHandlerFunc(h.tenantExists)
 }
 
 type schemaRequestsTotal struct {
