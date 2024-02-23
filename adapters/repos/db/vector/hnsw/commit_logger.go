@@ -221,6 +221,7 @@ func removeTmpCombiningFiles(dirPath string,
 			// the only get deleted after the .tmp file is removed), so it's safe to
 			// delete this without data loss.
 
+			fmt.Printf(" ==> os.Remove; removeTmpCombiningFiles; %s\n", filepath.Join(dirPath, info.Name()))
 			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
 				return out, errors.Wrap(err, "remove tmp combining file")
 			}
@@ -541,6 +542,7 @@ func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
 	if _, err := os.Stat(dir); err == nil {
+		fmt.Printf(" ==> os.RemoveAll; hnswCommitLogger::Drop; %s\n", dir)
 		err := os.RemoveAll(dir)
 		if err != nil {
 			return errors.Wrap(err, "delete commit files directory")

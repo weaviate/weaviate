@@ -131,6 +131,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 
 			if leftSegmentFound && rightSegmentFound {
+				fmt.Printf(" ==> os.Remove; newSegmentGroup (1); %s\n", filepath.Join(sg.dir, entry.Name()))
 				if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
 					return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
 				}
@@ -188,6 +189,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 		if ok {
 			// the segment will be recovered from the WAL
+			fmt.Printf(" ==> os.Remove; newSegmentGroup (2); %s\n", filepath.Join(sg.dir, entry.Name()))
 			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
 			if err != nil {
 				return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)

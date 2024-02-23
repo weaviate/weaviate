@@ -111,6 +111,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "close new commit log")
 	}
 
+	fmt.Printf(" ==> os.Remove; MemoryCondensor::Do; %s\n", fileName)
 	if err := os.Remove(fileName); err != nil {
 		return errors.Wrap(err, "cleanup old (uncondensed) commit log")
 	}

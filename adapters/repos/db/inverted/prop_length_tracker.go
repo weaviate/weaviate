@@ -419,6 +419,7 @@ func (t *PropertyLengthTracker) Drop() error {
 
 	t.pages = nil
 
+	fmt.Printf(" ==> os.Remove; PropertyLengthTracker::Drop; %s\n", t.path)
 	if err := os.Remove(t.path); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk")
 	}

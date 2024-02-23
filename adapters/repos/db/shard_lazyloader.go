@@ -293,6 +293,7 @@ func (l *LazyLoadShard) drop() error {
 		}
 
 		// remove shard dir
+		fmt.Printf(" ==> os.RemoveAll; LazyLoadShard::drop; %s\n", shardPath(idx.path(), shardName))
 		if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
 			return fmt.Errorf("delete shard dir: %w", err)
 		}

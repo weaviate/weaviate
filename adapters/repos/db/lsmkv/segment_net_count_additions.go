@@ -58,6 +58,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 
 	if ok {
 		if overwrite {
+			fmt.Printf(" ==> os.Remove; segment::initCountNetAdditions; %s\n", filepath.Join(path))
 			err := os.Remove(path)
 			if err != nil {
 				return fmt.Errorf("delete existing net additions counter %s: %w", path, err)

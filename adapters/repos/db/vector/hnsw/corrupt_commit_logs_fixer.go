@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -61,6 +62,7 @@ func (fixer *CorruptCommitLogFixer) Do(fileNames []string) ([]string, error) {
 		}
 
 		// we have found a corrupt file, delete it and do not append it to the list
+		fmt.Printf(" ==> os.Remove; CorruptCommitLogFixer::Do; %s\n", fileName)
 		if err := os.Remove(fileName); err != nil {
 			return out, errors.Wrapf(err, "delete corrupt commit log file %q", fileName)
 		}

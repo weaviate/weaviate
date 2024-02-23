@@ -181,16 +181,19 @@ func (s *segment) drop() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
+	fmt.Printf(" ==> os.RemoveAll; segment::drop (1); %s\n", s.bloomFilterPath())
 	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
 		return fmt.Errorf("drop bloom filter: %w", err)
 	}
 
 	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		fmt.Printf(" ==> os.RemoveAll; segment::drop (2); %s\n", s.bloomFilterSecondaryPath(i))
 		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
 			return fmt.Errorf("drop bloom filter: %w", err)
 		}
 	}
 
+	fmt.Printf(" ==> os.RemoveAll; segment::drop (3); %s\n", s.countNetPath())
 	if err := os.RemoveAll(s.countNetPath()); err != nil {
 		return fmt.Errorf("drop count net additions file: %w", err)
 	}
@@ -198,6 +201,7 @@ func (s *segment) drop() error {
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
 	// was a NotExists error here, something would be seriously wrong, and we
 	// don't want to ignore it.
+	fmt.Printf(" ==> os.Remove; segment::drop; %s\n", s.path)
 	if err := os.Remove(s.path); err != nil {
 		return fmt.Errorf("drop segment: %w", err)
 	}

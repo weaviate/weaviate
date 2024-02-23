@@ -282,6 +282,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	}
 
 	bucketDir := s.bucketDir(bucketName)
+	fmt.Printf(" ==> os.RemoveAll; Store::CreateBucket; %s\n", bucketDir)
 	if err := os.RemoveAll(bucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
@@ -323,9 +324,11 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	currReplacementBucketDir := replacementBucket.dir
 	newReplacementBucketDir := currBucketDir
 
+	fmt.Printf(" ==> os.Rename; Store::ReplaceBuckets (1); %s -> %s\n", currBucketDir, newBucketDir)
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
 	}
+	fmt.Printf(" ==> os.Rename; Store::ReplaceBuckets (2); %s -> %s\n", currReplacementBucketDir, newReplacementBucketDir)
 	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
 		return errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
 	}
@@ -336,6 +339,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	if err := bucket.Shutdown(ctx); err != nil {
 		return errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
 	}
+	fmt.Printf(" ==> os.RemoveAll; Store::ReplaceBuckets; %s\n", newBucketDir)
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
 	}
@@ -361,6 +365,7 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	currBucketDir := currBucket.dir
 	newBucketDir := s.bucketDir(newBucketName)
 
+	fmt.Printf(" ==> os.Rename; Store::RenameBucket; %s -> %s\n", currBucketDir, newBucketDir)
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
 	}

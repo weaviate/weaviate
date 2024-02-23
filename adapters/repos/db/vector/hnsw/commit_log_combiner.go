@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -194,6 +195,7 @@ func (c *CommitLogCombiner) renameAndCleanUp(tmpName, finalName string,
 	}
 
 	for _, toDelete := range toDeletes {
+		fmt.Printf(" ==> os.Remove; CommitLogCombiner::renameAndCleanUp; %s\n", toDelete)
 		if err := os.Remove(toDelete); err != nil {
 			return errors.Wrapf(err, "clean up %q", toDelete)
 		}

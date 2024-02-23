@@ -428,6 +428,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 				err = fmt.Errorf("%w: %v", err, rerr)
 			}
 		}
+		fmt.Printf(" ==> os.RemoveAll; fileWriter::Write; %s\n", classTempDir)
 		os.RemoveAll(classTempDir)
 	}()
 
@@ -444,6 +445,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
 func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor) (err error) {
+	fmt.Printf(" ==> os.RemoveAll; fileWriter::writeTempFiles; %s\n", classTempDir)
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -517,6 +519,7 @@ func (fw *fileWriter) moveAll(classTempDir string) (err error) {
 	for _, key := range files {
 		from := path.Join(classTempDir, key.Name())
 		to := path.Join(destDir, key.Name())
+		fmt.Printf(" ==> os.Rename; fileWriter::moveAll; %s -> %s\n", from, to)
 		if err := os.Rename(from, to); err != nil {
 			return fmt.Errorf("move %s %s: %w", from, to, err)
 		}
@@ -530,6 +533,7 @@ func (fw *fileWriter) moveAll(classTempDir string) (err error) {
 func (fw *fileWriter) rollBack(classTempDir string) (err error) {
 	// rollback successfully moved files
 	for _, fpath := range fw.movedFiles {
+		fmt.Printf(" ==> os.RemoveAll; fileWriter::rollBack; %s\n", fpath)
 		if rerr := os.RemoveAll(fpath); rerr != nil && err == nil {
 			err = fmt.Errorf("rollback %s: %w", fpath, rerr)
 		}

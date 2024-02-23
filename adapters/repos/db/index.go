@@ -1702,6 +1702,7 @@ func (i *Index) drop() error {
 		return err
 	}
 
+	fmt.Printf(" ==> os.RemoveAll; Index::drop; %s\n", i.path())
 	return os.RemoveAll(i.path())
 }
 

@@ -13,6 +13,7 @@ package db
 
 import (
 	"encoding/binary"
+	"fmt"
 	"os"
 
 	"github.com/pkg/errors"
@@ -105,6 +106,7 @@ func (sv *shardVersioner) init(fileName string, dataPresent bool) error {
 }
 
 func (sv *shardVersioner) Drop() error {
+	fmt.Printf(" ==> os.Remove; shardVersioner::Drop; %s\n", sv.path)
 	err := os.Remove(sv.path)
 	if err != nil {
 		return errors.Wrap(err, "drop versioner file")

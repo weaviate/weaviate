@@ -12,6 +12,7 @@
 package db
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,7 @@ func (i *Index) checkSingleShardMigration(shardState *sharding.State) error {
 		oldPath := filepath.Join(i.Config.RootPath, entry.Name())
 		newPath := filepath.Join(i.Config.RootPath, newName)
 
+		fmt.Printf(" ==> os.Rename; Index::checkSingleShardMigration; %s -> %s\n", oldPath, newPath)
 		if err := os.Rename(oldPath, newPath); err != nil {
 			return errors.Wrapf(err, "migrate shard %q to %q", oldPath, newPath)
 		}

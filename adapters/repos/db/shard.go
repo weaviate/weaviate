@@ -571,6 +571,7 @@ func (s *Shard) drop() error {
 	}
 
 	if _, err := os.Stat(s.pathLSM()); err == nil {
+		fmt.Printf(" ==> os.RemoveAll; Shard::drop; %s\n", s.pathLSM())
 		err := os.RemoveAll(s.pathLSM())
 		if err != nil {
 			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())

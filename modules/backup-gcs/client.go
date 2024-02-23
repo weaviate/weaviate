@@ -268,6 +268,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath str
 	defer func() {
 		if closeAndRemove {
 			file.Close()
+			fmt.Printf(" ==> os.Remove; gcsClient::WriteToFile; %s\n", destPath)
 			os.Remove(destPath)
 		}
 	}()

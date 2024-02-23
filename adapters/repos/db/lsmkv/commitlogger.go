@@ -221,6 +221,7 @@ func (cl *commitLogger) unpause() {
 }
 
 func (cl *commitLogger) delete() error {
+	fmt.Printf(" ==> os.Remove; commitLogger::delete; %s\n", cl.path)
 	return os.Remove(cl.path)
 }
 

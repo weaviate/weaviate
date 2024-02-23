@@ -121,6 +121,7 @@ func (c *Checkpoints) Delete(shardID, targetVector string) error {
 
 func (c *Checkpoints) Drop() error {
 	c.db.Close()
+	fmt.Printf(" ==> os.Remove; Checkpoints::Drop; %s\n", c.Filename())
 	return os.Remove(c.Filename())
 }
 

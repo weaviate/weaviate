@@ -91,6 +91,7 @@ func (c *Counter) Drop() error {
 	}
 	filename := c.FileName()
 	c.f.Close()
+	fmt.Printf(" ==> os.Remove; Counter::Drop; %s\n", filename)
 	err := os.Remove(filename)
 	if err != nil {
 		return errors.Wrap(err, "drop counter file")

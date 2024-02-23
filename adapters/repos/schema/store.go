@@ -179,6 +179,7 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 			return r.saveAllTx(context.Background(), b, *state)(tx)
 		}
 		if err := r.db.Update(f); err != nil {
+			fmt.Printf(" ==> os.Remove; store::migrate; %s\n", backupPath)
 			os.Remove(backupPath)
 			return fmt.Errorf("convert to new schema: %w", err)
 		}

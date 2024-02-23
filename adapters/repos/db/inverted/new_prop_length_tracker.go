@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"sync"
@@ -283,6 +284,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 		return err
 	}
 
+	fmt.Printf(" ==> os.Rename; JsonPropertyLengthTracker::Flush; %s -> %s\n", tempfile, filename)
 	err = os.Rename(tempfile, filename)
 	if err != nil {
 		return err
@@ -332,9 +334,11 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 
 	t.data.BucketedData = nil
 
+	fmt.Printf(" ==> os.Remove; JsonPropertyLengthTracker::Drop; %s\n", t.path)
 	if err := os.Remove(t.path); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
 	}
+	fmt.Printf(" ==> os.Remove; JsonPropertyLengthTracker::Drop; %s\n", t.path+".bak")
 	if err := os.Remove(t.path + ".bak"); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path+".bak")
 	}

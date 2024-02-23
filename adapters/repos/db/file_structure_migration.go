@@ -63,6 +63,7 @@ func (db *DB) migrateToHierarchicalFS() error {
 			if err := os.MkdirAll(absDir, os.ModePerm); err != nil {
 				return fmt.Errorf("mkdir %q: %w", absDir, err)
 			}
+			fmt.Printf(" ==> os.Rename; DB::migrateToHierarchicalFS; %s -> %s\n", part.oldAbsPath, newPath)
 			if err = os.Rename(part.oldAbsPath, newPath); err != nil {
 				return fmt.Errorf("mv %s %s: %w", part.oldAbsPath, newPath, err)
 			}
@@ -141,6 +142,7 @@ func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (*migrationPlan, er
 			// as MkdirAll will not create lowercased dir if uppercased one exists
 			oldClassRoot := path.Join(db.config.RootPath, entry.Name())
 			newClassRoot := path.Join(db.config.RootPath, strings.ToLower(entry.Name()))
+			fmt.Printf(" ==> os.Rename; DB::assembleFSMigrationPlan; %s -> %s\n", oldClassRoot, newClassRoot)
 			if err := os.Rename(oldClassRoot, newClassRoot); err != nil {
 				return nil, fmt.Errorf(
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",

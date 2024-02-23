@@ -61,6 +61,7 @@ func (s *segment) initBloomFilter(overwrite bool) error {
 
 	if ok {
 		if overwrite {
+			fmt.Printf(" ==> os.Remove; segment::initBloomFilter; %s\n", path)
 			err := os.Remove(path)
 			if err != nil {
 				return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
@@ -198,6 +199,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
 
 	if ok {
 		if overwrite {
+			fmt.Printf(" ==> os.Remove; segment::initSecondaryBloomFilter; %s\n", path)
 			err := os.Remove(path)
 			if err != nil {
 				return fmt.Errorf("deleting existing secondary bloom filter %s: %w", path, err)

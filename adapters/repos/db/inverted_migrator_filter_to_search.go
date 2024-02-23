@@ -384,6 +384,7 @@ func (mf *filterableToSearchableMigrationFiles) saveMigrationState(state *filter
 		return err
 	}
 
+	fmt.Printf(" ==> os.Rename; filterableToSearchableMigrationFiles::saveMigrationState; %s -> %s\n", fileNameTemp, mf.stateFileName)
 	err = os.Rename(fileNameTemp, mf.stateFileName)
 	if err != nil {
 		return err

@@ -305,6 +305,7 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 
 	newPath = strings.ReplaceAll(newPath, fmt.Sprintf("%s_%s", left, right), right)
 
+	fmt.Printf(" ==> os.Rename; JsonPropertyLengthTracker::Flush; %s -> %s\n", oldPath, newPath)
 	if err := os.Rename(oldPath, newPath); err != nil {
 		return "", errors.Wrapf(err, "rename %q -> %q", oldPath, newPath)
 	}

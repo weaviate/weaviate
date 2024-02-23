@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -42,6 +43,7 @@ func (s Indexes) WriteTo(w io.Writer) (int64, error) {
 		// while a compaction was running. We can safely discard the contents of
 		// the scratch space.
 
+		fmt.Printf(" ==> os.RemoveAll; Indexes::WriteTo (1); %s\n", s.ScratchSpacePath)
 		if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
 			return written, errors.Wrap(err, "clean up previous scratch space")
 		}
@@ -135,6 +137,7 @@ func (s Indexes) WriteTo(w io.Writer) (int64, error) {
 		return written, err
 	}
 
+	fmt.Printf(" ==> os.RemoveAll; Indexes::WriteTo (2); %s\n", s.ScratchSpacePath)
 	if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
 		return written, err
 	}
