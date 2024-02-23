@@ -414,7 +414,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context,
 			}
 
 			if params.AdditionalProperties.Certainty {
-				if err := e.checkCertaintyCompatibility(params.ClassName); err != nil {
+				if err := e.checkCertaintyCompatibility(params); err != nil {
 					return nil, errors.Errorf("additional: %s", err)
 				}
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
@@ -684,16 +684,16 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, "", errors.New("no modules defined")
 }
 
-func (e *Explorer) checkCertaintyCompatibility(className string) error {
+func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	s := e.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
 		return errors.Errorf("failed to get schema")
 	}
-	class := s.GetClass(schema.ClassName(className))
+	class := s.GetClass(schema.ClassName(params.ClassName))
 	if class == nil {
-		return errors.Errorf("failed to get class: %s", className)
+		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	vectorConfig, err := schema.TypeAssertVectorIndex(class)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{params.TargetVector})
 	if err != nil {
 		return err
 	}
