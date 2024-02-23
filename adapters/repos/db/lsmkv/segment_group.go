@@ -98,82 +98,91 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	segmentIndex := 0
+
+	segmentsAlreadyRecoveredFromCompaction := make(map[string]struct{})
+
+	// Note: it's important to process first the compacted segments
+	// TODO: a single iteration may be possible
+
 	for _, entry := range list {
-		if filepath.Ext(entry.Name()) == ".tmp" {
-			potentialCompactedSegmentFileName := strings.TrimSuffix(entry.Name(), ".tmp")
-
-			if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
-				// another kind of temporal file, ignore at this point but it may need to be deleted...
-				continue
-			}
-
-			jointSegments := segmentID(potentialCompactedSegmentFileName)
-			jointSegmentsIDs := strings.Split(jointSegments, "_")
-
-			if len(jointSegmentsIDs) != 2 {
-				return nil, fmt.Errorf("invalid compacted segment file name %q", entry.Name())
-			}
-
-			leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
-			rightSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
-
-			leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
-			rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
-
-			leftSegmentFound, err := fileExists(leftSegmentPath)
-			if err != nil {
-				return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
-			}
-
-			rightSegmentFound, err := fileExists(rightSegmentPath)
-			if err != nil {
-				return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
-			}
-
-			if leftSegmentFound && rightSegmentFound {
-				if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-					return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
-				}
-				continue
-			}
-
-			if leftSegmentFound && !rightSegmentFound {
-				return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
-			}
-
-			if !leftSegmentFound && rightSegmentFound {
-				rightSegment, err := newSegment(rightSegmentPath, logger,
-					metrics, sg.makeExistsOnLower(segmentIndex),
-					sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
-				if err != nil {
-					return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
-				}
-
-				err = rightSegment.drop()
-				if err != nil {
-					return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
-				}
-			}
-
-			if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
-				return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
-			}
-
-			segment, err := newSegment(rightSegmentPath, logger,
-				metrics, sg.makeExistsOnLower(segmentIndex),
-				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
-			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
-			}
-
-			sg.segments[segmentIndex] = segment
-			segmentIndex++
-
+		if filepath.Ext(entry.Name()) != ".tmp" {
 			continue
 		}
 
+		potentialCompactedSegmentFileName := strings.TrimSuffix(entry.Name(), ".tmp")
+
+		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
+			// another kind of temporal file, ignore at this point but it may need to be deleted...
+			continue
+		}
+
+		jointSegments := segmentID(potentialCompactedSegmentFileName)
+		jointSegmentsIDs := strings.Split(jointSegments, "_")
+
+		if len(jointSegmentsIDs) != 2 {
+			return nil, fmt.Errorf("invalid compacted segment file name %q", entry.Name())
+		}
+
+		leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
+		rightSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+
+		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
+		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
+
+		leftSegmentFound, err := fileExists(leftSegmentPath)
+		if err != nil {
+			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
+		}
+
+		rightSegmentFound, err := fileExists(rightSegmentPath)
+		if err != nil {
+			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
+		}
+
+		if leftSegmentFound && rightSegmentFound {
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
+			}
+			continue
+		}
+
+		if leftSegmentFound && !rightSegmentFound {
+			return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
+		}
+
+		if !leftSegmentFound && rightSegmentFound {
+			err = os.Remove(rightSegmentPath)
+			if err != nil {
+				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+		}
+
+		if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
+			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
+		}
+
+		segment, err := newSegment(rightSegmentPath, logger,
+			metrics, sg.makeExistsOnLower(segmentIndex),
+			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+		if err != nil {
+			return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+		}
+
+		sg.segments[segmentIndex] = segment
+		segmentIndex++
+
+		segmentsAlreadyRecoveredFromCompaction[rightSegmentFilename] = struct{}{}
+	}
+
+	for _, entry := range list {
 		if filepath.Ext(entry.Name()) != ".db" {
 			// skip, this could be commit log, etc.
+			continue
+		}
+
+		_, alreadyRecoveredFromCompaction := segmentsAlreadyRecoveredFromCompaction[entry.Name()]
+		if alreadyRecoveredFromCompaction {
+			// the .db file was already removed and restored from a compacted segment
 			continue
 		}
 
