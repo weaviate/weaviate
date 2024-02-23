@@ -147,6 +147,17 @@ func (m *TransformersModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
+func (m *TransformersModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		_, _, err := m.vectorizer.Object(ctx, obj, cfg)
+		if err != nil {
+			errs[i] = err
+		}
+	}
+	return errs
+}
+
 func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
