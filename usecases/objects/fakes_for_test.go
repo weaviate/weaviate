@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -109,6 +110,33 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
+	return nil
+}
+
+func (f *fakeSchemaManager) UpdateClassProperty(ctx context.Context, principal *models.Principal,
+	class *models.Class, merge bool, props ...*models.Property,
+) error {
+	existing := map[string]bool{}
+	for _, c := range f.GetSchemaResponse.Objects.Classes {
+		if c.Class == class.Class {
+			for _, p := range c.Properties {
+				existing[strings.ToLower(p.Name)] = true
+			}
+			break
+		}
+	}
+	for _, prop := range props {
+		if _, exists := existing[strings.ToLower(prop.Name)]; exists {
+			if err := f.MergeClassObjectProperty(ctx, principal, class.Class, prop); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := f.AddClassProperty(ctx, principal, class.Class, prop); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

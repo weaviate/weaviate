@@ -428,7 +428,7 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "AddProperty/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
-				cmd.AddPropertyRequest{Property: &models.Property{Name: "P1"}}, nil)},
+				cmd.AddPropertyRequest{Properties: []*models.Property{{Name: "P1"}}}, nil)},
 			resp:     Response{Error: errSchema},
 			doBefore: doFirst,
 		},
@@ -436,7 +436,7 @@ func TestStoreApply(t *testing.T) {
 			name: "AddProperty/Nil",
 			req: raft.Log{
 				Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
-					cmd.AddPropertyRequest{Property: nil}, nil),
+					cmd.AddPropertyRequest{Properties: nil}, nil),
 			},
 			resp: Response{Error: errBadRequest},
 			doBefore: func(m *MockStore) {
@@ -448,7 +448,7 @@ func TestStoreApply(t *testing.T) {
 			name: "AddProperty/Success",
 			req: raft.Log{
 				Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_PROPERTY,
-					cmd.AddPropertyRequest{Property: &models.Property{Name: "P1"}}, nil),
+					cmd.AddPropertyRequest{Properties: []*models.Property{{Name: "P1"}}}, nil),
 			},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {

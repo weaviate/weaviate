@@ -303,7 +303,7 @@ func (f *fakeMigrator) DropClass(ctx context.Context, className string) error {
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
+func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	args := f.Called(ctx, className, prop)
 	return args.Error(0)
 }
