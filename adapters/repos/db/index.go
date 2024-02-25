@@ -399,16 +399,18 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 	})
 }
 
-func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
+func (i *Index) addProperty(ctx context.Context, props ...*models.Property) error {
 	eg := &errgroup.Group{}
 	eg.SetLimit(_NUMCPU)
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.createPropertyIndex(ctx, prop, eg)
-		return nil
-	})
-	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+	for _, prop := range props {
+		i.ForEachShard(func(key string, shard ShardLike) error {
+			shard.createPropertyIndex(ctx, prop, eg)
+			return nil
+		})
+		if err := eg.Wait(); err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+		}
 	}
 	return nil
 }

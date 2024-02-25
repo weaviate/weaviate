@@ -91,7 +91,7 @@ func (s *schema) deleteClass(name string) {
 	delete(s.Classes, name)
 }
 
-func (s *schema) addProperty(class string, p models.Property) error {
+func (s *schema) addProperty(class string, props ...*models.Property) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -102,9 +102,8 @@ func (s *schema) addProperty(class string, p models.Property) error {
 
 	// update all at once to prevent race condition with concurrent readers
 	src := info.Class.Properties
-	dest := make([]*models.Property, len(src)+1)
-	copy(dest, src)
-	dest[len(src)] = &p
+	dest := make([]*models.Property, len(src)+len(props))
+	copy(dest, append(src, props...))
 	info.Class.Properties = dest
 	return nil
 }

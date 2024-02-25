@@ -70,14 +70,8 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		{
-			methodName:       "AddClassProperty",
-			additionalArgs:   []interface{}{"somename", &models.Property{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "MergeClassObjectProperty",
-			additionalArgs:   []interface{}{"somename", &models.Property{}},
+			methodName:       "UpdateClassProperty",
+			additionalArgs:   []interface{}{&models.Class{}, false, &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
