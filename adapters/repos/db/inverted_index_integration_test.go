@@ -79,7 +79,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		},
 	}}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -201,7 +201,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 		var err error
 		repo, err = New(logrus.New(), Config{
-			MemtablesFlushIdleAfter:   60,
+			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
@@ -467,7 +467,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 		var err error
 		repo, err = New(logrus.New(), Config{
-			MemtablesFlushIdleAfter:   60,
+			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
@@ -820,7 +820,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 		var err error
 		repo, err = New(logrus.New(), Config{
-			MemtablesFlushIdleAfter:   60,
+			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
