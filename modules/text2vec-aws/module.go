@@ -147,6 +147,10 @@ func (m *AwsModule) AdditionalProperties() map[string]modulecapabilities.Additio
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *AwsModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *AwsModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {

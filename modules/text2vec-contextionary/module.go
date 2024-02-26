@@ -233,6 +233,10 @@ func (m *ContextionaryModule) AdditionalProperties() map[string]modulecapabiliti
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *ContextionaryModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *ContextionaryModule) Classifiers() []modulecapabilities.Classifier {
 	return []modulecapabilities.Classifier{m.classifierContextual}
 }

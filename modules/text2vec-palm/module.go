@@ -138,6 +138,10 @@ func (m *PalmModule) VectorizeInput(ctx context.Context,
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
+func (m *PalmModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())

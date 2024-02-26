@@ -49,6 +49,7 @@ type imageVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
+	Properties(cfg moduletools.ClassConfig) ([]string, error)
 }
 
 type textVectorizer interface {
@@ -136,6 +137,11 @@ func (m *ClipModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *ClipModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	mediaProps, err := m.imageVectorizer.Properties(cfg)
+	return false, mediaProps, err // text props are part of media properties
 }
 
 // verify we implement the modules.Module interface

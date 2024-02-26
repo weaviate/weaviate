@@ -124,6 +124,10 @@ func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
+func (m *HuggingFaceModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }

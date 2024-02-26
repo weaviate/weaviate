@@ -27,6 +27,10 @@ type Vectorizer interface {
 	// information as part of _additional properties
 	VectorizeObject(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	// VectorizedProperties returns which properties the vectorizer looks at.
+	// If the vectorizer is capable of vectorizing all text properties, the first bool is true.
+	// Any additional "media"-properties are explicitly mentioned in the []string return
+	VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error)
 }
 
 type FindObjectFn = func(ctx context.Context, class string, id strfmt.UUID,

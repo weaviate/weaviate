@@ -54,6 +54,7 @@ type ClassSettings interface {
 	ThermalFieldsWeights() ([]float32, error)
 	DepthField(property string) bool
 	DepthFieldsWeights() ([]float32, error)
+	Properties() ([]string, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -61,6 +62,11 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 ) ([]float32, models.AdditionalProperties, error) {
 	vec, err := v.object(ctx, object.ID, comp, cfg)
 	return vec, nil, err
+}
+
+func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
+	ichek := NewClassSettings(cfg)
+	return ichek.Properties()
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
