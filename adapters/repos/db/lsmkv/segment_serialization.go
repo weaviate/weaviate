@@ -15,9 +15,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"runtime/debug"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // a single node of strategy "replace"
@@ -163,7 +165,14 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
-func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			debug.PrintStack()
+			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseReplaceNodeIntoPread: %v", r)
+		}
+	}()
+
 	out.offset = 0
 
 	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
