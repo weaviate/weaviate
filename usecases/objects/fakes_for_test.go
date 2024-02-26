@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -112,48 +113,39 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	return nil
 }
 
+func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
+	class *models.Class, merge bool, newProps ...*models.Property,
+) error {
+	existing := map[string]int{}
+	var existedClass *models.Class
+	for _, c := range f.GetSchemaResponse.Objects.Classes {
+		if c.Class == class.Class {
+			existedClass = c
+			for idx, p := range c.Properties {
+				existing[strings.ToLower(p.Name)] = idx
+			}
+			break
+		}
+	}
+
+	// update existed
+	for _, prop := range newProps {
+		if idx, exists := existing[strings.ToLower(prop.Name)]; exists {
+			prop.NestedProperties, _ = schema.MergeRecursivelyNestedProperties(existedClass.Properties[idx].NestedProperties,
+				prop.NestedProperties)
+			existedClass.Properties[idx] = prop
+		} else {
+			existedClass.Properties = append(existedClass.Properties, prop)
+		}
+	}
+
+	return nil
+}
+
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	principal *models.Principal, class string, tenants []*models.Tenant,
 ) error {
 	f.tenantsEnabled = true
-	return nil
-}
-
-func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
-) error {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, c := range classes {
-		if c.Class == class {
-			props := c.Properties
-			if props != nil {
-				props = append(props, property)
-			} else {
-				props = []*models.Property{property}
-			}
-			c.Properties = props
-			break
-		}
-	}
-	return nil
-}
-
-func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
-) error {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, c := range classes {
-		if c.Class == class {
-			for i, prop := range c.Properties {
-				if prop.Name == property.Name {
-					c.Properties[i].NestedProperties, _ = schema.MergeRecursivelyNestedProperties(
-						c.Properties[i].NestedProperties, property.NestedProperties)
-					break
-				}
-			}
-			break
-		}
-	}
 	return nil
 }
 

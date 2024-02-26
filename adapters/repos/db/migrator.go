@@ -112,13 +112,13 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
+func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return idx.addProperty(ctx, prop)
+	return idx.addProperty(ctx, prop...)
 }
 
 // DropProperty is ignored, API compliant change
