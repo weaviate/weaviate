@@ -688,8 +688,8 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, "", errors.New("no modules defined")
 }
 
-func (e *Explorer) checkCertaintyCompatibility(className string) error {
-	class := e.schemaGetter.ReadOnlyClass(className)
+func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
+	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}

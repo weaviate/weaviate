@@ -64,6 +64,7 @@ type metaReader interface {
 type validator interface {
 	ValidateVectorIndexConfigUpdate(old, updated schemaConfig.VectorIndexConfig) error
 	ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error
+	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error
 }
 
 // The handler manages API requests for manipulating class schemas.
