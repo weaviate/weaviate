@@ -201,7 +201,6 @@ func (rr *RowReaderFrequency) notLike(ctx context.Context, readFn ReadFn) error 
 type rowOperationFreq func([]byte, []lsmkv.MapPair) (bool, error)
 
 func (rr *RowReaderFrequency) likeHelper(ctx context.Context, like *likeRegexp, c *lsmkv.CursorMap, rp rowOperationFreq) error {
-
 	var (
 		initialK []byte
 		initialV []lsmkv.MapPair
