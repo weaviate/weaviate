@@ -71,6 +71,8 @@ func (h *Handler) UpdateClassProperty(ctx context.Context, principal *models.Pri
 	migratePropertySettings(newProps...)
 
 	// TODO-RAFT use UpdateProperty() for adding/merging property when index idempotence exists
+	// we don't support updating property in index atm,
+	// h.metaWriter.UpdateClass() and h.metaWriter.AddProperty() should be replaced by h.metaWriter.UpdateProperty
 	new, old := split(class.Properties, newProps)
 	if len(old) > 0 {
 		for _, p := range old {
