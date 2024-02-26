@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
-	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/replica"
 
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -396,11 +395,10 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
 
-func (m *Migrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
-	old, updated map[string]schemaConfig.VectorIndexConfig,
+func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName := range old {
-		if err := m.ValidateVectorIndexConfigUpdate(ctx, old[vecName], updated[vecName]); err != nil {
+		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
 			return fmt.Errorf("vector %q", vecName)
 		}
 	}

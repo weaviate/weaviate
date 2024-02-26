@@ -146,6 +146,11 @@ func (f *fakeValidator) ValidateInvertedIndexConfigUpdate(
 	return nil
 }
 
+func (*fakeValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
+) error {
+	return nil
+}
+
 type fakeModuleConfig struct{}
 
 func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
@@ -340,6 +345,21 @@ func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardNa
 func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
 	args := f.Called(ctx, className, updated)
 	return args.Error(0)
+}
+
+func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
+	updated map[string]schemaConfig.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (*fakeMigrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error {
+	return nil
 }
 
 func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
