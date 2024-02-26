@@ -139,6 +139,10 @@ func (m *GPT4AllModule) AdditionalProperties() map[string]modulecapabilities.Add
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *GPT4AllModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *GPT4AllModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {

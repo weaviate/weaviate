@@ -25,27 +25,34 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg}
 }
 
-func (ic *classSettings) ImageField(property string) bool {
+func (ic *classSettings) Properties() ([]string, error) {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return false
+		return nil, errors.New("empty config")
 	}
 
 	imageFields, ok := ic.cfg.Class()["imageFields"]
 	if !ok {
-		return false
+		return nil, errors.New("imageFields not present")
 	}
 
 	imageFieldsArray, ok := imageFields.([]interface{})
 	if !ok {
-		return false
+		return nil, errors.New("imageFields must be an array")
 	}
 
 	fieldNames := make([]string, len(imageFieldsArray))
 	for i, value := range imageFieldsArray {
 		fieldNames[i] = value.(string)
 	}
+	return fieldNames, nil
+}
 
+func (ic *classSettings) ImageField(property string) bool {
+	fieldNames, err := ic.Properties()
+	if err != nil {
+		return false
+	}
 	for i := range fieldNames {
 		if fieldNames[i] == property {
 			return true

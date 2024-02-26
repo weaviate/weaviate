@@ -28,7 +28,7 @@ import (
 func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabilities.Module {
 	switch t {
 	case modulecapabilities.Text2Vec:
-		return newDummyText2VecModule(name)
+		return newDummyText2VecModule(name, nil)
 	case modulecapabilities.Ref2Vec:
 		return newDummyRef2VecModule(name)
 	default:
@@ -36,12 +36,13 @@ func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabili
 	}
 }
 
-func newDummyText2VecModule(name string) dummyText2VecModuleNoCapabilities {
-	return dummyText2VecModuleNoCapabilities{name: name}
+func newDummyText2VecModule(name string, mediaProperties []string) dummyText2VecModuleNoCapabilities {
+	return dummyText2VecModuleNoCapabilities{name: name, mediaProperties: mediaProperties}
 }
 
 type dummyText2VecModuleNoCapabilities struct {
-	name string
+	name            string
+	mediaProperties []string
 }
 
 func (m dummyText2VecModuleNoCapabilities) Name() string {
@@ -67,6 +68,10 @@ func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	in *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return []float32{1, 2, 3}, nil, nil
+}
+
+func (m dummyText2VecModuleNoCapabilities) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, m.mediaProperties, nil
 }
 
 func newDummyRef2VecModule(name string) dummyRef2VecModuleNoCapabilities {

@@ -128,6 +128,10 @@ func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
+func (m *CohereModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *CohereModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {

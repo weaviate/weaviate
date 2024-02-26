@@ -125,6 +125,10 @@ func (m *JinaAIModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, comp, cfg)
 }
 
+func (m *JinaAIModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }

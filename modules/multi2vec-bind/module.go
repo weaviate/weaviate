@@ -66,6 +66,7 @@ type bindVectorizer interface {
 	VectorizeIMU(ctx context.Context, imu string, cfg moduletools.ClassConfig) ([]float32, error)
 	VectorizeThermal(ctx context.Context, thermal string, cfg moduletools.ClassConfig) ([]float32, error)
 	VectorizeDepth(ctx context.Context, depth string, cfg moduletools.ClassConfig) ([]float32, error)
+	Properties(cfg moduletools.ClassConfig) ([]string, error)
 }
 
 type textVectorizer interface {
@@ -164,6 +165,11 @@ func (m *BindModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.bindVectorizer.Object(ctx, obj, comp, cfg)
+}
+
+func (m *BindModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	mediaProps, err := m.bindVectorizer.Properties(cfg)
+	return true, mediaProps, err
 }
 
 func (m *BindModule) MetaInfo() (map[string]interface{}, error) {

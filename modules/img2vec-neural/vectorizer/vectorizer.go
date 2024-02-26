@@ -39,6 +39,12 @@ type Client interface {
 
 type ClassSettings interface {
 	ImageField(property string) bool
+	Properties() ([]string, error)
+}
+
+func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
+	ichek := NewClassSettings(cfg)
+	return ichek.Properties()
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
