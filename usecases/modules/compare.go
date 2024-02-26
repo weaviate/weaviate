@@ -39,6 +39,14 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 			continue // multi cref
 		}
 
+		if prop.ModuleConfig != nil {
+			if modConfig, ok := prop.ModuleConfig.(map[string]interface{})[class.Vectorizer]; ok {
+				if skip, ok2 := modConfig.(map[string]interface{})["skip"]; ok2 && skip == true {
+					continue
+				}
+			}
+		}
+
 		if (prop.DataType[0] == schema.DataTypeText.String() || prop.DataType[0] == schema.DataTypeTextArray.String()) && textProps {
 			propsToCmpare = append(propsToCmpare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
 			continue

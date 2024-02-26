@@ -40,13 +40,14 @@ func findObject(ctx context.Context, class string, id strfmt.UUID,
 func TestCompareRevectorize(t *testing.T) {
 	class := &models.Class{
 		Class:      "MyClass",
-		Vectorizer: "mod",
+		Vectorizer: "my-module",
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{schema.DataTypeText.String()}},
 			{Name: "text_array", DataType: []string{schema.DataTypeTextArray.String()}},
 			{Name: "text", DataType: []string{schema.DataTypeText.String()}},
 			{Name: "image", DataType: []string{schema.DataTypeBlob.String()}},
 			{Name: "number", DataType: []string{schema.DataTypeInt.String()}},
+			{Name: "text_not_vectorized", DataType: []string{schema.DataTypeText.String()}, ModuleConfig: map[string]interface{}{"my-module": map[string]interface{}{"skip": true}}},
 		},
 	}
 	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "")
@@ -60,6 +61,7 @@ func TestCompareRevectorize(t *testing.T) {
 	}{
 		{name: "same text prop", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value1"}, different: false},
 		{name: "different text prop", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value2"}, different: true},
+		{name: "different text - not vectorized", oldProps: map[string]interface{}{"text_not_vectorized": "value1"}, newProps: map[string]interface{}{"text_not_vectorized": "value2"}, different: false},
 		{name: "same text array prop", oldProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, newProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, different: false},
 		{name: "different text array prop", oldProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, newProps: map[string]interface{}{"text_array": []string{"first sentence", "second different sentence"}}, different: true},
 		{name: "old object not present", oldProps: nil, newProps: map[string]interface{}{"text": "value1"}, different: true},
@@ -77,7 +79,7 @@ func TestCompareRevectorize(t *testing.T) {
 				objOld := models.Object{Class: class.Class, Properties: tt.oldProps, ID: uidfmt}
 				objsToReturn[uid.String()] = objOld
 			}
-			different, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, findObject)
+			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, findObject)
 			require.Equal(t, different, tt.different)
 		})
 	}
