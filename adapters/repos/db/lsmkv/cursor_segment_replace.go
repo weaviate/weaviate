@@ -151,6 +151,9 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 
 	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
 	if err != nil {
+		segmentName := s.segment.path
+		currentOffset := s.reusableNode.offset
+		s.segment.logger.Errorf("error parsing replace node segment %v, current offset: %v offset: %+v, err: %v", segmentName, currentOffset, offset, err)
 		return err
 	}
 
