@@ -7,6 +7,7 @@ function main() {
   run_all_tests=true
   run_acceptance_tests=false
   run_acceptance_only_fast=false
+  run_acceptance_go_client=false
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_module_tests=false
@@ -27,6 +28,7 @@ function main() {
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
           
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
+          --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;           
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
@@ -41,6 +43,7 @@ function main() {
               "--integration-only | -i"\
               "--acceptance-only | -a"\
               "--acceptance-only-fast | -aof"\
+              "--acceptance-go-client | -ag"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
               "--acceptance-module-tests-only | --modules-only | -m"\
@@ -82,7 +85,7 @@ function main() {
     echo_green "Integration tests successful"
   fi 
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark 
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -104,7 +107,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests
+    if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -167,6 +170,10 @@ function run_acceptance_tests() {
   echo "running acceptance fast only"
     run_acceptance_only_fast "$@"
   fi
+  if $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance go client"
+    run_acceptance_go_client "$@"
+  fi
   if $run_acceptance_graphql_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance graphql"
     run_acceptance_graphql_tests "$@"
@@ -192,8 +199,12 @@ function run_acceptance_only_fast() {
         echo "Test for $pkg failed" >&2
         return 1
       fi
-    done
-    # tests with go client are in a separate package with its own dependencies to isolate them
+    done 
+}
+
+function run_acceptance_go_client() {
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+   # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... ); do
       if ! go test -count 1 -race "$pkg"; then
