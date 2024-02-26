@@ -23,11 +23,11 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -66,7 +66,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, scheme, req.Collection, req.Uses_123Api, targetVectors)
+	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
