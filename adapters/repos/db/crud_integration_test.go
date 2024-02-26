@@ -88,7 +88,7 @@ func TestCRUD(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
@@ -1300,7 +1300,7 @@ func TestCRUD_Query(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
@@ -1539,7 +1539,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1696,8 +1696,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter: 60,
-		RootPath:                dirName,
+		MemtablesFlushDirtyAfter: 60,
+		RootPath:                 dirName,
 		// this is set really low to ensure that search
 		// by distance is conducted, which executes
 		// without regard to this value
@@ -1835,8 +1835,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter: 60,
-		RootPath:                dirName,
+		MemtablesFlushDirtyAfter: 60,
+		RootPath:                 dirName,
 		// this is set really low to ensure that search
 		// by distance is conducted, which executes
 		// without regard to this value
@@ -1986,7 +1986,7 @@ func Test_PutPatchRestart(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
@@ -2130,7 +2130,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
@@ -2263,7 +2263,7 @@ func TestOverwriteObjects(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
@@ -2365,7 +2365,7 @@ func TestIndexDigestObjects(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
@@ -2492,7 +2492,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,

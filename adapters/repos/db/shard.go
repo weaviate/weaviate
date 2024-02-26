@@ -520,7 +520,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
-		s.memtableIdleConfig(),
+		s.memtableDirtyConfig(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
@@ -634,7 +634,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
@@ -675,7 +675,7 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
@@ -683,14 +683,14 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
-	return lsmkv.WithIdleThreshold(
-		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
+func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
+	return lsmkv.WithDirtyThreshold(
+		time.Duration(s.index.Config.MemtablesFlushDirtyAfter) * time.Second)
 }
 
 func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
@@ -740,7 +740,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
-		s.memtableIdleConfig(),
+		s.memtableDirtyConfig(),
 		s.dynamicMemtableSizing(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 	}

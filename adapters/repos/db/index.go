@@ -511,7 +511,7 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
