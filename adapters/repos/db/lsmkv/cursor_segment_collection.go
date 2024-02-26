@@ -87,11 +87,18 @@ func (s *segmentCursorCollection) first() ([]byte, []value, error) {
 	return parsed.primaryKey, parsed.values, nil
 }
 
-func (s *segmentCursorCollection) parseCollectionNode(offset nodeOffset) (segmentCollectionNode, error) {
+func (s *segmentCursorCollection) parseCollectionNode(offset nodeOffset) (out segmentCollectionNode, err error) {
 	r, err := s.segment.newNodeReader(offset)
 	if err != nil {
 		return segmentCollectionNode{}, err
 	}
 
-	return ParseCollectionNode(r)
+	out, err = ParseCollectionNode(r)
+	if err != nil {
+		segmentName := s.segment.path
+		currentOffset := out.offset
+		s.segment.logger.Errorf("error parsing collection node segment %v, current offset: %v offset: %+v, err: %v", segmentName, currentOffset, offset, err)
+		return segmentCollectionNode{}, err
+	}
+	return out, nil
 }

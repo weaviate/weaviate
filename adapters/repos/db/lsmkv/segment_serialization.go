@@ -352,8 +352,15 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key
 // When we already have a finite and manageable []byte (i.e. when we have already seeked to an
 // lsmkv node and have start+end offset), r should be constructed as a *bytes.Reader, since the
 // contents have already been `pread` from the segment contentFile.
-func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
-	out := segmentCollectionNode{}
+func ParseCollectionNode(r io.Reader) (out segmentCollectionNode, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			debug.PrintStack()
+			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseCollectionNode: %v", r)
+		}
+	}()
+
+	out = segmentCollectionNode{}
 	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
 	// read in between.
 	tmpBuf := make([]byte, 9)
