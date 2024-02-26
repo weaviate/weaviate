@@ -290,7 +290,7 @@ func (s *Shard) hasTargetVectors() bool {
 
 // target vectors and legacy vector are (supposed to be) exclusive
 // method allows to distinguish which of them is configured for the class
-func hasTargetVectors(cfg schema.VectorIndexConfig, targetCfgs map[string]schema.VectorIndexConfig) bool {
+func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]schemaConfig.VectorIndexConfig) bool {
 	return len(targetCfgs) != 0
 }
 
@@ -339,7 +339,7 @@ func (s *Shard) initLegacyQueue() error {
 }
 
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schema.VectorIndexConfig,
+	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -841,7 +841,7 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 	})
 }
 
-func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
