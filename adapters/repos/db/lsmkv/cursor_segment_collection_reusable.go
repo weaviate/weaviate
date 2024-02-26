@@ -79,5 +79,12 @@ func (s *segmentCursorCollectionReusable) parseCollectionNodeInto(offset nodeOff
 		return err
 	}
 
-	return ParseCollectionNodeInto(r, &s.nodeBuf)
+	err = ParseCollectionNodeInto(r, &s.nodeBuf)
+	if err != nil {
+		segmentName := s.segment.path
+		currentOffset := s.nodeBuf.offset
+		s.segment.logger.Errorf("error parsing collection node segment %v, current offset: %v offset: %+v, err: %v", segmentName, currentOffset, offset, err)
+		return err
+	}
+	return nil
 }
