@@ -51,14 +51,11 @@ type Migrator interface {
 	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
 	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error
 
-	UpdateVectorIndexConfig(ctx context.Context, className string,
-		updated schema.VectorIndexConfig) error
-	ValidateVectorIndexConfigsUpdate(ctx context.Context,
-		old, updated map[string]schemaConfig.VectorIndexConfig) error
+	UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error
+	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, className string,
 		updated map[string]schemaConfig.VectorIndexConfig) error
-	ValidateInvertedIndexConfigUpdate(ctx context.Context,
-		old, updated *models.InvertedIndexConfig) error
+	ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
 	WaitForStartup(context.Context) error

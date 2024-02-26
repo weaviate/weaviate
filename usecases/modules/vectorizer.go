@@ -203,18 +203,20 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			comp, err := compFactory()
-			if err != nil {
-				return fmt.Errorf("failed creating properties comparator: %w", err)
-			}
-			vector, additionalProperties, err := vectorizer.VectorizeObject(ctx, object, comp, cfg)
-			if err != nil {
-				return fmt.Errorf("update vector: %w", err)
-			}
-			p.lockGuard(func() {
-				object = p.addVectorToObject(object, vector, additionalProperties, cfg)
-			})
-			return nil
+			backoff.Retry(func() error {
+				comp, err := compFactory()
+				if err != nil {
+					return fmt.Errorf("failed creating properties comparator: %w", err)
+				}
+				vector, additionalProperties, err := vectorizer.VectorizeObject(ctx, object, comp, cfg)
+				if err != nil {
+					return fmt.Errorf("update vector: %w", err)
+				}
+				p.lockGuard(func() {
+					object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+				})
+				return nil
+			}, utils.NewBackoff())
 		}
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
