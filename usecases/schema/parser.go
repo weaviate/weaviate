@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	vIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -97,7 +96,7 @@ func (m *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 
 func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{},
-) (schema.VectorIndexConfig, error) {
+) (schemaConfig.VectorIndexConfig, error) {
 	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
@@ -109,6 +108,8 @@ func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 		return nil, errors.Wrap(err, "parse vector index config")
 	}
 	return parsed, nil
+}
+
 // ParseClassUpdate parses a class after unmarshaling by setting concrete types for the fields
 func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, error) {
 	if err := p.ParseClass(update); err != nil {
@@ -126,22 +127,20 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	if err := validateImmutableFields(class, update); err != nil {
 		return nil, err
 	}
-	
+
 	// run target vectors validation first, as it will reject classes
 	// where legacy vector was changed to target vectors and vice versa
-	if err := validateVectorConfigsParityAndImmutables(initial, updated); err != nil {
-		return err
+	if err := validateVectorConfigsParityAndImmutables(class, update); err != nil {
+		return nil, err
 	}
 
-	if err := validateVectorIndexConfigImmutableFields(initial, updated); err != nil {
-		return err
+	if err := validateVectorIndexConfigImmutableFields(class, update); err != nil {
+		return nil, err
 	}
 
-	if hasTargetVectors(updated) {
-		if err := m.validator.ValidateVectorIndexConfigsUpdate(ctx,
-			asVectorIndexConfigs(initial), asVectorIndexConfigs(updated),
-		); err != nil {
-			return err
+	if hasTargetVectors(update) {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+			return nil, err
 		}
 	} else {
 		vIdxConfig, ok1 := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
