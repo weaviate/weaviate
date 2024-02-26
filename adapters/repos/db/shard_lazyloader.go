@@ -224,7 +224,7 @@ func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated sch
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}

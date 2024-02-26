@@ -1018,10 +1018,16 @@ func Test_UpdateClass(t *testing.T) {
 			{
 				name:    "ModifyVectorIndexType",
 				initial: &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none"},
-				update:  &models.Class{Class: "InitialName", VectorIndexType: "lsh", Vectorizer: "none"},
+				update:  &models.Class{Class: "InitialName", VectorIndexType: "flat", Vectorizer: "none"},
 				expectedError: fmt.Errorf(
 					"vector index type is immutable: " +
-						"attempted change from \"hnsw\" to \"lsh\""),
+						"attempted change from \"hnsw\" to \"flat\""),
+			},
+			{
+				name:          "UnsupportedVectorIndex",
+				initial:       &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none"},
+				update:        &models.Class{Class: "InitialName", VectorIndexType: "lsh", Vectorizer: "none"},
+				expectedError: fmt.Errorf("unsupported vector index type: \"lsh\""),
 			},
 			{
 				name:    "AddProperty",

@@ -19,7 +19,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -356,11 +355,13 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string = nil
+			var targetProperties []string
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
 				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					targetProperties = properties.([]string)
+					if propSlice, ok := properties.([]string); ok {
+						targetProperties = propSlice
+					}
 				}
 			}
 			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
