@@ -13,6 +13,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,12 +27,14 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"google.golang.org/protobuf/proto"
+	gproto "google.golang.org/protobuf/proto"
+
+	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"google.golang.org/protobuf/proto"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -166,7 +169,7 @@ func New(cfg Config, cluster cluster.Reader) Store {
 }
 
 // Open opens this store and marked as such.
-func (st *Store) Open(ctx context.Context) (err error) {
+func (st *Store) Open(ctx context.Context, schemaRepo schemaTypes.SchemaRepo) (err error) {
 	st.log.Info("bootstrapping started")
 	if st.open.Load() { // store already opened
 		return nil
@@ -283,6 +286,19 @@ func (st *Store) Open(ctx context.Context) (err error) {
 			}
 		}
 	}()
+
+	// Only check for migration if the raft cluster is pristine
+	if st.raft.LastIndex() == 0 {
+		// Start in a goroutine the migration process, as it will need to wait for leader election
+		go func() {
+			err := st.MigrateFromNonRaft(schemaRepo)
+			if err != nil {
+				st.log.Error("could not migrate from non-raft to raft based schema", "err", err)
+			}
+		}()
+	} else {
+		st.log.Info("skipping migration from non-raft to raft based schema representation as raft has data stored")
+	}
 
 	return nil
 }
@@ -476,6 +492,84 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	// Consequently, the follower needs to update its state accordingly.
 	// Task: https://semi-technology.atlassian.net/browse/WVT-42
 	//
+	return nil
+}
+
+func (st *Store) MigrateFromNonRaft(schemaRepo schemaTypes.SchemaRepo) error {
+	log := st.log.With("action", "raft_migration")
+
+	// Fist let's ensure either a raft node is a leader, or we are the leader.
+	ticker := time.NewTicker(3 * time.Second)
+	leaderNotFound := true
+	for leaderNotFound {
+		select {
+		case <-ticker.C:
+			// Raft is shutting down, no leader found so far let's exit
+			if !st.open.Load() {
+				return nil
+			}
+
+			if st.IsLeader() || st.Leader() != "" {
+				log.Info("leader found", "leader", st.Leader())
+				leaderNotFound = false
+				break
+			}
+		}
+	}
+
+	// If we are not leader we abort the process, this ensure only one node will try to migrate from non raft to raft
+	// representation at the same time
+	if !st.IsLeader() {
+		log.Info("Node is not raft leader, skipping migration")
+		return nil
+	}
+
+	// Get the schema from the non-raft representation and load it from disk.
+	// If no schema is present then exit early
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelFunc()
+	stateGetter, err := schemaRepo.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("could not load non-raft schema to memory for migration: %w", err)
+	}
+
+	shardingState := stateGetter.GetShardingState()
+	schema := stateGetter.GetSchema()
+	if schema == nil || len(schema.Classes) <= 0 {
+		log.Info("no schema available or schema is empty in non-raft representation, nothing to migrate")
+		return nil
+	}
+
+	log.Info(fmt.Sprintf("will migrate %d classes from non-raft to raft based representation", len(schema.Classes)))
+
+	// Apply the change from non-raft to raft based schema, applying change with "schema only" to true to avoid
+	// re-updating the underlying representation
+	for _, class := range schema.Classes {
+		if class == nil {
+			log.Warn("found nil class in non-raft based schema, continuing migration")
+			continue
+		}
+		log.Debug(fmt.Sprintf("migrating class %s to raft based schema", class.Class))
+
+		marshalledSubCmd, err := json.Marshal(&cmd.AddClassRequest{
+			Class: class,
+			State: shardingState[class.Class],
+		})
+		if err != nil {
+			return fmt.Errorf("could not marshall add class request to bytes: %w", err)
+		}
+
+		err = st.Execute(&cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_ADD_CLASS,
+			Class:      class.Class,
+			SubCommand: marshalledSubCmd,
+		})
+		if err != nil {
+			return fmt.Errorf("could not add class %s to raft based schema during migration: %w", class.Class, err)
+		}
+		log.Debug(fmt.Sprintf("successfully migrated class %s to raft based schema", class.Class))
+	}
+
 	return nil
 }
 

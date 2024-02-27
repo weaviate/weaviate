@@ -238,8 +238,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
-	schemaTxPersistence := txstore.NewStore(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	schemaTxPersistence := txstore.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 
 	/// TODO-RAFT START
 	//
@@ -297,8 +296,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
-	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules)
+	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer, schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
@@ -318,13 +316,15 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("cannot resolve raft addresses using member list")
 	}
 
-	err = appState.CloudService.Open(ctx, candidateList, executor)
+	err = appState.CloudService.Open(ctx, candidateList, executor, schemaRepo)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").
 			WithError(err).
 			Fatal("could not open cloud meta store")
 	}
+	// Ensure migration happens before everything else is set-up
+
 	// TODO-RAFT END
 
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,

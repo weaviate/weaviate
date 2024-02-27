@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"time"
 
+	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/cloud/transport"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -54,13 +55,13 @@ func New(cfg store.Config, cluster cluster.Reader) *Service {
 
 // Open internal RPC service to handle node communication,
 // bootstrap the Raft node, and restore the database state
-func (c *Service) Open(ctx context.Context, servers []string, db store.Indexer) error {
+func (c *Service) Open(ctx context.Context, servers []string, db store.Indexer, schemaRepo schemaTypes.SchemaRepo) error {
 	c.logger.Info("open cluster service", "servers", servers)
 	if err := c.rpcService.Open(); err != nil {
 		return fmt.Errorf("start rpc service: %w", err)
 	}
 
-	if err := c.Service.Open(ctx, db); err != nil {
+	if err := c.Service.Open(ctx, db, schemaRepo); err != nil {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 

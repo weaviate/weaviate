@@ -25,6 +25,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/utils"
@@ -71,9 +72,8 @@ func TestServiceEndpoints(t *testing.T) {
 		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond), context.DeadlineExceeded)
 	}()
 
-	// Open
-	defer srv.Close(ctx)
-	assert.Nil(t, srv.Open(ctx, m.indexer))
+	// Open (close is called manually below)
+	assert.Nil(t, srv.Open(ctx, m.indexer, NewMockSchemaStore()))
 
 	// node lose leadership after service call
 	assert.ErrorIs(t, srv.store.Join(m.store.nodeID, addr, true), ErrNotLeader)
@@ -180,7 +180,7 @@ func TestServiceEndpoints(t *testing.T) {
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
 	srv.store.db.Schema.clear()
-	assert.Nil(t, srv.Open(ctx, m.indexer))
+	assert.Nil(t, srv.Open(ctx, m.indexer, NewMockSchemaStore()))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
 	assert.True(t, srv.Ready())
@@ -208,7 +208,7 @@ func TestServiceStoreInit(t *testing.T) {
 
 	// Already Open
 	store.open.Store(true)
-	assert.Nil(t, store.Open(ctx))
+	assert.Nil(t, store.Open(ctx, NewMockSchemaStore()))
 
 	// notify non voter
 	store.bootstrapExpect = 0
@@ -675,6 +675,33 @@ func cmdAsBytes(class string,
 	}
 
 	return data
+}
+
+type MockSchemaGetter struct {
+	mock.Mock
+}
+
+func (m *MockSchemaGetter) GetSchema() *models.Schema {
+	return &models.Schema{}
+}
+
+func (m *MockSchemaGetter) GetShardingState() map[string]*sharding.State {
+	return map[string]*sharding.State{}
+}
+
+type MockSchemaStore struct {
+	mock.Mock
+	schemaGetter schemaTypes.SchemaStateGetter
+}
+
+func (m *MockSchemaStore) Load(ctx context.Context) (schemaTypes.SchemaStateGetter, error) {
+	return m.schemaGetter, nil
+}
+
+func NewMockSchemaStore() *MockSchemaStore {
+	return &MockSchemaStore{
+		schemaGetter: &MockSchemaGetter{},
+	}
 }
 
 type MockStore struct {
