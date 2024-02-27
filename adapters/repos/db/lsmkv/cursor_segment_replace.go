@@ -154,7 +154,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 		segmentName := s.segment.path
 		currentOffset := s.reusableNode.offset
 		s.segment.logger.Errorf("error parsing replace node segment %v, current offset: %v offset: %+v, err: %v", segmentName, currentOffset, offset, err)
-		return lsmkv.NotFound
+		return err
 	}
 
 	if s.reusableNode.tombstone {
