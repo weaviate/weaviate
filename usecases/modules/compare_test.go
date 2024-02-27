@@ -64,6 +64,7 @@ func TestCompareRevectorize(t *testing.T) {
 		{name: "different text - not vectorized", oldProps: map[string]interface{}{"text_not_vectorized": "value1"}, newProps: map[string]interface{}{"text_not_vectorized": "value2"}, different: false},
 		{name: "same text array prop", oldProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, newProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, different: false},
 		{name: "different text array prop", oldProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, newProps: map[string]interface{}{"text_array": []string{"first sentence", "second different sentence"}}, different: true},
+		{name: "different text array prop length", oldProps: map[string]interface{}{"text_array": []string{"first sentence", "second long sentence"}}, newProps: map[string]interface{}{"text_array": []string{"first sentence"}}, different: true},
 		{name: "old object not present", oldProps: nil, newProps: map[string]interface{}{"text": "value1"}, different: true},
 		{name: "changed prop does not matter", oldProps: map[string]interface{}{"number": 2}, newProps: map[string]interface{}{"number": 1}, different: false},
 		{name: "media prop changed", oldProps: map[string]interface{}{"image": "abc"}, newProps: map[string]interface{}{"image": "def"}, different: true},
@@ -79,7 +80,7 @@ func TestCompareRevectorize(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, nil, findObject)
+			different, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, nil, "", findObject)
 			require.Equal(t, different, tt.different)
 		})
 	}
@@ -153,7 +154,7 @@ func TestCompareRevectorizeNamedVectors(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, findObject)
+			different, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, "", findObject)
 			require.Equal(t, different, tt.different)
 		})
 	}
