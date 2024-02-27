@@ -150,9 +150,5 @@ func (r *fakeObjectsRepo) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
 	addl additional.Properties, tenant string,
 ) (*search.Result, error) {
-	args := r.Called(ctx, class, id, props, addl)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*search.Result), args.Error(1)
+	return nil, nil
 }
