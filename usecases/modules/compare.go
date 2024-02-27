@@ -22,10 +22,10 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, sourceProperties []string, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32, models.Vectors) {
+func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, sourceProperties []string, targetVector string, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32) {
 	textProps, mediaProps, err := mod.VectorizedProperties(cfg)
 	if err != nil {
-		return true, nil, nil, nil
+		return true, nil, nil
 	}
 
 	type compareProps struct {
@@ -77,9 +77,13 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	if len(propsToCmpare) == 0 {
 		oldObject, err := findObjectFn(ctx, class.Class, object.ID, nil, additional.Properties{}, object.Tenant)
 		if err != nil || oldObject == nil {
-			return true, nil, nil, nil
+			return true, nil, nil
 		}
-		return false, oldObject.AdditionalProperties, oldObject.Vector, oldObject.Vectors
+		if targetVector == "" {
+			return false, oldObject.AdditionalProperties, oldObject.Vector
+		} else {
+			return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
+		}
 	}
 
 	returnProps := make(search.SelectProperties, 0, len(propsToCmpare))
@@ -88,7 +92,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	}
 	oldObject, err := findObjectFn(ctx, class.Class, object.ID, returnProps, additional.Properties{}, object.Tenant)
 	if err != nil || oldObject == nil {
-		return true, nil, nil, nil
+		return true, nil, nil
 	}
 	oldProps := oldObject.Schema.(map[string]interface{})
 	var newProps map[string]interface{}
@@ -102,7 +106,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		valOld, isPresentOld := oldProps[propStruct.Name]
 
 		if isPresentNew != isPresentOld {
-			return true, nil, nil, nil
+			return true, nil, nil
 		}
 
 		if !isPresentNew {
@@ -110,17 +114,24 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		}
 
 		if propStruct.IsArray {
+			if len(valOld.([]string)) != len(valNew.([]string)) {
+				return true, nil, nil
+			}
 			for i, val := range valOld.([]string) {
 				if val != valNew.([]string)[i] {
-					return true, nil, nil, nil
+					return true, nil, nil
 				}
 			}
 		} else {
 			if valOld != valNew {
-				return true, nil, nil, nil
+				return true, nil, nil
 			}
 		}
 	}
 
-	return false, oldObject.AdditionalProperties, oldObject.Vector, oldObject.Vectors
+	if targetVector == "" {
+		return false, oldObject.AdditionalProperties, oldObject.Vector
+	} else {
+		return false, oldObject.AdditionalProperties, oldObject.Vectors[targetVector]
+	}
 }

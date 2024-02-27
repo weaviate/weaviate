@@ -202,15 +202,14 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var target_properties []string = nil
+			var targetProperties []string = nil
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
 				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					target_properties = properties.([]string)
+					targetProperties = properties.([]string)
 				}
 			}
-
-			needsRevectorization, additionalProperties, vector, _ := reVectorize(ctx, cfg, vectorizer, object, class, target_properties, findObjectFn)
+			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
 			if needsRevectorization {
 				var err error
 				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
