@@ -123,20 +123,3 @@ func (v *ObjectVectorizer) sortStringKeys(schemaMap map[string]interface{}) []st
 	sort.Strings(keys)
 	return keys
 }
-
-func (v *ObjectVectorizer) appendPropIfText(icheck ClassSettings, list *[]string, propName string,
-	value interface{},
-) bool {
-	valueString, ok := value.(string)
-	if ok {
-		if icheck.VectorizePropertyName(propName) {
-			// use prop and value
-			*list = append(*list, strings.ToLower(
-				fmt.Sprintf("%s %s", v.camelCaseToLower(propName), valueString)))
-		} else {
-			*list = append(*list, strings.ToLower(valueString))
-		}
-		return true
-	}
-	return false
-}
