@@ -178,6 +178,9 @@ func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Contex
 	}
 	for modName := range modConfig {
 		mod := p.GetByName(modName)
+		if mod == nil {
+			return errors.Errorf("module with name %s doesn't exist", modName)
+		}
 		if !p.isVectorizerModule(mod.Type()) {
 			if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
 				return err
@@ -212,25 +215,23 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 		return nil
 	}
 
+	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector)
+	err := cc.ValidateClass(ctx, class, cfg)
+	if err != nil {
+		return errors.Wrapf(err, "module '%s'", moduleName)
+	}
+
 	// props need to be a string array
 	if class.VectorConfig != nil {
 		props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
 		if ok {
 			propsTyped := make([]string, len(props.([]interface{})))
 			for i, v := range props.([]interface{}) {
-				propsTyped[i], ok = v.(string)
-				if !ok {
-					return errors.Errorf("class.VectorConfig.Vectorizer.%s.properties must be a string array, got %T", moduleName, v)
-				}
+				propsTyped[i] = v.(string) // was validated by the module
 			}
 			class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
 		}
 	}
 
-	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector)
-	err := cc.ValidateClass(ctx, class, cfg)
-	if err != nil {
-		return errors.Wrapf(err, "module '%s'", moduleName)
-	}
 	return nil
 }
