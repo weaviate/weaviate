@@ -74,7 +74,7 @@ type TypeSafeClass struct {
 	VectorConfig *map[string]models.VectorConfig `json:"vectorConfig,omitempty"`
 
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType
-	VectorIndexConfig *schema.VectorIndexConfig `json:"vectorIndexConfig,omitempty"`
+	VectorIndexConfig map[string]interface{} `json:"vectorIndexConfig,omitempty"`
 
 	// Name of the vector index to use, eg. (HNSW)
 	VectorIndexType string `json:"vectorIndexType,omitempty"`
@@ -95,7 +95,7 @@ func TypedClass(class *models.Class) *TypeSafeClass {
 		ReplicationConfig:  class.ReplicationConfig,
 		ShardingConfig:     class.ShardingConfig.(*sharding.Config),
 		VectorConfig:       &class.VectorConfig,
-		VectorIndexConfig:  class.VectorIndexConfig.(*schema.VectorIndexConfig),
+		VectorIndexConfig:  class.VectorIndexConfig.(map[string]interface{}),
 		VectorIndexType:    class.VectorIndexType,
 		Vectorizer:         class.Vectorizer,
 	}
