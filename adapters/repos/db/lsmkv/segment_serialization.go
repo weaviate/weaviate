@@ -169,7 +169,9 @@ func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentR
 	defer func() {
 		if r := recover(); r != nil {
 			debug.PrintStack()
-			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseReplaceNodeIntoPread: %v", r)
+			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseReplaceNodeInto: %v", r)
+		} else if err != nil {
+			err = errors.Wrapf(lsmkv.NotFound, "ParseReplaceNodeInto: %v", err)
 		}
 	}()
 

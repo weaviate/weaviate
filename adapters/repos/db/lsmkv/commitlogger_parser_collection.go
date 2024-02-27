@@ -60,6 +60,9 @@ func (p *commitloggerParser) doCollection() error {
 func (p *commitloggerParser) parseCollectionNode() error {
 	n, err := ParseCollectionNode(p.reader)
 	if err != nil {
+		segmentName := p.path
+		currentOffset := n.offset
+		errors.Errorf("error parsing collection node segment %v, current offset: %v, err: %v", segmentName, currentOffset, err)
 		return err
 	}
 
