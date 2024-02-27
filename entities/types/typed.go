@@ -1,4 +1,4 @@
-package models
+package types
 
 import (
 	"github.com/go-openapi/strfmt"
@@ -10,7 +10,7 @@ import (
 type TypeSafeSchema struct {
 
 		// Semantic classes that are available.
-		Classes []*TypedClass `json:"classes"`
+		Classes []*TypeSafeClass `json:"classes"`
 	
 		// Email of the maintainer.
 		// Format: email
@@ -21,7 +21,7 @@ type TypeSafeSchema struct {
 	}
 
 func TypedSchema(schema *models.Schema) *TypeSafeSchema {
-	classes := make([]*TypedClass, len(schema.Classes))
+	classes := make([]*TypeSafeClass, len(schema.Classes))
 	for i, class := range schema.Classes {
 		classes[i] = TypedClass(class)
 	}
@@ -68,13 +68,13 @@ type TypeSafeClass struct {
 	ReplicationConfig *models.ReplicationConfig `json:"replicationConfig,omitempty"`
 
 	// Manage how the index should be sharded and distributed in the cluster
-	ShardingConfig sharding.Config `json:"shardingConfig,omitempty"`
+	ShardingConfig *sharding.Config `json:"shardingConfig,omitempty"`
 
 	// vector config
-	VectorConfig map[string]models.VectorConfig `json:"vectorConfig,omitempty"`
+	VectorConfig *map[string]models.VectorConfig `json:"vectorConfig,omitempty"`
 
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType
-	VectorIndexConfig schema.VectorIndexConfig `json:"vectorIndexConfig,omitempty"`
+	VectorIndexConfig *schema.VectorIndexConfig `json:"vectorIndexConfig,omitempty"`
 
 	// Name of the vector index to use, eg. (HNSW)
 	VectorIndexType string `json:"vectorIndexType,omitempty"`
@@ -84,36 +84,36 @@ type TypeSafeClass struct {
 }
 
 
-func TypedClass(class *models.Class) *TypedClass {
-	return &TypedClass{
-		Class:              TypedSchema,
-		Description:        class.Description,
-		InvertedIndexConfig: class.InvertedIndexConfig,
-		ModuleConfig:       class.ModuleConfig,
-		MultiTenancyConfig: class.MultiTenancyConfig,
-		Properties:         class.Properties,
-		ReplicationConfig:  class.Replication
-		ShardingConfig:     class.ShardingConfig,
-		VectorConfig:       class.VectorConfig,
-		VectorIndexConfig:  class.VectorIndex
-		VectorIndexType:    class.VectorIndex
-		Vectorizer:         class.Vectorizer
-	}
-}
-
-func UntypedClass(class *TypedClass) *models.Class {
-	return &models.Class{
+func TypedClass(class *models.Class) *TypeSafeClass {
+	return &TypeSafeClass{
 		Class:              class.Class,
 		Description:        class.Description,
 		InvertedIndexConfig: class.InvertedIndexConfig,
-		ModuleConfig:       class.ModuleConfig,
+		ModuleConfig:       class.ModuleConfig.(map[string]interface{}),
 		MultiTenancyConfig: class.MultiTenancyConfig,
 		Properties:         class.Properties,
-		ReplicationConfig:  class.Replication
-		ShardingConfig:     class.ShardingConfig,
-		VectorConfig:       class.VectorConfig,
-		VectorIndexConfig:  class.VectorIndex
-		VectorIndexType:    class.VectorIndex
-		Vectorizer:         class.Vectorizer
+		ReplicationConfig:  class.ReplicationConfig,
+		ShardingConfig:     class.ShardingConfig.(*sharding.Config),
+		VectorConfig:       &class.VectorConfig,
+		VectorIndexConfig:  class.VectorIndexConfig.(*schema.VectorIndexConfig),
+		VectorIndexType:    class.VectorIndexType,
+		Vectorizer:         class.Vectorizer,
+	}
+}
+
+func UntypedClass(typedClass *TypeSafeClass) *models.Class {
+	return &models.Class{
+		Class:              typedClass.Class,
+		Description:        typedClass.Description,
+		InvertedIndexConfig: typedClass.InvertedIndexConfig,
+		ModuleConfig:       typedClass.ModuleConfig,
+		MultiTenancyConfig: typedClass.MultiTenancyConfig,
+		Properties:         typedClass.Properties,
+		ReplicationConfig:  typedClass.ReplicationConfig,
+		ShardingConfig:     typedClass.ShardingConfig,
+		VectorConfig:       *typedClass.VectorConfig,
+		VectorIndexConfig:  typedClass.VectorIndexConfig,
+		VectorIndexType:    typedClass.VectorIndexType,
+		Vectorizer:         typedClass.Vectorizer,
 	}
 }
