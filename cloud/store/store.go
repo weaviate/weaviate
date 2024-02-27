@@ -26,11 +26,12 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"google.golang.org/protobuf/proto"
+	gproto "google.golang.org/protobuf/proto"
+
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
-	"google.golang.org/protobuf/proto"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
