@@ -27,14 +27,14 @@ import (
 
 func (s *Shard) initHashBeater() {
 	go func() {
-		t := time.NewTicker(100 * time.Millisecond)
+		t := time.NewTicker(50 * time.Millisecond)
 		defer t.Stop()
 		for {
 			select {
 			case <-s.hashBeaterCtx.Done():
 				return
 			case <-t.C:
-				err := s.hashBeat()
+				stats, err := s.hashBeat()
 				if s.hashBeaterCtx.Err() != nil {
 					return
 				}
@@ -42,28 +42,78 @@ func (s *Shard) initHashBeater() {
 					s.index.logger.Printf("hashbeat at shard %s: %v", s.name, err)
 					// TODO (jeroiraz): an exp-backoff delay may be convenient at this point
 				}
+
+				hosts := make([]string, len(stats.hostStats))
+				localObjects := 0
+				remoteObjects := 0
+				objectsPropagated := 0
+				var objectProgationTook time.Duration
+
+				for i, stat := range stats.hostStats {
+					hosts[i] = stat.host
+					localObjects += stat.localObjects
+					remoteObjects += stat.remoteObjects
+					objectsPropagated += stat.objectsPropagated
+					objectProgationTook += stat.objectProgationTook
+				}
+
+				if objectsPropagated == 0 {
+					// no need to propagate any local object
+					continue
+				}
+
+				s.index.logger.WithField("action", "async_replication_iteration").
+					WithField("diffCalculationTook", stats.diffCalculationTook.String()).
+					WithField("hosts", hosts).
+					WithField("localObjects", localObjects).
+					WithField("remoteObjects", remoteObjects).
+					WithField("objectsPropagated", objectsPropagated).
+					WithField("objectProgationTook", objectProgationTook.String()).
+					Debug("async replication iteration successfully completed")
 			}
 		}
 	}()
 }
 
-func (s *Shard) hashBeat() error {
+type hashBeatStats struct {
+	diffCalculationTook time.Duration
+	hostStats           []hashBeatHostStats
+}
+
+type hashBeatHostStats struct {
+	host                string
+	localObjects        int
+	remoteObjects       int
+	objectsPropagated   int
+	objectProgationTook time.Duration
+}
+
+func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 	// Note: a copy of the hashtree could be used if a more stable comparison is desired s.hashtree.Clone()
 	// in such a case nodes may also need to have a stable copy of their corresponding hashtree.
 	ht := s.hashtree
+
+	diffCalculationStart := time.Now()
 
 	// Note: any consistency level could be used
 	replyCh, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, ht, replica.One, "")
 	if err != nil {
 		if errors.Is(err, hashtree.ErrNoMoreDifferences) {
 			s.index.logger.Printf("shard fully replicated %s", s.name)
-			return nil
+
+			return hashBeatStats{
+				diffCalculationTook: time.Since(diffCalculationStart),
+			}, nil
 		}
 
-		return fmt.Errorf("collecting differences for shard %s: %w", s.name, err)
+		return stats, fmt.Errorf("collecting differences for shard %s: %w", s.name, err)
 	}
 
+	stats.diffCalculationTook = time.Since(diffCalculationStart)
+
 	for r := range replyCh {
+		objectProgationStart := time.Now()
+
 		if r.Err != nil {
 			if !errors.Is(r.Err, hashtree.ErrNoMoreDifferences) {
 				s.index.logger.Printf("reading collected differences for shard %s: %v", s.name, r.Err)
@@ -74,9 +124,13 @@ func (s *Shard) hashBeat() error {
 		shardDiffReader := r.Value
 		diffReader := shardDiffReader.DiffReader
 
+		localObjects := 0
+		remoteObjects := 0
+		objectsPropagated := 0
+
 		for {
 			if s.hashBeaterCtx.Err() != nil {
-				return s.hashBeaterCtx.Err()
+				return stats, s.hashBeaterCtx.Err()
 			}
 
 			initialToken, finalToken, err := diffReader.Next()
@@ -84,10 +138,10 @@ func (s *Shard) hashBeat() error {
 				break
 			}
 			if err != nil {
-				return fmt.Errorf("difference reading: %w", err)
+				return stats, fmt.Errorf("difference reading: %w", err)
 			}
 
-			_, err = s.stepsTowardsShardConsistency(
+			localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
 				s.hashBeaterCtx,
 				s.name,
 				shardDiffReader.Host,
@@ -98,21 +152,35 @@ func (s *Shard) hashBeat() error {
 				s.index.logger.Printf("solving differences for shard %s: %v", s.name, err)
 				continue
 			}
+
+			localObjects += localObjs
+			remoteObjects += remoteObjs
+			objectsPropagated += propagations
 		}
+
+		stat := hashBeatHostStats{
+			host:                shardDiffReader.Host,
+			localObjects:        localObjects,
+			remoteObjects:       remoteObjects,
+			objectsPropagated:   objectsPropagated,
+			objectProgationTook: time.Since(objectProgationStart),
+		}
+
+		stats.hostStats = append(stats.hostStats, stat)
 	}
 
-	return nil
+	return stats, nil
 }
 
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	shardName string, host string, initialToken, finalToken uint64,
-) (n int, err error) {
+) (localObjects, remoteObjects, propagations int, err error) {
 	const limit = 100
 
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
 		localDigests, newLocalLastReadToken, err := s.index.digestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
-			return n, err
+			return localObjects, remoteObjects, propagations, err
 		}
 
 		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
@@ -123,6 +191,8 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 				localDigestsByUUID[d.ID] = d
 			}
 		}
+
+		localObjects += len(localDigestsByUUID)
 
 		if len(localDigestsByUUID) == 0 {
 			// no more local objects need to be propagated in this iteration
@@ -139,7 +209,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
 				shardName, host, remoteLastTokenRead, newLocalLastReadToken, limit)
 			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
-				return n, err
+				return localObjects, remoteObjects, propagations, err
 			}
 
 			if len(remoteDigests) == 0 {
@@ -158,6 +228,8 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 					delete(localDigestsByUUID, d.ID)
 					continue
 				}
+
+				remoteObjects++
 
 				localDigest, ok := localDigestsByUUID[d.ID]
 				if ok {
@@ -192,7 +264,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		replicaObjs, err := s.index.fetchObjects(ctx, shardName, uuids)
 		if err != nil {
-			return n, fmt.Errorf("fetching objects from shard %s: %w", shardName, err)
+			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching objects from shard %s: %w", shardName, err)
 		}
 
 		mergeObjs := make([]*objects.VObject, len(replicaObjs))
@@ -206,19 +278,19 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			mergeObjs[i] = obj
 		}
 
-		rs, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
+		_, err = s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
 		if err != nil {
-			return n, fmt.Errorf("overwriting objects in shard %s at host %s: %w", shardName, host, err)
+			return localObjects, remoteObjects, propagations, fmt.Errorf("overwriting objects in shard %s at host %s: %w", shardName, host, err)
 		}
 
-		n += len(rs)
+		propagations += len(mergeObjs)
 		localLastReadToken = newLocalLastReadToken
 	}
 
-	// Note: n == 0 means local shard is laying behind remote shard,
+	// Note: propagations == 0 means local shard is laying behind remote shard,
 	// the local shard may receive recent objects when remote shard propagates them
 
-	return n, nil
+	return localObjects, remoteObjects, propagations, nil
 }
 
 func (s *Shard) stopHashBeater() {
