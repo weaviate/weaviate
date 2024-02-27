@@ -212,6 +212,18 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 		return nil
 	}
 
+	// props need to be a string array
+	props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
+	if ok {
+		propsTyped := make([]string, len(props.([]interface{})))
+		for i, v := range props.([]interface{}) {
+			propsTyped[i], ok = v.(string)
+			if !ok {
+				return errors.Errorf("class.VectorConfig.Vectorizer.%s.properties must be a string array, got %T", moduleName, v)
+			}
+		}
+	}
+
 	cfg := NewClassBasedModuleConfig(class, moduleName, "", targetVector)
 	err := cc.ValidateClass(ctx, class, cfg)
 	if err != nil {
