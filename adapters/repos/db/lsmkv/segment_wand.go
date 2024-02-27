@@ -159,7 +159,7 @@ func (t *Term) scoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 	// advance
 	t.advance()
 
-	fmt.Printf("id: %d, tf: %f, idf: %f %s\n", id, tf, t.Idf, t.QueryTerm)
+	// fmt.Printf("id: %d, tf: %f, idf: %f %s\n", id, tf, t.Idf, t.QueryTerm)
 
 	return id, tf * t.Idf
 }
@@ -336,7 +336,7 @@ func (t *Term) jumpAtLeastUnaligned(minID uint64, start uint64, end uint64) { //
 	return
 }
 
-type Terms []Term
+type Terms []*Term
 
 func (t Terms) completelyExhausted() bool {
 	for i := range t {
@@ -673,7 +673,7 @@ func (b *Bucket) GetTermsForWand(key []byte, N float64, duplicateTextBoost float
 		if err != nil {
 			return nil, err
 		}
-		terms[i] = *term
+		terms[i] = term
 	}
 
 	return terms, nil
