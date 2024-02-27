@@ -78,7 +78,81 @@ func TestCompareRevectorize(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, findObject)
+			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, nil, findObject)
+			require.Equal(t, different, tt.different)
+		})
+	}
+}
+
+func TestCompareRevectorizeNamedVectors(t *testing.T) {
+	class := &models.Class{
+		Class: "MyClass",
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{schema.DataTypeText.String()}},
+			{Name: "text_array", DataType: []string{schema.DataTypeTextArray.String()}},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			"text": {
+				Vectorizer: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"vectorizeClassName": false,
+						"properties":         []string{"text"},
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			"text_array": {
+				Vectorizer: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"vectorizeClassName": false,
+						"properties":         []string{"text_array"},
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			"all": {
+				Vectorizer: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+			"all_explicit": {
+				Vectorizer: map[string]interface{}{
+					"my-module": map[string]interface{}{
+						"vectorizeClassName": false,
+					},
+				},
+				VectorIndexType: "hnsw",
+			},
+		},
+	}
+	cfg := NewClassBasedModuleConfig(class, "my-module", "tenant", "")
+	module := newDummyText2VecModule("my-module", []string{"image", "video"})
+
+	cases := []struct {
+		name          string
+		oldProps      map[string]interface{}
+		newProps      map[string]interface{}
+		targetVectors []string
+		different     bool
+	}{
+		{name: "same text prop, part of target vec", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value1"}, targetVectors: []string{"text"}, different: false},
+		{name: "different text prop, part of target vec", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value2"}, targetVectors: []string{"text"}, different: true},
+		{name: "different text prop, not part of target vec", oldProps: map[string]interface{}{"text": "value1"}, newProps: map[string]interface{}{"text": "value2"}, targetVectors: []string{"text_array"}, different: false},
+		{name: "multiple props text prop, not part of target vec", oldProps: map[string]interface{}{"text": "value1", "image": "abc"}, newProps: map[string]interface{}{"text": "value2", "image": "def"}, targetVectors: []string{"text_array"}, different: false},
+		{name: "multiple props text prop, one is part of text prop", oldProps: map[string]interface{}{"text": "value1", "image": "abc"}, newProps: map[string]interface{}{"text": "value2", "image": "def"}, targetVectors: []string{"text_array", "image"}, different: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			uid, _ := uuid.NewUUID()
+			uidfmt := strfmt.UUID(uid.String())
+			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
+			if tt.oldProps != nil {
+				objsToReturn[uid.String()] = tt.oldProps
+			}
+			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, findObject)
 			require.Equal(t, different, tt.different)
 		})
 	}

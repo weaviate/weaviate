@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32, models.Vectors) {
+func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, sourceProperties []string, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32, models.Vectors) {
 	textProps, mediaProps, err := mod.VectorizedProperties(cfg)
 	if err != nil {
 		return true, nil, nil, nil
@@ -37,6 +37,20 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	for _, prop := range class.Properties {
 		if len(prop.DataType) > 1 {
 			continue // multi cref
+		}
+
+		// for named vectors with explicit source properties, skip if not in the list
+		if sourceProperties != nil {
+			found := false
+			for _, sourceProp := range sourceProperties {
+				if prop.Name == sourceProp {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 
 		if prop.ModuleConfig != nil {
