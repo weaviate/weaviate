@@ -53,23 +53,19 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.Class, comp, cfg)
+	vec, err := v.object(ctx, object.Class, schema, cfg)
 	return vec, nil, err
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
 
-	corpi, titlePropertyValue, vector := v.objectVectorizer.TextsOrVectorWithTitleProperty(ctx,
-		className, comp, icheck, icheck.TitleProperty(), cfg.TargetVector())
-	if vector != nil {
-		// dont' re-vectorize
-		return vector, nil
-	}
+	corpi, titlePropertyValue := v.objectVectorizer.TextsWithTitleProperty(ctx,
+		className, schema, icheck, icheck.TitleProperty())
 	// vectorize text
 	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),

@@ -76,8 +76,7 @@ func TestCompareRevectorize(t *testing.T) {
 			uidfmt := strfmt.UUID(uid.String())
 			objNew := &models.Object{Class: class.Class, Properties: tt.newProps, ID: uidfmt}
 			if tt.oldProps != nil {
-				objOld := models.Object{Class: class.Class, Properties: tt.oldProps, ID: uidfmt}
-				objsToReturn[uid.String()] = objOld
+				objsToReturn[uid.String()] = tt.oldProps
 			}
 			different, _, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, findObject)
 			require.Equal(t, different, tt.different)

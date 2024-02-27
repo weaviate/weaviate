@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -149,16 +148,11 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	}
 
 	var mergedProps map[string]interface{}
-	var compFactory moduletools.PropsComparatorFactory
 
 	vector := nextVec
 	vectors := nextVecs
 	if prevPropsSch == nil {
 		mergedProps = nextProps
-
-		compFactory = func() (moduletools.VectorizablePropsComparator, error) {
-			return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, mergedProps), nil
-		}
 	} else {
 		prevProps, ok := prevPropsSch.(map[string]interface{})
 		if !ok {
@@ -179,16 +173,12 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		for propName, propValue := range nextProps {
 			mergedProps[propName] = propValue
 		}
-
-		compFactory = func() (moduletools.VectorizablePropsComparator, error) {
-			return moduletools.NewVectorizablePropsComparator(class.Properties, mergedProps, prevProps, prevVec, prevVecs), nil
-		}
 	}
 
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
 	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors}
-	if err := m.modulesProvider.UpdateVector(ctx, obj, class, compFactory, m.findObject, m.logger); err != nil {
+	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
 

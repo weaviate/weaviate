@@ -86,7 +86,7 @@ func (p *Provider) UsingRef2Vec(className string) bool {
 }
 
 func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
 	if !p.hasMultipleVectorsConfiguration(class) {
@@ -108,10 +108,10 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	if !p.hasMultipleVectorsConfiguration(class) {
 		// legacy vectorizer configuration
 		for targetVector, modConfig := range modConfigs {
-			return p.vectorize(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger)
+			return p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig, logger)
 		}
 	}
-	return p.vectorizeMultiple(ctx, object, class, compFactory, findObjectFn, modConfigs, logger)
+	return p.vectorizeMultiple(ctx, object, class, findObjectFn, modConfigs, logger)
 }
 
 func (p *Provider) hasMultipleVectorsConfiguration(class *models.Class) bool {
@@ -119,7 +119,7 @@ func (p *Provider) hasMultipleVectorsConfiguration(class *models.Class) bool {
 }
 
 func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object, class *models.Class,
-	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	findObjectFn modulecapabilities.FindObjectFn,
 	modConfigs map[string]map[string]interface{}, logger logrus.FieldLogger,
 ) error {
 	eg := &errgroup.Group{}
@@ -129,7 +129,7 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
 		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
-			err := p.vectorizeOne(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger)
+			err := p.vectorizeOne(ctx, object, class, findObjectFn, targetVector, modConfig, logger)
 			if err != nil {
 				return err
 			}
@@ -171,7 +171,7 @@ func (p *Provider) addVectorToObject(object *models.Object,
 }
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
-	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
 	logger logrus.FieldLogger,
 ) error {
@@ -180,7 +180,7 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
 	}
 	if vectorize {
-		if err := p.vectorize(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger); err != nil {
+		if err := p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig, logger); err != nil {
 			return fmt.Errorf("vectorize target vector %s: %w", targetVector, err)
 		}
 	}
@@ -188,7 +188,7 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 }
 
 func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *models.Class,
-	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
+	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
 	logger logrus.FieldLogger,
 ) error {
@@ -203,12 +203,14 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if p.shouldVectorizeObject(object, cfg) {
 			needsRevectorization, additionalProperties, vector, _ := reVectorize(ctx, cfg, vectorizer, object, class, findObjectFn)
-			comp, err := compFactory()
-			if err != nil {
-				return fmt.Errorf("failed creating properties comparator: %w", err)
-			}
 			if needsRevectorization {
-				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, comp, cfg)
+				propertiesMap := map[string]interface{}{}
+				for _, prop := range class.Properties {
+					propertiesMap[prop.Name] = prop
+				}
+
+				var err error
+				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, propertiesMap, cfg)
 				if err != nil {
 					return fmt.Errorf("update vector: %w", err)
 				}
