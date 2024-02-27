@@ -98,7 +98,7 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, prevObj.Properties,
-		primitive, principal, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors)
+		primitive, principal, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID)
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
@@ -140,7 +140,7 @@ func (m *Manager) validateInputs(updates *models.Object) error {
 func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
 	prevPropsSch models.PropertySchema, nextProps map[string]interface{},
 	principal *models.Principal, prevVec, nextVec []float32,
-	prevVecs models.Vectors, nextVecs models.Vectors,
+	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
 	class, err := m.schemaManager.GetClass(ctx, principal, className)
 	if err != nil {
@@ -177,7 +177,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
-	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors}
+	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
 	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
