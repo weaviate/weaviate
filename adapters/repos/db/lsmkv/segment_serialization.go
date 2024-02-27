@@ -171,6 +171,8 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 		if r := recover(); r != nil {
 			debug.PrintStack()
 			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseReplaceNodeIntoPread: %v", r)
+		} else if err != nil {
+			err = errors.Wrapf(lsmkv.NotFound, "ParseReplaceNodeIntoPread: %v", err)
 		}
 	}()
 
