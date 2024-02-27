@@ -14,6 +14,7 @@ package vectorizer
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
@@ -48,9 +49,9 @@ func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object.ID, schema, cfg)
 	return vec, nil, err
 }
 
@@ -64,38 +65,28 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image
 	images := []string{}
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		if !ichek.ImageField(propName) {
-			continue
+	if schema != nil {
+		schemamap := schema.(map[string]interface{})
+		for _, propName := range v.sortStringKeys(schemamap) {
+			if !ichek.ImageField(propName) {
+				continue
+			}
+
+			switch val := schemamap[propName].(type) {
+			case string:
+				images = append(images, val)
+
+			default:
+			}
+
 		}
-
-		switch typed := propValue.(type) {
-		case string:
-			vectorize = vectorize || comp.IsChanged(propName)
-			images = append(images, typed)
-
-		case nil:
-			vectorize = vectorize || comp.IsChanged(propName)
-		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
@@ -109,4 +100,13 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	}
 
 	return libvectorizer.CombineVectors(vectors), nil
+}
+
+func (v *Vectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
+	keys := make([]string, 0, len(schemaMap))
+	for k := range schemaMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

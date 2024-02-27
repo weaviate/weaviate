@@ -25,7 +25,7 @@ type Vectorizer interface {
 	// VectorizeObject should mutate the object which is passed in as a pointer-type
 	// by extending it with the desired vector and - if applicable - any meta
 	// information as part of _additional properties
-	VectorizeObject(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
+	VectorizeObject(ctx context.Context, obj *models.Object, schema interface{},
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	// VectorizedProperties returns which properties the vectorizer looks at.
 	// If the vectorizer is capable of vectorizing all text properties, the first bool is true.

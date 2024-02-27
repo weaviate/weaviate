@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"context"
+	"sort"
 
 	"github.com/pkg/errors"
 
@@ -58,9 +59,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object.ID, schema, cfg)
 	return vec, nil, err
 }
 
@@ -125,71 +126,48 @@ func (v *Vectorizer) getVector(vectors [][]float32) ([]float32, error) {
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image and text
 	var texts, images, audio, video, imu, thermal, depth []string
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		switch typed := propValue.(type) {
-		case string:
-			if icheck.ImageField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				images = append(images, typed)
-			}
-			if icheck.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed)
-			}
-			if icheck.AudioField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				audio = append(audio, typed)
-			}
-			if icheck.VideoField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				video = append(video, typed)
-			}
-			if icheck.IMUField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				imu = append(imu, typed)
-			}
-			if icheck.ThermalField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				thermal = append(thermal, typed)
-			}
-			if icheck.DepthField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				depth = append(depth, typed)
-			}
+	if schema != nil {
+		schemamap := schema.(map[string]interface{})
+		for _, propName := range v.sortStringKeys(schemamap) {
+			switch typed := schemamap[propName].(type) {
+			case string:
+				if icheck.ImageField(propName) {
+					images = append(images, typed)
+				}
+				if icheck.TextField(propName) {
+					texts = append(texts, typed)
+				}
+				if icheck.AudioField(propName) {
+					audio = append(audio, typed)
+				}
+				if icheck.VideoField(propName) {
+					video = append(video, typed)
+				}
+				if icheck.IMUField(propName) {
+					imu = append(imu, typed)
+				}
+				if icheck.ThermalField(propName) {
+					thermal = append(thermal, typed)
+				}
+				if icheck.DepthField(propName) {
+					depth = append(depth, typed)
+				}
 
-		case []string:
-			if icheck.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed...)
-			}
+			case []string:
+				if icheck.TextField(propName) {
+					texts = append(texts, typed...)
+				}
 
-		case nil:
-			if icheck.ImageField(propName) || icheck.TextField(propName) ||
-				icheck.AudioField(propName) || icheck.VideoField(propName) ||
-				icheck.IMUField(propName) || icheck.ThermalField(propName) ||
-				icheck.DepthField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
+			default:
 			}
 		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
@@ -273,4 +251,13 @@ func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
 		return normalized
 	}
 	return nil
+}
+
+func (v *Vectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
+	keys := make([]string, 0, len(schemaMap))
+	for k := range schemaMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

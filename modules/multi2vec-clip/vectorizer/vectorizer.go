@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"context"
+	"sort"
 
 	"github.com/pkg/errors"
 
@@ -55,9 +56,9 @@ func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object.ID, schema, cfg)
 	return vec, nil, err
 }
 
@@ -74,49 +75,34 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		switch typed := propValue.(type) {
-		case string:
-			if ichek.ImageField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				images = append(images, typed)
-			}
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed)
-			}
+	if schema != nil {
+		schemamap := schema.(map[string]interface{})
+		for _, propName := range v.sortStringKeys(schemamap) {
+			switch val := schemamap[propName].(type) {
+			case string:
+				if ichek.ImageField(propName) {
+					images = append(images, val)
+				}
+				if ichek.TextField(propName) {
+					texts = append(texts, val)
+				}
 
-		case []string:
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed...)
-			}
+			case []string:
+				if ichek.TextField(propName) {
+					texts = append(texts, val...)
+				}
+			default: // properties that are not part of the object
 
-		case nil:
-			if ichek.ImageField(propName) || ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
@@ -169,4 +155,13 @@ func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
 		return normalized
 	}
 	return nil
+}
+
+func (v *Vectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
+	keys := make([]string, 0, len(schemaMap))
+	for k := range schemaMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

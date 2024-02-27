@@ -58,7 +58,7 @@ type metaClient interface {
 }
 
 type bindVectorizer interface {
-	Object(ctx context.Context, object *models.Object, comp moduletools.VectorizablePropsComparator,
+	Object(ctx context.Context, object *models.Object, schema interface{},
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 	VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) ([]float32, error)
@@ -162,9 +162,9 @@ func (m *BindModule) RootHandler() http.Handler {
 }
 
 func (m *BindModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, schema interface{}, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.bindVectorizer.Object(ctx, obj, comp, cfg)
+	return m.bindVectorizer.Object(ctx, obj, schema, cfg)
 }
 
 func (m *BindModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
