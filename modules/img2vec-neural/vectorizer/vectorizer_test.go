@@ -38,7 +38,7 @@ func TestVectorizer(t *testing.T) {
 		}
 
 		// when
-		vector, _, err := vectorizer.Object(context.Background(), object, props, config)
+		vector, _, err := vectorizer.Object(context.Background(), object, config)
 
 		// then
 		require.Nil(t, err)
@@ -60,7 +60,7 @@ func TestVectorizer(t *testing.T) {
 			Properties: props,
 		}
 		// when
-		vector, _, err := vectorizer.Object(context.Background(), object, props, config)
+		vector, _, err := vectorizer.Object(context.Background(), object, config)
 
 		// then
 		require.Nil(t, err)

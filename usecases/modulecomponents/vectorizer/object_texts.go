@@ -17,6 +17,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+
 	"github.com/fatih/camelcase"
 )
 
@@ -33,10 +36,9 @@ func New() *ObjectVectorizer {
 	return &ObjectVectorizer{}
 }
 
-func (v *ObjectVectorizer) Texts(ctx context.Context, className string,
-	schema interface{}, icheck ClassSettings,
+func (v *ObjectVectorizer) Texts(ctx context.Context, object *models.Object, icheck ClassSettings,
 ) string {
-	text, _ := v.TextsWithTitleProperty(ctx, className, schema, icheck, "")
+	text, _ := v.TextsWithTitleProperty(ctx, object, icheck, "")
 	return text
 }
 
@@ -58,25 +60,24 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 	return sb.String()
 }
 
-func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, className string,
-	schema interface{}, icheck ClassSettings, titlePropertyName string,
+func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *models.Object, icheck ClassSettings, titlePropertyName string,
 ) (string, string) {
 	var corpi []string
 	var titlePropertyValue []string
 
 	if icheck.VectorizeClassName() {
-		corpi = append(corpi, v.camelCaseToLower(className))
+		corpi = append(corpi, v.camelCaseToLower(object.Class))
 	}
-	if schema != nil {
-		schemamap := schema.(map[string]interface{})
-		for _, propName := range v.sortStringKeys(schemamap) {
+	if object.Properties != nil {
+		propMap := moduletools.PropertiesListToMap(object.Properties)
+		for _, propName := range v.sortStringKeys(propMap) {
 			if !icheck.PropertyIndexed(propName) {
 				continue
 			}
 			isTitleProperty := propName == titlePropertyName
 			isNameVectorizable := icheck.VectorizePropertyName(propName)
 
-			switch val := schemamap[propName].(type) {
+			switch val := propMap[propName].(type) {
 			case []string:
 				if len(val) > 0 {
 					lowerPropertyName := v.camelCaseToLower(propName)
@@ -108,7 +109,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, className
 	}
 	if len(corpi) == 0 {
 		// fall back to using the class name
-		corpi = append(corpi, v.camelCaseToLower(className))
+		corpi = append(corpi, v.camelCaseToLower(object.Class))
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")

@@ -52,20 +52,17 @@ type ClassSettings interface {
 	TitleProperty() string
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	schema interface{}, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.Class, schema, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
-func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
 
-	corpi, titlePropertyValue := v.objectVectorizer.TextsWithTitleProperty(ctx,
-		className, schema, icheck, icheck.TitleProperty())
+	corpi, titlePropertyValue := v.objectVectorizer.TextsWithTitleProperty(ctx, object, icheck, icheck.TitleProperty())
 	// vectorize text
 	res, err := v.client.Vectorize(ctx, []string{corpi}, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),

@@ -58,10 +58,9 @@ type ClassSettings interface {
 	Properties() ([]string, error)
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	schema interface{}, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, schema, cfg)
+	vec, err := v.object(ctx, object.ID, moduletools.PropertiesListToMap(object.Properties), cfg)
 	return vec, nil, err
 }
 

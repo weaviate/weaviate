@@ -184,7 +184,7 @@ func TestVectorizingObjects(t *testing.T) {
 			client := &fakeClient{}
 			v := New(client)
 
-			vector, _, err := v.Object(context.Background(), test.input, test.input.Properties, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
@@ -260,7 +260,7 @@ func TestVectorizingActions(t *testing.T) {
 				vectorizeClassName:    test.excludedClass != "Flight",
 				vectorizePropertyName: true,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, test.input.Properties, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)

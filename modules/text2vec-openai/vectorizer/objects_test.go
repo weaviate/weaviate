@@ -193,7 +193,7 @@ func TestVectorizingObjects(t *testing.T) {
 				skippedProperty:       test.noindex,
 				excludedProperty:      test.excludedProperty,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, test.input.Properties, cfg)
+			vector, _, err := v.Object(context.Background(), test.input, cfg)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
