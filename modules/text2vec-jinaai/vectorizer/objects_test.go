@@ -183,7 +183,7 @@ func TestVectorizingObjects(t *testing.T) {
 				jinaAIModel:           test.jinaAIModel,
 				vectorizePropertyName: true,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, test.input.Properties, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)

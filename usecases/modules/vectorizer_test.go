@@ -157,7 +157,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		class := models.Class{
 			Class: className,
 			ModuleConfig: map[string]interface{}{
-				modName: struct{}{},
+				modName: map[string]interface{}{},
 			},
 			VectorIndexConfig: hnsw.UserConfig{},
 		}

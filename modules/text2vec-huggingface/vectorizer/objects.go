@@ -52,17 +52,15 @@ type ClassSettings interface {
 	OptionUseCache() bool
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	schema interface{}, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.Class, schema, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
-func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text := v.objectVectorizer.Texts(ctx, className, schema, NewClassSettings(cfg))
+	text := v.objectVectorizer.Texts(ctx, object, NewClassSettings(cfg))
 	// vectorize text
 	icheck := NewClassSettings(cfg)
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{

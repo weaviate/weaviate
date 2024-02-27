@@ -212,13 +212,8 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 			needsRevectorization, additionalProperties, vector, _ := reVectorize(ctx, cfg, vectorizer, object, class, target_properties, findObjectFn)
 			if needsRevectorization {
-				propertiesMap := map[string]interface{}{}
-				for _, prop := range class.Properties {
-					propertiesMap[prop.Name] = prop
-				}
-
 				var err error
-				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, propertiesMap, cfg)
+				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
 				if err != nil {
 					return fmt.Errorf("update vector: %w", err)
 				}

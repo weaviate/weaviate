@@ -38,7 +38,7 @@ func TestVectorizer(t *testing.T) {
 		}
 
 		// when
-		vector, _, err := vectorizer.Object(context.Background(), object, props, config)
+		vector, _, err := vectorizer.Object(context.Background(), object, config)
 
 		// then
 		require.Nil(t, err)
@@ -61,7 +61,7 @@ func TestVectorizer(t *testing.T) {
 		}
 
 		// when
-		vector, _, err := vectorizer.Object(context.Background(), object, props, config)
+		vector, _, err := vectorizer.Object(context.Background(), object, config)
 
 		// then
 		require.Nil(t, err)
@@ -88,7 +88,7 @@ func TestVectorizerWithWeights(t *testing.T) {
 		Properties: props,
 	}
 
-	vector, _, err := vectorizer.Object(context.Background(), input, props, config)
+	vector, _, err := vectorizer.Object(context.Background(), input, config)
 
 	require.Nil(t, err)
 	assert.Equal(t, []float32{3.2, 6.4, 9.6, 12.8, 16}, vector)
