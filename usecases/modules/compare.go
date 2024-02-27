@@ -91,7 +91,12 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		return true, nil, nil, nil
 	}
 	oldProps := oldObject.Schema.(map[string]interface{})
-	newProps := object.Properties.(map[string]interface{})
+	var newProps map[string]interface{}
+	if object.Properties == nil {
+		newProps = make(map[string]interface{})
+	} else {
+		newProps = object.Properties.(map[string]interface{})
+	}
 	for _, propStruct := range propsToCmpare {
 		valNew, isPresentNew := newProps[propStruct.Name]
 		valOld, isPresentOld := oldProps[propStruct.Name]
