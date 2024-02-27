@@ -213,14 +213,17 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 	}
 
 	// props need to be a string array
-	props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
-	if ok {
-		propsTyped := make([]string, len(props.([]interface{})))
-		for i, v := range props.([]interface{}) {
-			propsTyped[i], ok = v.(string)
-			if !ok {
-				return errors.Errorf("class.VectorConfig.Vectorizer.%s.properties must be a string array, got %T", moduleName, v)
+	if class.VectorConfig != nil {
+		props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
+		if ok {
+			propsTyped := make([]string, len(props.([]interface{})))
+			for i, v := range props.([]interface{}) {
+				propsTyped[i], ok = v.(string)
+				if !ok {
+					return errors.Errorf("class.VectorConfig.Vectorizer.%s.properties must be a string array, got %T", moduleName, v)
+				}
 			}
+			class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
 		}
 	}
 
