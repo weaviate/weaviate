@@ -309,15 +309,8 @@ func (s segmentCollectionNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key
 // When we already have a finite and manageable []byte (i.e. when we have already seeked to an
 // lsmkv node and have start+end offset), r should be constructed as a *bytes.Reader, since the
 // contents have already been `pread` from the segment contentFile.
-func ParseCollectionNode(r io.Reader) (out segmentCollectionNode, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			debug.PrintStack()
-			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseCollectionNode: %v", r)
-		}
-	}()
-
-	out = segmentCollectionNode{}
+func ParseCollectionNode(r io.Reader) (segmentCollectionNode, error) {
+	out := segmentCollectionNode{}
 	// 9 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
 	// read in between.
 	tmpBuf := make([]byte, 9)
@@ -380,19 +373,13 @@ func ParseCollectionNode(r io.Reader) (out segmentCollectionNode, err error) {
 // As a result calling this method only makes sense if you plan on calling it
 // multiple times. Calling it just once on an uninitialized node does not have
 // major advantages over calling ParseCollectionNode.
-func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			debug.PrintStack()
-			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseCollectionNodeInto: %v", r)
-		}
-	}()
+func ParseCollectionNodeInto(r io.Reader, node *segmentCollectionNode) error {
 	// offset is only the local offset relative to "in". In the end we need to
 	// update the global offset.
 	offset := 0
 
 	buf := make([]byte, 9)
-	_, err = io.ReadFull(r, buf[0:8])
+	_, err := io.ReadFull(r, buf[0:8])
 	if err != nil {
 		return fmt.Errorf("read values len: %w", err)
 	}
