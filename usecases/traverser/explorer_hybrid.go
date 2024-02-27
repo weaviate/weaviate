@@ -21,8 +21,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 )
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
@@ -90,6 +90,7 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 
 	return out, "vector," + searchname, nil
 }
+
 /*
 type NearTextParams struct {
     Values        []string
@@ -126,7 +127,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	subSearchParams.TargetVectors = params.HybridSearch.TargetVectors
 
 	subSearchParams.WithDistance = params.HybridSearch.NearTextParams.WithDistance
-
 
 	subsearchWrap := params
 	if subsearchWrap.ModuleParams == nil {
@@ -221,7 +221,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					TargetVectors: params.HybridSearch.TargetVectors,
 				}
 
-				res, name, err := denseSearch(ctx, nearVecParams, e, params,"hybridVector")
+				res, name, err := denseSearch(ctx, nearVecParams, e, params, "hybridVector")
 				if err != nil {
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err

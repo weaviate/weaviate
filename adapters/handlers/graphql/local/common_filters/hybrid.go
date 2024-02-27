@@ -52,7 +52,6 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 	}
 
-
 	for _, ss := range subsearches {
 		subsearch := ss.(map[string]interface{})
 		switch {
