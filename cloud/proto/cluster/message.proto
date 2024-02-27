@@ -62,6 +62,7 @@ message ApplyRequest {
   Type type = 1;
   string class = 2;
   bytes sub_command = 3;
+  bool schema_only = 4;
 }
 
 message AddTenantsRequest {

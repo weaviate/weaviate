@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -31,7 +32,6 @@ import (
 // underlying databases or storage providers
 type Manager struct {
 	validator    validator
-	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorizer
 	config       config.Config
@@ -94,6 +94,16 @@ func NewState(nClasses int) State {
 	}
 }
 
+// GetSchema returns the current schema loaded in the state
+func (s State) GetSchema() *models.Schema {
+	return s.ObjectSchema
+}
+
+// GetShardingState returns the current sharding state loaded in the state
+func (s State) GetShardingState() map[string]*sharding.State {
+	return s.ShardingState
+}
+
 // SchemaStore is responsible for persisting the schema
 // by providing support for both partial and complete schema updates
 type SchemaStore interface {
@@ -101,7 +111,7 @@ type SchemaStore interface {
 	Save(ctx context.Context, schema State) error
 
 	// Load loads the complete schema from the persistent storage
-	Load(context.Context) (State, error)
+	Load(context.Context) (schemaTypes.SchemaStateGetter, error)
 
 	// NewClass creates a new class if it doesn't exists, otherwise return an error
 	NewClass(context.Context, ClassPayload) error
@@ -186,7 +196,6 @@ func NewManager(validator validator,
 	m := &Manager{
 		config:       config,
 		validator:    validator,
-		repo:         repo,
 		logger:       logger,
 		clusterState: clusterState,
 		Handler:      handler,

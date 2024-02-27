@@ -17,13 +17,13 @@ import (
 	"log/slog"
 	"time"
 
+	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	"github.com/weaviate/weaviate/cloud/store"
 	"github.com/weaviate/weaviate/cloud/transport"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
-
 type Service struct {
 	*store.Service
 	raftAddr string
@@ -34,6 +34,7 @@ type Service struct {
 	logger     *slog.Logger
 }
 
+// New returns a new Service instance configured with cfg.
 func New(cfg store.Config) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort))
@@ -76,12 +77,23 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 	return nil
 }
 
-func (c *Service) Close(ctx context.Context) (err error) {
-	err = c.Service.Close(ctx)
+// Close closes all underlying ressources (RPC service, DB and RAFT store).
+// It returns an error if any of these fails to close.
+func (c *Service) Close(ctx context.Context) error {
+	err := c.Service.Close(ctx)
 	c.rpcService.Close()
-	return
+	return err
 }
 
+// Ready returns true if the underlying DB and store are open and ready for use
 func (c *Service) Ready() bool {
 	return c.Service.Ready()
+}
+
+// MigrateToRaft will start migrating schemaRepo to RAFT based schema representation (on *this* node if it is the leader
+// node).
+// This call will be blocking until the RAFT migration is either skipped or completed.
+// It returns an error if the migration process started and failed.
+func (c *Service) MigrateToRaft(schemaRepo schemaTypes.SchemaRepo) error {
+	return c.Service.MigrateToRaft(schemaRepo)
 }

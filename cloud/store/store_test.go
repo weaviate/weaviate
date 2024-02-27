@@ -72,8 +72,8 @@ func TestServiceEndpoints(t *testing.T) {
 	}()
 
 	// Open
-	defer srv.Close(ctx)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
+	defer srv.Close(ctx)
 
 	// node lose leadership after service call
 	assert.ErrorIs(t, srv.store.Join(m.store.nodeID, addr, true), ErrNotLeader)
