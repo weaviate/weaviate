@@ -12,6 +12,9 @@
 package lsmkv
 
 import (
+	"errors"
+	"io"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -131,7 +134,7 @@ func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 func (s *segmentCursorReplace) parseReplaceNodeInto(contents []byte, offset uint64) error {
 	err := s.segment.replaceStratParseDataWithKeyInto(
 		contents, s.reusableNode)
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) {
 		segmentName := s.segment.path
 		currentOffset := s.reusableNode.offset
 		s.segment.logger.Errorf(
