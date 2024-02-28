@@ -45,8 +45,7 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	err = s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[node.Start:node.End], s.reusableNode)
+	err = s.parseReplaceNodeInto(s.segment.contents[node.Start:node.End], node.Start)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -65,8 +64,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	err := s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], s.reusableNode)
+	err := s.parseReplaceNodeInto(s.segment.contents[s.nextOffset:], s.nextOffset)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -81,8 +79,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
-	err := s.segment.replaceStratParseDataWithKeyInto(
-		s.segment.contents[s.nextOffset:], s.reusableNode)
+	err := s.parseReplaceNodeInto(s.segment.contents[s.nextOffset:], s.nextOffset)
 
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
@@ -129,4 +126,18 @@ func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 	}
 
 	return parsed, nil
+}
+
+func (s *segmentCursorReplace) parseReplaceNodeInto(contents []byte, offset uint64) error {
+	err := s.segment.replaceStratParseDataWithKeyInto(
+		contents, s.reusableNode)
+	if err != nil {
+		segmentName := s.segment.path
+		currentOffset := s.reusableNode.offset
+		s.segment.logger.Errorf(
+			"error parsing replace node segment %v, current offset: %v offset: %+v, err: %v",
+			segmentName, currentOffset, offset, err)
+		return err
+	}
+	return nil
 }
