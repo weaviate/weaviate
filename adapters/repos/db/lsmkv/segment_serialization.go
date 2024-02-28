@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 // a single node of strategy "replace"
@@ -168,6 +169,7 @@ func ParseReplaceNodeInto(r io.Reader, secondaryIndexCount uint16, out *segmentR
 	defer func() {
 		if r := recover(); r != nil {
 			debug.PrintStack()
+			err = errors.Wrapf(lsmkv.NotFound, "panic in ParseReplaceNodeInto: %v", r)
 		}
 	}()
 
