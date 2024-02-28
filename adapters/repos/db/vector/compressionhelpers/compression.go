@@ -198,7 +198,7 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(k)
+		id := binary.LittleEndian.Uint64(k)
 		compressor.cache.Grow(id)
 
 		vc := make([]byte, len(v))
