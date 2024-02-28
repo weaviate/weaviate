@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -242,6 +243,17 @@ func TestRowReaderRoaringSet(t *testing.T) {
 					assert.True(t, result[i].v.Contains(expectedV))
 				}
 			}
+		})
+
+		t.Run(tc.name+" readFn failed", func(t *testing.T) {
+			result := []readResult{}
+			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
+			err := rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
+				return false, fmt.Errorf("fake error")
+			})
+
+			assert.Len(t, result, 0)
+			assert.NotNil(t, err)
 		})
 	}
 }
