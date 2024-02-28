@@ -112,7 +112,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 
 	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
-		return h.TurnOnCompression(callback)
+		return h.Upgrade(callback)
 	} else {
 		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
 		callback()
@@ -124,7 +124,7 @@ func asyncEnabled() bool {
 	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
-func (h *hnsw) TurnOnCompression(callback func()) error {
+func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)

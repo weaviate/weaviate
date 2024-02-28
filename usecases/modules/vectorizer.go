@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/composer"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -463,7 +464,8 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	}
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
-	if !(okHnsw || okFlat) {
+	_, okComposer := vectorIndexConfig.(composer.UserConfig)
+	if !(okHnsw || okFlat || okComposer) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil
