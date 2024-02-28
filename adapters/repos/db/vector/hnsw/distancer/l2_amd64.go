@@ -17,6 +17,12 @@ import (
 )
 
 func init() {
+	if cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512 {
+		l2SquaredImpl = asm.L2512
+	} else if cpu.X86.HasAVX2 {
+		l2SquaredImpl = asm.L2
+	}
+
 	if cpu.X86.HasAVX2 {
 		l2SquaredImpl = asm.L2
 	}
