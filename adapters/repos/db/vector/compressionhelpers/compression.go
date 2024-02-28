@@ -214,7 +214,7 @@ func (compressor *quantizedVectorsCompressor[T]) ExposeFields() PQData {
 	return compressor.quantizer.ExposeFields()
 }
 
-func NewPQCompressor(
+func NewHNSWPQCompressor(
 	cfg hnsw.PQConfig,
 	distance distancer.Provider,
 	dimensions int,
@@ -222,7 +222,6 @@ func NewPQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
-	useBigEndian bool,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions)
 	if err != nil {
@@ -231,13 +230,8 @@ func NewPQCompressor(
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
 		quantizer:       quantizer,
 		compressedStore: store,
-	}
-	if useBigEndian {
-		pqVectorsCompressor.storeId = binary.BigEndian.PutUint64
-		pqVectorsCompressor.loadId = binary.BigEndian.Uint64
-	} else {
-		pqVectorsCompressor.storeId = binary.LittleEndian.PutUint64
-		pqVectorsCompressor.loadId = binary.LittleEndian.Uint64
+		storeId:         binary.LittleEndian.PutUint64,
+		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
@@ -246,7 +240,7 @@ func NewPQCompressor(
 	return pqVectorsCompressor, nil
 }
 
-func RestorePQCompressor(
+func RestoreHNSWPQCompressor(
 	cfg hnsw.PQConfig,
 	distance distancer.Provider,
 	dimensions int,
@@ -254,7 +248,6 @@ func RestorePQCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
-	useBigEndian bool,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders)
 	if err != nil {
@@ -263,13 +256,8 @@ func RestorePQCompressor(
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
 		quantizer:       quantizer,
 		compressedStore: store,
-	}
-	if useBigEndian {
-		pqVectorsCompressor.storeId = binary.BigEndian.PutUint64
-		pqVectorsCompressor.loadId = binary.BigEndian.Uint64
-	} else {
-		pqVectorsCompressor.storeId = binary.LittleEndian.PutUint64
-		pqVectorsCompressor.loadId = binary.LittleEndian.Uint64
+		storeId:         binary.LittleEndian.PutUint64,
+		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
