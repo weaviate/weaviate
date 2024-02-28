@@ -78,14 +78,14 @@ func (compressor *quantizedVectorsCompressor[T]) GetCacheMaxSize() int64 {
 func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id uint64) {
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
+	binary.LittleEndian.PutUint64(idBytes, id)
 	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
 	compressedVector := compressor.quantizer.Encode(vector)
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
+	binary.LittleEndian.PutUint64(idBytes, id)
 	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
@@ -141,7 +141,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUnc
 
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
+	binary.LittleEndian.PutUint64(idBytes, id)
 	compressedVector, err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Get(idBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
