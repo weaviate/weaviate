@@ -18,6 +18,6 @@ import (
 
 func init() {
 	if cpu.X86.HasAVX2 {
-		dotProductImplementation = asm.Dot
+		dotProductImplementation = asm.Dot512
 	}
 }

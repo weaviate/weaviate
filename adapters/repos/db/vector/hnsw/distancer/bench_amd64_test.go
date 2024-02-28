@@ -51,11 +51,18 @@ func benchmarkDotAVX(b *testing.B, dims int) {
 }
 
 func BenchmarkDot(b *testing.B) {
-	dims := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
-			b.Run("pure go", func(b *testing.B) { benchmarkDotGo(b, dim) })
-			b.Run("avx", func(b *testing.B) { benchmarkDotAVX(b, dim) })
+			// benchmarkDotGo(b, dim)
+			benchmarkDotAVX(b, dim)
+			// benchmarkDotAVX512(b, dim)
 		})
+
+		// b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+		// 	b.Run("pure go", func(b *testing.B) { benchmarkDotGo(b, dim) })
+		// 	b.Run("avx", func(b *testing.B) { benchmarkDotAVX(b, dim) })
+		// 	b.Run("avx512", func(b *testing.B) { benchmarkDotAVX512(b, dim) })
+		// })
 	}
 }
