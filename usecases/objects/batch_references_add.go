@@ -58,6 +58,19 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
+	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
+	for i, ref := range batchReferences {
+		if ref.Err == nil {
+			if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
+				// can only validate multi-tenancy when everything above succeeds
+				err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant)
+				if err != nil {
+					batchReferences[i].Err = err
+				}
+			}
+		}
+	}
+
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
@@ -161,12 +174,6 @@ func (b *BatchManager) validateReference(ctx context.Context, principal *models.
 		err = nil
 	} else {
 		err = joinErrors(validateErrors)
-	}
-
-	if err == nil && shouldValidateMultiTenantRef(ref.Tenant, source, target) {
-		// can only validate multi-tenancy when everything above succeeds
-		err = validateReferenceMultiTenancy(ctx, principal,
-			b.schemaManager, b.vectorRepo, source, target, ref.Tenant)
 	}
 
 	*resultsC <- BatchReference{
