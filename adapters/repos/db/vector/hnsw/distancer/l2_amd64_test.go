@@ -44,8 +44,11 @@ func Test_L2_DistanceImplementation(t *testing.T) {
 			}
 
 			control := L2PureGo(x, y)
-			asmResult := asm.L2(x, y)
 
+			asmResult := asm.L2(x, y)
+			assert.InEpsilon(t, control, asmResult, 0.01)
+
+			asmResult = asm.L2_512(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 		})
 	}
@@ -64,14 +67,17 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 			}
 
 			control := L2PureGo(x, y)
-			asmResult := asm.L2(x, y)
 
+			asmResult := asm.L2(x, y)
+			assert.InEpsilon(t, control, asmResult, 0.01)
+
+			asmResult = asm.L2_512(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 		})
 	}
 }
 
-func Benchmark_L2_PureGo_VS_AVX(b *testing.B) {
+func Benchmark_L2(b *testing.B) {
 	r := getRandomSeed()
 	lengths := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 600, 768, 1024}
 	for _, length := range lengths {
@@ -85,7 +91,8 @@ func Benchmark_L2_PureGo_VS_AVX(b *testing.B) {
 
 			for i := 0; i < b.N; i++ {
 				// L2PureGo(x, y)
-				asm.L2(x, y)
+				// asm.L2(x, y)
+				asm.L2_512(x, y)
 			}
 
 			// b.Run("pure go", func(b *testing.B) {

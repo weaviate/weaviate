@@ -13,4 +13,19 @@
 
 package asm
 
+import "unsafe"
+
 func L2(x []float32, y []float32) float32
+
+func L2_512(x []float32, y []float32) float32 {
+	var res float32
+
+	l := len(x)
+	l2_512(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+}

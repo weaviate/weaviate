@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
-func testDotProductFixedValue(t *testing.T, size uint) {
+func testDotProductFixedValue(t *testing.T, size uint, dotFn func(x []float32, y []float32) float32) {
 	count := 10000
 	countFailed := 0
 	for i := 0; i < count; i++ {
@@ -32,7 +32,7 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 		}
 		vec1 = Normalize(vec1)
 		vec2 = Normalize(vec2)
-		res := -asm.Dot(vec1, vec2)
+		res := -dotFn(vec1, vec2)
 		if math.IsNaN(float64(res)) {
 			panic("NaN")
 		}
@@ -52,7 +52,7 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 	fmt.Printf("total failed: %d\n", countFailed)
 }
 
-func testDotProductRandomValue(t *testing.T, size uint) {
+func testDotProductRandomValue(t *testing.T, size uint, dotFn func(x []float32, y []float32) float32) {
 	r := getRandomSeed()
 	count := 10000
 	countFailed := 0
@@ -72,7 +72,7 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 	}
 
 	for i := 0; i < count; i++ {
-		res := -asm.Dot(vec1s[i], vec2s[i])
+		res := -dotFn(vec1s[i], vec2s[i])
 		if math.IsNaN(float64(res)) {
 			panic("NaN")
 		}
@@ -104,8 +104,10 @@ func TestCompareDotProductImplementations(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-			testDotProductFixedValue(t, size)
-			testDotProductRandomValue(t, size)
+			testDotProductFixedValue(t, size, asm.Dot)
+			testDotProductRandomValue(t, size, asm.Dot)
+			testDotProductFixedValue(t, size, asm.Dot512)
+			testDotProductRandomValue(t, size, asm.Dot512)
 		})
 	}
 }
