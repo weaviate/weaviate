@@ -96,4 +96,12 @@ func TestAggregate(t *testing.T) {
 	require.NotNil(t, agg.Data)
 
 	require.Equal(t, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["number"].(map[string]interface{})["maximum"], float64(1))
+
+	// aggregate without needed a target vector
+	agg, err = client.GraphQL().Aggregate().WithClassName(classAggregate).WithFields(graphql.Field{Name: "meta", Fields: []graphql.Field{{Name: "count"}}}).Do(ctx)
+	require.Nil(t, err)
+	require.NotNil(t, agg)
+	require.Nil(t, agg.Errors)
+	require.NotNil(t, agg.Data)
+	require.Equal(t, agg.Data["Aggregate"].(map[string]interface{})[classAggregate].([]interface{})[0].(map[string]interface{})["meta"].(map[string]interface{})["count"], float64(2))
 }
