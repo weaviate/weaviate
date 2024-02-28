@@ -331,6 +331,8 @@ func (m *Manager) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
 	case "hnsw", "flat":
 		return nil
+	case "composer":
+		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)

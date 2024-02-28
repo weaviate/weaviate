@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -690,17 +689,16 @@ func (h *hnsw) DistancerProvider() distancer.Provider {
 	return h.distancerProvider
 }
 
-func (h *hnsw) ShouldCompress() (bool, int) {
+func (h *hnsw) ShouldUpgrade() (bool, int) {
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
-}
-
-func (h *hnsw) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
-	hnswConfig := config.(ent.UserConfig)
-	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }
 
 func (h *hnsw) Compressed() bool {
 	return h.compressed.Load()
+}
+
+func (h *hnsw) Upgraded() bool {
+	return h.Compressed()
 }
 
 func (h *hnsw) AlreadyIndexed() uint64 {

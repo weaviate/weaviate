@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/composer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -388,6 +389,8 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 		return hnsw.ValidateUserConfigUpdate(old, updated)
 	case "flat":
 		return flat.ValidateUserConfigUpdate(old, updated)
+	case "composer":
+		return composer.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
