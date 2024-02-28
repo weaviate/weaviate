@@ -1696,7 +1696,7 @@ func (i *Index) drop() error {
 
 	// Dropping the shards only unregisters the shards callbacks, but we still
 	// need to stop the cycle managers that those shards used to register with.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
