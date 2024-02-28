@@ -80,7 +80,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		}
 
 		var err error
-		h.compressor, err = compressionhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+		h.compressor, err = compressionhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store, false)
 		if err != nil {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}

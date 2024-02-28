@@ -146,6 +146,7 @@ func (h *hnsw) restoreFromDisk() error {
 				h.logger,
 				state.PQData.Encoders,
 				h.store,
+				false,
 			)
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
