@@ -140,7 +140,6 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(contents []byte, offset uint
 		s.segment.logger.Errorf(
 			"error parsing replace node segment %v, current offset: %v offset: %+v, err: %v",
 			segmentName, currentOffset, offset, err)
-		return err
 	}
-	return nil
+	return err
 }
