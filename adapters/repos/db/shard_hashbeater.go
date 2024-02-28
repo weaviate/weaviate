@@ -112,8 +112,6 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 	stats.diffCalculationTook = time.Since(diffCalculationStart)
 
 	for r := range replyCh {
-		objectProgationStart := time.Now()
-
 		if r.Err != nil {
 			if !errors.Is(r.Err, hashtree.ErrNoMoreDifferences) {
 				s.index.logger.Printf("reading collected differences for shard %s: %v", s.name, r.Err)
@@ -123,6 +121,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 
 		shardDiffReader := r.Value
 		diffReader := shardDiffReader.DiffReader
+
+		objectProgationStart := time.Now()
 
 		localObjects := 0
 		remoteObjects := 0
