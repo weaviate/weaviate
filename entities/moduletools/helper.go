@@ -13,24 +13,7 @@ package moduletools
 
 import (
 	"sort"
-
-	"github.com/weaviate/weaviate/entities/models"
 )
-
-func PropertiesListToMap(props models.PropertySchema) map[string]interface{} {
-	propsTyped, ok := props.([]*models.Property)
-	if !ok {
-		propsMap, ok := props.(map[string]interface{})
-		if ok {
-			return propsMap
-		}
-	}
-	propertiesMap := map[string]interface{}{}
-	for _, prop := range propsTyped {
-		propertiesMap[prop.Name] = prop
-	}
-	return propertiesMap
-}
 
 func SortStringKeys(schemaMap map[string]interface{}) []string {
 	keys := make([]string, 0, len(schemaMap))
