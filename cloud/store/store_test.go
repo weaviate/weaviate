@@ -708,10 +708,11 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			SnapshotThreshold: 125,
 			DB:                indexer,
 			Parser:            parser,
+			AddrResolver:      &MockAddressResolver{},
 			Logger:            logger.Logger,
 		},
 	}
-	s := New(ms.cfg, NewMockCluster(nil))
+	s := New(ms.cfg)
 	ms.store = &s
 	return ms
 }
@@ -735,6 +736,17 @@ func NewMockSLog(t *testing.T) MockSLog {
 	}
 	m.Logger = slog.New(slog.NewJSONHandler(buf, nil))
 	return m
+}
+
+type MockAddressResolver struct {
+	f func(id string) string
+}
+
+func (m *MockAddressResolver) NodeAddress(id string) string {
+	if m.f != nil {
+		return m.f(id)
+	}
+	return "127.0.0.1"
 }
 
 type MockIndexer struct {
