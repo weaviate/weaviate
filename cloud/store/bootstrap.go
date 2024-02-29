@@ -24,13 +24,14 @@ import (
 )
 
 type joiner interface {
-	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
-	Notify(ctx context.Context, leaderAddr string, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error)
+	Join(_ context.Context, leaderAddr string, _ *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
+	Notify(_ context.Context, leaderAddr string, _ *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error)
 }
 
 // Bootstrapper is used to bootstrap this node by attempting to join it to a RAFT cluster.
 type Bootstrapper struct {
-	joiner joiner
+	joiner       joiner
+	addrResolver addressResolver
 
 	localRaftAddr string
 	localNodeID   string
@@ -40,9 +41,10 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(joiner joiner, raftID, raftAddr string) *Bootstrapper {
+func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver) *Bootstrapper {
 	return &Bootstrapper{
 		joiner:        joiner,
+		addrResolver:  r,
 		retryPeriod:   time.Second,
 		jitter:        time.Second,
 		localNodeID:   raftID,
@@ -51,10 +53,12 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string) *Bootstrapper {
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger, voter bool) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *slog.Logger, voter bool) error {
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
+	servers := make([]string, 0, len(serverPortMap))
 	defer ticker.Stop()
 	for {
+		servers = b.servers(servers, serverPortMap)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -76,6 +80,7 @@ func (b *Bootstrapper) Do(ctx context.Context, servers []string, lg *slog.Logger
 	}
 }
 
+// join attempts to join an existing leader
 func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (leader string, err error) {
 	var resp *cmd.JoinPeerResponse
 	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: voter}
@@ -95,6 +100,7 @@ func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (
 	return "", fmt.Errorf("could not join a cluster from %v", servers)
 }
 
+// notify notifies another server of my presence
 func (b *Bootstrapper) notify(ctx context.Context, servers []string) (err error) {
 	for _, addr := range servers {
 		req := &cmd.NotifyPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr}
@@ -104,6 +110,17 @@ func (b *Bootstrapper) notify(ctx context.Context, servers []string) (err error)
 		}
 	}
 	return
+}
+
+// servers retrieves a list of server addresses based on their names and ports.
+func (b *Bootstrapper) servers(candidates []string, serverPortMap map[string]int) []string {
+	candidates = candidates[:0]
+	for name, raftPort := range serverPortMap {
+		if addr := b.addrResolver.NodeAddress(name); addr != "" {
+			candidates = append(candidates, fmt.Sprintf("%s:%d", addr, raftPort))
+		}
+	}
+	return candidates
 }
 
 // jitter introduce some jitter to a given duration d + [0, 1) * jit -> [d, d+jit]
