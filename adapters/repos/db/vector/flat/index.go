@@ -641,6 +641,7 @@ func (index *flat) PostStartup() {
 
 	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
 		id := binary.BigEndian.Uint64(key)
+		index.bqCache.Grow(id)
 		index.bqCache.Preload(id, uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)))
 	}
 }
