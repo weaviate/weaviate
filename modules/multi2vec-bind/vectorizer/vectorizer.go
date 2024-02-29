@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-bind/ent"
@@ -54,12 +53,12 @@ type ClassSettings interface {
 	ThermalFieldsWeights() ([]float32, error)
 	DepthField(property string) bool
 	DepthFieldsWeights() ([]float32, error)
+	Properties() ([]string, error)
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
@@ -118,72 +117,48 @@ func (v *Vectorizer) getVector(vectors [][]float32) ([]float32, error) {
 	return vectors[0], nil
 }
 
-func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	icheck := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image and text
 	var texts, images, audio, video, imu, thermal, depth []string
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		switch typed := propValue.(type) {
-		case string:
-			if icheck.ImageField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				images = append(images, typed)
-			}
-			if icheck.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed)
-			}
-			if icheck.AudioField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				audio = append(audio, typed)
-			}
-			if icheck.VideoField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				video = append(video, typed)
-			}
-			if icheck.IMUField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				imu = append(imu, typed)
-			}
-			if icheck.ThermalField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				thermal = append(thermal, typed)
-			}
-			if icheck.DepthField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				depth = append(depth, typed)
-			}
+	if object.Properties != nil {
+		schemamap := object.Properties.(map[string]interface{})
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
+			switch typed := schemamap[propName].(type) {
+			case string:
+				if icheck.ImageField(propName) {
+					images = append(images, typed)
+				}
+				if icheck.TextField(propName) {
+					texts = append(texts, typed)
+				}
+				if icheck.AudioField(propName) {
+					audio = append(audio, typed)
+				}
+				if icheck.VideoField(propName) {
+					video = append(video, typed)
+				}
+				if icheck.IMUField(propName) {
+					imu = append(imu, typed)
+				}
+				if icheck.ThermalField(propName) {
+					thermal = append(thermal, typed)
+				}
+				if icheck.DepthField(propName) {
+					depth = append(depth, typed)
+				}
 
-		case []string:
-			if icheck.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed...)
-			}
+			case []string:
+				if icheck.TextField(propName) {
+					texts = append(texts, typed...)
+				}
 
-		case nil:
-			if icheck.ImageField(propName) || icheck.TextField(propName) ||
-				icheck.AudioField(propName) || icheck.VideoField(propName) ||
-				icheck.IMUField(propName) || icheck.ThermalField(propName) ||
-				icheck.DepthField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
+			default:
 			}
 		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
@@ -248,23 +223,7 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	weights = append(weights, thermalFieldsWeights...)
 	weights = append(weights, depthFieldsWeights...)
 
-	normalizedWeights := v.normalizeWeights(weights)
+	normalizedWeights := moduletools.NormalizeWeights(weights)
 
 	return normalizedWeights, nil
-}
-
-func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
-	if len(weights) > 0 {
-		var denominator float32
-		for i := range weights {
-			denominator += weights[i]
-		}
-		normalizer := 1 / denominator
-		normalized := make([]float32, len(weights))
-		for i := range weights {
-			normalized[i] = weights[i] * normalizer
-		}
-		return normalized
-	}
-	return nil
 }
