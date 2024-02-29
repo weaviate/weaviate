@@ -18,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"golang.org/x/sys/cpu"
 )
 
 func testDotProductFixedValue(t *testing.T, size uint, dotFn func(x []float32, y []float32) float32) {
@@ -106,8 +107,10 @@ func TestCompareDotProductImplementations(t *testing.T) {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
 			testDotProductFixedValue(t, size, asm.Dot)
 			testDotProductRandomValue(t, size, asm.Dot)
-			testDotProductFixedValue(t, size, asm.DotAVX512)
-			testDotProductRandomValue(t, size, asm.DotAVX512)
+			if cpu.X86.HasAVX512 {
+				testDotProductFixedValue(t, size, asm.DotAVX512)
+				testDotProductRandomValue(t, size, asm.DotAVX512)
+			}
 		})
 	}
 }

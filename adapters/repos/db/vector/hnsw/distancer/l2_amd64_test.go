@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"golang.org/x/sys/cpu"
 )
 
 func L2PureGo(a, b []float32) float32 {
@@ -48,8 +49,10 @@ func Test_L2_DistanceImplementation(t *testing.T) {
 			asmResult := asm.L2(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 
-			asmResult = asm.L2AVX512(x, y)
-			assert.InEpsilon(t, control, asmResult, 0.01)
+			if cpu.X86.HasAVX512 {
+				asmResult = asm.L2AVX512(x, y)
+				assert.InEpsilon(t, control, asmResult, 0.01)
+			}
 		})
 	}
 }
@@ -71,8 +74,10 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 			asmResult := asm.L2(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 
-			asmResult = asm.L2AVX512(x, y)
-			assert.InEpsilon(t, control, asmResult, 0.01)
+			if cpu.X86.HasAVX512 {
+				asmResult = asm.L2AVX512(x, y)
+				assert.InEpsilon(t, control, asmResult, 0.01)
+			}
 		})
 	}
 }
