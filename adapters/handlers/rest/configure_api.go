@@ -901,6 +901,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 }
 
 func setupGoProfiling(config config.Config) {
+	if config.Profiling.Enabled == false {
+		return
+	}
+
 	go func() {
 		fmt.Println(http.ListenAndServe(":6060", nil))
 	}()
