@@ -14,7 +14,6 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -71,7 +70,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 
 	if object.Properties != nil {
 		schemamap := moduletools.PropertiesListToMap(object.Properties)
-		for _, propName := range v.sortStringKeys(schemamap) {
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
 			if !ichek.ImageField(propName) {
 				continue
 			}
@@ -97,13 +96,4 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	}
 
 	return libvectorizer.CombineVectors(vectors), nil
-}
-
-func (v *Vectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
-	keys := make([]string, 0, len(schemaMap))
-	for k := range schemaMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
