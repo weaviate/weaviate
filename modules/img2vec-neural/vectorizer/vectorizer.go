@@ -41,11 +41,6 @@ type ClassSettings interface {
 	Properties() ([]string, error)
 }
 
-func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
-	ichek := NewClassSettings(cfg)
-	return ichek.Properties()
-}
-
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	vec, err := v.object(ctx, object, cfg)
