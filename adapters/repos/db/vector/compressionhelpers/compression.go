@@ -284,6 +284,10 @@ func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (flo
 	if err != nil {
 		return 0, false, err
 	}
+	if len(compressedVector) == 0 {
+		return 0, false, fmt.Errorf(
+			"got a nil or zero-length vector at docID %d", id)
+	}
 	return distancer.distancer.Distance(compressedVector)
 }
 
