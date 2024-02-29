@@ -891,7 +891,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 }
 
 func setupGoProfiling(config config.Config) {
-	if config.Profiling.Disabled == true {
+	if config.Profiling.Disabled {
 		return
 	}
 
