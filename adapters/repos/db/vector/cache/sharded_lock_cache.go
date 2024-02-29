@@ -247,9 +247,8 @@ func (s *shardedLockCache[T]) deleteAllVectors() {
 
 	s.logger.WithField("action", "hnsw_delete_vector_cache").
 		Debug("deleting full vector cache")
-	for i := range s.cache {
-		s.cache[i] = nil
-	}
+
+	clear(s.cache)
 
 	atomic.StoreInt64(&s.count, 0)
 }

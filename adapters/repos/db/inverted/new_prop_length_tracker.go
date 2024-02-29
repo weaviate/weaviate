@@ -165,16 +165,6 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	t.Lock()
 	defer t.Unlock()
 
-	if t.data.BucketedData == nil {
-		t.data.BucketedData = map[string]map[int]int{}
-	}
-	if t.data.SumData == nil {
-		t.data.SumData = map[string]int{}
-	}
-	if t.data.CountData == nil {
-		t.data.CountData = map[string]int{}
-	}
-
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
@@ -187,7 +177,6 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	if _, ok := t.data.BucketedData[propName]; ok {
 		t.data.BucketedData[propName][int(bucketId)] = t.data.BucketedData[propName][int(bucketId)] + 1
 	} else {
-
 		t.data.BucketedData[propName] = make(map[int]int, 64+1)
 		t.data.BucketedData[propName][int(bucketId)] = 1
 	}
@@ -328,7 +317,7 @@ func (t *JsonPropertyLengthTracker) Close() error {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data.BucketedData = nil
+	clear(t.data.BucketedData)
 
 	return nil
 }
@@ -340,7 +329,7 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data.BucketedData = nil
+	clear(t.data.BucketedData)
 
 	if err := os.Remove(t.path); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
