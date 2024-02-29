@@ -44,7 +44,7 @@ type JinaAIModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
+	Object(ctx context.Context, obj *models.Object,
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
@@ -120,9 +120,13 @@ func (m *JinaAIModule) RootHandler() http.Handler {
 }
 
 func (m *JinaAIModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
