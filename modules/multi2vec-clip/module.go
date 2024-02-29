@@ -48,7 +48,6 @@ type metaClient interface {
 type imageVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
-	Properties(cfg moduletools.ClassConfig) ([]string, error)
 }
 
 type textVectorizer interface {
@@ -139,8 +138,9 @@ func (m *ClipModule) VectorizeInput(ctx context.Context,
 }
 
 func (m *ClipModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
-	mediaProps, err := m.imageVectorizer.Properties(cfg)
-	return false, mediaProps, err // text props are part of media properties
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return false, mediaProps, err
 }
 
 // verify we implement the modules.Module interface

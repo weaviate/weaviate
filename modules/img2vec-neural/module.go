@@ -40,7 +40,6 @@ type imageVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context,
 		id, image string, cfg moduletools.ClassConfig) ([]float32, error)
-	Properties(cfg moduletools.ClassConfig) ([]string, error)
 }
 
 func (m *ImageModule) Name() string {
@@ -96,7 +95,8 @@ func (m *ImageModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *ImageModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
-	mediaProps, err := m.vectorizer.Properties(cfg)
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
 	return false, mediaProps, err
 }
 

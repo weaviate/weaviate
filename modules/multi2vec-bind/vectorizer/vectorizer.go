@@ -62,11 +62,6 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 	return vec, nil, err
 }
 
-func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
-	ichek := NewClassSettings(cfg)
-	return ichek.Properties()
-}
-
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
 	res, err := v.client.Vectorize(ctx, nil, []string{image}, nil, nil, nil, nil, nil)
 	if err != nil {
