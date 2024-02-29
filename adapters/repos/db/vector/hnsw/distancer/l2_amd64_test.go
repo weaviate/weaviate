@@ -48,7 +48,7 @@ func Test_L2_DistanceImplementation(t *testing.T) {
 			asmResult := asm.L2(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 
-			asmResult = asm.L2_512(x, y)
+			asmResult = asm.L2AVX512(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 		})
 	}
@@ -71,7 +71,7 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 			asmResult := asm.L2(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 
-			asmResult = asm.L2_512(x, y)
+			asmResult = asm.L2AVX512(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 		})
 	}
@@ -92,7 +92,7 @@ func Benchmark_L2(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// L2PureGo(x, y)
 				// asm.L2(x, y)
-				asm.L2_512(x, y)
+				asm.L2AVX512(x, y)
 			}
 
 			// b.Run("pure go", func(b *testing.B) {
