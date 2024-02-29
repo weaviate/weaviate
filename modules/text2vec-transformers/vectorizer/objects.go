@@ -55,10 +55,10 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 
 func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text := v.objectVectorizer.Texts(ctx, object, NewClassSettings(cfg))
-	// vectorize text
+	icheck := NewClassSettings(cfg)
+	text := v.objectVectorizer.Texts(ctx, object, icheck)
 	res, err := v.client.VectorizeObject(ctx, text, ent.VectorizationConfig{
-		PoolingStrategy: NewClassSettings(cfg).PoolingStrategy(),
+		PoolingStrategy: icheck.PoolingStrategy(),
 	})
 	if err != nil {
 		return nil, err
