@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
@@ -50,7 +49,7 @@ func (v *Vectorizer) Properties(cfg moduletools.ClassConfig) ([]string, error) {
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, moduletools.PropertiesListToMap(object.Properties), cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
@@ -63,16 +62,15 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 	return res.Vector, nil
 }
 
-func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	schema interface{}, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
 
 	// vectorize image
 	images := []string{}
 
-	if schema != nil {
-		schemamap := schema.(map[string]interface{})
+	if object.Properties != nil {
+		schemamap := moduletools.PropertiesListToMap(object.Properties)
 		for _, propName := range v.sortStringKeys(schemamap) {
 			if !ichek.ImageField(propName) {
 				continue
@@ -90,7 +88,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 
 	vectors := [][]float32{}
 	for i, image := range images {
-		imgID := fmt.Sprintf("%s_%v", id, i)
+		imgID := fmt.Sprintf("%s_%v", object.ID, i)
 		vector, err := v.VectorizeImage(ctx, imgID, image, cfg)
 		if err != nil {
 			return nil, err
