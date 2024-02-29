@@ -902,7 +902,12 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 
 func setupGoProfiling(config config.Config) {
 	go func() {
-		fmt.Println(http.ListenAndServe(":6060", nil))
+		portNumber := config.Profiling.Port
+		if portNumber == 0 {
+			fmt.Println(http.ListenAndServe(":6060", nil))
+		} else {
+			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
+		}
 	}()
 
 	if config.Profiling.BlockProfileRate > 0 {
