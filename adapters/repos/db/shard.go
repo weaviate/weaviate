@@ -315,8 +315,6 @@ func (s *Shard) initVector(ctx context.Context) error {
 				return errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
 			s.vectorIndex = vi
-
-			defer s.vectorIndex.PostStartup()
 		}
 	case vectorindex.VectorIndexTypeFLAT:
 		flatUserConfig, ok := s.index.vectorIndexUserConfig.(flatent.UserConfig)
@@ -347,6 +345,7 @@ func (s *Shard) initVector(ctx context.Context) error {
 			s.index.vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
 	}
 
+	defer s.vectorIndex.PostStartup()
 	return nil
 }
 
