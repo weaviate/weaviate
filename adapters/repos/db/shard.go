@@ -79,7 +79,7 @@ type ShardLike interface {
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error
-	UpdateVectorConfigForName(ctx context.Context, updated schema.VectorIndexConfig, targetVector string) error
+	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
@@ -832,21 +832,29 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.Vect
 	})
 }
 
-func (s *Shard) UpdateVectorConfigForName(ctx context.Context, updated schema.VectorIndexConfig,
-	targetVector string,
-) error {
+func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
-
-	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
-	if err != nil {
+	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
-	return s.VectorIndexForName(targetVector).UpdateUserConfig(updated, func() {
+	wg := new(sync.WaitGroup)
+	var err error
+	for targetName, targetCfg := range updated {
+		wg.Add(1)
+		if err = s.VectorIndexForName(targetName).UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			break
+		}
+	}
+
+	go func() {
+		wg.Wait()
 		s.UpdateStatus(storagestate.StatusReady.String())
-	})
+	}()
+
+	return err
 }
 
 func (s *Shard) Shutdown(ctx context.Context) error {
