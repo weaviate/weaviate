@@ -137,7 +137,7 @@ func (m *ClipModule) VectorizeInput(ctx context.Context,
 	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
 }
 
-func (m *ClipModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *ClipModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	ichek := vectorizer.NewClassSettings(cfg)
 	mediaProps, err := ichek.Properties()
 	return false, mediaProps, err

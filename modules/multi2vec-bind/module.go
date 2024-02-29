@@ -165,7 +165,7 @@ func (m *BindModule) VectorizeObject(ctx context.Context,
 	return m.bindVectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *BindModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *BindModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	ichek := vectorizer.NewClassSettings(cfg)
 	mediaProps, err := ichek.Properties()
 	return true, mediaProps, err

@@ -124,7 +124,7 @@ func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *HuggingFaceModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *HuggingFaceModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 

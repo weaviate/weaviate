@@ -94,7 +94,7 @@ func (m *ImageModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *ImageModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *ImageModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	ichek := vectorizer.NewClassSettings(cfg)
 	mediaProps, err := ichek.Properties()
 	return false, mediaProps, err

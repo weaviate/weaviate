@@ -233,7 +233,7 @@ func (m *ContextionaryModule) AdditionalProperties() map[string]modulecapabiliti
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
-func (m *ContextionaryModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *ContextionaryModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 
