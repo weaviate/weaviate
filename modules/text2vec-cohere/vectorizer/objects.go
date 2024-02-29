@@ -59,8 +59,9 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 
 func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text := v.objectVectorizer.Texts(ctx, object, NewClassSettings(cfg))
 	icheck := NewClassSettings(cfg)
+	text := v.objectVectorizer.Texts(ctx, object, icheck)
+
 	res, err := v.client.Vectorize(ctx, []string{text}, ent.VectorizationConfig{
 		Model:   icheck.Model(),
 		BaseURL: icheck.BaseURL(),
