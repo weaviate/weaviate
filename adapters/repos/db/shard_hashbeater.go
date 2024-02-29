@@ -225,13 +225,13 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			}
 		}
 
-		localObjects += len(localDigestsByUUID)
-
 		if len(localDigestsByUUID) == 0 {
 			// no more local objects need to be propagated in this iteration
 			localLastReadToken = newLocalLastReadToken
 			continue
 		}
+
+		localObjects += len(localDigestsByUUID)
 
 		remoteLastTokenRead := localLastReadToken
 
