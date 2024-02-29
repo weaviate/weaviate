@@ -173,10 +173,18 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 	if err != nil {
 		return nil, fmt.Errorf("get enabled modules: %w", err)
 	}
-	objs, err := tel.getObjectCount(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get object count: %w", err)
+
+	var objs int64
+	// The first payload should not include object count,
+	// because all the shards may not be loaded yet. We
+	// don't want to force load for telemetry alone
+	if payloadType != PayloadType.Init {
+		objs, err = tel.getObjectCount(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get object count: %w", err)
+		}
 	}
+
 	return &Payload{
 		MachineID:  tel.machineID,
 		Type:       payloadType,
