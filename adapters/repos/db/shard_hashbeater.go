@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -28,7 +29,19 @@ import (
 func (s *Shard) initHashBeater() {
 	go func() {
 		t := time.NewTicker(50 * time.Millisecond)
+
+		backoffs := []time.Duration{
+			time.Duration(0),
+			30 * time.Second,
+			1 * time.Minute,
+			5 * time.Minute,
+			10 * time.Minute,
+		}
+
+		noDiffFoundLogTimer := interval.NewBackoffTimer(backoffs...)
+
 		defer t.Stop()
+
 		for {
 			select {
 			case <-s.hashBeaterCtx.Done():
@@ -39,8 +52,13 @@ func (s *Shard) initHashBeater() {
 					return
 				}
 				if err != nil {
-					s.index.logger.Printf("hashbeat at shard %s: %v", s.name, err)
-					// TODO (jeroiraz): an exp-backoff delay may be convenient at this point
+					s.index.logger.WithField("action", "async_replication").
+						WithField("class_name", s.class.Class).
+						WithField("shard_name", s.name).
+						Warnf("async replication iteration: %v", err)
+
+					// TODO: an exp-backoff delay may be convenient
+					time.Sleep(1 * time.Minute)
 				}
 
 				hosts := make([]string, len(stats.hostStats))
@@ -59,17 +77,32 @@ func (s *Shard) initHashBeater() {
 
 				if objectsPropagated == 0 {
 					// no need to propagate any local object
+
+					if noDiffFoundLogTimer.IntervalElapsed() {
+						s.index.logger.WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							WithField("diffCalculationTook", stats.diffCalculationTook.String()).
+							Info("shard fully replicated")
+
+						noDiffFoundLogTimer.IncreaseInterval()
+					}
+
 					continue
 				}
 
-				s.index.logger.WithField("action", "async_replication_iteration").
-					WithField("diffCalculationTook", stats.diffCalculationTook.String()).
+				s.index.logger.WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
 					WithField("hosts", hosts).
+					WithField("diffCalculationTook", stats.diffCalculationTook.String()).
 					WithField("localObjects", localObjects).
 					WithField("remoteObjects", remoteObjects).
 					WithField("objectsPropagated", objectsPropagated).
 					WithField("objectProgationTook", objectProgationTook.String()).
-					Debug("async replication iteration successfully completed")
+					Info("async replication iteration successfully completed")
+
+				noDiffFoundLogTimer.Reset()
 			}
 		}
 	}()
