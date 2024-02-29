@@ -401,8 +401,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 			}
 			vectorIndex = vi
-
-			defer vectorIndex.PostStartup()
 		}
 	case vectorindex.VectorIndexTypeFLAT:
 		flatUserConfig, ok := vectorIndexUserConfig.(flatent.UserConfig)
@@ -433,7 +431,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
 			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
 	}
-
+	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
 }
 
