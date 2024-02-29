@@ -151,8 +151,8 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("ENABLE_GO_PROFILING")) {
-		config.Profiling.Enabled = true
+	if Enabled(os.Getenv("DISABLE_GO_PROFILING")) {
+		config.Profiling.Disabled = true
 	}
 
 	if !config.Authentication.AnyAuthMethodSelected() {
