@@ -257,7 +257,7 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
-	_, err = n.Read(b)
+	_, err = io.ReadFull(n, b)
 	return err
 }
 
