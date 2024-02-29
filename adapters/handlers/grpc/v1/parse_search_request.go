@@ -306,6 +306,21 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 		out.GroupBy = groupBy
 	}
 
+	if req.Grouping != nil {
+		strategy := ""
+		if req.Grouping.Strategy == pb.Grouping_GROUPING_STRATEGY_CLOSEST {
+			strategy = "closest"
+		} else if req.Grouping.Strategy == pb.Grouping_GROUPING_STRATEGY_MERGE {
+			strategy = "merge"
+		} else {
+			return dto.GetParams{}, fmt.Errorf("unknown grouping strategy %v", req.Grouping.Strategy)
+		}
+		out.Group = &dto.GroupParams{
+			Force:    req.Grouping.Force,
+			Strategy: strategy,
+		}
+	}
+
 	return out, nil
 }
 

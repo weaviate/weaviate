@@ -1371,6 +1371,47 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "Grouping closest",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Grouping:   &pb.Grouping{Force: 0.24, Strategy: pb.Grouping_GROUPING_STRATEGY_CLOSEST},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				Group: &dto.GroupParams{Force: 0.24, Strategy: "closest"},
+			},
+			error: false,
+		},
+		{
+			name: "Grouping merge",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Grouping:   &pb.Grouping{Force: 0.24, Strategy: pb.Grouping_GROUPING_STRATEGY_MERGE},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				Group: &dto.GroupParams{Force: 0.24, Strategy: "merge"},
+			},
+			error: false,
+		},
+		{
+			name: "Grouping strategy unknown",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Grouping:   &pb.Grouping{Force: 0.24, Strategy: pb.Grouping_GROUPING_STRATEGY_UNSPECIFIED},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
 	}
 
 	for _, tt := range tests {

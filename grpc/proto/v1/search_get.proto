@@ -47,6 +47,7 @@ message SearchRequest {
 
   optional GenerativeSearch generative = 60;
   optional Rerank rerank = 61;
+  optional Grouping grouping = 62;
 
   bool uses_123_api = 100 [deprecated = true];
 }
@@ -206,6 +207,16 @@ message NearObject {
 message Rerank {
   string property = 1;
   optional string query = 2;
+}
+
+message Grouping {
+  enum GroupingStrategy {
+    GROUPING_STRATEGY_UNSPECIFIED = 0;
+    GROUPING_STRATEGY_CLOSEST = 1;
+    GROUPING_STRATEGY_MERGE = 2;
+  }
+  GroupingStrategy strategy = 1;
+  float force = 2;
 }
 
 message SearchReply {
