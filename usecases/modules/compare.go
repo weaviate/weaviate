@@ -66,8 +66,13 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 			}
 		}
 
-		if (prop.DataType[0] == schema.DataTypeText.String() || prop.DataType[0] == schema.DataTypeTextArray.String()) && textProps {
-			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
+		if prop.DataType[0] == schema.DataTypeText.String() && textProps {
+			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: false})
+			continue
+		}
+
+		if prop.DataType[0] == schema.DataTypeTextArray.String() && textProps {
+			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: true})
 			continue
 		}
 
