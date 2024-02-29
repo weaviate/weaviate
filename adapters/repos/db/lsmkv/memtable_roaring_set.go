@@ -31,7 +31,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(values...), roaringset.NewBitmap()); err != nil {
+	if err := m.roaringSetAddCommitLogList(key, values, []uint64{}); err != nil {
 		return err
 	}
 
@@ -71,7 +71,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
-	if err := m.roaringSetAddCommitLog(key, roaringset.NewBitmap(), roaringset.NewBitmap(values...)); err != nil {
+	if err := m.roaringSetAddCommitLogList(key, []uint64{}, values); err != nil {
 		return err
 	}
 
@@ -144,6 +144,15 @@ func (m *Memtable) roaringSetAddCommitLog(key []byte, additions *sroar.Bitmap, d
 	if node, err := roaringset.NewSegmentNode(key, additions, deletions); err != nil {
 		return errors.Wrap(err, "create node for commit log")
 	} else if err := m.commitlog.add(node); err != nil {
+		return errors.Wrap(err, "add node to commit log")
+	}
+	return nil
+}
+
+func (m *Memtable) roaringSetAddCommitLogList(key []byte, additions []uint64, deletions []uint64) error {
+	if node, err := roaringset.NewSegmentNodeSimple(key, additions, deletions); err != nil {
+		return errors.Wrap(err, "create node for commit log")
+	} else if err := m.commitlog.addSimple(node); err != nil {
 		return errors.Wrap(err, "add node to commit log")
 	}
 	return nil
