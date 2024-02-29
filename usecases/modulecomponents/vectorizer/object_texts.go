@@ -14,7 +14,6 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -70,7 +69,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 	if object.Properties != nil {
 		propMap := moduletools.PropertiesListToMap(object.Properties)
-		for _, propName := range v.sortStringKeys(propMap) {
+		for _, propName := range moduletools.SortStringKeys(propMap) {
 			if !icheck.PropertyIndexed(propName) {
 				continue
 			}
@@ -113,13 +112,4 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")
-}
-
-func (v *ObjectVectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
-	keys := make([]string, 0, len(schemaMap))
-	for k := range schemaMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

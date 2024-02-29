@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"context"
-	"sort"
 
 	"github.com/pkg/errors"
 
@@ -82,7 +81,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 
 	if object.Properties != nil {
 		schemamap := moduletools.PropertiesListToMap(object.Properties)
-		for _, propName := range v.sortStringKeys(schemamap) {
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
 			switch val := schemamap[propName].(type) {
 			case string:
 				if ichek.ImageField(propName) {
@@ -133,32 +132,7 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, imageFieldsWeights...)
 
-	normalizedWeights := v.normalizeWeights(weights)
+	normalizedWeights := moduletools.NormalizeWeights(weights)
 
 	return normalizedWeights, nil
-}
-
-func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
-	if len(weights) > 0 {
-		var denominator float32
-		for i := range weights {
-			denominator += weights[i]
-		}
-		normalizer := 1 / denominator
-		normalized := make([]float32, len(weights))
-		for i := range weights {
-			normalized[i] = weights[i] * normalizer
-		}
-		return normalized
-	}
-	return nil
-}
-
-func (v *Vectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
-	keys := make([]string, 0, len(schemaMap))
-	for k := range schemaMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
