@@ -165,6 +165,16 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	t.Lock()
 	defer t.Unlock()
 
+	if t.data.BucketedData == nil {
+		t.data.BucketedData = map[string]map[int]int{}
+	}
+	if t.data.SumData == nil {
+		t.data.SumData = map[string]int{}
+	}
+	if t.data.CountData == nil {
+		t.data.CountData = map[string]int{}
+	}
+
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
