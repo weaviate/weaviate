@@ -81,6 +81,15 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
+	if v := os.Getenv("PROFILING_PORT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+		}
+
+		config.Profiling.Port = asInt
+	}
+
 	if Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
