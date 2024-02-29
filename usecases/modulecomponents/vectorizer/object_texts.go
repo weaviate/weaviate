@@ -25,6 +25,7 @@ type ClassSettings interface {
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
 	Properties() []string
+	LowerCasePropertyValue() bool
 }
 
 type ObjectVectorizer struct{}
@@ -76,6 +77,13 @@ func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, c
 		corpi = append(corpi, v.camelCaseToLower(className))
 	}
 
+	maybeConvertToLowerCase := func(s string) string {
+		if icheck.LowerCasePropertyValue() {
+			return strings.ToLower(s)
+		}
+		return s
+	}
+
 	it := comp.PropsIterator()
 	for propName, value, ok := it.Next(); ok; propName, value, ok = it.Next() {
 		if !icheck.PropertyIndexed(propName) {
@@ -87,7 +95,7 @@ func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, c
 			vectorize = vectorize || comp.IsChanged(propName)
 			isTitleProperty := propName == titlePopertyName
 
-			str := strings.ToLower(typed)
+			str := maybeConvertToLowerCase(typed)
 			if isTitleProperty {
 				titlePropertyValue = append(titlePropertyValue, str)
 			}
@@ -105,7 +113,7 @@ func (v *ObjectVectorizer) TextsOrVectorWithTitleProperty(ctx context.Context, c
 				isTitleProperty := propName == titlePopertyName
 
 				for i := range typed {
-					str := strings.ToLower(typed[i])
+					str := maybeConvertToLowerCase(typed[i])
 					if isTitleProperty {
 						titlePropertyValue = append(titlePropertyValue, str)
 					}

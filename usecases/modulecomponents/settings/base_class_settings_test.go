@@ -30,8 +30,9 @@ func Test_BaseClassSettings(t *testing.T) {
 			targetVector: {
 				Vectorizer: map[string]interface{}{
 					"my-module": map[string]interface{}{
-						"vectorizeClassName": false,
-						"properties":         []interface{}{propertyToIndex},
+						"vectorizeClassName":     false,
+						"lowerCasePropertyValue": false,
+						"properties":             []interface{}{propertyToIndex},
 					},
 				},
 				VectorIndexType: "hnsw",
@@ -61,6 +62,7 @@ func Test_BaseClassSettings(t *testing.T) {
 	assert.False(t, ic.PropertyIndexed("otherProp"))
 	assert.False(t, ic.VectorizePropertyName("otherProp"))
 	assert.False(t, ic.VectorizeClassName())
+	assert.False(t, ic.LowerCasePropertyValue())
 }
 
 func Test_BaseClassSettings_Validate(t *testing.T) {
