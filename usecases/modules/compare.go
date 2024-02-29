@@ -32,7 +32,19 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		Name    string
 		IsArray bool
 	}
-	propsToCmpare := make([]compareProps, 0)
+	propsToCompare := make([]compareProps, 0)
+
+	var sourcePropsSet map[string]struct{} = nil
+	if len(sourceProperties) > 0 {
+		sourcePropsSet = make(map[string]struct{}, len(sourceProperties))
+		for _, sourceProp := range sourceProperties {
+			sourcePropsSet[sourceProp] = struct{}{}
+		}
+	}
+	mediaPropsSet := make(map[string]struct{}, len(mediaProps))
+	for _, mediaProp := range mediaProps {
+		mediaPropsSet[mediaProp] = struct{}{}
+	}
 
 	for _, prop := range class.Properties {
 		if len(prop.DataType) > 1 {
@@ -40,15 +52,8 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		}
 
 		// for named vectors with explicit source properties, skip if not in the list
-		if sourceProperties != nil {
-			found := false
-			for _, sourceProp := range sourceProperties {
-				if prop.Name == sourceProp {
-					found = true
-					break
-				}
-			}
-			if !found {
+		if sourcePropsSet != nil {
+			if _, ok := sourcePropsSet[prop.Name]; !ok {
 				continue
 			}
 		}
@@ -62,19 +67,18 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		}
 
 		if (prop.DataType[0] == schema.DataTypeText.String() || prop.DataType[0] == schema.DataTypeTextArray.String()) && textProps {
-			propsToCmpare = append(propsToCmpare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
+			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
 			continue
 		}
 
-		for _, mediaProp := range mediaProps {
-			if mediaProp == prop.Name {
-				propsToCmpare = append(propsToCmpare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
-			}
+		if _, ok := mediaPropsSet[prop.Name]; ok {
+			propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, IsArray: schema.IsArrayDataType(prop.DataType)})
+			continue
 		}
 	}
 
 	// if no properties to compare, we can skip the comparison. Return vectors of old object if present
-	if len(propsToCmpare) == 0 {
+	if len(propsToCompare) == 0 {
 		oldObject, err := findObjectFn(ctx, class.Class, object.ID, nil, additional.Properties{}, object.Tenant)
 		if err != nil || oldObject == nil {
 			return true, nil, nil
@@ -86,8 +90,8 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		}
 	}
 
-	returnProps := make(search.SelectProperties, 0, len(propsToCmpare))
-	for _, prop := range propsToCmpare {
+	returnProps := make(search.SelectProperties, 0, len(propsToCompare))
+	for _, prop := range propsToCompare {
 		returnProps = append(returnProps, search.SelectProperty{Name: prop.Name, IsPrimitive: true, IsObject: false})
 	}
 	oldObject, err := findObjectFn(ctx, class.Class, object.ID, returnProps, additional.Properties{}, object.Tenant)
@@ -101,7 +105,7 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 	} else {
 		newProps = object.Properties.(map[string]interface{})
 	}
-	for _, propStruct := range propsToCmpare {
+	for _, propStruct := range propsToCompare {
 		valNew, isPresentNew := newProps[propStruct.Name]
 		valOld, isPresentOld := oldProps[propStruct.Name]
 
