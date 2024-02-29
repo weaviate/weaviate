@@ -75,7 +75,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	images := []string{}
 
 	if object.Properties != nil {
-		schemamap := moduletools.PropertiesListToMap(object.Properties)
+		schemamap := object.Properties.(map[string]interface{})
 		for _, propName := range moduletools.SortStringKeys(schemamap) {
 			switch val := schemamap[propName].(type) {
 			case string:

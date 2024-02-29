@@ -68,7 +68,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 		corpi = append(corpi, v.camelCaseToLower(object.Class))
 	}
 	if object.Properties != nil {
-		propMap := moduletools.PropertiesListToMap(object.Properties)
+		propMap := object.Properties.(map[string]interface{})
 		for _, propName := range moduletools.SortStringKeys(propMap) {
 			if !icheck.PropertyIndexed(propName) {
 				continue
