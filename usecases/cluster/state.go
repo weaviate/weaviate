@@ -21,11 +21,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type Reader interface {
-	AllHostnames() []string
-	NodeHostname(nodeName string) (string, bool)
-}
-
 type State struct {
 	config   Config
 	list     *memberlist.Memberlist
@@ -204,6 +199,16 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// NodeAddress is used to resolve the node name into an ip address without the port
+func (s *State) NodeAddress(id string) string {
+	for _, mem := range s.list.Members() {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
+	return ""
 }
 
 func (s *State) SchemaSyncIgnored() bool {

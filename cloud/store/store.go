@@ -29,7 +29,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	command "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -44,8 +43,6 @@ const (
 	tcpTimeout = 10 * time.Second
 
 	raftDBName = "raft.db"
-
-	peersFileName = "peers.json"
 
 	// logCacheCapacity is the maximum number of logs to cache in-memory.
 	// This is used to reduce disk I/O for the recently committed entries.
@@ -88,12 +85,15 @@ type Parser interface {
 }
 
 type Config struct {
-	WorkDir         string // raft working directory
-	NodeID          string
-	Host            string
-	RaftPort        int
-	RPCPort         int
-	BootstrapExpect int
+	WorkDir  string // raft working directory
+	NodeID   string
+	Host     string
+	RaftPort int
+	RPCPort  int
+
+	// ServerName2PortMap maps server names to port numbers
+	ServerName2PortMap map[string]int
+	BootstrapExpect    int
 
 	HeartbeatTimeout  time.Duration
 	ElectionTimeout   time.Duration
@@ -101,18 +101,18 @@ type Config struct {
 	SnapshotInterval  time.Duration
 	SnapshotThreshold uint64
 
-	DB          Indexer
-	Parser      Parser
-	Logger      *slog.Logger
-	LogLevel    string
-	Voter       bool
+	DB           Indexer
+	Parser       Parser
+	AddrResolver addressResolver
+	Logger       *slog.Logger
+	LogLevel     string
+	Voter        bool
+	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
 }
 
 type Store struct {
-	raft    *raft.Raft
-	cluster cluster.Reader
-
+	raft              *raft.Raft
 	open              atomic.Bool
 	raftDir           string
 	raftPort          int
@@ -132,6 +132,7 @@ type Store struct {
 
 	bootstrapped atomic.Bool
 	logStore     *raftbolt.BoltStore
+	addResolver  *addrResolver
 	transport    *raft.NetworkTransport
 
 	mutex      sync.Mutex
@@ -144,7 +145,7 @@ type Store struct {
 	dbLoaded atomic.Bool
 }
 
-func New(cfg Config, cluster cluster.Reader) Store {
+func New(cfg Config) Store {
 	return Store{
 		raftDir:           cfg.WorkDir,
 		raftPort:          cfg.RaftPort,
@@ -158,7 +159,7 @@ func New(cfg Config, cluster cluster.Reader) Store {
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
-		cluster:           cluster,
+		addResolver:       newAddrResolver(&cfg),
 		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
@@ -172,12 +173,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return nil
 	}
 	defer func() { st.open.Store(err == nil) }()
-
-	if err := st.genPeersFileFromBolt(
-		filepath.Join(st.raftDir, raftDBName),
-		filepath.Join(st.raftDir, peersFileName)); err != nil {
-		return err
-	}
 
 	if err = os.MkdirAll(st.raftDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", st.raftDir, err)
@@ -208,7 +203,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("net.ResolveTCPAddr address=%v: %w", address, err)
 	}
 
-	st.transport, err = raft.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, os.Stdout)
+	st.transport, err = st.addResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout)
 	if err != nil {
 		return fmt.Errorf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
@@ -223,43 +218,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	if st.initialLastAppliedIndex == snapshotIndex(snapshotStore) {
 		st.loadDatabase(ctx)
-	}
-
-	existedConfig, err := st.configViaPeers(filepath.Join(st.raftDir, peersFileName))
-	if err != nil {
-		return err
-	}
-
-	if servers, recover := st.recoverable(existedConfig.Servers); recover {
-		st.log.Info("recovery: start recovery with provided",
-			"peers", servers,
-			"snapshot_index", snapshotIndex(snapshotStore),
-			"last_applied_log_index", st.initialLastAppliedIndex)
-
-		// FSM passed to RecoverCluster has to be temporary one
-		// because it will be left in state shouldn't be used by the application.
-		if err := raft.RecoverCluster(st.raftConfig(), &Store{
-			nodeID:   st.nodeID,
-			host:     st.host,
-			db:       st.db,
-			log:      st.log,
-			logLevel: st.logLevel,
-		}, logCache, st.logStore, snapshotStore, st.transport, raft.Configuration{
-			Servers: servers,
-		}); err != nil {
-			return fmt.Errorf("raft recovery failed: %w", err)
-		}
-
-		// load the database if <= because RecoverCluster() will implicitly
-		// commits all entries in the previous Raft log before starting
-		if st.initialLastAppliedIndex <= snapshotIndex(snapshotStore) {
-			st.loadDatabase(ctx)
-		}
-
-		st.log.Info("recovery: succeeded from previous configuration with new",
-			"peers", servers,
-			"snapshot_index", snapshotIndex(snapshotStore),
-			"last_applied_log_index", st.initialLastAppliedIndex)
 	}
 
 	// raft node
@@ -542,10 +500,12 @@ func (st *Store) Notify(id, addr string) (err error) {
 		i++
 	}
 
-	st.log.Info("starting bootstrapping", "candidates", candidates)
+	st.log.Info("starting cluster bootstrapping", "candidates", candidates)
 
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
+		st.log.Error("bootstrapping cluster: " + err.Error())
+
 		return err
 	}
 	st.bootstrapped.Store(true)

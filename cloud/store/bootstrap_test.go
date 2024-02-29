@@ -25,12 +25,12 @@ import (
 func TestBootStrapper(t *testing.T) {
 	ctx := context.Background()
 	anything := mock.Anything
-	servers := []string{"S1", "S2"}
+	servers := map[string]int{"S1": 1, "S2": 2}
 
 	tests := []struct {
 		name     string
 		voter    bool
-		servers  []string
+		servers  map[string]int
 		doBefore func(*MockJoiner)
 		success  bool
 	}{
@@ -57,11 +57,11 @@ func TestBootStrapper(t *testing.T) {
 			voter:   true,
 			servers: servers,
 			doBefore: func(m *MockJoiner) {
-				m.On("Join", anything, "S1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
-				m.On("Join", anything, "S2", anything).Return(&cmd.JoinPeerResponse{}, errAny)
+				m.On("Join", anything, "S1:1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
+				m.On("Join", anything, "S2:2", anything).Return(&cmd.JoinPeerResponse{}, errAny)
 
-				m.On("Notify", anything, "S1", anything).Return(&cmd.NotifyPeerResponse{}, nil)
-				m.On("Notify", anything, "S2", anything).Return(&cmd.NotifyPeerResponse{}, errAny)
+				m.On("Notify", anything, "S1:1", anything).Return(&cmd.NotifyPeerResponse{}, nil)
+				m.On("Notify", anything, "S2:2", anything).Return(&cmd.NotifyPeerResponse{}, errAny)
 			},
 			success: false,
 		},
@@ -71,8 +71,8 @@ func TestBootStrapper(t *testing.T) {
 			servers: servers,
 			doBefore: func(m *MockJoiner) {
 				err := status.Error(codes.NotFound, "follow the leader")
-				m.On("Join", anything, "S1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
-				m.On("Join", anything, "S2", anything).Return(&cmd.JoinPeerResponse{Leader: "S3"}, err)
+				m.On("Join", anything, "S1:1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
+				m.On("Join", anything, "S2:2", anything).Return(&cmd.JoinPeerResponse{Leader: "S3"}, err)
 				m.On("Join", anything, "S3", anything).Return(&cmd.JoinPeerResponse{}, nil)
 			},
 			success: true,
@@ -80,7 +80,7 @@ func TestBootStrapper(t *testing.T) {
 	}
 	for _, test := range tests {
 		m := &MockJoiner{}
-		b := NewBootstrapper(m, "RID", "ADDR")
+		b := NewBootstrapper(m, "RID", "ADDR", &MockAddressResolver{func(id string) string { return id }})
 		b.retryPeriod = time.Millisecond
 		b.jitter = time.Millisecond
 		test.doBefore(m)
