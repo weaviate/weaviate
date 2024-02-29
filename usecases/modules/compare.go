@@ -23,7 +23,7 @@ import (
 )
 
 func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecapabilities.Vectorizer, object *models.Object, class *models.Class, sourceProperties []string, targetVector string, findObjectFn modulecapabilities.FindObjectFn) (bool, models.AdditionalProperties, []float32) {
-	textProps, mediaProps, err := mod.VectorizedProperties(cfg)
+	textProps, mediaProps, err := mod.VectorizableProperties(cfg)
 	if err != nil {
 		return true, nil, nil
 	}

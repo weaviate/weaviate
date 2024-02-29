@@ -127,7 +127,7 @@ func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
-func (m *CohereModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *CohereModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 

@@ -161,7 +161,7 @@ func (m *TransformersModule) VectorizeInput(ctx context.Context,
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
-func (m *TransformersModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *TransformersModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 

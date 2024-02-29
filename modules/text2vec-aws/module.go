@@ -146,7 +146,7 @@ func (m *AwsModule) AdditionalProperties() map[string]modulecapabilities.Additio
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
-func (m *AwsModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *AwsModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 

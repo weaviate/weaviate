@@ -70,7 +70,7 @@ func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	return []float32{1, 2, 3}, nil, nil
 }
 
-func (m dummyText2VecModuleNoCapabilities) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m dummyText2VecModuleNoCapabilities) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, m.mediaProperties, nil
 }
 

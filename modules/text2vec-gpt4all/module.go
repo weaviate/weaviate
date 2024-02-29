@@ -139,7 +139,7 @@ func (m *GPT4AllModule) AdditionalProperties() map[string]modulecapabilities.Add
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
-func (m *GPT4AllModule) VectorizedProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *GPT4AllModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 
