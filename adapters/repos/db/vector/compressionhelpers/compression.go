@@ -46,7 +46,7 @@ type VectorCompressor interface {
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, x uint64, y []float32) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
-	NewDistancerFromID(id uint64) CompressorDistancer
+	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
 
 	ExposeFields() PQData
@@ -163,13 +163,21 @@ func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) 
 	}
 }
 
-func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) CompressorDistancer {
-	compressedVector, _ := compressor.compressedVectorFromID(context.Background(), id)
+func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) (CompressorDistancer, error) {
+	compressedVector, err := compressor.compressedVectorFromID(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	if compressedVector == nil {
+		return nil, storobj.ErrNotFound{
+			DocID: id,
+		}
+	}
 	d := &quantizedCompressorDistancer[T]{
 		compressor: compressor,
 		distancer:  compressor.quantizer.NewCompressedQuantizerDistancer(compressedVector),
 	}
-	return d
+	return d, nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) returnDistancer(distancer CompressorDistancer) {
