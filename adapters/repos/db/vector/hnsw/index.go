@@ -412,6 +412,10 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 		var err error
 		if h.compressed.Load() {
 			dist, ok, err = distancer.DistanceToNode(entryPointID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+			}
 		} else {
 			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		}
