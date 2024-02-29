@@ -14,6 +14,8 @@ package distancer
 import (
 	"fmt"
 	"testing"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
 )
 
 func benchmarkDot(b *testing.B, dims int, dotFn func(a, b []float32) float32) {
@@ -36,9 +38,9 @@ func BenchmarkDot(b *testing.B) {
 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
-			benchmarkDot(b, dim, DotProductGo)
-			// benchmarkDot(b, dim, asm.L2)
-			// benchmarkDot(b, dim, asm.L2_512)
+			// benchmarkDot(b, dim, DotProductGo)
+			// benchmarkDot(b, dim, asm.Dot)
+			benchmarkDot(b, dim, asm.DotAVX512)
 		})
 
 		// b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {

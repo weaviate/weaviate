@@ -38,7 +38,7 @@ void dot_512(float *a, float *b, float *res, long *len)
     acc[2] = _mm256_setzero_ps();
     acc[3] = _mm256_setzero_ps();
 
-    if (n >= 512)
+    if (n >= 128)
     {
         // create 8 registers
         __m512 acc5[8];
@@ -130,11 +130,6 @@ void dot_512(float *a, float *b, float *res, long *len)
         __m256 b_vec1 = _mm256_loadu_ps(b + 8);
         __m256 b_vec2 = _mm256_loadu_ps(b + 16);
         __m256 b_vec3 = _mm256_loadu_ps(b + 24);
-
-        __m256 diff0 = _mm256_sub_ps(a_vec0, b_vec0);
-        __m256 diff1 = _mm256_sub_ps(a_vec1, b_vec1);
-        __m256 diff2 = _mm256_sub_ps(a_vec2, b_vec2);
-        __m256 diff3 = _mm256_sub_ps(a_vec3, b_vec3);
 
         acc[0] = _mm256_fmadd_ps(a_vec0, b_vec0, acc[0]);
         acc[1] = _mm256_fmadd_ps(a_vec1, b_vec1, acc[1]);

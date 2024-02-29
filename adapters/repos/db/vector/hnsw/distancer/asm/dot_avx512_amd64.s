@@ -35,7 +35,7 @@ LBB0_3:
 
 LBB0_6:
 	LONG $0xc057f8c5             // vxorps	%xmm0, %xmm0, %xmm0
-	LONG $0x0002003d; BYTE $0x00 // cmpl	$512, %eax
+	LONG $0x0000803d; BYTE $0x00 // cmpl	$128, %eax
 	JB   LBB0_13
 	LONG $0xc957f0c5             // vxorps	%xmm1, %xmm1, %xmm1
 	LONG $0xd257e8c5             // vxorps	%xmm2, %xmm2, %xmm2
