@@ -31,14 +31,13 @@ func (s *Shard) initHashBeater() {
 		t := time.NewTicker(50 * time.Millisecond)
 
 		backoffs := []time.Duration{
-			time.Duration(0),
+			5 * time.Second,
 			30 * time.Second,
 			1 * time.Minute,
 			5 * time.Minute,
-			10 * time.Minute,
 		}
 
-		noDiffFoundLogTimer := interval.NewBackoffTimer(backoffs...)
+		backoffTimer := interval.NewBackoffTimer(backoffs...)
 
 		defer t.Stop()
 
@@ -55,10 +54,13 @@ func (s *Shard) initHashBeater() {
 					s.index.logger.WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
-						Warnf("async replication iteration: %v", err)
+						Warnf("iteration failed: %v", err)
 
-					// TODO: an exp-backoff delay may be convenient
-					time.Sleep(1 * time.Minute)
+					time.Sleep(backoffTimer.CurrentInterval())
+
+					backoffTimer.IncreaseInterval()
+
+					continue
 				}
 
 				hosts := make([]string, len(stats.hostStats))
@@ -66,6 +68,7 @@ func (s *Shard) initHashBeater() {
 				remoteObjects := 0
 				objectsPropagated := 0
 				var objectProgationTook time.Duration
+				var propagationErr error
 
 				for i, stat := range stats.hostStats {
 					hosts[i] = stat.host
@@ -73,36 +76,44 @@ func (s *Shard) initHashBeater() {
 					remoteObjects += stat.remoteObjects
 					objectsPropagated += stat.objectsPropagated
 					objectProgationTook += stat.objectProgationTook
+
+					if stat.err != nil && propagationErr == nil {
+						propagationErr = fmt.Errorf("%w: host %s", stat.err, stat.host)
+					}
 				}
 
-				if objectsPropagated == 0 {
-					// no need to propagate any local object
+				if propagationErr != nil {
+					s.index.logger.WithField("action", "async_replication").
+						WithField("class_name", s.class.Class).
+						WithField("shard_name", s.name).
+						WithField("diffCalculationTook", stats.diffCalculationTook.String()).
+						Warnf("propagation error: %v", propagationErr)
 
-					if noDiffFoundLogTimer.IntervalElapsed() {
-						s.index.logger.WithField("action", "async_replication").
-							WithField("class_name", s.class.Class).
-							WithField("shard_name", s.name).
-							WithField("diffCalculationTook", stats.diffCalculationTook.String()).
-							Info("shard fully replicated")
+					time.Sleep(backoffTimer.CurrentInterval())
 
-						noDiffFoundLogTimer.IncreaseInterval()
-					}
+					backoffTimer.IncreaseInterval()
 
 					continue
 				}
 
-				s.index.logger.WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("hosts", hosts).
-					WithField("diffCalculationTook", stats.diffCalculationTook.String()).
-					WithField("localObjects", localObjects).
-					WithField("remoteObjects", remoteObjects).
-					WithField("objectsPropagated", objectsPropagated).
-					WithField("objectProgationTook", objectProgationTook.String()).
-					Info("async replication iteration successfully completed")
+				if backoffTimer.IntervalElapsed() {
+					s.index.logger.WithField("action", "async_replication").
+						WithField("class_name", s.class.Class).
+						WithField("shard_name", s.name).
+						WithField("hosts", hosts).
+						WithField("diffCalculationTook", stats.diffCalculationTook.String()).
+						WithField("localObjects", localObjects).
+						WithField("remoteObjects", remoteObjects).
+						WithField("objectsPropagated", objectsPropagated).
+						WithField("objectProgationTook", objectProgationTook.String()).
+						Info("iteration successfully completed")
+				}
 
-				noDiffFoundLogTimer.Reset()
+				if objectsPropagated == 0 {
+					backoffTimer.IncreaseInterval()
+				} else {
+					backoffTimer.Reset()
+				}
 			}
 		}
 	}()
@@ -119,6 +130,7 @@ type hashBeatHostStats struct {
 	remoteObjects       int
 	objectsPropagated   int
 	objectProgationTook time.Duration
+	err                 error
 }
 
 func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
@@ -132,22 +144,25 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 	replyCh, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, ht, replica.One, "")
 	if err != nil {
 		if errors.Is(err, hashtree.ErrNoMoreDifferences) {
-			s.index.logger.Printf("shard fully replicated %s", s.name)
-
+			// shard fully replicated
 			return hashBeatStats{
 				diffCalculationTook: time.Since(diffCalculationStart),
 			}, nil
 		}
 
-		return stats, fmt.Errorf("collecting differences for shard %s: %w", s.name, err)
+		return stats, fmt.Errorf("collecting differences: %w", err)
 	}
 
 	stats.diffCalculationTook = time.Since(diffCalculationStart)
 
+	// an error will be returned when it was not possible to collect differences with any host
+	var diffCollectionDone bool
+	var diffCollectionErr error
+
 	for r := range replyCh {
 		if r.Err != nil {
-			if !errors.Is(r.Err, hashtree.ErrNoMoreDifferences) {
-				s.index.logger.Printf("reading collected differences for shard %s: %v", s.name, r.Err)
+			if !errors.Is(r.Err, hashtree.ErrNoMoreDifferences) && !diffCollectionDone {
+				diffCollectionErr = fmt.Errorf("collecting differences: %w", r.Err)
 			}
 			continue
 		}
@@ -161,6 +176,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 		remoteObjects := 0
 		objectsPropagated := 0
 
+		var propagationErr error
+
 		for {
 			if s.hashBeaterCtx.Err() != nil {
 				return stats, s.hashBeaterCtx.Err()
@@ -171,7 +188,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 				break
 			}
 			if err != nil {
-				return stats, fmt.Errorf("difference reading: %w", err)
+				propagationErr = fmt.Errorf("reading collected differences: %w", err)
+				break
 			}
 
 			localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
@@ -182,8 +200,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 				finalToken,
 			)
 			if err != nil {
-				s.index.logger.Printf("solving differences for shard %s: %v", s.name, err)
-				continue
+				propagationErr = fmt.Errorf("propagating local objects: %v", err)
+				break
 			}
 
 			localObjects += localObjs
@@ -197,12 +215,16 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 			remoteObjects:       remoteObjects,
 			objectsPropagated:   objectsPropagated,
 			objectProgationTook: time.Since(objectProgationStart),
+			err:                 propagationErr,
 		}
 
 		stats.hostStats = append(stats.hostStats, stat)
+
+		diffCollectionDone = true
+		diffCollectionErr = nil
 	}
 
-	return stats, nil
+	return stats, diffCollectionErr
 }
 
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
@@ -213,7 +235,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
 		localDigests, newLocalLastReadToken, err := s.index.digestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
-			return localObjects, remoteObjects, propagations, err
+			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
 		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
@@ -242,7 +264,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
 				shardName, host, remoteLastTokenRead, newLocalLastReadToken, limit)
 			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
-				return localObjects, remoteObjects, propagations, err
+				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
 
 			if len(remoteDigests) == 0 {
@@ -297,7 +319,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		replicaObjs, err := s.index.fetchObjects(ctx, shardName, uuids)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching objects from shard %s: %w", shardName, err)
+			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
 		}
 
 		mergeObjs := make([]*objects.VObject, len(replicaObjs))
@@ -313,7 +335,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		_, err = s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("overwriting objects in shard %s at host %s: %w", shardName, host, err)
+			return localObjects, remoteObjects, propagations, fmt.Errorf("propagating local objects: %w", err)
 		}
 
 		propagations += len(mergeObjs)
