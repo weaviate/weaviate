@@ -129,13 +129,6 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
 		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
-			vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
-			if err != nil {
-				return err
-			}
-			if !vectorize {
-				return nil
-			}
 			if err := p.vectorizeOne(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger); err != nil {
 				return err
 			}
@@ -251,22 +244,14 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 		return false, err
 	}
 
-	// dont vectorize if vector is already present
-	vector := p.getVector(object, targetVector)
-	if len(vector) > 0 {
-		return false, nil
-	}
-
 	vectorizer := p.getVectorizer(class, targetVector)
 	if vectorizer == config.VectorizerModuleNone {
-
+		vector := p.getVector(object, targetVector)
 		if hnswConfig.Skip && len(vector) > 0 {
 			logger.WithField("className", class.Class).
 				Warningf(warningSkipVectorProvided)
 		}
-
 		return false, nil
-
 	}
 
 	if hnswConfig.Skip {
