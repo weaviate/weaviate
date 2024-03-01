@@ -12,6 +12,9 @@
 package lsmkv
 
 import (
+	"errors"
+	"io"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -151,6 +154,13 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 
 	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
 	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			segmentName := s.segment.path
+			currentOffset := s.reusableNode.offset
+			s.segment.logger.Errorf(
+				"error parsing replace node segment %v, current offset: %v offset: %+v, err: %v",
+				segmentName, currentOffset, offset, err)
+		}
 		return err
 	}
 
