@@ -20,7 +20,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	cloud_utils "github.com/weaviate/weaviate/cloud/utils"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -191,7 +191,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		}
 
 		return nil
-	}, cloud_utils.NewBackoff())
+	}, utils.NewBackoff())
 	ec.Add(err)
 
 	*resultsC <- BatchObject{
