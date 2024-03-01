@@ -238,7 +238,9 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 	if cfg.TargetVector() == "" {
 		return object.Vector == nil
 	}
-	return true
+
+	vec, ok := object.Vectors[cfg.TargetVector()]
+	return !ok || len(vec) == 0
 }
 
 func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
