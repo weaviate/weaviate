@@ -57,6 +57,31 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	duration := time.Duration(0)
 	compressionhelpers.Concurrently(logger, uint64(len(queryVecs)), func(i uint64) {
 		before := time.Now()
+		query := queryVecs[i]
+		heap := priorityqueue.NewMax[any](k)
+		for j := range vectors {
+			d, _, _ := distanceProvider.SingleDist(vectors[j], query)
+			if heap.Len() < k || heap.Top().Dist > d {
+				if heap.Len() == k {
+					heap.Pop()
+				}
+				heap.Insert(uint64(j), d)
+			}
+		}
+		neighbors[i] = make([]uint64, k)
+		for j := range neighbors[i] {
+			neighbors[i][j] = heap.Pop().ID
+		}
+		mutex.Lock()
+		duration += time.Since(before)
+		mutex.Unlock()
+	})
+	latency := float32(duration.Microseconds()) / float32(len(queryVecs))
+	fmt.Println(latency)
+	duration = time.Duration(0)
+
+	compressionhelpers.Concurrently(logger, uint64(len(queryVecs)), func(i uint64) {
+		before := time.Now()
 		query := bq.Encode(queryVecs[i])
 		heap := priorityqueue.NewMax[any](correctedK)
 		for j := range codes {
@@ -78,9 +103,9 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 		mutex.Unlock()
 	})
 	recall := float32(hits) / float32(k*len(queryVecs))
-	latency := float32(duration.Microseconds()) / float32(len(queryVecs))
+	latency = float32(duration.Microseconds()) / float32(len(queryVecs))
 	fmt.Println(recall, latency)
-	assert.True(t, recall > 0.7)
+	assert.True(t, recall > 0.99)
 }
 
 func TestBinaryQuantizerChecksSize(t *testing.T) {
