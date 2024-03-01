@@ -84,7 +84,37 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 
 func Benchmark_L2(b *testing.B) {
 	r := getRandomSeed()
-	lengths := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	lengths := []int{
+		1,
+		2,
+		3,
+		4,
+		5,
+		6,
+		8,
+		10,
+		12,
+		16,
+		24,
+		30,
+		31,
+		32,
+		64,
+		67,
+		128,
+		256,
+		260,
+		299,
+		300,
+		384,
+		390,
+		600,
+		768,
+		777,
+		784,
+		1024,
+		1536,
+	}
 	for _, length := range lengths {
 		b.Run(fmt.Sprintf("vector dim=%d", length), func(b *testing.B) {
 			x := make([]float32, length)
