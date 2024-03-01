@@ -667,13 +667,12 @@ func GetTopKHeap(limit int, results Terms, averagePropLength float64,
 func (b *Bucket) GetTermsForWand(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64) (Terms, error) {
 	sg := b.disk
 
-	terms := make(Terms, len(sg.segments))
-	for i, segment := range sg.segments {
+	terms := make(Terms, 0, len(sg.segments))
+	for _, segment := range sg.segments {
 		term, err := segment.WandTerm(key, N, duplicateTextBoost, propertyBoost)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			terms = append(terms, term)
 		}
-		terms[i] = term
 	}
 
 	return terms, nil
