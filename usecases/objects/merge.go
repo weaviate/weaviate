@@ -191,6 +191,10 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		obj.Vector = prevVec
 	}
 
+	if obj.Vectors == nil {
+		obj.Vectors = models.Vectors{}
+	}
+
 	// check for each named vector if the previous vector should be used. This should only happen if
 	// - the vectorizer is none
 	// - the vector is not set in the update
@@ -206,9 +210,6 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		}
 
 		if _, ok := obj.Vectors[name]; !ok {
-			if obj.Vectors == nil {
-				obj.Vectors = models.Vectors{}
-			}
 			obj.Vectors[name] = prevTargetVector
 		}
 	}
