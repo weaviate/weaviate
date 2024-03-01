@@ -20,7 +20,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	cloud_utils "github.com/weaviate/weaviate/cloud/utils"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -170,6 +170,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 
 	// Batch together the GetClass and the validation function as the validation function will create/update the class
 	// if it already exists to match the object.
+	var class *models.Class
 	err = backoff.Retry(func() error {
 		class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
 		if err != nil {
@@ -180,18 +181,14 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 			return fmt.Errorf("class '%s' not present in schema", object.Class)
 		}
 
-		err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil)
-		if err != nil {
-			return err
-		}
-		// update vector only if we passed validation
-		err = b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger)
-		if err != nil {
-			return err
-		}
-
 		return nil
-	}, cloud_utils.NewBackoff())
+	}, utils.NewBackoff())
+	ec.Add(err)
+
+	err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil)
+	ec.Add(err)
+	// update vector only if we passed validation
+	err = b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger)
 	ec.Add(err)
 
 	*resultsC <- BatchObject{
