@@ -169,7 +169,11 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 			vector = prevVec
 		}
 		if len(vectors) == 0 && len(class.VectorConfig) > 0 {
-			vectors = prevVecs
+			// copy target vectors map to avoid concurrent read/write on assigning new vectors to object
+			vectors := make(models.Vectors)
+			for name, vec := range prevVecs {
+				vectors[name] = vec
+			}
 		}
 
 		mergedProps = map[string]interface{}{}
