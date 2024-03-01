@@ -196,7 +196,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	// - the vector is not set in the update
 	// - the vector was set in the previous object
 	for name, vectorConfig := range class.VectorConfig {
-		if vectorConfig.Vectorizer != config.VectorizerModuleNone {
+		if _, ok := vectorConfig.Vectorizer.(map[string]interface{})[config.VectorizerModuleNone]; !ok {
 			continue
 		}
 
@@ -206,6 +206,9 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		}
 
 		if _, ok := obj.Vectors[name]; !ok {
+			if obj.Vectors == nil {
+				obj.Vectors = models.Vectors{}
+			}
 			obj.Vectors[name] = prevTargetVector
 		}
 	}
