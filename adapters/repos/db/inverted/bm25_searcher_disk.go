@@ -46,12 +46,15 @@ func (b *BM25Searcher) wandDisk(
 	}
 	if wandDiskLastClass != string(class.Class) {
 		fmt.Printf("DISK,%v", wandDiskLastClass)
+		sum := 0.
 		for i := 0; i < len(wandDiskTimes); i++ {
 			fmt.Printf(",%8.2f", wandDiskTimes[i]/float64(wandDiskCounter))
+			sum += wandDiskTimes[i] / float64(wandDiskCounter)
 		}
-		for i := 0; i < len(wandDiskStats); i++ {
-			fmt.Printf(",%8.2f", wandDiskStats[i]/float64(wandDiskCounter))
-		}
+		fmt.Printf(",%8.2f", sum)
+		//for i := 0; i < len(wandDiskStats); i++ {
+		//	fmt.Printf(",%8.2f", wandDiskStats[i]/float64(wandDiskCounter))
+		//}
 		fmt.Printf("\n")
 		wandDiskTimes = make([]float64, len(wandDiskTimes))
 		wandDiskStats = make([]float64, len(wandDiskStats))

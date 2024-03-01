@@ -100,8 +100,30 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
-	b.wandDisk(ctx, filterDocIds, class, params, limit)
+	objsD, scoresD, errD := b.wandDisk(ctx, filterDocIds, class, params, limit)
 	objsM, scoresM, errM := b.wandMem(ctx, filterDocIds, class, params, limit)
+	if errD != nil {
+		return nil, nil, errD
+	}
+	if errM != nil {
+		return nil, nil, errM
+	}
+
+	// compare results and scores
+	if len(objsD) != len(objsM) {
+		return nil, nil, fmt.Errorf("different number of results: disk %d, mem %d", len(objsD), len(objsM))
+	}
+	if len(scoresD) != len(scoresM) {
+		return nil, nil, fmt.Errorf("different number of scores: disk %d, mem %d", len(scoresD), len(scoresM))
+	}
+	for i := range objsM {
+		if objsD[i].ID() != objsM[i].ID() {
+			return nil, nil, fmt.Errorf("different object IDs at index %d: disk %d, mem %d", i, objsD[i].ID, objsM[i].ID)
+		}
+		if scoresD[i] != scoresM[i] {
+			return nil, nil, fmt.Errorf("different scores at index %d: disk %f, mem %f", i, scoresD[i], scoresM[i])
+		}
+	}
 
 	return objsM, scoresM, errM
 }
@@ -122,12 +144,16 @@ func (b *BM25Searcher) wandMem(
 	}
 	if wandMemLastClass != string(class.Class) {
 		fmt.Printf(" MEM,%v", wandMemLastClass)
+		sum := 0.
 		for i := 0; i < len(wandMemTimes); i++ {
 			fmt.Printf(",%8.2f", wandMemTimes[i]/float64(wandMemCounter))
+			sum += wandMemTimes[i] / float64(wandMemCounter)
 		}
-		for i := 0; i < len(wandMemStats); i++ {
-			fmt.Printf(",%8.2f", wandMemStats[i]/float64(wandMemCounter))
-		}
+		fmt.Printf(",%8.2f", sum)
+
+		// for i := 0; i < len(wandMemStats); i++ {
+		//	fmt.Printf(",%8.2f", wandMemStats[i]/float64(wandMemCounter))
+		// }
 		fmt.Printf("\n")
 		wandMemCounter = 0
 		wandMemLastClass = string(class.Class)
