@@ -1564,7 +1564,15 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) localShard(name string) ShardLike {
-	return i.shards.Load(name)
+	var shard ShardLike
+	backoff.Retry(func() error {
+		shard = i.shards.Load(name)
+		if shard == nil {
+			return fmt.Errorf("shard not found")
+		}
+		return nil
+	}, utils.NewBackoff())
+	return shard
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1936,25 +1944,16 @@ func (i *Index) findUUIDs(ctx context.Context,
 
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range shardNames {
-		var err error
-		var res []strfmt.UUID
-
-		if err = backoff.Retry(func() error {
-			shard := i.localShard(shardName)
-			if shard == nil {
-				return fmt.Errorf("shard not found")
+		shard := i.localShard(shardName)
+		if shard != nil {
+			results[shardName], err = shard.FindUUIDs(ctx, filters)
+			if err != nil {
+				return nil, err
 			}
-			if shard != nil {
-				res, err = shard.FindUUIDs(ctx, filters)
-			}
-
-			return err
-		}, utils.NewBackoff()); err == nil {
-			results[shardName] = res
 			continue
 		}
 
-		res, err = i.remote.FindUUIDs(ctx, shardName, filters)
+		res, err := i.remote.FindUUIDs(ctx, shardName, filters)
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
