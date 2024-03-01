@@ -82,37 +82,32 @@ func (s *Shard) initHashBeater() {
 					}
 				}
 
-				if propagationErr != nil {
-					s.index.logger.WithField("action", "async_replication").
-						WithField("class_name", s.class.Class).
-						WithField("shard_name", s.name).
-						WithField("diffCalculationTook", stats.diffCalculationTook.String()).
-						Warnf("propagation error: %v", propagationErr)
+				logEntry := s.index.logger.WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					WithField("hosts", hosts).
+					WithField("diffCalculationTook", stats.diffCalculationTook.String()).
+					WithField("localObjects", localObjects).
+					WithField("remoteObjects", remoteObjects).
+					WithField("objectsPropagated", objectsPropagated).
+					WithField("objectProgationTook", objectProgationTook.String())
+
+				if propagationErr == nil {
+					if backoffTimer.IntervalElapsed() {
+						logEntry.Info("iteration successfully completed")
+					}
+
+					if objectsPropagated == 0 {
+						backoffTimer.IncreaseInterval()
+					} else {
+						backoffTimer.Reset()
+					}
+				} else {
+					logEntry.Warnf("propagation error: %v", propagationErr)
 
 					time.Sleep(backoffTimer.CurrentInterval())
 
 					backoffTimer.IncreaseInterval()
-
-					continue
-				}
-
-				if backoffTimer.IntervalElapsed() {
-					s.index.logger.WithField("action", "async_replication").
-						WithField("class_name", s.class.Class).
-						WithField("shard_name", s.name).
-						WithField("hosts", hosts).
-						WithField("diffCalculationTook", stats.diffCalculationTook.String()).
-						WithField("localObjects", localObjects).
-						WithField("remoteObjects", remoteObjects).
-						WithField("objectsPropagated", objectsPropagated).
-						WithField("objectProgationTook", objectProgationTook.String()).
-						Info("iteration successfully completed")
-				}
-
-				if objectsPropagated == 0 {
-					backoffTimer.IncreaseInterval()
-				} else {
-					backoffTimer.Reset()
 				}
 			}
 		}
