@@ -209,7 +209,6 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 			obj.Vectors[name] = prevTargetVector
 		}
 	}
-	vectors = prevVecs
 
 	return obj, nil
 }
