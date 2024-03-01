@@ -1953,12 +1953,10 @@ func (i *Index) findUUIDs(ctx context.Context,
 			continue
 		}
 
-		res, err := i.remote.FindUUIDs(ctx, shardName, filters)
+		results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
-
-		results[shardName] = res
 	}
 
 	return results, nil
