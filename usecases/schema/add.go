@@ -530,15 +530,14 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	}
 
 	if class.Vectorizer != "" {
-		return fmt.Errorf("class.vectorizer can not be set if class.vectorConfig is configured")
+		return fmt.Errorf("class.vectorizer (%v) can not be set if class.vectorConfig (%v) is configured", class.Vectorizer, class.VectorConfig)
 	}
 	if class.VectorIndexType != "" {
-		return fmt.Errorf("class.vectorIndexType can not be set if class.vectorConfig is configured")
+		return fmt.Errorf("class.vectorIndexType (%v) can not be set if class.vectorConfig (%v) is configured", class.VectorIndexType, class.VectorConfig)
 	}
-	if m, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(m) > 0 {
-		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
+	if class.VectorIndexConfig != nil {
+		return fmt.Errorf("class.vectorIndexConfig (%v) can not be set if class.vectorConfig (%v) is configured", class.VectorIndexConfig, class.VectorConfig)
 	}
-	class.VectorIndexConfig = nil
 
 	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
 		return err

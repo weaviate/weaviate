@@ -62,6 +62,90 @@ func testSchemaValidation(t *testing.T, host string) func(t *testing.T) {
 			assert.ErrorContains(t, err, fmt.Sprintf("class.VectorConfig.Vectorizer module with name %s doesn't exist", nonExistenVectorizer))
 		})
 
+		t.Run("VectorConfig and Vectorizer", func(t *testing.T) {
+			cleanup()
+			className := "NamedVector"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"named": {
+						Vectorizer: map[string]interface{}{
+							text2vecContextionary: map[string]interface{}{
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+				Vectorizer: text2vecContextionary,
+			}
+
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, fmt.Sprintf("class.vectorizer (text2vec-contextionary) can not be set if class.vectorConfig"))
+		})
+
+		t.Run("VectorConfig and Vector index type", func(t *testing.T) {
+			cleanup()
+			className := "NamedVector"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"wrong": {
+						Vectorizer: map[string]interface{}{
+							text2vecContextionary: map[string]interface{}{
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+				VectorIndexType: "hnsw",
+			}
+
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, fmt.Sprintf("class.vectorIndexType (hnsw) can not be set if class.vectorConfig"))
+		})
+
+		t.Run("VectorConfig and VectorIndexConfig", func(t *testing.T) {
+			cleanup()
+			className := "NamedVector"
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"wrong": {
+						Vectorizer: map[string]interface{}{
+							text2vecContextionary: map[string]interface{}{
+								"vectorizeClassName": false,
+							},
+						},
+						VectorIndexType: "hnsw",
+					},
+				},
+				VectorIndexConfig: map[string]interface{}{},
+			}
+
+			err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
+			require.Error(t, err)
+			assert.ErrorContains(t, err, fmt.Sprintf("class.VectorIndexConfig (map[]) can not be set if class.vectorConfig"))
+		})
+
 		t.Run("properties check", func(t *testing.T) {
 			cleanup()
 			className := "NamedVector"
