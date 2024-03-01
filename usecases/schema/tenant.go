@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/cloud/proto/cluster"
@@ -237,6 +238,8 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 		}
 		return nil
 	}
+	// TODO it needs a retry
+	time.Sleep(150 * time.Millisecond)
 	return ts, h.metaReader.Read(class, f)
 }
 
