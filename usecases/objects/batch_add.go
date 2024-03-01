@@ -172,7 +172,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	// if it already exists to match the object.
 	var class *models.Class
 	err = backoff.Retry(func() error {
-		class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
+		class, err = b.schemaManager.GetClass(ctx, principal, object.Class)
 		if err != nil {
 			return err
 		}
