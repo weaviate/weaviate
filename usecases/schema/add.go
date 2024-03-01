@@ -526,7 +526,19 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 			return err
 		}
 		class.VectorIndexConfig = parsed
+		return nil
 	}
+
+	if class.Vectorizer != "" {
+		return fmt.Errorf("class.vectorizer can not be set if class.vectorConfig is configured")
+	}
+	if class.VectorIndexType != "" {
+		return fmt.Errorf("class.vectorIndexType can not be set if class.vectorConfig is configured")
+	}
+	if m, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(m) > 0 {
+		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
+	}
+	class.VectorIndexConfig = nil
 
 	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
 		return err
