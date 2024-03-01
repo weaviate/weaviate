@@ -168,6 +168,37 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 				}
 			})
 
+			t.Run("Update with a vector - use the given vector and dont revectorize", func(t *testing.T) {
+				targetVecUpdate := targetVectors[0]
+				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, beforeUpdateVectors)
+				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate]))
+				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate])
+				vecForNewObject[0] = vecForNewObject[0] + 0.1
+
+				require.NoError(t, client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"text": "Apple",
+					}).WithVectors(models.Vectors{targetVecUpdate: vecForNewObject}).
+					Do(ctx))
+
+				// vector from update should be used and it should be different from before
+				afterUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, afterUpdateVectors)
+				assert.NotEqual(t, beforeUpdateVectors[targetVecUpdate], afterUpdateVectors[targetVecUpdate])
+
+				// no vectorization
+				assert.Equal(t, vecForNewObject, afterUpdateVectors[targetVecUpdate])
+
+				// vectorization for vectors that have not been sent with the update
+				for _, targetVector := range targetVectors[1:] {
+					assert.NotEqual(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
+				}
+			})
+
 			t.Run("add new property", func(t *testing.T) {
 				property := &models.Property{
 					Name:     "dont_vectorize_property",
