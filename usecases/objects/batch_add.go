@@ -168,10 +168,9 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		object.LastUpdateTimeUnix = now
 	}
 
-	// Batch together the GetClass and the validation function as the validation function will create/update the class
-	// if it already exists to match the object.
-	err = backoff.Retry(func() error {
-		class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
+	var class *models.Class
+	ec.Add(backoff.Retry(func() error {
+		class, err = b.schemaManager.GetClass(ctx, principal, object.Class)
 		if err != nil {
 			return err
 		}
@@ -180,19 +179,14 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 			return fmt.Errorf("class '%s' not present in schema", object.Class)
 		}
 
-		err = validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil)
-		if err != nil {
-			return err
-		}
-		// update vector only if we passed validation
-		err = b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger)
-		if err != nil {
-			return err
-		}
-
 		return nil
-	}, utils.NewBackoff())
-	ec.Add(err)
+	}, utils.NewBackoff()))
+
+	if class != nil {
+		ec.Add(validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil))
+		// update vector only if we passed validation
+		ec.Add(b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger))
+	}
 
 	*resultsC <- BatchObject{
 		UUID:          id,
