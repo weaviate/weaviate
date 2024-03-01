@@ -87,7 +87,7 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 						},
 						description: {
 							Vectorizer: map[string]interface{}{
-								text2vecTransformers: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"description"},
 								},
@@ -97,7 +97,7 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 						},
 						genre: {
 							Vectorizer: map[string]interface{}{
-								text2vecTransformers: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"genre"},
 								},

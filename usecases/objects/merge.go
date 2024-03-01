@@ -15,13 +15,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type MergeDocument struct {
@@ -165,13 +166,6 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", prevPropsSch)
 		}
 
-		if vector == nil && class.Vectorizer == config.VectorizerModuleNone {
-			vector = prevVec
-		}
-		if len(vectors) == 0 && len(class.VectorConfig) > 0 {
-			vectors = prevVecs
-		}
-
 		mergedProps = map[string]interface{}{}
 		for propName, propValue := range prevProps {
 			mergedProps[propName] = propValue
@@ -190,6 +184,34 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors}
 	if err := m.modulesProvider.UpdateVector(ctx, obj, class, compFactory, m.findObject, m.logger); err != nil {
 		return nil, err
+	}
+
+	// If there is no vectorization module and no updated vector, use the previous vector(s)
+	if obj.Vector == nil && class.Vectorizer == config.VectorizerModuleNone {
+		obj.Vector = prevVec
+	}
+
+	if obj.Vectors == nil {
+		obj.Vectors = models.Vectors{}
+	}
+
+	// check for each named vector if the previous vector should be used. This should only happen if
+	// - the vectorizer is none
+	// - the vector is not set in the update
+	// - the vector was set in the previous object
+	for name, vectorConfig := range class.VectorConfig {
+		if _, ok := vectorConfig.Vectorizer.(map[string]interface{})[config.VectorizerModuleNone]; !ok {
+			continue
+		}
+
+		prevTargetVector, ok := prevVecs[name]
+		if !ok {
+			continue
+		}
+
+		if _, ok := obj.Vectors[name]; !ok {
+			obj.Vectors[name] = prevTargetVector
+		}
 	}
 
 	return obj, nil

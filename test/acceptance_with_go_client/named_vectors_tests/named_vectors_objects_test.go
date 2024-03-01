@@ -210,6 +210,37 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 					assert.Equal(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
 				}
 			})
+
+			// note that vectors are different afterwards and you cant use checkTargetVectors anymore
+			t.Run("Update with a vector - use the given vector and dont revectorize", func(t *testing.T) {
+				targetVecUpdate := targetVectors[0]
+				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, beforeUpdateVectors)
+				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate]))
+				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate])
+				vecForNewObject[0] = vecForNewObject[0] + 0.1
+
+				require.NoError(t, client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"text": "Apple",
+					}).WithVectors(models.Vectors{targetVecUpdate: vecForNewObject}).
+					Do(ctx))
+
+				// vector from update should be used and it should be different from before
+				afterUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				assert.NotEqual(t, beforeUpdateVectors[targetVecUpdate], afterUpdateVectors[targetVecUpdate])
+
+				// no vectorization
+				assert.Equal(t, vecForNewObject, afterUpdateVectors[targetVecUpdate])
+
+				// vectorization for vectors that have not been sent with the update
+				for _, targetVector := range targetVectors[1:] {
+					assert.NotEqual(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
+				}
+			})
 		})
 	}
 }
