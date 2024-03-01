@@ -50,7 +50,15 @@ func testCreateSchemaWithVectorizerAndBYOV(t *testing.T, host string) func(t *te
 				},
 			},
 			VectorConfig: map[string]models.VectorConfig{
-				"vectors": {
+				"byov": {
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{
+							"vectorizeClassName": false,
+						},
+					},
+					VectorIndexType: "hnsw",
+				},
+				"generate": {
 					Vectorizer: map[string]interface{}{
 						"text2vec-contextionary": map[string]interface{}{
 							"vectorizeClassName": false,
@@ -79,7 +87,7 @@ func testCreateSchemaWithVectorizerAndBYOV(t *testing.T, host string) func(t *te
 			Do(ctx)
 		require.NoError(t, err)
 		require.Len(t, objWithoutVector, 1)
-		require.Len(t, objWithoutVector[0].Vectors["vectors"], 300)
+		require.Len(t, objWithoutVector[0].Vectors["byov"], 300)
 
 		// add an object with the same vector but different properties
 		_, err = client.Data().Creator().
@@ -87,9 +95,11 @@ func testCreateSchemaWithVectorizerAndBYOV(t *testing.T, host string) func(t *te
 			WithID(UUID4).
 			WithProperties(map[string]interface{}{
 				"text": "apple",
-			}).WithVectors(models.Vectors{"vectors": objWithoutVector[0].Vectors["vectors"]}).
+			}).WithVectors(models.Vectors{"byov": objWithoutVector[0].Vectors["byov"]}).
 			Do(ctx)
 
+		// vector "byov" must be the same as the same vector was explicitly given to the second object
+		// vector "generated" must be different because it gets generated on different data for both objects
 		objWithVector, err := client.Data().ObjectsGetter().
 			WithClassName(className).
 			WithID(UUID4).
@@ -97,6 +107,7 @@ func testCreateSchemaWithVectorizerAndBYOV(t *testing.T, host string) func(t *te
 			Do(ctx)
 		require.NoError(t, err)
 		require.Len(t, objWithoutVector, 1)
-		require.Equal(t, objWithVector[0].Vectors["vectors"], objWithoutVector[0].Vectors["vectors"])
+		require.Equal(t, objWithVector[0].Vectors["byov"], objWithoutVector[0].Vectors["byov"])
+		require.NotEqual(t, objWithVector[0].Vectors["generate"], objWithoutVector[0].Vectors["generate"])
 	}
 }
