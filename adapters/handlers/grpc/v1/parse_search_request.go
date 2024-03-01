@@ -14,6 +14,8 @@ package v1
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -40,7 +42,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
-func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.GetParams, error) {
+func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class, err := schema.GetClassByName(scheme.Objects, req.Collection)
 	if err != nil {
@@ -224,8 +226,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema) (dto.Get
 	if req.Limit > 0 {
 		out.Pagination.Limit = int(req.Limit)
 	} else {
-		// TODO: align default with other APIs
-		out.Pagination.Limit = 10
+		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
 
 	if nt := req.NearText; nt != nil {
