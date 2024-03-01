@@ -15,6 +15,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -1375,7 +1377,7 @@ func TestGRPCRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchParamsFromProto(tt.req, scheme)
+			out, err := searchParamsFromProto(tt.req, scheme, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {

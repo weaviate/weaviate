@@ -184,6 +184,19 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 				}
 			})
 
+			t.Run("GraphQL hybrid check", func(t *testing.T) {
+				for _, book := range fixtures.Books() {
+					raw := client.GraphQL().Raw()
+					res, err := raw.WithQuery(fmt.Sprintf(""+
+						"{Get {%s (hybrid: {query: %q targetVectors: %q}){title _additional{id}}}}", className, book.Title, "title")).Do(ctx)
+					require.Nil(t, err)
+					require.NotNil(t, res)
+					require.Nil(t, res.Errors)
+					require.NotNil(t, res.Data)
+					titleHybrid := res.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["title"].(string)
+					require.Equal(t, titleHybrid, book.Title)
+				}
+			})
 			t.Run("merge object and check if vectors changed", func(t *testing.T) {
 				for id, book := range fixtures.Books() {
 					beforeUpdateVectors := getVectors(t, client, className, id, targetVectorsWithProperties...)
