@@ -17,10 +17,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
@@ -168,19 +166,8 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		object.LastUpdateTimeUnix = now
 	}
 
-	var class *models.Class
-	ec.Add(backoff.Retry(func() error {
-		class, err = b.schemaManager.GetClass(ctx, principal, object.Class)
-		if err != nil {
-			return err
-		}
-
-		if class == nil {
-			return fmt.Errorf("class '%s' not present in schema", object.Class)
-		}
-
-		return nil
-	}, utils.NewBackoff()))
+	class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
+	ec.Add(err)
 
 	if class != nil {
 		ec.Add(validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil))
