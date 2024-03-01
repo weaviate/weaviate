@@ -12,10 +12,11 @@
 package named_vectors_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 						},
 						description: {
 							Vectorizer: map[string]interface{}{
-								text2vecTransformers: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"description"},
 								},
@@ -96,7 +97,7 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 						},
 						genre: {
 							Vectorizer: map[string]interface{}{
-								text2vecTransformers: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"genre"},
 								},
