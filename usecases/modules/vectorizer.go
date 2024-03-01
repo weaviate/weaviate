@@ -251,7 +251,7 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 
 	// dont vectorize if vector is already present
 	vector := p.getVector(object, targetVector)
-	if vector != nil && len(vector) > 0 {
+	if len(vector) > 0 {
 		return false, nil
 	}
 
