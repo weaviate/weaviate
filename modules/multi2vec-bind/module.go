@@ -58,8 +58,7 @@ type metaClient interface {
 }
 
 type bindVectorizer interface {
-	Object(ctx context.Context, object *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 	VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) ([]float32, error)
 	VectorizeVideo(ctx context.Context, video string, cfg moduletools.ClassConfig) ([]float32, error)
@@ -161,9 +160,15 @@ func (m *BindModule) RootHandler() http.Handler {
 }
 
 func (m *BindModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.bindVectorizer.Object(ctx, obj, comp, cfg)
+	return m.bindVectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *BindModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return true, mediaProps, err
 }
 
 func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
