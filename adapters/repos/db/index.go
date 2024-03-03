@@ -1564,15 +1564,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) localShard(name string) ShardLike {
-	var shard ShardLike
-	backoff.Retry(func() error {
-		shard = i.shards.Load(name)
-		if shard == nil {
-			return fmt.Errorf("shard not found")
-		}
-		return nil
-	}, utils.NewBackoff())
-	return shard
+	return i.shards.Load(name)
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1944,16 +1936,13 @@ func (i *Index) findUUIDs(ctx context.Context,
 
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range shardNames {
-		shard := i.localShard(shardName)
-		if shard != nil {
+
+		if shard := i.localShard(shardName); shard != nil {
 			results[shardName], err = shard.FindUUIDs(ctx, filters)
-			if err != nil {
-				return nil, err
-			}
-			continue
+		} else {
+			results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
 		}
 
-		results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
@@ -2105,4 +2094,17 @@ func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[str
 		return vectorIndexConfigs
 	}
 	return nil
+}
+
+// retryGetLocalShard is a wrapper around getting localShard used
+// to handle eventual consistency.
+func retryGetLocalShard(i *Index, name string) ShardLike {
+	var sl ShardLike
+	backoff.Retry(func() error {
+		if sl = i.localShard(name); sl == nil {
+			return fmt.Errorf("does not exists")
+		}
+		return nil
+	}, utils.NewBackoff())
+	return sl
 }
