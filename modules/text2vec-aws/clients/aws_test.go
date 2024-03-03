@@ -347,6 +347,7 @@ type fakeHandler struct {
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
+	//nolint:nilaway
 	authHeader := r.Header["Authorization"][0]
 	if f.serverError != nil {
 		var outBytes []byte

@@ -6,21 +6,28 @@ on:
     tags:
       - '**'
   pull_request:
-jobs:
+jobs:  
   golangci:
     name: golangci
     runs-on: ubuntu-latest
-    steps:
+    steps:      
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.21'      
       - uses: actions/checkout@v4
+      - name: golangci-lint-build-plugin
+        run: |          
+          git clone https://github.com/moogacs/nilaway-plugin.git
+          cd nilaway-plugin
+          chmod +x build.sh
+          ./build.sh v1.54        
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v4
         with:
           # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
           version: v1.54
-          args: --timeout=5m
+          install-mode: goinstall
+          args: --timeout=5m      
   protolint:
     name: protolint
     runs-on: ubuntu-latest
