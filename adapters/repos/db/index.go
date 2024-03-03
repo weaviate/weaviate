@@ -1937,7 +1937,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range shardNames {
 
-		if shard := i.localShard(shardName); shard != nil {
+		if shard := retryGetLocalShard(i, shardName); shard != nil {
 			results[shardName], err = shard.FindUUIDs(ctx, filters)
 		} else {
 			results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
