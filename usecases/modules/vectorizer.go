@@ -125,7 +125,6 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 		errorList := make([]error, len(modConfigs))
 		counter := 0
 		wg := sync.WaitGroup{}
-		wg.Add(len(modConfigs))
 
 		fun := func(name string, modConfig map[string]interface{}, counter int) {
 			vecErrors, err := p.batchUpdateVector(ctx, objects, class, findObjectFn, name, modConfig)
@@ -141,6 +140,7 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 				continue
 			}
 			if shouldVectorizeClass {
+				wg.Add(1)
 				go fun(targetVector, modConfig, counter)
 			}
 
