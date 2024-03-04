@@ -360,6 +360,18 @@ func (p *fakeModulesProvider) BatchUpdateVector(ctx context.Context, class *mode
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) (map[int]error, error) {
+	args := p.Called()
+
+	for _, obj := range objects {
+		switch vec := args.Get(0).(type) {
+		case models.C11yVector:
+			obj.Vector = vec
+		case []float32:
+			obj.Vector = vec
+		default:
+		}
+	}
+
 	return nil, nil
 }
 
