@@ -132,6 +132,12 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	s.logger.WithFields(logrus.Fields{
+		"action":      "lsm_create_or_load_bucket",
+		"bucket_name": bucketName,
+		"path":        s.bucketDir(bucketName),
+	}).Debugf("create or load bucket %q", bucketName)
+
 	var bucketLock *sync.Mutex
 
 	s.bucketAccessLock.Lock()
