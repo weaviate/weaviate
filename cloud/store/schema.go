@@ -224,11 +224,18 @@ type ClassInfo struct {
 }
 
 func (s *schema) ClassInfo(class string) (ci ClassInfo) {
-	s.RLock()
-	defer s.RUnlock()
+	var i *metaClass
+	err := backoff.Retry(func() error {
+		s.RLock()
+		defer s.RUnlock()
 
-	i := s.Classes[class]
-	if i == nil {
+		i = s.Classes[class]
+		if i == nil {
+			return fmt.Errorf("class not found")
+		}
+		return nil
+	}, utils.NewBackoff())
+	if err != nil {
 		return
 	}
 

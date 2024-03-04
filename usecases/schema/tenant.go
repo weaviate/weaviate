@@ -17,10 +17,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/cloud/store"
-	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -241,17 +239,14 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 }
 
 func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
-	var info store.ClassInfo
-	return info, backoff.Retry(func() error {
-		info = h.metaReader.ClassInfo(class)
-		if !info.Exists {
-			return fmt.Errorf("class %q: %w", class, ErrNotFound)
-		}
-		if !info.MultiTenancy.Enabled {
-			return fmt.Errorf("multi-tenancy is not enabled for class %q", class)
-		}
-		return nil
-	}, utils.NewBackoff())
+	info := h.metaReader.ClassInfo(class)
+	if !info.Exists {
+		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	if !info.MultiTenancy.Enabled {
+		return info, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+	return info, nil
 }
 
 // TenantExists is used to check if the tenant exists of a class
