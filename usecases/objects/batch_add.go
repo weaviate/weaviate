@@ -170,6 +170,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	ec.Add(err)
 
 	if class == nil {
+		// TODO: reconsolidate returning that error from GetClass
 		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
 	} else {
 		ec.Add(validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil))
