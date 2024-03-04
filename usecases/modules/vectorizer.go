@@ -21,7 +21,6 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -210,21 +209,19 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					targetProperties = properties.([]string)
 				}
 			}
-			return backoff.Retry(func() error {
-				needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
-				if needsRevectorization {
-					var err error
-					vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
-					if err != nil {
-						return fmt.Errorf("update vector: %w", err)
-					}
+			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			if needsRevectorization {
+				var err error
+				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
+				if err != nil {
+					return fmt.Errorf("update vector: %w", err)
 				}
+			}
 
-				p.lockGuard(func() {
-					object = p.addVectorToObject(object, vector, additionalProperties, cfg)
-				})
-				return nil
-			}, utils.NewBackoff())
+			p.lockGuard(func() {
+				object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+			})
+			return nil
 		}
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
