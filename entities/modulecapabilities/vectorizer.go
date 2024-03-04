@@ -30,7 +30,7 @@ type Vectorizer interface {
 	// If the vectorizer is capable of vectorizing all text properties, the first bool is true.
 	// Any additional "media"-properties are explicitly mentioned in the []string return
 	VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error)
-	VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) ([][]float32, map[int]error)
+	VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error)
 }
 
 type FindObjectFn = func(ctx context.Context, class string, id strfmt.UUID,

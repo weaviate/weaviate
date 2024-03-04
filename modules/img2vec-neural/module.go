@@ -100,11 +100,11 @@ func (m *ImageModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool,
 	return false, mediaProps, err
 }
 
-func (m *ImageModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) ([][]float32, map[int]error) {
+func (m *ImageModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	errs := make(map[int]error, 0)
 	vecs := make([][]float32, len(objs))
 	for i, obj := range objs {
-		if obj == nil {
+		if skipObject[i] {
 			continue
 		}
 		vec, _, err := m.vectorizer.Object(ctx, obj, cfg)
@@ -113,7 +113,7 @@ func (m *ImageModule) VectorizeBatch(ctx context.Context, objs []*models.Object,
 		}
 		vecs[i] = vec
 	}
-	return vecs, errs
+	return vecs, nil, errs
 }
 
 func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {

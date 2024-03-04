@@ -97,6 +97,13 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	}
 
 	if !p.hasMultipleVectorsConfiguration(class) {
+		shouldVectorizeClass, err := p.shouldVectorizeClass(class, "", logger)
+		if err != nil {
+			return nil, err
+		}
+		if !shouldVectorizeClass {
+			return nil, nil
+		}
 		modConfig := modConfigs[""]
 		return p.batchUpdateVector(ctx, objects, class, findObjectFn, "", modConfig)
 	} else {
@@ -116,8 +123,16 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 			wg.Done()
 		}
 
-		for name, modConfig := range modConfigs {
-			go fun(name, modConfig, counter)
+		for targetVector, modConfig := range modConfigs {
+			shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
+			if err != nil {
+				errorList[counter] = err
+				continue
+			}
+			if shouldVectorizeClass {
+				go fun(targetVector, modConfig, counter)
+			}
+
 			counter += 1
 		}
 		wg.Wait()
@@ -138,6 +153,25 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	}
 }
 
+func (p *Provider) shouldVectorizeClass(class *models.Class, targetVector string, logger logrus.FieldLogger) (bool, error) {
+	hnswConfig, err := p.getVectorIndexConfig(class, targetVector)
+	if err != nil {
+		return false, err
+	}
+
+	vectorizer := p.getVectorizer(class, targetVector)
+	if vectorizer == config.VectorizerModuleNone {
+		return false, nil
+	}
+
+	if hnswConfig.Skip {
+		logger.WithField("className", class.Class).
+			WithField("vectorizer", vectorizer).
+			Warningf(warningSkipVectorGenerated, vectorizer)
+	}
+	return true, nil
+}
+
 func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Object, class *models.Class,
 	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
@@ -149,13 +183,34 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector)
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
-		vectors, vecErrors := vectorizer.VectorizeBatch(ctx, objects, cfg)
+		// each target vector can have its own associated properties, and we need to determine for each one if we should
+		// skip it or not
+		skipRevectorization := make([]bool, len(objects))
+		for i, obj := range objects {
+			if !p.shouldVectorizeObject(obj, cfg) {
+				skipRevectorization[i] = true
+				continue
+			}
+			reVectorize, addProps, vector := reVectorize(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			if !reVectorize {
+				skipRevectorization[i] = true
+				p.lockGuard(func() {
+					obj = p.addVectorToObject(obj, vector, addProps, cfg)
+				})
+			}
+		}
+		vectors, addProps, vecErrors := vectorizer.VectorizeBatch(ctx, objects, skipRevectorization, cfg)
 		for i, obj := range objects {
 			if _, ok := vecErrors[i]; ok {
 				continue
 			}
+			var addProp models.AdditionalProperties = nil
+			if addProps != nil { // only present for contextionary and probably nobody is using this
+				addProp = addProps[i]
+			}
+
 			p.lockGuard(func() {
-				obj = p.addVectorToObject(obj, vectors[i], nil, cfg)
+				obj = p.addVectorToObject(obj, vectors[i], addProp, cfg)
 			})
 		}
 
