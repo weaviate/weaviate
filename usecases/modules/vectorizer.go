@@ -364,21 +364,19 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					targetProperties = properties.([]string)
 				}
 			}
-			return backoff.Retry(func() error {
-				needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
-				if needsRevectorization {
-					var err error
-					vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
-					if err != nil {
-						return fmt.Errorf("update vector: %w", err)
-					}
+			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			if needsRevectorization {
+				var err error
+				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
+				if err != nil {
+					return fmt.Errorf("update vector: %w", err)
 				}
+			}
 
-				p.lockGuard(func() {
-					object = p.addVectorToObject(object, vector, additionalProperties, cfg)
-				})
-				return nil
-			}, utils.NewBackoff())
+			p.lockGuard(func() {
+				object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+			})
+			return nil
 		}
 	} else {
 		refVectorizer := found.(modulecapabilities.ReferenceVectorizer)
