@@ -220,7 +220,7 @@ func TestPatchObject(t *testing.T) {
 		ModuleConfig: mconfig,
 		Properties:   []*models.Property{},
 	})
-	defer helper.DeleteClassObject(t, cls)
+	defer helper.DeleteClassObject(t, friend_cls)
 	helper.AssertCreateObjectClass(t, &models.Class{ // class
 		Class:        cls,
 		ModuleConfig: mconfig,
