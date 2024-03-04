@@ -53,7 +53,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, PayloadType.Init, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
 			assert.Equal(t, "module-1,module-2", payload.Modules)
-			assert.Equal(t, int64(100), payload.NumObjects)
+			assert.Equal(t, int64(0), payload.NumObjects)
 			assert.Equal(t, runtime.GOOS, payload.OS)
 			assert.Equal(t, runtime.GOARCH, payload.Arch)
 		})
@@ -188,7 +188,7 @@ type telemetryOpt func(*Telemeter)
 func withConsumerURL(url string) telemetryOpt {
 	encoded := base64.StdEncoding.EncodeToString([]byte(url))
 	return func(tel *Telemeter) {
-		tel.consumerURL = encoded
+		tel.consumer = encoded
 	}
 }
 
@@ -234,7 +234,11 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}, payload.Type)
 	assert.Equal(h.t, config.ServerVersion, payload.Version)
 	assert.NotEmpty(h.t, payload.Modules)
-	assert.NotZero(h.t, payload.NumObjects)
+	if payload.Type == PayloadType.Init {
+		assert.Zero(h.t, payload.NumObjects)
+	} else {
+		assert.NotZero(h.t, payload.NumObjects)
+	}
 	assert.Equal(h.t, runtime.GOOS, payload.OS)
 	assert.Equal(h.t, runtime.GOARCH, payload.Arch)
 
