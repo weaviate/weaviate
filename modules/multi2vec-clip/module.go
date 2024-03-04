@@ -127,15 +127,20 @@ func (m *ClipModule) VectorizeObject(ctx context.Context,
 	return m.imageVectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *ClipModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+func (m *ClipModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) ([][]float32, map[int]error) {
 	errs := make(map[int]error, 0)
+	vecs := make([][]float32, len(objs))
 	for i, obj := range objs {
-		_, _, err := m.imageVectorizer.Object(ctx, obj, cfg)
+		if obj == nil {
+			continue
+		}
+		vec, _, err := m.imageVectorizer.Object(ctx, obj, cfg)
 		if err != nil {
 			errs[i] = err
 		}
+		vecs[i] = vec
 	}
-	return errs
+	return vecs, errs
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {

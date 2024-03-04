@@ -175,15 +175,20 @@ func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaClient.MetaInfo()
 }
 
-func (m *BindModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+func (m *BindModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) ([][]float32, map[int]error) {
 	errs := make(map[int]error, 0)
+	vecs := make([][]float32, len(objs))
 	for i, obj := range objs {
-		_, _, err := m.bindVectorizer.Object(ctx, obj, cfg)
+		if obj == nil {
+			continue
+		}
+		vec, _, err := m.bindVectorizer.Object(ctx, obj, cfg)
 		if err != nil {
 			errs[i] = err
 		}
+		vecs[i] = vec
 	}
-	return errs
+	return vecs, errs
 }
 
 func (m *BindModule) VectorizeInput(ctx context.Context,
