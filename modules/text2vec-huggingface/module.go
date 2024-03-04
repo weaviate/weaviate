@@ -128,11 +128,11 @@ func (m *HuggingFaceModule) VectorizableProperties(cfg moduletools.ClassConfig) 
 	return true, nil, nil
 }
 
-func (m *HuggingFaceModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) ([][]float32, map[int]error) {
+func (m *HuggingFaceModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	errs := make(map[int]error, 0)
 	vecs := make([][]float32, len(objs))
 	for i, obj := range objs {
-		if obj == nil {
+		if skipObject[i] {
 			continue
 		}
 		vec, _, err := m.vectorizer.Object(ctx, obj, cfg)
@@ -141,7 +141,7 @@ func (m *HuggingFaceModule) VectorizeBatch(ctx context.Context, objs []*models.O
 		}
 		vecs[i] = vec
 	}
-	return vecs, errs
+	return vecs, nil, errs
 }
 
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {

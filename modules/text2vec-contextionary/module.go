@@ -215,20 +215,22 @@ func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *ContextionaryModule) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) ([][]float32, map[int]error) {
+func (m *ContextionaryModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	errs := make(map[int]error, 0)
 	vecs := make([][]float32, len(objs))
+	addProps := make([]models.AdditionalProperties, len(objs))
 	for i, obj := range objs {
-		if obj == nil {
+		if skipObject[i] {
 			continue
 		}
-		vec, _, err := m.vectorizer.Object(ctx, obj, cfg)
+		vec, addProp, err := m.vectorizer.Object(ctx, obj, cfg)
 		if err != nil {
 			errs[i] = err
 		}
 		vecs[i] = vec
+		addProps[i] = addProp
 	}
-	return vecs, errs
+	return vecs, addProps, errs
 }
 
 func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
