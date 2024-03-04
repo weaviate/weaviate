@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func asyncRepair(t *testing.T) {
+func asyncRepairSimpleScenario(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
