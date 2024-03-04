@@ -19,9 +19,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
