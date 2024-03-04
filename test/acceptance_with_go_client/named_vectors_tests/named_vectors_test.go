@@ -74,6 +74,7 @@ func allTests(t *testing.T, endpoint string) func(t *testing.T) {
 		t.Run("classes with properties setting", testCreateWithModulePropertiesObject(t, endpoint))
 		t.Run("validation", testSchemaValidation(t, endpoint))
 		t.Run("cross references", testReferenceProperties(t, endpoint))
+		t.Run("objects with vectorizer and objects", testCreateSchemaWithVectorizerAndBYOV(t, endpoint))
 	}
 }
 
