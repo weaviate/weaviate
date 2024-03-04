@@ -211,17 +211,18 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 			}
 		}
 		vectors, addProps, vecErrors := vectorizer.VectorizeBatch(ctx, objects, skipRevectorization, cfg)
-		for i, obj := range objects {
-			if _, ok := vecErrors[i]; ok {
+		for i := range objects {
+			if _, ok := vecErrors[i]; ok || skipRevectorization[i] {
 				continue
 			}
+
 			var addProp models.AdditionalProperties = nil
 			if addProps != nil { // only present for contextionary and probably nobody is using this
 				addProp = addProps[i]
 			}
 
 			p.lockGuard(func() {
-				obj = p.addVectorToObject(obj, vectors[i], addProp, cfg)
+				objects[i] = p.addVectorToObject(objects[i], vectors[i], addProp, cfg)
 			})
 		}
 
