@@ -41,6 +41,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
+	bucketByNameLock map[string]*sync.Mutex
 }
 
 var openStores sync.Map
@@ -64,11 +65,12 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("lsm store %q is already open", absPath)
 	}
 	s := &Store{
-		dir:           dir,
-		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
-		logger:        logger,
-		metrics:       metrics,
+		dir:              dir,
+		rootDir:          rootDir,
+		bucketsByName:    map[string]*Bucket{},
+		bucketByNameLock: make(map[string]*sync.Mutex),
+		logger:           logger,
+		metrics:          metrics,
 	}
 	openStores.Store(absPath, struct{}{})
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
@@ -130,17 +132,41 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-	if b := s.Bucket(bucketName); b != nil {
+	var bucketLock *sync.Mutex
+
+	s.bucketAccessLock.Lock()
+
+	_, ok := s.bucketByNameLock[bucketName]
+	if !ok {
+		s.bucketByNameLock[bucketName] = &sync.Mutex{}
+	}
+	bucketLock = s.bucketByNameLock[bucketName]
+
+	s.bucketAccessLock.Unlock()
+
+	bucketLock.Lock()
+	defer bucketLock.Unlock()
+
+	s.bucketAccessLock.Lock()
+	if _, bucketExists := s.bucketsByName[bucketName]; bucketExists {
+		s.bucketAccessLock.Unlock()
 		return nil
 	}
+	s.bucketAccessLock.Unlock()
 
+	// bucket can be concurrently loaded with another buckets but
+	// the same bucket will be loaded only once
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
+		delete(s.bucketByNameLock, bucketName)
 		return err
 	}
 
-	s.setBucket(bucketName, b)
+	s.bucketAccessLock.Lock()
+	s.bucketsByName[bucketName] = b
+	s.bucketAccessLock.Unlock()
+
 	return nil
 }
 
