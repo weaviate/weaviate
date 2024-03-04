@@ -116,6 +116,7 @@ type Store struct {
 	open              atomic.Bool
 	raftDir           string
 	raftPort          int
+	voter             bool
 	bootstrapExpect   int
 	recoveryTimeout   time.Duration
 	heartbeatTimeout  time.Duration
@@ -149,6 +150,7 @@ func New(cfg Config) Store {
 	return Store{
 		raftDir:           cfg.WorkDir,
 		raftPort:          cfg.RaftPort,
+		voter:             cfg.Voter,
 		bootstrapExpect:   cfg.BootstrapExpect,
 		candidates:        make(map[string]string, cfg.BootstrapExpect),
 		recoveryTimeout:   cfg.RecoveryTimeout,
@@ -166,9 +168,11 @@ func New(cfg Config) Store {
 	}
 }
 
+func (st *Store) IsVoter() bool { return st.voter }
+func (st *Store) ID() string    { return st.nodeID }
+
 // Open opens this store and marked as such.
 func (st *Store) Open(ctx context.Context) (err error) {
-	st.log.Info("bootstrapping started")
 	if st.open.Load() { // store already opened
 		return nil
 	}
@@ -249,10 +253,20 @@ func (st *Store) Close(ctx context.Context) (err error) {
 	if !st.open.Load() {
 		return nil
 	}
-	st.log.Info("stopping raft ...")
-	ft := st.raft.Shutdown()
-	if err = ft.Error(); err != nil {
-		return ft.Error()
+
+	// transfer leadership: it stops accepting client requests, ensures
+	// the target server is up to date and initiates the transfer
+	if st.IsLeader() {
+		st.log.Info("transferring leadership to another server")
+		if err := st.raft.LeadershipTransfer().Error(); err != nil {
+			st.log.Error("transferring leadership: " + err.Error())
+		} else {
+			st.log.Info("successfully transferred leadership to another server")
+		}
+	}
+
+	if err = st.raft.Shutdown().Error(); err != nil {
+		return err
 	}
 
 	st.open.Store(false)
@@ -476,7 +490,7 @@ func (st *Store) Notify(id, addr string) (err error) {
 		return ErrNotOpen
 	}
 	// peer is not voter or already bootstrapped or belong to an existing cluster
-	if st.bootstrapExpect == 0 || st.bootstrapped.Load() || st.Leader() != "" {
+	if !st.voter || st.bootstrapExpect == 0 || st.bootstrapped.Load() || st.Leader() != "" {
 		return nil
 	}
 
