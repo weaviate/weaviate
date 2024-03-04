@@ -19,7 +19,9 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/cloud/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -507,4 +509,15 @@ func (i *Index) fetchObjects(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+func getLocalShard(i *Index, name string) ShardLike {
+	var sl ShardLike
+	backoff.Retry(func() error {
+		if sl = i.localShard(name); sl == nil {
+			return fmt.Errorf("does not exists")
+		}
+		return nil
+	}, utils.NewBackoff())
+	return sl
 }

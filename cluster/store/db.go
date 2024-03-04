@@ -98,13 +98,13 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
 	}
-	if req.Property == nil {
-		return fmt.Errorf("%w: nil property", errBadRequest)
+	if req.Properties == nil || len(req.Properties) == 0 {
+		return fmt.Errorf("%w: empty property", errBadRequest)
 	}
 
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.addProperty(cmd.Class, *req.Property) },
+		func() error { return db.Schema.addProperty(cmd.Class, req.Properties...) },
 		func() error { return db.store.AddProperty(cmd.Class, req) },
 		schemaOnly)
 }
