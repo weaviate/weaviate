@@ -413,6 +413,9 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case command.ApplyRequest_TYPE_DELETE_TENANT:
 		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
+
+	case command.ApplyRequest_TYPE_SET_SCHEMA:
+		ret.Error = st.db.SetSchema(&cmd)
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

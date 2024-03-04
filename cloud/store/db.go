@@ -184,3 +184,16 @@ func (db *localDB) apply(op string, updateSchema, updateStore func() error, sche
 	}
 	return nil
 }
+
+func (db *localDB) SetSchema(cmd *command.ApplyRequest) error {
+	req := command.SetSchemaRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", errBadRequest, err)
+	}
+
+	return db.apply(
+		cmd.GetType().String(),
+		func() error { return db.Schema.SetSchema(req.Classes, req.ShardingState) },
+		nil,
+		true)
+}

@@ -404,3 +404,14 @@ func (s *schema) CopyShardingState(class string) *sharding.State {
 func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
 	return s.shardReader.GetShardsStatus(class)
 }
+
+func (s *schema) SetSchema(classes []*models.Class, shardingState map[string]*sharding.State) error {
+	s.Lock()
+	defer s.Unlock()
+	s.Classes = map[string]*metaClass{}
+	for _, class := range classes {
+		s.Classes[class.Class] = &metaClass{Class: *class, Sharding: *shardingState[class.Class]}
+	}
+
+	return nil
+}

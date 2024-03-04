@@ -21,6 +21,11 @@ type AddClassRequest struct {
 	State *sharding.State
 }
 
+type SetSchemaRequest struct {
+	Classes       []*models.Class
+	ShardingState map[string]*sharding.State
+}
+
 type UpdateClassRequest struct {
 	Class *models.Class
 	State *sharding.State

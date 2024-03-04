@@ -14,28 +14,12 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 )
-
-const (
-	raftMigrationFileName        = "raft_migration_progress.json"
-	raftMigrationFilePermissions = 0o644
-)
-
-type migrationProgress struct {
-	MigratedClasses map[string]interface{} `json:"migrated_classes"`
-}
-
-func NewMigrationProgress() *migrationProgress {
-	return &migrationProgress{MigratedClasses: make(map[string]interface{})}
-}
 
 // MigrateToRaft will perform the migration from schemaRepo to the RAFT based representation stored in st.
 // If the current node is not the leader, the function will return early without error.
@@ -78,102 +62,23 @@ func (st *Store) MigrateToRaft(schemaRepo schemaTypes.SchemaRepo) error {
 	}
 	shardingState := stateGetter.GetShardingState()
 	schema := stateGetter.GetSchema()
-	if schema == nil || len(schema.Classes) <= 0 {
-		log.Info("no schema available or schema is empty in non-raft representation, nothing to migrate")
-		return nil
-	}
 
-	// Load current migration progress from the disk.
-	// If no progress was made so far, ensure the migrationProgress struct is initialized empty
-	migrationProgressFile := filepath.Join(st.raftDir, raftMigrationFileName)
-	migrationProgress := NewMigrationProgress()
-	recoveringMigration := false
-	migrationProgressFromDisk, err := os.ReadFile(migrationProgressFile)
-	if err != nil && !os.IsNotExist(err) {
-		// If an error happens here we don't want to abort the migration to have a smoother experience. Instead ignore the
-		// file and consider no-migration has taken place.
-		log.Warn(fmt.Sprintf("could not read raft migration progress file: %s", err))
-	} else {
-		// The file exists, we want to recover it's content and proceed with the migration
-		recoveringMigration = true
-		err = json.Unmarshal(migrationProgressFromDisk, migrationProgress)
-		if err != nil {
-			log.Warn("could not unmarshall raft migration progress file contents, migration will proceed and not consider any progress made")
-			// Ensure we reset the progress struct to an empty state
-			migrationProgress = NewMigrationProgress()
-		}
-	}
-
-	// Migrate only if there is no data in the current RAFT schema and we are not recovering a migration
-	if st.db.Schema.Len() != 0 && !recoveringMigration {
-		log.Info("current RAFT based schema has data and no migration has been recovered, skipping migration")
-		return nil
-	}
-
-	log.Info(fmt.Sprintf("Migrating %d classes from non-raft to raft based representation", len(schema.Classes)))
-	// Before starting the migration, write the progress file at least once to ensure that we will still recover the
-	// migration if we crash between the first import into RAFT and the write of that update to disk.
-	err = os.WriteFile(migrationProgressFile, []byte{}, raftMigrationFilePermissions)
+	// Migrate the class from schemaRepo to RAFT
+	marshalledSubCmd, err := json.Marshal(&cmd.SetSchemaRequest{
+		Classes:       schema.Classes,
+		ShardingState: shardingState,
+	})
 	if err != nil {
-		return fmt.Errorf("could not write migration progress to %s: %w", migrationProgressFile, err)
+		return fmt.Errorf("could not marshall add class request to bytes: %w", err)
 	}
-	// Apply the change from non-raft to raft based schema
-	for _, class := range schema.Classes {
-		if class == nil {
-			log.Warn("found nil class in non-raft based schema, continuing migration")
-			continue
-		}
-
-		// Skip class if it has been already migrated
-		if _, ok := migrationProgress.MigratedClasses[class.Class]; ok {
-			log.Info(fmt.Sprintf("skipping migrating class %s as it is marked as already migrated", class.Class))
-			continue
-		}
-
-		log.Debug(fmt.Sprintf("migrating class %s to raft based schema", class.Class))
-
-		// Migrate the class from schemaRepo to RAFT
-		marshalledSubCmd, err := json.Marshal(&cmd.AddClassRequest{
-			Class: class,
-			State: shardingState[class.Class],
-		})
-		if err != nil {
-			return fmt.Errorf("could not marshall add class request to bytes: %w", err)
-		}
-		err = st.Execute(&cmd.ApplyRequest{
-			Type:       cmd.ApplyRequest_TYPE_ADD_CLASS,
-			Class:      class.Class,
-			SubCommand: marshalledSubCmd,
-			SchemaOnly: true,
-		})
-		// That check if necessary if we are recovering from a migration where the migration progress file got corrupted
-		// and we are re-importing class that already exists in the raft schema
-		if err != nil && errors.Is(err, errClassExists) {
-			log.Info(fmt.Sprintf("class %s already exists in schema: skipping migration", class.Class))
-		} else if err != nil {
-			return fmt.Errorf("could not add class %s to raft based schema during migration: %w", class.Class, err)
-		}
-
-		// Update migrationProgress with the newly migrated class and write to disk
-		migrationProgress.MigratedClasses[class.Class] = true
-		jsonData, err := json.Marshal(migrationProgress)
-		if err != nil {
-			return fmt.Errorf("could not marshall migration progress: %w", err)
-		}
-		err = os.WriteFile(migrationProgressFile, jsonData, raftMigrationFilePermissions)
-		if err != nil {
-			return fmt.Errorf("could not write migration progress to %s: %w", migrationProgressFile, err)
-		}
-		log.Debug(fmt.Sprintf("successfully migrated class %s to raft based schema", class.Class))
-	}
-
-	// Migration complete successfully, ensure we remove the migration file so that we don't try any further migration
-	err = os.Remove(migrationProgressFile)
+	err = st.Execute(&cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_SET_SCHEMA,
+		SubCommand: marshalledSubCmd,
+		SchemaOnly: true,
+	})
 	if err != nil {
-		return fmt.Errorf("could not delete migration progress file after completing migration: %w", err)
+		return fmt.Errorf("could not migrate to raft: %w", err)
 	}
-
-	log.Info("migration from non raft to raft based schema completed successfully")
 
 	return nil
 }
