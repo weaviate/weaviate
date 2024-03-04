@@ -215,6 +215,22 @@ func testCreateSchemaWithNoneVectorizer(t *testing.T, host string) func(t *testi
 					}
 				}
 			})
+
+			t.Run("update without vector", func(t *testing.T) {
+				beforeUpdateVectors := getVectors(t, client, className, id1, none1)
+
+				err := client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"text": "No vectorizer => Update should reuse old vector",
+					}).
+					Do(ctx)
+				require.NoError(t, err)
+				afterUpdateVectors := getVectors(t, client, className, id1, none1)
+				assert.Equal(t, beforeUpdateVectors[none1], afterUpdateVectors[none1])
+			})
 		})
 	}
 }

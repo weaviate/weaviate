@@ -167,6 +167,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
 	var total int = 0
+	var maxConnections int = n.graph.maximumConnections
+
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
@@ -204,6 +206,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}
+		// use dynamic max connections only during tombstone cleanup
+		maxConnections = n.maximumConnections(level)
 	} else {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
@@ -222,8 +226,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		before = time.Now()
 	}
 
-	max := n.maximumConnections(level)
-	if err := n.graph.selectNeighborsHeuristic(results, max-total, n.denyList); err != nil {
+	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
 		return errors.Wrap(err, "heuristic")
 	}
 
