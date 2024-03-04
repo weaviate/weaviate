@@ -2083,6 +2083,10 @@ func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
 	if config == nil {
 		return nil
 	}
+	// in case legacy vector config was set as an empty map/object instead of nil
+	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
+		return nil
+	}
 	return config.(schema.VectorIndexConfig)
 }
 
