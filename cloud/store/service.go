@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
@@ -28,6 +29,7 @@ import (
 type Service struct {
 	store *Store
 	cl    client
+	log   *slog.Logger
 }
 
 // client to communicate with remote services
@@ -38,16 +40,28 @@ type client interface {
 }
 
 func NewService(store *Store, client client) *Service {
-	return &Service{store: store, cl: client}
+	return &Service{store: store, cl: client, log: store.log}
 }
 
 // / RAFT-TODO Documentation
 func (s *Service) Open(ctx context.Context, db Indexer) error {
+	s.log.Info("bootstrapping started")
 	s.store.SetDB(db)
 	return s.store.Open(ctx)
 }
 
 func (s *Service) Close(ctx context.Context) (err error) {
+	s.log.Info("shutting down raft sub-system ...")
+
+	// non-voter can be safely removed, as they don't partake in RAFT elections
+	if !s.store.IsVoter() {
+		s.log.Info("removing this node from cluster prior to shutdown ...")
+		if err := s.Remove(ctx, s.store.ID()); err != nil {
+			s.log.Error("remove this node from cluster: " + err.Error())
+		} else {
+			s.log.Info("successfully removed this node from the cluster.")
+		}
+	}
 	return s.store.Close(ctx)
 }
 
