@@ -695,11 +695,11 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 		logger:  logger,
 
 		cfg: Config{
-			WorkDir:  t.TempDir(),
-			NodeID:   nodeID,
-			Host:     "localhost",
-			RaftPort: raftPort,
-			// RPCPort:           9092,
+			WorkDir:           t.TempDir(),
+			NodeID:            nodeID,
+			Host:              "localhost",
+			RaftPort:          raftPort,
+			Voter:             true,
 			BootstrapExpect:   1,
 			HeartbeatTimeout:  1 * time.Second,
 			ElectionTimeout:   1 * time.Second,
