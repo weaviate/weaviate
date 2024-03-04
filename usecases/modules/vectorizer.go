@@ -91,6 +91,17 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) (map[int]error, error) {
+	if !p.hasMultipleVectorsConfiguration(class) {
+		// legacy vectorizer classes do not necessarily have a module config - filter them out
+		shouldVectorizeClass, err := p.shouldVectorizeClass(class, "", logger)
+		if err != nil {
+			return nil, err
+		}
+		if !shouldVectorizeClass {
+			return nil, nil
+		}
+	}
+
 	modConfigs, err := p.getModuleConfigs(class)
 	if err != nil {
 		return nil, err
