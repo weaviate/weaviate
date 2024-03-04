@@ -447,13 +447,13 @@ func (m *Manager) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := m.validateVectorSettings(ctx, class); err != nil {
+	if err := m.validateVectorSettings(class); err != nil {
 		return err
 	}
 
@@ -470,7 +470,7 @@ func (m *Manager) validateCanAddClass(
 }
 
 func (m *Manager) validateProperty(
-	property *models.Property, className string,
+	property *models.Property, class *models.Class,
 	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
@@ -482,14 +482,15 @@ func (m *Manager) validateProperty(
 	}
 
 	if existingPropertyNames[strings.ToLower(property.Name)] {
-		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", className, property.Name)
+		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times",
+			class.Class, property.Name)
 	}
 
 	// Validate data type of property.
 	sch := m.getSchema()
 
 	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
-		relaxCrossRefValidation, schema.ClassName(className))
+		relaxCrossRefValidation, schema.ClassName(class.Class))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
@@ -513,6 +514,10 @@ func (m *Manager) validateProperty(
 		return err
 	}
 
+	if err := validatePropModuleConfig(class, property); err != nil {
+		return err
+	}
+
 	// all is fine!
 	return nil
 }
@@ -529,14 +534,8 @@ func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 		return nil
 	}
 
-	if class.Vectorizer != "" {
-		return fmt.Errorf("class.vectorizer (%v) can not be set if class.vectorConfig (%v) is configured", class.Vectorizer, class.VectorConfig)
-	}
-	if class.VectorIndexType != "" {
-		return fmt.Errorf("class.vectorIndexType (%v) can not be set if class.vectorConfig (%v) is configured", class.VectorIndexType, class.VectorConfig)
-	}
 	if class.VectorIndexConfig != nil {
-		return fmt.Errorf("class.vectorIndexConfig (%v) can not be set if class.vectorConfig (%v) is configured", class.VectorIndexConfig, class.VectorConfig)
+		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
 	}
 
 	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {

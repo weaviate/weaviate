@@ -149,7 +149,6 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				VectorIndexConfig: bqFlatIndexConfig(),
 			},
 		},
-		Vectorizer: text2vecContextionary,
 	}
 
 	err := client.Schema().ClassCreator().WithClass(class).Do(ctx)

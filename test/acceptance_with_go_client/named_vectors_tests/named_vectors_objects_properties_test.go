@@ -106,7 +106,6 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 							VectorIndexConfig: bqFlatIndexConfig(),
 						},
 					},
-					Vectorizer: text2vecContextionary,
 				}
 
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
