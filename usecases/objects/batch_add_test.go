@@ -104,7 +104,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -140,7 +140,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -180,7 +180,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -218,7 +218,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -251,7 +251,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -360,7 +360,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -390,7 +390,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -461,7 +461,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 
 	ctx := context.Background()
 	for range objects {
-		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		modulesProvider.On("BatchUpdateVector").
 			Return(nil, nil)
 	}
 	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
