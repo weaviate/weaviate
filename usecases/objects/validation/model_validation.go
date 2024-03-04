@@ -81,21 +81,11 @@ func New(exists exists, config *config.WeaviateConfig,
 func (v *Validator) Object(ctx context.Context, class *models.Class,
 	incoming *models.Object, existing *models.Object,
 ) error {
-	if err := validateClass(incoming.Class); err != nil {
-		return err
-	}
-
-	return v.properties(ctx, class, incoming, existing)
-}
-
-func validateClass(class string) error {
-	// If the given class is empty, return an error
-	if class == "" {
+	if incoming.Class == "" {
 		return fmt.Errorf(ErrorMissingClass)
 	}
 
-	// No error
-	return nil
+	return v.properties(ctx, class, incoming, existing)
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
