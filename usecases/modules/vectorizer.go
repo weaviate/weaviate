@@ -109,7 +109,7 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	if !p.hasMultipleVectorsConfiguration(class) {
 		// legacy vectorizer configuration
 		for targetVector, modConfig := range modConfigs {
-			return p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig, logger)
+			return p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig)
 		}
 	}
 	return p.vectorizeMultiple(ctx, object, class, findObjectFn, modConfigs, logger)
@@ -180,7 +180,7 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
 	}
 	if vectorize {
-		if err := p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig, logger); err != nil {
+		if err := p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig); err != nil {
 			return fmt.Errorf("vectorize target vector %s: %w", targetVector, err)
 		}
 	}
@@ -190,7 +190,6 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *models.Class,
 	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
-	logger logrus.FieldLogger,
 ) error {
 	found := p.getModule(class, modConfig)
 	if found == nil {
@@ -202,11 +201,13 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string = nil
+			var targetProperties []string
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
 				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					targetProperties = properties.([]string)
+					if propSlice, ok := properties.([]string); ok {
+						targetProperties = propSlice
+					}
 				}
 			}
 			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
