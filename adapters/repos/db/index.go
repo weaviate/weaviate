@@ -467,21 +467,23 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schema.VectorIndexConfig,
 ) error {
-	for vecName, updatedCfg := range updated {
-		err := i.ForEachShard(func(name string, shard ShardLike) error {
-			if err := shard.UpdateVectorConfigForName(ctx, updatedCfg, vecName); err != nil {
-				return fmt.Errorf("shard '%s', target vector '%s': %w", name, vecName, err)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
 		}
-
-		i.vectorIndexUserConfigLock.Lock()
-		i.vectorIndexUserConfigs[vecName] = updatedCfg
-		i.vectorIndexUserConfigLock.Unlock()
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	for targetName, targetCfg := range updated {
+		i.vectorIndexUserConfigs[targetName] = targetCfg
+	}
+
 	return nil
 }
 

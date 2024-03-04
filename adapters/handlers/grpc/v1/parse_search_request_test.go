@@ -12,7 +12,10 @@
 package v1
 
 import (
+	"sort"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -1374,13 +1377,23 @@ func TestGRPCRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchParamsFromProto(tt.req, scheme)
+			out, err := searchParamsFromProto(tt.req, scheme, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {
 				require.Nil(t, err)
+				// The order of vector names in slice is non-deterministic,
+				// causing this test to be flaky. Sort first, no more flake
+				sortNamedVecs(tt.out.AdditionalProperties.Vectors)
+				sortNamedVecs(out.AdditionalProperties.Vectors)
 				require.EqualValues(t, tt.out, out)
 			}
 		})
 	}
+}
+
+func sortNamedVecs(vecs []string) {
+	sort.Slice(vecs, func(i, j int) bool {
+		return vecs[i] < vecs[j]
+	})
 }

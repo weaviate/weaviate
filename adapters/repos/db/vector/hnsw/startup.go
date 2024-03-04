@@ -137,7 +137,7 @@ func (h *hnsw) restoreFromDisk() error {
 			if h.pqConfig.Segments == 0 {
 				h.pqConfig.Segments = int(state.PQData.Dimensions)
 			}
-			h.compressor, err = compressionhelpers.RestorePQCompressor(
+			h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
 				h.pqConfig,
 				h.distancerProvider,
 				int(state.PQData.Dimensions),
