@@ -12,11 +12,12 @@
 package named_vectors_tests
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

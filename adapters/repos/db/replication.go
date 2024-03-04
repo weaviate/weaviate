@@ -510,14 +510,3 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	return resp, nil
 }
-
-func getLocalShard(i *Index, name string) ShardLike {
-	var sl ShardLike
-	backoff.Retry(func() error {
-		if sl = i.localShard(name); sl == nil {
-			return fmt.Errorf("does not exists")
-		}
-		return nil
-	}, utils.NewBackoff())
-	return sl
-}
