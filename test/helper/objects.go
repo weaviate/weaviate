@@ -102,6 +102,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
 func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, err error) {
 	t.Helper()
 	AssertRequestOk(t, resp, err, nil)

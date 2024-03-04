@@ -139,6 +139,9 @@ func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
+	if n == 1 {
+		return d.GetWeaviate()
+	}
 	return d.getContainerByName(fmt.Sprintf("weaviate%d", n))
 }
 
