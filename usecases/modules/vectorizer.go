@@ -472,7 +472,7 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 	}
 	modConfig, ok := class.ModuleConfig.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("class %v not present", class.Class)
+		return nil, fmt.Errorf("no moduleconfig for class %v present", class.Class)
 	}
 	if modConfig != nil {
 		// get vectorizer

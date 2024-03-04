@@ -324,7 +324,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(expectedVector, nil)
 		}
 
