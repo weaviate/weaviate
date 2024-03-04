@@ -74,12 +74,13 @@ func (m dummyText2VecModuleNoCapabilities) VectorizableProperties(cfg moduletool
 	return true, m.mediaProperties, nil
 }
 
-func (m dummyText2VecModuleNoCapabilities) VectorizeBatch(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig) map[int]error {
+func (m dummyText2VecModuleNoCapabilities) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	errs := make(map[int]error, 0)
-	for _, obj := range objs {
-		obj.Vector = []float32{1, 2, 3}
+	vecs := make([][]float32, len(objs))
+	for i := range vecs {
+		vecs[i] = []float32{1, 2, 3}
 	}
-	return errs
+	return vecs, nil, errs
 }
 
 func newDummyRef2VecModule(name string) dummyRef2VecModuleNoCapabilities {
