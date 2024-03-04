@@ -379,7 +379,7 @@ func (h *hnsw) reassignNeighbor(
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
+		compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}

@@ -160,7 +160,12 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync() int {
-	l.mustLoad()
+	l.mutex.Lock()
+	if !l.loaded {
+		l.mutex.Unlock()
+		return 0
+	}
+	l.mutex.Unlock()
 	return l.shard.ObjectCountAsync()
 }
 
@@ -218,13 +223,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated sch
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateVectorConfigForName(ctx context.Context, updated schema.VectorIndexConfig,
-	targetVector string,
-) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.UpdateVectorConfigForName(ctx, updated, targetVector)
+	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
