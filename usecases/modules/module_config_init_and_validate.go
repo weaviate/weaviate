@@ -104,7 +104,6 @@ func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
 			}
 		}
 	}
-
 }
 
 func (p *Provider) setSinglePropertyDefaults(prop *models.Property, vectorizer string) {
