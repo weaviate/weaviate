@@ -43,12 +43,26 @@ type Store struct {
 	bucketAccessLock sync.RWMutex
 }
 
+var openStores sync.Map
+
+func init() {
+	openStores = sync.Map{}
+}
+
+func absolutePath(dir, rootDir string) string {
+	return path.Join(rootDir, dir)
+}
+
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
+	absPath := absolutePath(rootDir, dir)
+	if _, ok := openStores.Load(absPath); ok {
+		return nil, fmt.Errorf("lsm store %q is already open", absPath)
+	}
 	s := &Store{
 		dir:           dir,
 		rootDir:       rootDir,
@@ -56,6 +70,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:        logger,
 		metrics:       metrics,
 	}
+	openStores.Store(absPath, struct{}{})
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
@@ -140,11 +155,15 @@ func (s *Store) Shutdown(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
+	absPath := absolutePath(s.rootDir, s.dir)
+
 	for name, bucket := range s.bucketsByName {
 		if err := bucket.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown bucket %q", name)
 		}
 	}
+
+	openStores.Delete(absPath)
 
 	return nil
 }
