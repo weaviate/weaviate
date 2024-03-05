@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -161,7 +162,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 			// the class does not use a vectorizer, nothing to do for us
 			return nil
 		}
-		if err := p.validateClassesModuleConfig(ctx, class, "", class.ModuleConfig); err != nil {
+		if err := p.validateClassesModuleConfig(ctx, class, class.ModuleConfig); err != nil {
 			return err
 		}
 		return nil
@@ -225,16 +226,24 @@ func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Contex
 }
 
 func (p *Provider) validateClassesModuleConfig(ctx context.Context,
-	class *models.Class, targetVector string, moduleConfig interface{},
+	class *models.Class, moduleConfig interface{},
 ) error {
 	modConfig, ok := moduleConfig.(map[string]interface{})
 	if !ok {
 		return nil
 	}
+	configuredVectorizers := make([]string, 0, len(modConfig))
 	for modName := range modConfig {
 		if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
 			return err
 		}
+		if err := p.ValidateVectorizer(modName); err == nil {
+			configuredVectorizers = append(configuredVectorizers, modName)
+		}
+	}
+	if len(configuredVectorizers) > 1 {
+		return fmt.Errorf("multiple vectorizers configured in class's moduleConfig: %v. class.vectorizer is set to %q",
+			configuredVectorizers, class.Vectorizer)
 	}
 	return nil
 }

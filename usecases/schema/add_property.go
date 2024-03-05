@@ -98,7 +98,7 @@ func (m *Manager) setNewPropDefaults(class *models.Class, prop *models.Property)
 	m.moduleConfig.SetSinglePropertyDefaults(class, prop)
 }
 
-func validatePropModuleConfig(class *models.Class, prop *models.Property) error {
+func (m *Manager) validatePropModuleConfig(class *models.Class, prop *models.Property) error {
 	if prop.ModuleConfig == nil {
 		return nil
 	}
@@ -108,6 +108,17 @@ func validatePropModuleConfig(class *models.Class, prop *models.Property) error 
 	}
 
 	if !hasTargetVectors(class) {
+		configuredVectorizers := make([]string, 0, len(modconfig))
+		for modName := range modconfig {
+			if err := m.vectorizerValidator.ValidateVectorizer(modName); err == nil {
+				configuredVectorizers = append(configuredVectorizers, modName)
+			}
+		}
+		if len(configuredVectorizers) > 1 {
+			return fmt.Errorf("multiple vectorizers configured in property's %q moduleConfig: %v. class.vectorizer is set to %q",
+				prop.Name, configuredVectorizers, class.Vectorizer)
+		}
+
 		vectorizerConfig, ok := modconfig[class.Vectorizer]
 		if !ok {
 			if class.Vectorizer == "none" {

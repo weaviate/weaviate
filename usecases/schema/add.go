@@ -514,7 +514,7 @@ func (m *Manager) validateProperty(
 		return err
 	}
 
-	if err := validatePropModuleConfig(class, property); err != nil {
+	if err := m.validatePropModuleConfig(class, property); err != nil {
 		return err
 	}
 
