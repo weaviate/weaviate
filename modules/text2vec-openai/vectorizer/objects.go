@@ -26,6 +26,8 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
+const MaxBatchTime = 40 * time.Second
+
 type batchJob struct {
 	objects    []*models.Object
 	texts      []string
@@ -115,21 +117,47 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 // On the high level it has the following steps:
 //  1. It receives a batch job
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
-//     batches are not mixed with each other.
+//     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
 func (v *Vectorizer) batchWorker() {
-	tokenLimit := 1000 // don't know limits before the first request
-	remainingRequests := 10
-	requestLimitReset := 0
+	rateLimit := &ent.RateLimits{}
 	texts := make([]string, 0, 100)
+	firstRequest := true
+BatchLoop:
 	for job := range v.jobQueueCh {
-		conf := v.getVectorizationConfig(job.cfg)
+		// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
+		batchStart := time.Now()
+
 		objCounter := 0
 		vecBatchOffset := 0 // index of first object in current vectorizer-batch
-
 		tokensInCurrentBatch := 0
 		texts = texts[:0]
-		for {
+
+		conf := v.getVectorizationConfig(job.cfg)
+
+		// haven't requested, so we need to send a request to get them.
+		for firstRequest {
+			var err error
+			rateLimit, err = v.makeRequest(job, job.texts[:1], conf, vecBatchOffset)
+			if err != nil {
+				for j := 0; j < len(job.objects); j++ {
+					job.errs[j] = err
+				}
+				job.wg.Done()
+				continue BatchLoop
+			}
+			objCounter++
+			firstRequest = false
+		}
+
+		for objCounter < len(job.objects) {
+			if time.Since(batchStart) > MaxBatchTime {
+				for j := vecBatchOffset; j < len(job.objects); j++ {
+					job.errs[j] = fmt.Errorf("batch time limit exceeded")
+				}
+				break
+			}
+
 			if job.skipObject[objCounter] {
 				objCounter++
 				if objCounter == len(job.objects) {
@@ -138,15 +166,37 @@ func (v *Vectorizer) batchWorker() {
 				continue
 			}
 
-			// add input to vectorizer-batches until current token limit is reached
+			// add input to vectorizer-batches until current token limit is reached.
+			if job.tokens[objCounter] > rateLimit.LimitTokens {
+				job.errs[objCounter] = fmt.Errorf("text too long for vectorization")
+				objCounter++
+				continue
+			}
+
 			text := job.texts[objCounter]
 			tokensInCurrentBatch += job.tokens[objCounter]
-			if float32(tokensInCurrentBatch) < 0.95*float32(tokenLimit) {
+			if float32(tokensInCurrentBatch) < 0.95*float32(rateLimit.RemainingTokens) {
 				texts = append(texts, text)
 				if objCounter < len(job.objects)-1 {
 					objCounter++
 					continue
 				}
+			}
+
+			// if a single object is larger than the current token limit we need to wait until the token limit refreshes
+			// enough to be able to handle the object. This assumes that the tokenLimit refreshes linearly which is true
+			// for openAI, but needs to be checked for other providers
+			if len(texts) == 0 {
+				fractionOfTotalLimit := float32(rateLimit.LimitTokens) / float32(job.tokens[objCounter])
+				sleepTime := time.Duration(float32(rateLimit.ResetTokens)*fractionOfTotalLimit+1) * time.Second
+				if time.Since(batchStart)+sleepTime > MaxBatchTime {
+					time.Sleep(sleepTime)
+					rateLimit.RemainingTokens += int(float32(rateLimit.LimitTokens) * fractionOfTotalLimit)
+				} else {
+					job.errs[objCounter] = fmt.Errorf("text too long for vectorization. Cannot wait for token refresh due to time limit")
+					objCounter++
+				}
+				continue // try again or next item
 			}
 
 			if job.ctx.Err() != nil {
@@ -156,44 +206,25 @@ func (v *Vectorizer) batchWorker() {
 				break
 			}
 
-			res, rateLimit, err := v.client.Vectorize(job.ctx, texts, conf)
-			if err != nil {
-				for j := 0; j < len(texts); j++ {
-					job.errs[vecBatchOffset+j] = err
-				}
-			} else {
-				for j := 0; j < len(texts); j++ {
-					if res.Errors[j] != nil {
-						job.errs[vecBatchOffset+j] = res.Errors[j]
-					} else {
-						job.vecs[vecBatchOffset+j] = res.Vector[j]
-					}
-				}
-			}
-
-			if rateLimit != nil {
-				tokenLimit = rateLimit.RemainingTokens
-				remainingRequests = rateLimit.RemainingRequests
-				requestLimitReset = rateLimit.ResetRequests
+			rateLimitNew, err := v.makeRequest(job, texts, conf, vecBatchOffset)
+			if rateLimitNew != nil {
+				rateLimit = rateLimitNew
 			}
 
 			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
 			// tier only the RPD limits are shown but not RPM
-			if remainingRequests == 0 {
-				// if we need to wait more than 60s for a reset we need to stop the batch to not produce timeouts
-				if requestLimitReset >= 61 {
+			if rateLimit.RemainingRequests == 0 {
+				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
+				if time.Since(batchStart)+time.Duration(rateLimit.ResetRequests)*time.Second > MaxBatchTime {
 					for j := vecBatchOffset; j < len(job.objects); j++ {
 						job.errs[j] = err
 					}
 					break
 				}
-				time.Sleep(time.Duration(requestLimitReset) * time.Second)
+				time.Sleep(time.Duration(rateLimit.ResetRequests) * time.Second)
 			}
 
 			objCounter++
-			if objCounter == len(job.objects) {
-				break
-			}
 
 			// reset for next vectorizer-batch
 			vecBatchOffset = objCounter
@@ -203,6 +234,26 @@ func (v *Vectorizer) batchWorker() {
 		job.wg.Done()
 
 	}
+}
+
+func (v *Vectorizer) makeRequest(job batchJob, texts []string, conf ent.VectorizationConfig, vecBatchOffset int,
+) (*ent.RateLimits, error) {
+	res, rateLimit, err := v.client.Vectorize(job.ctx, texts, conf)
+	if err != nil {
+		for j := 0; j < len(texts); j++ {
+			job.errs[vecBatchOffset+j] = err
+		}
+	} else {
+		for j := 0; j < len(texts); j++ {
+			if res.Errors[j] != nil {
+				job.errs[vecBatchOffset+j] = res.Errors[j]
+			} else {
+				job.vecs[vecBatchOffset+j] = res.Vector[j]
+			}
+		}
+	}
+
+	return rateLimit, err
 }
 
 func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
