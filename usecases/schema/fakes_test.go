@@ -17,8 +17,8 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
-	"github.com/weaviate/weaviate/cloud/store"
+	command "github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
