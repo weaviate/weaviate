@@ -43,8 +43,9 @@ type shardReader interface {
 }
 
 type metaClass struct {
-	Class    models.Class
-	Sharding sharding.State
+	Class      models.Class
+	shardMutex sync.RWMutex
+	Sharding   sharding.State
 }
 
 func NewSchema(nodeID string, shardReader shardReader) *schema {
@@ -69,7 +70,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
 		return errClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{*cls, *ss}
+	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss}
 	return nil
 }
 
@@ -128,7 +129,7 @@ func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error 
 		}
 
 		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: t.Nodes}
-		info.Sharding.Physical[t.Name] = p
+		info.SetPhysicalForShard(t.Name, p)
 		if !slices.Contains(t.Nodes, s.nodeID) {
 			req.Tenants[i] = nil // is owner by another node
 		}
@@ -337,7 +338,7 @@ func (s *schema) ShardOwner(class, shard string) (string, error) {
 		return "", errClassNotFound
 	}
 
-	x, ok := i.Sharding.Physical[shard]
+	x, ok := i.GetPhysicalForShard(shard)
 	if !ok {
 		return "", errShardNotFound
 	}
@@ -363,7 +364,7 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
 		return nil, errClassNotFound
 	}
 
-	x, ok := info.Sharding.Physical[shard]
+	x, ok := info.GetPhysicalForShard(shard)
 	if !ok {
 		return nil, errShardNotFound
 	}
@@ -379,7 +380,7 @@ func (s *schema) TenantShard(class, tenant string) (string, string) {
 	}
 
 	backoff.Retry(func() error {
-		physical, ok := info.Sharding.Physical[tenant]
+		physical, ok := info.GetPhysicalForShard(tenant)
 		if !ok {
 			return fmt.Errorf("doesn't exists")
 		}
@@ -403,4 +404,18 @@ func (s *schema) CopyShardingState(class string) *sharding.State {
 
 func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
 	return s.shardReader.GetShardsStatus(class)
+}
+
+func (m *metaClass) SetPhysicalForShard(shard string, physical sharding.Physical) {
+	m.shardMutex.RLock()
+	defer m.shardMutex.RUnlock()
+
+	m.Sharding.Physical[shard] = physical
+}
+
+func (m *metaClass) GetPhysicalForShard(shard string) (sharding.Physical, bool) {
+	m.shardMutex.RLock()
+	defer m.shardMutex.RUnlock()
+	p, ok := m.Sharding.Physical[shard]
+	return p, ok
 }
