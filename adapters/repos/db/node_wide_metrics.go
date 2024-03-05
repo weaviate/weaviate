@@ -19,26 +19,27 @@ import (
 )
 
 type nodeWideMetricsObserver struct {
-	db *DB
+	db       *DB
+	shutdown chan struct{}
 }
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
-	return &nodeWideMetricsObserver{db: db}
+	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
 }
 
-func (o *nodeWideMetricsObserver) start() {
+func (o *nodeWideMetricsObserver) Start() {
 	t := time.NewTicker(30 * time.Second)
 
 	defer t.Stop()
 
 	for {
 		select {
+		case <-o.shutdown:
+			return
 		case <-t.C:
 			o.observeIfShardsReady()
 		}
 	}
-
-	// TODO: shutdown
 }
 
 func (o *nodeWideMetricsObserver) observeIfShardsReady() {
@@ -87,4 +88,8 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 		"took":         took,
 		"object_count": totalObjectCount,
 	}).Debug("observed node wide metrics")
+}
+
+func (o *nodeWideMetricsObserver) Shutdown() {
+	o.shutdown <- struct{}{}
 }

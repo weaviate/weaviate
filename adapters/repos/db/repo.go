@@ -80,6 +80,10 @@ type DB struct {
 	maxNumberGoroutines     int
 	batchMonitorLock        sync.Mutex
 	ratePerSecond           int
+
+	// in the case of metrics grouping we need to observe some metrics
+	// node-centric, rather than shard-centric
+	metricsObserver *nodeWideMetricsObserver
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -267,6 +271,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 				index: -1,
 			}
 		}
+	}
+
+	if db.metricsObserver != nil {
+		db.metricsObserver.Shutdown()
 	}
 
 	db.indexLock.Lock()
