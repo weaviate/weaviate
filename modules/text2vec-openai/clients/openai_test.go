@@ -103,6 +103,7 @@ func TestClient(t *testing.T) {
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
+			Errors:     []error{nil},
 		}
 		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
@@ -164,6 +165,7 @@ func TestClient(t *testing.T) {
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
+			Errors:     []error{nil},
 		}
 		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
