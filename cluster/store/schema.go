@@ -18,8 +18,8 @@ import (
 	"sync"
 
 	"github.com/cenkalti/backoff/v4"
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
-	"github.com/weaviate/weaviate/cloud/utils"
+	command "github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
