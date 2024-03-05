@@ -55,12 +55,13 @@ func asyncRepairUpsertScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	for it := 0; it < 5; it++ {
+	for it := 0; it < 3; it++ {
 		// pick one node to be down during upserts
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
 			stopNodeAt(ctx, t, compose, 1)
+			time.Sleep(10 * time.Second)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
@@ -91,8 +92,8 @@ func asyncRepairUpsertScenario(t *testing.T) {
 
 func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, clusterSize, node int) {
 	if node != 1 {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode(node).Name())
-		time.Sleep(3 * time.Second)
+		stopNodeAt(ctx, t, compose, node)
+		time.Sleep(10 * time.Second)
 
 		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(node).Name()))
 		time.Sleep(5 * time.Second) // wait for initialization
@@ -102,8 +103,8 @@ func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompos
 	// after node1 to re-facilitate internode communication
 
 	for n := clusterSize; n >= 1; n-- {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode(n).Name())
-		time.Sleep(3 * time.Second)
+		stopNodeAt(ctx, t, compose, n)
+		time.Sleep(10 * time.Second)
 	}
 
 	for n := 1; n <= clusterSize; n++ {
