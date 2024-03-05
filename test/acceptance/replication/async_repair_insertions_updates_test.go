@@ -61,14 +61,13 @@ func asyncRepairUpsertScenario(t *testing.T) {
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
 			stopNodeAt(ctx, t, compose, 1)
-			time.Sleep(5 * time.Second)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
-			for i := range paragraphIDs {
+			for i, id := range paragraphIDs {
 				batch[i] = articles.NewParagraph().
-					// WithID(id).
+					WithID(id).
 					WithContents(fmt.Sprintf("paragraph#%d_%d", it, i)).
 					Object()
 			}
@@ -76,17 +75,35 @@ func asyncRepairUpsertScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviateNode(node).Name())
-			require.NoError(t, err)
-
-			time.Sleep(5 * time.Second)
+			restartNode(ctx, t, compose, clusterSize, node)
 		})
 	}
+
+	time.Sleep(1 * time.Second)
 
 	for n := 1; n <= clusterSize; n++ {
 		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
 			count := countObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
 			require.EqualValues(t, len(paragraphIDs), count)
 		})
+	}
+}
+
+func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, clusterSize, node int) {
+	if node != 1 {
+		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(node).Name()))
+		<-time.After(1 * time.Second) // wait for initialization
+	}
+
+	// since node1 is the gossip "leader", the other nodes must be stopped and restarted
+	// after node1 to re-facilitate internode communication
+
+	for n := clusterSize; n > 1; n-- {
+		stopNode(ctx, t, compose, compose.GetWeaviateNode(n).Name())
+	}
+
+	for n := 1; n <= clusterSize; n++ {
+		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(n).Name()))
+		<-time.After(1 * time.Second) // wait for initialization
 	}
 }
