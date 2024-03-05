@@ -23,15 +23,15 @@ type fakeClient struct {
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	c.lastInput = []string{text}
+	text []string, cfg ent.VectorizationConfig,
+) (*ent.VectorizationResult, *ent.RateLimits, error) {
+	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
 		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
-		Text:       []string{text},
-	}, nil
+		Text:       text,
+	}, nil, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
