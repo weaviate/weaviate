@@ -124,23 +124,23 @@ func Benchmark_L2(b *testing.B) {
 				y[i] = r.Float32()
 			}
 
-			for i := 0; i < b.N; i++ {
-				// L2PureGo(x, y)
-				// asm.L2(x, y)
-				asm.L2AVX512(x, y)
-			}
+			b.Run("pure go", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					L2PureGo(x, y)
+				}
+			})
 
-			// b.Run("pure go", func(b *testing.B) {
-			// 	for i := 0; i < b.N; i++ {
-			// 		L2PureGo(x, y)
-			// 	}
-			// })
+			b.Run("asm AVX", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2(x, y)
+				}
+			})
 
-			// b.Run("asm AVX", func(b *testing.B) {
-			// 	for i := 0; i < b.N; i++ {
-			// 		asm.L2(x, y)
-			// 	}
-			// })
+			b.Run("asm AVX512", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2AVX512(x, y)
+				}
+			})
 		})
 	}
 }
