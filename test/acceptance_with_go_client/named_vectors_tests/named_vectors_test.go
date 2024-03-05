@@ -28,6 +28,7 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 	}()
 	endpoint := compose.GetWeaviate().URI()
 	t.Run("tests", allTests(t, endpoint))
+	t.Run("legacy tests", allLegacyTests(endpoint))
 }
 
 func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
