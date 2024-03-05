@@ -12,18 +12,12 @@
 package clients
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pkoukk/tiktoken-go"
 )
 
-func GetTokensCount(model string, input string) (int, error) {
-	tke, err := tiktoken.EncodingForModel(model)
-	if err != nil {
-		return 0, fmt.Errorf("encoding for model %s: %w", model, err)
-	}
-
+func GetTokensCount(model string, input string, tke *tiktoken.Tiktoken) int {
 	tokensPerMessage := 3
 	if strings.HasPrefix(model, "gpt-3.5-turbo") {
 		tokensPerMessage = 4
@@ -31,5 +25,5 @@ func GetTokensCount(model string, input string) (int, error) {
 
 	tokensCount := tokensPerMessage
 	tokensCount += len(tke.Encode(input, nil, nil))
-	return tokensCount, nil
+	return tokensCount
 }
