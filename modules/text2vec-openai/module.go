@@ -48,6 +48,7 @@ type textVectorizer interface {
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
+	ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, map[int]error)
 }
 
 type metaProvider interface {
@@ -128,18 +129,8 @@ func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 }
 
 func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	errs := make(map[int]error, 0)
-	vecs := make([][]float32, len(objs))
-	for i, obj := range objs {
-		if skipObject[i] {
-			continue
-		}
-		vec, _, err := m.vectorizer.Object(ctx, obj, cfg)
-		if err != nil {
-			errs[i] = err
-		}
-		vecs[i] = vec
-	}
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+
 	return vecs, nil, errs
 }
 
