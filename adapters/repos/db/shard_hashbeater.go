@@ -31,13 +31,16 @@ func (s *Shard) initHashBeater() {
 		t := time.NewTicker(50 * time.Millisecond)
 
 		backoffs := []time.Duration{
+			1 * time.Second,
 			5 * time.Second,
+			10 * time.Second,
 			30 * time.Second,
 			1 * time.Minute,
-			5 * time.Minute,
 		}
 
 		backoffTimer := interval.NewBackoffTimer(backoffs...)
+
+		firstFailure := true
 
 		defer t.Stop()
 
@@ -56,12 +59,19 @@ func (s *Shard) initHashBeater() {
 						WithField("shard_name", s.name).
 						Warnf("iteration failed: %v", err)
 
+					if firstFailure {
+						backoffTimer.Reset()
+						firstFailure = false
+					}
+
 					time.Sleep(backoffTimer.CurrentInterval())
 
 					backoffTimer.IncreaseInterval()
 
 					continue
 				}
+
+				firstFailure = false
 
 				hosts := make([]string, len(stats.hostStats))
 				localObjects := 0
