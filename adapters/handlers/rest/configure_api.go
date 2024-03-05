@@ -48,8 +48,8 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
-	"github.com/weaviate/weaviate/cloud"
-	schemav2 "github.com/weaviate/weaviate/cloud/store"
+	rCluster "github.com/weaviate/weaviate/cluster"
+	rStore "github.com/weaviate/weaviate/cluster/store"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -264,7 +264,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
 	addrs := strings.Split(nodeAddr, ":")
 
-	rConfig := schemav2.Config{
+	rConfig := rStore.Config{
 		WorkDir:            filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
 		NodeID:             nodeName,
 		Host:               addrs[0],
@@ -292,7 +292,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.CloudService = cloud.New(rConfig)
+	appState.CloudService = rCluster.New(rConfig)
 	executor := schema.NewExecutor(migrator, appState.CloudService.SchemaReader(), appState.Logger)
 
 	schemaManager, err := schemaUC.NewManager(migrator,

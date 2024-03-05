@@ -26,8 +26,8 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	command "github.com/weaviate/weaviate/cluster/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"

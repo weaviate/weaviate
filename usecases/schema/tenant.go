@@ -17,8 +17,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/weaviate/weaviate/cloud/proto/cluster"
-	"github.com/weaviate/weaviate/cloud/store"
+	"github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"

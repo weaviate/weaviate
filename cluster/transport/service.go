@@ -18,8 +18,8 @@ import (
 	"log/slog"
 	"net"
 
-	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
-	"github.com/weaviate/weaviate/cloud/store"
+	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

@@ -17,7 +17,7 @@ import (
 	"net"
 	"strconv"
 
-	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

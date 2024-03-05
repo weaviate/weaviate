@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
-	"github.com/weaviate/weaviate/cloud/store"
-	"github.com/weaviate/weaviate/cloud/utils"
+	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/store"
+	"github.com/weaviate/weaviate/cluster/utils"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
