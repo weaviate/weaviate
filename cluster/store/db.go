@@ -17,7 +17,7 @@ import (
 	"errors"
 	"fmt"
 
-	command "github.com/weaviate/weaviate/cloud/proto/cluster"
+	command "github.com/weaviate/weaviate/cluster/proto/cluster"
 	gproto "google.golang.org/protobuf/proto"
 )
 

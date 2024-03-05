@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/weaviate/weaviate/cloud/utils"
+	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
