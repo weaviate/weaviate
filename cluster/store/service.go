@@ -18,7 +18,7 @@ import (
 	"log/slog"
 	"time"
 
-	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
@@ -45,7 +45,7 @@ func NewService(store *Store, client client) *Service {
 
 // / RAFT-TODO Documentation
 func (s *Service) Open(ctx context.Context, db Indexer) error {
-	s.log.Info("bootstrapping started")
+	s.log.Info("starting raft sub-system ...")
 	s.store.SetDB(db)
 	return s.store.Open(ctx)
 }
