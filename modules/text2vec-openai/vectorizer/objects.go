@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkoukk/tiktoken-go"
+
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -123,6 +125,8 @@ func (v *Vectorizer) batchWorker() {
 	rateLimit := &ent.RateLimits{}
 	texts := make([]string, 0, 100)
 	firstRequest := true
+	timePerToken := 0.0
+	batchTookInS := float64(0)
 BatchLoop:
 	for job := range v.jobQueueCh {
 		// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
@@ -175,7 +179,7 @@ BatchLoop:
 
 			text := job.texts[objCounter]
 			tokensInCurrentBatch += job.tokens[objCounter]
-			if float32(tokensInCurrentBatch) < 0.95*float32(rateLimit.RemainingTokens) {
+			if float32(tokensInCurrentBatch) < 0.95*float32(rateLimit.RemainingTokens) && timePerToken*float64(tokensInCurrentBatch) < MaxBatchTime.Seconds()/10 {
 				texts = append(texts, text)
 				if objCounter < len(job.objects)-1 {
 					objCounter++
@@ -205,8 +209,10 @@ BatchLoop:
 				}
 				break
 			}
-
+			start := time.Now()
 			rateLimitNew, err := v.makeRequest(job, texts, conf, vecBatchOffset)
+			batchTookInS = time.Since(start).Seconds()
+			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
 			if rateLimitNew != nil {
 				rateLimit = rateLimitNew
 			}
@@ -267,15 +273,28 @@ func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, 
 	icheck := NewClassSettings(cfg)
 	vecs := make([][]float32, len(objects))
 
+	// go token library is outdated. Alter the model-name to use a different model name with the same tokenization-behaviour
+	model := conf.Model
+	if model == "text-embedding-ada-002" || model == "text-embedding-3-small" || model == "text-embedding-3-large" {
+		model = "gpt-4"
+	}
+
+	tke, err := tiktoken.EncodingForModel(model)
+	if err != nil { // fail all objects as they all have the same model
+		for j := range objects {
+			errs[j] = err
+		}
+		return nil, errs
+	}
+
 	// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
 	for i := range objects {
 		if skipObject[i] {
 			continue
 		}
 		text := v.objectVectorizer.Texts(ctx, objects[i], icheck)
-		count, _ := clients.GetTokensCount(conf.Model, text)
 		texts[i] = text
-		tokens[i] = count
+		tokens[i] = clients.GetTokensCount(conf.Model, text, tke)
 	}
 
 	v.jobQueueCh <- batchJob{objects: objects, ctx: ctx, wg: &wg, errs: errs, cfg: cfg, texts: texts, tokens: tokens, vecs: vecs, skipObject: skipObject}

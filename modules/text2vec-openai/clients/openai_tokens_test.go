@@ -14,6 +14,8 @@ package clients
 import (
 	"testing"
 
+	"github.com/pkoukk/tiktoken-go"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -49,17 +51,17 @@ func Test_getTokensCount(t *testing.T) {
 			name:     "non-existent-model",
 			model:    "non-existent-model",
 			messages: shortTestText,
-			wantErr:  "encoding for model non-existent-model: no encoding for model non-existent-model",
+			wantErr:  "no encoding for model non-existent-model",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := GetTokensCount(tt.model, tt.messages)
+			tke, err := tiktoken.EncodingForModel(tt.model)
 			if err != nil {
 				assert.EqualError(t, err, tt.wantErr)
 			} else {
 				assert.Nil(t, err)
-				assert.Equal(t, tt.want, got)
+				assert.Equal(t, tt.want, GetTokensCount(tt.model, tt.messages, tke))
 			}
 		})
 	}
