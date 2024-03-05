@@ -185,6 +185,10 @@ type Index struct {
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
 	closingCancel context.CancelFunc
+
+	// always true if lazy shard loading is off, in the case of lazy shard
+	// loading will be set to true once the last shard was loaded.
+	allShardsReady atomic.Bool
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -281,6 +285,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
+
 		eg := errgroup.Group{}
 		eg.SetLimit(_NUMCPU)
 
@@ -303,7 +308,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 			})
 		}
 
-		return eg.Wait()
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+
+		i.allShardsReady.Store(true)
+		return nil
 	}
 
 	for _, shardName := range shardState.AllLocalPhysicalShards() {
@@ -320,6 +330,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
+		defer i.allShardsReady.Store(true)
 
 		i.ForEachShard(func(name string, shard ShardLike) error {
 			// prioritize closingCtx over ticker:
