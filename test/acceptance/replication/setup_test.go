@@ -22,7 +22,7 @@ func TestReplication(t *testing.T) {
 	t.Run("ScaleOut", multiShardScaleOut)
 	t.Run("ReadRepair", readRepair)
 	t.Run("AsyncRepair", asyncRepairSimpleScenario)
-	t.Run("AsyncRepairUpsert", asyncRepairUpsertScenario)
+	t.Run("AsyncRepairInsertion", asyncRepairObjectInsertionScenario)
 	t.Run("GraphqlSearch", graphqlSearch)
 	t.Run("MultiTenancy", multiTenancyEnabled)
 }
