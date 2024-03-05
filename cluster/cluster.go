@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package cloud
+package cluster
 
 import (
 	"context"
@@ -17,8 +17,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/weaviate/weaviate/cloud/store"
-	"github.com/weaviate/weaviate/cloud/transport"
+	"github.com/weaviate/weaviate/cluster/store"
+	"github.com/weaviate/weaviate/cluster/transport"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating

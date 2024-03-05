@@ -18,7 +18,7 @@ import (
 	"math/rand"
 	"time"
 
-	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
