@@ -58,6 +58,8 @@ message ApplyRequest {
     TYPE_ADD_TENANT = 16;
     TYPE_UPDATE_TENANT = 17;
     TYPE_DELETE_TENANT = 18;
+
+    TYPE_SET_SCHEMA = 19;
   }
   Type type = 1;
   string class = 2;

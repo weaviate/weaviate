@@ -95,7 +95,7 @@ func TestRepositorySaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loading schema from empty file: %v", err)
 	}
-	if len(res.ShardingState) != 0 || len(res.ObjectSchema.Classes) != 0 {
+	if len(res.GetShardingState()) != 0 || len(res.GetSchema().Classes) != 0 {
 		t.Fatalf("expected empty schema got %v", res)
 	}
 

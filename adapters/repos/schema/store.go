@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/schema/types"
 	"github.com/weaviate/weaviate/entities/models"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -333,7 +334,7 @@ func (r *store) DeleteShards(_ context.Context, class string, shards []string) e
 }
 
 // Load loads the complete schema from the persistent storage
-func (r *store) Load(ctx context.Context) (ucs.State, error) {
+func (r *store) Load(ctx context.Context) (types.SchemaStateGetter, error) {
 	state := ucs.NewState(32)
 	for data := range r.load(ctx) {
 		if data.Error != nil {

@@ -238,8 +238,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// TODO: configure http transport for efficient intra-cluster comm
 	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
-	schemaTxPersistence := txstore.NewStore(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	schemaTxPersistence := txstore.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 
 	/// TODO-RAFT START
 	//
@@ -308,8 +307,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
-	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules)
+	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer, schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
 	go clusterapi.Serve(appState)
@@ -326,6 +324,16 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").
 			WithError(err).
 			Fatal("could not open cloud meta store")
+	}
+
+	// Ensure that we check if migration is needed from the old schemaRepo to the new RAFT based representation.
+	// This will block until the migration is either skipped or completed.
+	err = appState.CloudService.MigrateToRaft(schemaRepo)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").
+			WithError(err).
+			Fatal("could not migrate existing schema to RAFT based representation")
 	}
 	// TODO-RAFT END
 

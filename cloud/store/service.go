@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"time"
 
+	schemaTypes "github.com/weaviate/weaviate/adapters/repos/schema/types"
 	cmd "github.com/weaviate/weaviate/cloud/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -71,6 +72,10 @@ func (s *Service) Ready() bool {
 
 func (s *Service) SchemaReader() *schema {
 	return s.store.SchemaReader()
+}
+
+func (s *Service) IsLeader() bool {
+	return s.store.IsLeader()
 }
 
 func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
@@ -261,6 +266,13 @@ func (s *Service) Stats() map[string]string {
 
 func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
 	return s.store.WaitToRestoreDB(ctx, period)
+}
+
+// MigrateToRaft will start migrating schemaRepo to RAFT based schema representation (on *this* node if it is the leader
+// node).
+// This call will be blocking until the RAFT migration is either skipped or completed.
+func (s *Service) MigrateToRaft(schemaRepo schemaTypes.SchemaRepo) error {
+	return s.store.MigrateToRaft(schemaRepo)
 }
 
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
