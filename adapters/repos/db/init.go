@@ -109,8 +109,9 @@ func (db *DB) init(ctx context.Context) error {
 	// "n/a" that we need to actively aggregate node-wide metrics.
 	//
 	// See also https://github.com/weaviate/weaviate/issues/4396
-	if db.promMetrics.Group {
-		go newNodeWideMetricsObserver(db).start()
+	if db.promMetrics != nil && db.promMetrics.Group {
+		db.metricsObserver = newNodeWideMetricsObserver(db)
+		go db.metricsObserver.Start()
 	}
 
 	return nil
