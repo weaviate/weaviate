@@ -107,3 +107,6 @@ creds.json
 
 # VSCode
 cmd/weaviate-server/__debug_bin*
+
+# python virtual env
+.venv
