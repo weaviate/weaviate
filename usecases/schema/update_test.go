@@ -398,7 +398,7 @@ func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
 	vcFlatContextionary := models.VectorConfig{
 		VectorIndexType: "flat",
 		Vectorizer: map[string]interface{}{
-			"contextionary": "some-settings",
+			"text2vec-contextionary": "some-settings",
 		},
 		VectorIndexConfig: map[string]interface{}{
 			"setting-flat": "value-flat",
@@ -407,7 +407,7 @@ func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
 	vcHnswContextionary := models.VectorConfig{
 		VectorIndexType: "hnsw",
 		Vectorizer: map[string]interface{}{
-			"contextionary": "some-settings",
+			"text2vec-contextionary": "some-settings",
 		},
 		VectorIndexConfig: map[string]interface{}{
 			"setting-hnsw": "value-hnsw",
@@ -529,7 +529,7 @@ func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
 					},
 				},
 			}),
-			expectedErrMsg: "vectorizer of vector \"vector1\" is immutable: attempted change from \"contextionary\" to \"not-contextionary\"",
+			expectedErrMsg: "vectorizer of vector \"vector1\" is immutable: attempted change from \"text2vec-contextionary\" to \"not-contextionary\"",
 		},
 		{
 			name: "vectorizer config not map",
@@ -553,8 +553,8 @@ func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
 				"vector1": {
 					VectorIndexType: "flat",
 					Vectorizer: map[string]interface{}{
-						"contextionary":  "some-settings",
-						"additional-key": "value",
+						"text2vec-contextionary": "some-settings",
+						"additional-key":         "value",
 					},
 				},
 			}),
