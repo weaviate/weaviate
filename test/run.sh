@@ -85,14 +85,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-    if $run_acceptance_only_python|| $run_all_tests
-    then
-      echo_green "Run python acceptance tests..."
-      ./test/acceptance_with_python/run.sh
-      echo_green "Python tests successful"
-    fi
-
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -119,6 +112,13 @@ function main() {
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
     fi
+  fi
+
+  if $run_acceptance_only_python|| $run_all_tests
+  then
+    echo_green "Run python acceptance tests..."
+    ./test/acceptance_with_python/run.sh
+    echo_green "Python tests successful"
   fi
 
   if $only_module; then
