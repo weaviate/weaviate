@@ -23,6 +23,8 @@ esac
 # Set default value for VOTERS
 VOTERS=${1:-2}
 FILE_NAME="docker-compose-raft.yml"
+# Get the directory of the script
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Check if jinja2 is installed
 if ! command -v jinja2 &> /dev/null; then
@@ -38,7 +40,7 @@ if ! command -v jinja2 &> /dev/null; then
 fi
 
 # Generate docker-compose-raft.yml using jinja2
-jinja2 docker-compose-raft.yml.j2 -D NUMBER_VOTERS=${VOTERS} -o ${FILE_NAME}
+jinja2 ${SCRIPT_DIR}/docker-compose-raft.yml.j2 -D NUMBER_VOTERS=${VOTERS} -o ${FILE_NAME}
 
 echo -e "You can now start your multinode Weaviate compose! To do so, run the following command:\n\
     docker-compose -f ${FILE_NAME} up -d\n\
