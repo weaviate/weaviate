@@ -221,7 +221,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	maxResults := int64(10_000)
 
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,

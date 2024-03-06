@@ -46,7 +46,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -81,7 +81,7 @@ func TestBatchPutObjects(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -111,7 +111,7 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -147,7 +147,7 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -176,7 +176,7 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   1,
+		MemtablesFlushDirtyAfter:  1,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -255,7 +255,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -286,7 +286,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
 		MaxImportGoroutinesFactor: 1,
@@ -326,7 +326,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
 		MaxImportGoroutinesFactor: 1,

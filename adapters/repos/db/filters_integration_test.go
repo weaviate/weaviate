@@ -40,7 +40,7 @@ func TestFilters(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -71,7 +71,7 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1032,7 +1032,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1140,7 +1140,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1543,7 +1543,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,

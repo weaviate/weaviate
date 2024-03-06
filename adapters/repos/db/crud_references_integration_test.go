@@ -123,7 +123,7 @@ func TestNestedReferences(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
@@ -580,7 +580,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
