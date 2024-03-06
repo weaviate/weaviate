@@ -243,12 +243,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	} else if !ok {
 		return executed, nil
 	}
-
-	h.RLock()
-	if deleteList.Contains(h.entryPointID) {
-		h.reassignNeighbor(h.entryPointID, deleteList, breakCleanUpTombstonedNodes)
-	}
-	h.RUnlock()
+	h.reassignNeighbor(h.entryPointID, deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
