@@ -165,6 +165,7 @@ func (v *aws) vectorize(ctx context.Context, input []string, operation operation
 	}
 	defer res.Body.Close()
 
+	//nolint:nilaway
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
@@ -203,7 +204,7 @@ func (v *aws) makeRequest(req *http.Request, delayInSeconds int, maxRetries int)
 		delayInSeconds *= 2
 
 	}
-
+	//nolint:nilaway
 	return res, err
 }
 

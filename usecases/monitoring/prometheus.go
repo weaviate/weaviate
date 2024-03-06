@@ -141,8 +141,9 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 }
 
 var (
-	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000}
-	metrics   *PrometheusMetrics = nil
+	msBuckets = []float64{10, 50, 100, 500, 1000, 5000}
+	//nolint:nilaway
+	metrics *PrometheusMetrics = nil
 )
 
 func init() {
