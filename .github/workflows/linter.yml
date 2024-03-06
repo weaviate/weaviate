@@ -34,4 +34,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: psf/black@stable
         with:
-          version: "23.9.1"
+          version: "24.2.0"
