@@ -232,8 +232,12 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 		return object.Vector == nil
 	}
 
-	vec, ok := object.Vectors[cfg.TargetVector()]
-	return !ok || len(vec) == 0
+	targetVectorExists := false
+	p.lockGuard(func() {
+		vec, ok := object.Vectors[cfg.TargetVector()]
+		targetVectorExists = ok && len(vec) > 0
+	})
+	return !targetVectorExists
 }
 
 func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
