@@ -13,9 +13,8 @@ package hashtree
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
-
-	"github.com/square/go-jose/json"
 )
 
 const DigestLength int = 16
