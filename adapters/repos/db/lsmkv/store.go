@@ -144,7 +144,9 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
+		s.bucketAccessLock.Lock()
 		delete(s.bucketByNameLock, bucketName)
+		s.bucketAccessLock.Unlock()
 		return err
 	}
 
