@@ -11,3 +11,7 @@ repos:
         entry: ./tools/gen-code-from-swagger.sh
         language: system
         types: [ go ]
+  -   repo: https://github.com/psf/black
+      rev: 24.2.0
+      hooks:
+        -   id: black
