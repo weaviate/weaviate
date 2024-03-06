@@ -114,7 +114,7 @@ function main() {
     fi
   fi
 
-  if $run_acceptance_only_python|| $run_all_tests
+  if $run_acceptance_only_python || $run_all_tests
   then
     echo_green "Run python acceptance tests..."
     ./test/acceptance_with_python/run.sh
