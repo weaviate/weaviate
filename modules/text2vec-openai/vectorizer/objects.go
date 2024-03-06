@@ -34,7 +34,6 @@ const (
 )
 
 type batchJob struct {
-	objects    []*models.Object
 	texts      []string
 	tokens     []int
 	ctx        context.Context
@@ -147,7 +146,7 @@ BatchLoop:
 			var err error
 			rateLimit, err = v.makeRequest(job, job.texts[:1], conf, vecBatchOffset)
 			if err != nil {
-				for j := 0; j < len(job.objects); j++ {
+				for j := 0; j < len(job.texts); j++ {
 					job.errs[j] = err
 				}
 				job.wg.Done()
@@ -158,7 +157,7 @@ BatchLoop:
 			firstRequest = false
 		}
 
-		for objCounter < len(job.objects) {
+		for objCounter < len(job.texts) {
 			if job.skipObject[objCounter] {
 				objCounter++
 				continue
@@ -176,7 +175,7 @@ BatchLoop:
 				tokensInCurrentBatch += job.tokens[objCounter]
 				texts = append(texts, text)
 				objCounter++
-				if objCounter < len(job.objects) {
+				if objCounter < len(job.texts) {
 					continue
 				}
 			}
@@ -215,7 +214,7 @@ BatchLoop:
 			if rateLimit.RemainingRequests == 0 {
 				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
 				if time.Since(batchStart)+time.Duration(rateLimit.ResetRequests)*time.Second > MaxBatchTime {
-					for j := vecBatchOffset; j < len(job.objects); j++ {
+					for j := vecBatchOffset; j < len(job.texts); j++ {
 						job.errs[j] = err
 					}
 					break
@@ -288,7 +287,7 @@ func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, 
 		tokens[i] = clients.GetTokensCount(conf.Model, text, tke)
 	}
 
-	v.jobQueueCh <- batchJob{objects: objects, ctx: ctx, wg: &wg, errs: errs, cfg: cfg, texts: texts, tokens: tokens, vecs: vecs, skipObject: skipObject}
+	v.jobQueueCh <- batchJob{ctx: ctx, wg: &wg, errs: errs, cfg: cfg, texts: texts, tokens: tokens, vecs: vecs, skipObject: skipObject}
 
 	wg.Wait()
 
