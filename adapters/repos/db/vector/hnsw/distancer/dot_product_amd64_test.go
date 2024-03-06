@@ -128,8 +128,8 @@ func TestCompareDotProductImplementations(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-			testDotProductFixedValue(t, size, asm.Dot)
-			testDotProductRandomValue(t, size, asm.Dot)
+			testDotProductFixedValue(t, size, asm.DotAVX256)
+			testDotProductRandomValue(t, size, asm.DotAVX256)
 			if cpu.X86.HasAVX512 {
 				testDotProductFixedValue(t, size, asm.DotAVX512)
 				testDotProductRandomValue(t, size, asm.DotAVX512)
