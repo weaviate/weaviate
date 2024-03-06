@@ -159,13 +159,6 @@ BatchLoop:
 		}
 
 		for objCounter < len(job.objects) {
-			if time.Since(batchStart) > MaxBatchTime {
-				for j := vecBatchOffset; j < len(job.objects); j++ {
-					job.errs[j] = fmt.Errorf("batch time limit exceeded")
-				}
-				break
-			}
-
 			if job.skipObject[objCounter] {
 				objCounter++
 				continue
