@@ -28,7 +28,10 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-const MaxBatchTime = 40 * time.Second
+const (
+	MaxBatchTime       = 40 * time.Second
+	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
+)
 
 type batchJob struct {
 	objects    []*models.Object
@@ -151,6 +154,7 @@ BatchLoop:
 				continue BatchLoop
 			}
 			objCounter++
+			vecBatchOffset++
 			firstRequest = false
 		}
 
@@ -164,9 +168,6 @@ BatchLoop:
 
 			if job.skipObject[objCounter] {
 				objCounter++
-				if objCounter == len(job.objects) {
-					break
-				}
 				continue
 			}
 
@@ -178,11 +179,11 @@ BatchLoop:
 			}
 
 			text := job.texts[objCounter]
-			tokensInCurrentBatch += job.tokens[objCounter]
-			if float32(tokensInCurrentBatch) < 0.95*float32(rateLimit.RemainingTokens) && timePerToken*float64(tokensInCurrentBatch) < MaxBatchTime.Seconds()/10 {
+			if float32(tokensInCurrentBatch+job.tokens[objCounter]) < 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < MaxBatchTime.Seconds()/4) && len(texts) < MaxObjectsPerBatch {
+				tokensInCurrentBatch += job.tokens[objCounter]
 				texts = append(texts, text)
-				if objCounter < len(job.objects)-1 {
-					objCounter++
+				objCounter++
+				if objCounter < len(job.objects) {
 					continue
 				}
 			}
@@ -216,7 +217,6 @@ BatchLoop:
 			if rateLimitNew != nil {
 				rateLimit = rateLimitNew
 			}
-
 			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
 			// tier only the RPD limits are shown but not RPM
 			if rateLimit.RemainingRequests == 0 {
@@ -229,8 +229,6 @@ BatchLoop:
 				}
 				time.Sleep(time.Duration(rateLimit.ResetRequests) * time.Second)
 			}
-
-			objCounter++
 
 			// reset for next vectorizer-batch
 			vecBatchOffset = objCounter
