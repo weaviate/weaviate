@@ -53,9 +53,9 @@ type fakeClassConfig struct {
 	skippedProperty       string
 	excludedProperty      string
 	// module specific settings
-	voyageaiModel  string
-	truncateType string
-	baseURL      string
+	voyageaiModel string
+	truncateType  string
+	baseURL       string
 }
 
 func (f fakeClassConfig) Class() map[string]interface{} {

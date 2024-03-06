@@ -27,13 +27,13 @@ import (
 // text2vec-contextionary module
 func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               *models.Object
-		expectedClientCall  string
+		name                  string
+		input                 *models.Object
+		expectedClientCall    string
 		expectedVoyageAIModel string
-		noindex             string
-		excludedProperty    string // to simulate a schema where property names aren't vectorized
-		excludedClass       string // to simulate a schema where class names aren't vectorized
+		noindex               string
+		excludedProperty      string // to simulate a schema where property names aren't vectorized
+		excludedClass         string // to simulate a schema where class names aren't vectorized
 		voyageaiModel         string
 	}
 
@@ -68,7 +68,7 @@ func TestVectorizingObjects(t *testing.T) {
 			},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
-			expectedClientCall:  "car",
+			expectedClientCall:    "car",
 		},
 		{
 			name: "object with one string prop",

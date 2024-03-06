@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 	"strconv"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 

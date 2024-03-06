@@ -48,7 +48,7 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "voyage-2",
+				Model:   "voyage-2",
 				BaseURL: "https://api.voyageai.com",
 			})
 
@@ -72,7 +72,7 @@ func TestClient(t *testing.T) {
 		defer cancel()
 
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
-			Model: "voyage-2",
+			Model:   "voyage-2",
 			BaseURL: "https://api.voyageai.com",
 		})
 
@@ -97,7 +97,7 @@ func TestClient(t *testing.T) {
 		}
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "voyage-2",
+				Model:   "voyage-2",
 				BaseURL: "https://api.voyageai.com",
 			})
 
@@ -127,7 +127,7 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "voyage-2",
+				Model:   "voyage-2",
 				BaseURL: "https://api.voyageai.com",
 			})
 
@@ -151,7 +151,7 @@ func TestClient(t *testing.T) {
 		defer cancel()
 
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
-			Model: "voyage-2",
+			Model:   "voyage-2",
 			BaseURL: "https://api.voyageai.com",
 		})
 
@@ -178,7 +178,7 @@ func TestClient(t *testing.T) {
 
 		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model: "voyage-2",
+				Model:   "voyage-2",
 				BaseURL: "https://api.voyageai.com",
 			})
 

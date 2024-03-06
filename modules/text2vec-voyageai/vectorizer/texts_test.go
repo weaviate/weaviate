@@ -22,52 +22,52 @@ import (
 // as used in the nearText searcher
 func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               []string
+		name                  string
+		input                 []string
 		expectedVoyageAIModel string
 		voyageaiModel         string
 	}
 
 	tests := []testCase{
 		{
-			name:                "single word",
-			input:               []string{"hello"},
+			name:                  "single word",
+			input:                 []string{"hello"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
 		{
-			name:                "multiple words",
-			input:               []string{"hello world, this is me!"},
+			name:                  "multiple words",
+			input:                 []string{"hello world, this is me!"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
 		{
-			name:                "multiple sentences (joined with a dot)",
-			input:               []string{"this is sentence 1", "and here's number 2"},
+			name:                  "multiple sentences (joined with a dot)",
+			input:                 []string{"this is sentence 1", "and here's number 2"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
 		{
-			name:                "multiple sentences already containing a dot",
-			input:               []string{"this is sentence 1.", "and here's number 2"},
+			name:                  "multiple sentences already containing a dot",
+			input:                 []string{"this is sentence 1.", "and here's number 2"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
 		{
-			name:                "multiple sentences already containing a question mark",
-			input:               []string{"this is sentence 1?", "and here's number 2"},
+			name:                  "multiple sentences already containing a question mark",
+			input:                 []string{"this is sentence 1?", "and here's number 2"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
 		{
-			name:                "multiple sentences already containing an exclamation mark",
-			input:               []string{"this is sentence 1!", "and here's number 2"},
+			name:                  "multiple sentences already containing an exclamation mark",
+			input:                 []string{"this is sentence 1!", "and here's number 2"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
 		{
-			name:                "multiple sentences already containing comma",
-			input:               []string{"this is sentence 1,", "and here's number 2"},
+			name:                  "multiple sentences already containing comma",
+			input:                 []string{"this is sentence 1,", "and here's number 2"},
 			voyageaiModel:         "large",
 			expectedVoyageAIModel: "large",
 		},
