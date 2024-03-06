@@ -1527,6 +1527,8 @@ func TestDelete_WithCleaningUpTombstonesWithHighConcurrency(t *testing.T) {
 		}
 	})
 
+	fmt.Printf("entrypoint after %d\n", vectorIndex.entryPointID)
+
 	t.Run("running the cleanup", func(t *testing.T) {
 		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
 		require.Nil(t, err)
