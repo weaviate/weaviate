@@ -14,9 +14,8 @@ package clients
 import (
 	"testing"
 
-	"github.com/pkoukk/tiktoken-go"
-
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/tiktoken-go"
 )
 
 func Test_getTokensCount(t *testing.T) {

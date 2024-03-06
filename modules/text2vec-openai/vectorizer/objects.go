@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkoukk/tiktoken-go"
+	"github.com/weaviate/tiktoken-go"
 
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 

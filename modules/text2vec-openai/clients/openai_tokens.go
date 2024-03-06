@@ -14,7 +14,7 @@ package clients
 import (
 	"strings"
 
-	"github.com/pkoukk/tiktoken-go"
+	"github.com/weaviate/tiktoken-go"
 )
 
 func GetTokensCount(model string, input string, tke *tiktoken.Tiktoken) int {

@@ -52,10 +52,10 @@ require (
 	github.com/go-ego/gse v0.80.2
 	github.com/googleapis/gax-go/v2 v2.12.1
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
-	github.com/pkoukk/tiktoken-go v0.1.6
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
+	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea
 	golang.org/x/text v0.14.0
 	google.golang.org/protobuf v1.33.0
