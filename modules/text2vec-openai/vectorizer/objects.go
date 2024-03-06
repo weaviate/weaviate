@@ -142,7 +142,7 @@ BatchLoop:
 
 		conf := v.getVectorizationConfig(job.cfg)
 
-		// haven't requested, so we need to send a request to get them.
+		// we don't know the current rate limits without a request => send a small one
 		for firstRequest {
 			var err error
 			rateLimit, err = v.makeRequest(job, job.texts[:1], conf, vecBatchOffset)
@@ -164,13 +164,13 @@ BatchLoop:
 				continue
 			}
 
-			// add input to vectorizer-batches until current token limit is reached.
 			if job.tokens[objCounter] > rateLimit.LimitTokens {
 				job.errs[objCounter] = fmt.Errorf("text too long for vectorization")
 				objCounter++
 				continue
 			}
 
+			// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
 			text := job.texts[objCounter]
 			if float32(tokensInCurrentBatch+job.tokens[objCounter]) < 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < MaxBatchTime.Seconds()/4) && len(texts) < MaxObjectsPerBatch {
 				tokensInCurrentBatch += job.tokens[objCounter]
