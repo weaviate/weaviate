@@ -27,24 +27,24 @@ class CollectionFactory(Protocol):
     """Typing for fixture."""
 
     def __call__(
-            self,
-            name: str = "",
-            properties: Optional[List[Property]] = None,
-            references: Optional[List[_ReferencePropertyBase]] = None,
-            vectorizer_config: Optional[
-                Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
-            ] = None,
-            inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
-            multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
-            generative_config: Optional[_GenerativeConfigCreate] = None,
-            headers: Optional[Dict[str, str]] = None,
-            ports: Tuple[int, int] = (8080, 50051),
-            data_model_properties: Optional[Type[Properties]] = None,
-            data_model_refs: Optional[Type[Properties]] = None,
-            replication_config: Optional[_ReplicationConfigCreate] = None,
-            vector_index_config: Optional[_VectorIndexConfigCreate] = None,
-            description: Optional[str] = None,
-            reranker_config: Optional[_RerankerConfigCreate] = None,
+        self,
+        name: str = "",
+        properties: Optional[List[Property]] = None,
+        references: Optional[List[_ReferencePropertyBase]] = None,
+        vectorizer_config: Optional[
+            Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
+        ] = None,
+        inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
+        multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
+        generative_config: Optional[_GenerativeConfigCreate] = None,
+        headers: Optional[Dict[str, str]] = None,
+        ports: Tuple[int, int] = (8080, 50051),
+        data_model_properties: Optional[Type[Properties]] = None,
+        data_model_refs: Optional[Type[Properties]] = None,
+        replication_config: Optional[_ReplicationConfigCreate] = None,
+        vector_index_config: Optional[_VectorIndexConfigCreate] = None,
+        description: Optional[str] = None,
+        reranker_config: Optional[_RerankerConfigCreate] = None,
     ) -> Collection[Any, Any]:
         """Typing for fixture."""
         ...
@@ -56,23 +56,23 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
     client_fixture: Optional[weaviate.WeaviateClient] = None
 
     def _factory(
-            name: str = "",
-            properties: Optional[List[Property]] = None,
-            references: Optional[List[_ReferencePropertyBase]] = None,
-            vectorizer_config: Optional[
-                Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
-            ] = None,
-            inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
-            multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
-            generative_config: Optional[_GenerativeConfigCreate] = None,
-            headers: Optional[Dict[str, str]] = None,
-            ports: Tuple[int, int] = (8080, 50051),
-            data_model_properties: Optional[Type[Properties]] = None,
-            data_model_refs: Optional[Type[Properties]] = None,
-            replication_config: Optional[_ReplicationConfigCreate] = None,
-            vector_index_config: Optional[_VectorIndexConfigCreate] = None,
-            description: Optional[str] = None,
-            reranker_config: Optional[_RerankerConfigCreate] = None,
+        name: str = "",
+        properties: Optional[List[Property]] = None,
+        references: Optional[List[_ReferencePropertyBase]] = None,
+        vectorizer_config: Optional[
+            Union[_VectorizerConfigCreate, List[_NamedVectorConfigCreate]]
+        ] = None,
+        inverted_index_config: Optional[_InvertedIndexConfigCreate] = None,
+        multi_tenancy_config: Optional[_MultiTenancyConfigCreate] = None,
+        generative_config: Optional[_GenerativeConfigCreate] = None,
+        headers: Optional[Dict[str, str]] = None,
+        ports: Tuple[int, int] = (8080, 50051),
+        data_model_properties: Optional[Type[Properties]] = None,
+        data_model_refs: Optional[Type[Properties]] = None,
+        replication_config: Optional[_ReplicationConfigCreate] = None,
+        vector_index_config: Optional[_VectorIndexConfigCreate] = None,
+        description: Optional[str] = None,
+        reranker_config: Optional[_RerankerConfigCreate] = None,
     ) -> Collection[Any, Any]:
         nonlocal client_fixture, name_fixture
         name_fixture = _sanitize_collection_name(request.node.name) + name
