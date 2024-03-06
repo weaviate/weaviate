@@ -27,3 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: yoheimuta/action-protolint@v1
+  python:
+    name: python checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: psf/black@stable
+        with:
+          version: "23.9.1"
