@@ -26,7 +26,7 @@ const (
 	UUID4 = "00000000-0000-0000-0000-000000000002"
 )
 
-func testCreateSchemaWithVectorizerAndBYOV(t *testing.T, host string) func(t *testing.T) {
+func testCreateSchemaWithVectorizerAndBYOV(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
