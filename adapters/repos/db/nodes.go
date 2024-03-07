@@ -171,6 +171,14 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+
+		// Don't force load a lazy shard to get nodes status
+		if lazy, ok := shard.(*LazyLoadShard); ok {
+			if !lazy.isLoaded() {
+				return nil
+			}
+		}
+
 		objectCount := int64(shard.ObjectCountAsync())
 		totalCount += objectCount
 
