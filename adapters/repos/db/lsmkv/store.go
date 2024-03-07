@@ -135,6 +135,7 @@ func (s *Store) unlockBucket(bucketName string) {
 
 	bucketLock, ok := s.bucketsLocks[bucketName]
 	if !ok {
+		s.logger.Error("unlock of non existing lock for bucket=%s", bucketName)
 		return
 	}
 	bucketLock.Unlock()
@@ -155,12 +156,12 @@ func (s *Store) unlockBucket(bucketName string) {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	s.lockBucket(bucketName)
+	defer s.unlockBucket(bucketName)
+
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
-
-	s.lockBucket(bucketName)
-	defer s.unlockBucket(bucketName)
 
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
