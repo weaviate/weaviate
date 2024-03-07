@@ -372,6 +372,15 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
+func (s *schema) TenantShards(class string) map[string]sharding.Physical {
+	info, err := s.ReadMetaClass(class)
+	if err != nil || !info.Sharding.PartitioningEnabled {
+		return nil
+	}
+	return info.GetPhysical()
+}
+
+// TenantShard returns shard name for the provided tenant and its activity status
 func (s *schema) TenantShard(class, tenant string) (string, string) {
 	var exTenant, status string
 	info, err := s.ReadMetaClass(class)
@@ -418,4 +427,10 @@ func (m *metaClass) GetPhysicalForShard(shard string) (sharding.Physical, bool) 
 	defer m.shardMutex.RUnlock()
 	p, ok := m.Sharding.Physical[shard]
 	return p, ok
+}
+
+func (m *metaClass) GetPhysical() map[string]sharding.Physical {
+	m.shardMutex.RLock()
+	defer m.shardMutex.RUnlock()
+	return m.Sharding.Physical
 }

@@ -57,6 +57,7 @@ type metaReader interface {
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
 	TenantShard(class, tenant string) (string, string)
+	TenantShards(class string) map[string]sharding.Physical
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 }

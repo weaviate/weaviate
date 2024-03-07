@@ -69,6 +69,10 @@ func (h *Handler) AddTenants(ctx context.Context,
 		partitions, err = st.GetPartitions(h.clusterState, names, int64(info.ReplicationFactor))
 		return err
 	}
+	h.logger.WithField("action", "add_tenants").
+		WithField("#partitions", len(partitions)).
+		WithField("#requested", len(names)).
+		Tracef("number of partitions for class %q does not match number of requested tenants", class)
 
 	if err := h.metaReader.Read(class, f); err != nil {
 		return fmt.Errorf("get partitions from class %q: %w", class, err)
@@ -218,24 +222,28 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, info.Tenants)
-	f := func(_ *models.Class, ss *sharding.State) error {
-		if N := len(ss.Physical); N > len(ts) {
-			ts = make([]*models.Tenant, N)
-		} else if N < len(ts) {
-			ts = ts[:N]
-		}
-		i := 0
-		for tenant := range ss.Physical {
-			ts[i] = &models.Tenant{
-				Name:           tenant,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
-			}
-			i++
-		}
-		return nil
+	ts := []*models.Tenant{}
+	shards := h.metaReader.TenantShards(class)
+	for _, v := range shards {
+		ts = append(ts, &models.Tenant{
+			Name:           v.Name,
+			ActivityStatus: v.Status,
+		})
 	}
-	return ts, h.metaReader.Read(class, f)
+
+	// shards, err := h.metaReader.GetShardsStatus(class)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// for _, shard := range shards {
+	// 	ts = append(ts, &models.Tenant{
+	// 		Name:           shard.Name,
+	// 		ActivityStatus: shard.Status,
+	// 	})
+	// }
+
+	return ts, nil
 }
 
 func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {

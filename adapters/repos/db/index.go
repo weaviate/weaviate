@@ -1566,7 +1566,15 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) localShard(name string) ShardLike {
-	return i.shards.Load(name)
+	var sl ShardLike
+	backoff.Retry(func() error {
+		fmt.Println("retry to get shard")
+		if sl = i.shards.Load(name); sl == nil {
+			return fmt.Errorf("does not exists")
+		}
+		return nil
+	}, utils.NewBackoff())
+	return sl
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1871,18 +1879,13 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		}
 		var err error
 		var status string
-		if !shardState.IsLocalShard(shardName) {
-			status, err = i.remote.GetShardStatus(ctx, shardName)
+		if shard := i.localShard(shardName); shard != nil {
+			status = shard.GetStatus().String()
 		} else {
-			shard := i.localShard(shardName)
-			if shard == nil {
-				err = errors.Errorf("shard %s does not exist", shardName)
-			} else {
-				status = shard.GetStatus().String()
+			status, err = i.remote.GetShardStatus(ctx, shardName)
+			if err != nil {
+				return nil, errors.Wrapf(err, "shard %s", shardName)
 			}
-		}
-		if err != nil {
-			return nil, errors.Wrapf(err, "shard %s", shardName)
 		}
 
 		shardsStatus[shardName] = status
@@ -1939,7 +1942,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 	results := make(map[string][]strfmt.UUID)
 	for _, shardName := range shardNames {
 
-		if shard := retryGetLocalShard(i, shardName); shard != nil {
+		if shard := i.localShard(shardName); shard != nil {
 			results[shardName], err = shard.FindUUIDs(ctx, filters)
 		} else {
 			results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
@@ -2096,17 +2099,4 @@ func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[str
 		return vectorIndexConfigs
 	}
 	return nil
-}
-
-// retryGetLocalShard is a wrapper around getting localShard used
-// to handle eventual consistency.
-func retryGetLocalShard(i *Index, name string) ShardLike {
-	var sl ShardLike
-	backoff.Retry(func() error {
-		if sl = i.localShard(name); sl == nil {
-			return fmt.Errorf("does not exists")
-		}
-		return nil
-	}, utils.NewBackoff())
-	return sl
 }
