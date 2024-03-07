@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testCreateSchema(t *testing.T, host string) func(t *testing.T) {
+func testCreateSchema(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
