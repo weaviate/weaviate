@@ -47,9 +47,9 @@ func WithWalThreshold(threshold uint64) BucketOption {
 	}
 }
 
-func WithIdleThreshold(threshold time.Duration) BucketOption {
+func WithDirtyThreshold(threshold time.Duration) BucketOption {
 	return func(b *Bucket) error {
-		b.flushAfterIdle = threshold
+		b.flushDirtyAfter = threshold
 		return nil
 	}
 }
