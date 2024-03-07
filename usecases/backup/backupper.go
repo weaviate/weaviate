@@ -166,11 +166,13 @@ func (b *backupper) backup(ctx context.Context,
 		ctx := b.withCancellation(context.Background(), id, done)
 		defer close(done)
 
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
 		if err := provider.all(ctx, req.Classes, &result); err != nil {
-			b.logger.WithField("action", "create_backup").
-				Error(err)
+			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
+		} else {
+			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
 		result.CompletedAt = time.Now().UTC()
 	}()
