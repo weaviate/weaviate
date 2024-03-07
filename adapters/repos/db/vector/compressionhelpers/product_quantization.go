@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -365,7 +366,7 @@ func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 	return dist, err == nil, err
 }
 
-func (pq *ProductQuantizer) Fit(data [][]float32) {
+func (pq *ProductQuantizer) Fit(data [][]float32) error {
 	if pq.trainingLimit > 0 && len(data) > pq.trainingLimit {
 		data = data[:pq.trainingLimit]
 	}
@@ -380,20 +381,30 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			pq.kms[i].Fit(data)
 		})
 	case UseKMeansEncoder:
+		var res error = nil
+		var shouldStop atomic.Bool
 		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(i uint64) {
+			if shouldStop.Load() {
+				return
+			}
 			pq.kms[i] = NewKMeans(
 				pq.ks,
 				pq.ds,
 				int(i),
 			)
 			err := pq.kms[i].Fit(data)
-			if err != nil {
-				panic(err)
+			if !shouldStop.Load() {
+				shouldStop.Store(true)
+				res = err
 			}
 		})
+		if res != nil {
+			return res
+		}
 	}
 	pq.buildGlobalDistances()
+	return nil
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {
