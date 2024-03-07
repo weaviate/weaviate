@@ -260,9 +260,9 @@ jobs:
           workflow_file_name: tests.yaml
           ref: main
           wait_interval: 30
-          propagate_failure: true
+          client_payload: '{ "weaviate_version" : "${{ env.WEAVIATE_VERSION }}" }'
           trigger_workflow: true
-          wait_workflow: true
+          wait_workflow: false
           comment_downstream_url: true
           comment_github_token: ${{ secrets.GITHUB_TOKEN}}
 
