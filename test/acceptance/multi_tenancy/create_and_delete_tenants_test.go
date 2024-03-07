@@ -14,6 +14,8 @@ package test
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -62,6 +64,9 @@ func TestCreateTenants(t *testing.T) {
 		require.Nil(t, errGet)
 		require.NotNil(t, respGet)
 		require.ElementsMatch(t, respGet.Payload, tenants)
+
+		// Tenants must be loaded before they will reflect in nodes status
+		loadTenantShards(t, testClass.Class, tenants)
 
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
@@ -117,12 +122,16 @@ func TestDeleteTenants(t *testing.T) {
 	}()
 	helper.CreateClass(t, &testClass)
 
-	tenants := []string{"tenant1", "tenant2", "tenant3", "tenant4"}
-	var tenantsObject []*models.Tenant
-	for _, tenant := range tenants {
-		tenantsObject = append(tenantsObject, &models.Tenant{Name: tenant})
+	tenants := []*models.Tenant{
+		{Name: "tenant1"},
+		{Name: "tenant2"},
+		{Name: "tenant3"},
+		{Name: "tenant4"},
 	}
-	helper.CreateTenants(t, testClass.Class, tenantsObject)
+
+	helper.CreateTenants(t, testClass.Class, tenants)
+	// Tenants must be loaded before they will reflect in nodes status
+	loadTenantShards(t, testClass.Class, tenants)
 
 	t.Run("Delete same tenant multiple times", func(t *testing.T) {
 		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
@@ -215,4 +224,20 @@ func TestTenantsClassDoesNotExist(t *testing.T) {
 
 	err = helper.DeleteTenants(t, "DoesNotExist", []string{"doesNotMatter"})
 	require.NotNil(t, err)
+}
+
+// Creating a tenant alone does not result in a loaded shard,
+// but creating an object does. So here we create some dummy
+// objects to ensure that the shards are loaded, and will
+// reflect in the nodes API response
+func loadTenantShards(t *testing.T, class string, tenants []*models.Tenant) {
+	objs := make([]*models.Object, len(tenants))
+	for i, tenant := range tenants {
+		objs[i] = &models.Object{
+			Class:  class,
+			ID:     strfmt.UUID(uuid.NewString()),
+			Tenant: tenant.Name,
+		}
+	}
+	helper.CreateObjectsBatch(t, objs)
 }
