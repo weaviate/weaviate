@@ -210,7 +210,6 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	jobFunc jobFunc, rollbackFunc rollbackFunc,
 ) ([]interface{}, error) {
 	s.bucketAccessLock.Lock()
-	defer s.bucketAccessLock.Unlock()
 	var (
 		status      = newBucketJobStatus()
 		resultQueue = make(chan interface{}, len(s.bucketsByName))
@@ -229,7 +228,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 			wg.Done()
 		}()
 	}
-
+	s.bucketAccessLock.Unlock()
 	wg.Wait()
 	close(resultQueue)
 
