@@ -175,6 +175,14 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		// Don't force load a lazy shard to get nodes status
 		if lazy, ok := shard.(*LazyLoadShard); ok {
 			if !lazy.isLoaded() {
+				shardStatus := &models.NodeShardStatus{
+					Name:                 name,
+					Class:                shard.Index().Config.ClassName.String(),
+					VectorIndexingStatus: shard.GetStatus().String(),
+					Loaded:               false,
+				}
+				*status = append(*status, shardStatus)
+				shardCount++
 				return nil
 			}
 		}
@@ -207,6 +215,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			VectorIndexingStatus: shard.GetStatus().String(),
 			VectorQueueLength:    queueLen,
 			Compressed:           compressed,
+			Loaded:               true,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
