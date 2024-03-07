@@ -513,15 +513,23 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.pathLSM())
 	}
 
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
-		lsmkv.WithMonitorCount(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
-	)
+	}
+
+	if s.metrics != nil && !s.metrics.grouped {
+		// If metrics are grouped we cannot observe the count of an individual
+		// shard's object store because there is just a single metric. We would
+		// override it. See https://github.com/weaviate/weaviate/issues/4396 for
+		// details.
+		opts = append(opts, lsmkv.WithMonitorCount())
+	}
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
 	}
