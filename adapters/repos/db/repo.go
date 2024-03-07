@@ -186,7 +186,7 @@ type Config struct {
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int

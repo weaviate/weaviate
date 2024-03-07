@@ -20,6 +20,6 @@ func init() {
 	if cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512 {
 		dotProductImplementation = asm.DotAVX512
 	} else if cpu.X86.HasAVX2 {
-		dotProductImplementation = asm.Dot
+		dotProductImplementation = asm.DotAVX256
 	}
 }

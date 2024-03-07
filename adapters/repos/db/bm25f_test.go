@@ -211,7 +211,7 @@ func TestBM25FJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -457,7 +457,7 @@ func TestBM25FSingleProp(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -499,7 +499,7 @@ func TestBM25FWithFilters(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -562,7 +562,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -621,7 +621,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -689,7 +689,7 @@ func TestBM25FCompare(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -871,7 +871,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1010,7 +1010,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
