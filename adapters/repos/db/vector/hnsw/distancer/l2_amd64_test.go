@@ -46,7 +46,7 @@ func Test_L2_DistanceImplementation(t *testing.T) {
 
 			control := L2PureGo(x, y)
 
-			asmResult := asm.L2(x, y)
+			asmResult := asm.L2AVX256(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 
 			if cpu.X86.HasAVX512 {
@@ -71,7 +71,7 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 
 			control := L2PureGo(x, y)
 
-			asmResult := asm.L2(x, y)
+			asmResult := asm.L2AVX256(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
 
 			if cpu.X86.HasAVX512 {

@@ -7,6 +7,7 @@ function main() {
   run_all_tests=true
   run_acceptance_tests=false
   run_acceptance_only_fast=false
+  run_acceptance_only_python=false
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_module_tests=false
@@ -27,6 +28,7 @@ function main() {
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
           
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
+          --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
@@ -41,6 +43,7 @@ function main() {
               "--integration-only | -i"\
               "--acceptance-only | -a"\
               "--acceptance-only-fast | -aof"\
+              "--acceptance-only-python | -aop"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
               "--acceptance-module-tests-only | --modules-only | -m"\
@@ -80,9 +83,9 @@ function main() {
     echo_green "Run integration tests..."
     run_integration_tests "$@"
     echo_green "Integration tests successful"
-  fi 
+  fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -109,6 +112,13 @@ function main() {
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
     fi
+  fi
+
+  if $run_acceptance_only_python || $run_all_tests
+  then
+    echo_green "Run python acceptance tests..."
+    ./test/acceptance_with_python/run.sh
+    echo_green "Python tests successful"
   fi
 
   if $only_module; then

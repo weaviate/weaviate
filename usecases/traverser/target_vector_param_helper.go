@@ -14,6 +14,8 @@ package traverser
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -38,4 +40,24 @@ func (t *targetVectorParamHelper) getTargetVectorOrDefault(sch schema.Schema, cl
 		}
 	}
 	return targetVector, nil
+}
+
+func (t *targetVectorParamHelper) getTargetVectorFromParams(params dto.GetParams) string {
+	if params.NearObject != nil && len(params.NearObject.TargetVectors) == 1 {
+		return params.NearObject.TargetVectors[0]
+	}
+	if params.NearVector != nil && len(params.NearVector.TargetVectors) == 1 {
+		return params.NearVector.TargetVectors[0]
+	}
+	if params.HybridSearch != nil && len(params.HybridSearch.TargetVectors) == 1 {
+		return params.HybridSearch.TargetVectors[0]
+	}
+	if len(params.ModuleParams) > 0 {
+		for _, moduleParam := range params.ModuleParams {
+			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) == 1 {
+				return nearParam.GetTargetVectors()[0]
+			}
+		}
+	}
+	return ""
 }
