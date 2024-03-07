@@ -30,18 +30,23 @@ import (
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
-	dir           string
-	rootDir       string
-	bucketsByName map[string]*Bucket
-	logger        logrus.FieldLogger
-	metrics       *Metrics
-
-	cycleCallbacks *storeCycleCallbacks
+	dir     string
+	rootDir string
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
-	bucketByNameLock map[string]*sync.Mutex
+	bucketsByName    map[string]*Bucket
+
+	logger  logrus.FieldLogger
+	metrics *Metrics
+
+	cycleCallbacks *storeCycleCallbacks
+
+	// Prevent concurrent manipulations to the same Bucket, specially if there is
+	// action on the bucket in the meantime.
+	bucketLevelLock sync.RWMutex
+	bucketsLocks    map[string]*sync.Mutex
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -51,12 +56,12 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
-		dir:              dir,
-		rootDir:          rootDir,
-		bucketsByName:    map[string]*Bucket{},
-		bucketByNameLock: make(map[string]*sync.Mutex),
-		logger:           logger,
-		metrics:          metrics,
+		dir:           dir,
+		rootDir:       rootDir,
+		bucketsByName: map[string]*Bucket{},
+		bucketsLocks:  map[string]*sync.Mutex{},
+		logger:        logger,
+		metrics:       metrics,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
@@ -103,6 +108,39 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
 }
 
+// lockBucket it locks a specific bucket by it's name
+// to hold ant concurrent access to that specific bucket
+//
+//	don't forget calling unlockBucket() after locking it.
+func (s *Store) lockBucket(bucketName string) {
+	var bucketLock *sync.Mutex
+	var ok bool
+
+	s.bucketLevelLock.Lock()
+	defer s.bucketLevelLock.Unlock()
+
+	bucketLock, ok = s.bucketsLocks[bucketName]
+	if !ok {
+		bucketLock = &sync.Mutex{}
+		s.bucketsLocks[bucketName] = bucketLock
+	}
+
+	bucketLock.Lock()
+}
+
+// unlockBucket it unlocks a specific bucket by it's name
+func (s *Store) unlockBucket(bucketName string) {
+	s.bucketLevelLock.Lock()
+	defer s.bucketLevelLock.Unlock()
+
+	bucketLock, ok := s.bucketsLocks[bucketName]
+	if !ok {
+		return
+	}
+	bucketLock.Unlock()
+	delete(s.bucketsLocks, bucketName)
+}
+
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
 // exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
 // to configure the strategy of a bucket. The strategy defaults to "replace".
@@ -117,33 +155,18 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-	var bucketLock *sync.Mutex
-
-	s.bucketAccessLock.Lock()
-
-	_, ok := s.bucketByNameLock[bucketName]
-	if !ok {
-		s.bucketByNameLock[bucketName] = &sync.Mutex{}
-	}
-	bucketLock = s.bucketByNameLock[bucketName]
-
-	s.bucketAccessLock.Unlock()
-
-	bucketLock.Lock()
-	defer bucketLock.Unlock()
-
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
+
+	s.lockBucket(bucketName)
+	defer s.unlockBucket(bucketName)
 
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
-		s.bucketAccessLock.Lock()
-		delete(s.bucketByNameLock, bucketName)
-		s.bucketAccessLock.Unlock()
 		return err
 	}
 
