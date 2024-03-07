@@ -132,12 +132,9 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	bucketLock.Lock()
 	defer bucketLock.Unlock()
 
-	s.bucketAccessLock.Lock()
-	if _, bucketExists := s.bucketsByName[bucketName]; bucketExists {
-		s.bucketAccessLock.Unlock()
+	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
-	s.bucketAccessLock.Unlock()
 
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
@@ -150,9 +147,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		return err
 	}
 
-	s.bucketAccessLock.Lock()
-	s.bucketsByName[bucketName] = b
-	s.bucketAccessLock.Unlock()
+	s.setBucket(bucketName, b)
 
 	return nil
 }
