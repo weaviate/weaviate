@@ -143,6 +143,10 @@ func (f *fakeMetaHandler) TenantShard(class, tenant string) (string, string) {
 	args := f.Called(class, tenant)
 	return args.String(0), args.String(1)
 }
+func (f *fakeMetaHandler) TenantShards(class string) map[string]sharding.Physical {
+	args := f.Called(class)
+	return args.Get(0).(map[string]sharding.Physical)
+}
 
 func (f *fakeMetaHandler) Read(class string, reader func(*models.Class, *sharding.State) error) error {
 	args := f.Called(class, reader)
