@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -53,7 +55,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -89,7 +90,7 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group)
+	createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper)
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -710,7 +711,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
 	if !inverted.HasInvertedIndex(prop) {
 		return
 	}
