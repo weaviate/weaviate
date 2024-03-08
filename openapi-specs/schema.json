@@ -1159,6 +1159,11 @@
           "format": "int64",
           "type": "number",
           "x-omitempty": false
+        },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },

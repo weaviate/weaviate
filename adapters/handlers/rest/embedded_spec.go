@@ -4034,6 +4034,11 @@ func init() {
           "format": "boolean",
           "x-omitempty": false
         },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "name": {
           "description": "The name of the shard.",
           "type": "string",
@@ -9316,6 +9321,11 @@ func init() {
         "compressed": {
           "description": "The status of vector compression/quantization.",
           "format": "boolean",
+          "x-omitempty": false
+        },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
           "x-omitempty": false
         },
         "name": {

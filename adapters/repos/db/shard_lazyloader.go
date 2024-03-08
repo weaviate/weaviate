@@ -55,8 +55,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	promMetrics.NewUnloadedshard(class.Class)
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
-			promMetrics: promMetrics,
-
+			promMetrics:      promMetrics,
 			name:             shardName,
 			index:            index,
 			class:            class,
