@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -37,7 +39,7 @@ func (c *Classifier) run(params models.Classification,
 	ctx, cancel := contextWithTimeout(30 * time.Minute)
 	defer cancel()
 
-	go c.monitorClassification(ctx, cancel, schema.ClassName(params.Class))
+	enterrors.GoWrapper(func() { c.monitorClassification(ctx, cancel, schema.ClassName(params.Class)) }, c.logger)
 
 	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
@@ -141,7 +143,7 @@ func (c *Classifier) runItems(ctx context.Context, classifyItem ClassifyItemFn, 
 		workerCount = len(items)
 	}
 
-	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo)
+	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo, c.logger)
 	workers.addJobs(items)
 	res := workers.work(ctx)
 

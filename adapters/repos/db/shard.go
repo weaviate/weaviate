@@ -255,7 +255,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.initDimensionTracking()
 
 	if asyncEnabled() {
-		go func() {
+		f := func() {
 			// preload unindexed objects in the background
 			if s.hasTargetVectors() {
 				for targetVector, queue := range s.queues {
@@ -270,7 +270,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 					s.queue.Logger.WithError(err).Error("preload shard")
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
 
@@ -447,7 +448,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
-	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get)
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get, s.index.logger)
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")
@@ -856,10 +857,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		}
 	}
 
-	go func() {
+	f := func() {
 		wg.Wait()
 		s.UpdateStatus(storagestate.StatusReady.String())
-	}()
+	}
+	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
 }

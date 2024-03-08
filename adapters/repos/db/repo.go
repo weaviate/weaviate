@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -160,7 +162,8 @@ func New(logger logrus.FieldLogger, config Config,
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
-			go db.worker(i == 0)
+			i := i
+			enterrors.GoWrapper(func() { db.worker(i == 0) }, db.logger)
 		}
 	} else {
 		logger.Info("async indexing enabled")
@@ -168,11 +171,12 @@ func New(logger logrus.FieldLogger, config Config,
 		db.shutDownWg.Add(w)
 		db.jobQueueCh = make(chan job, w)
 		for i := 0; i < w; i++ {
-			go func() {
+			f := func() {
 				defer db.shutDownWg.Done()
-
 				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
-			}()
+			}
+			enterrors.GoWrapper(f, db.logger)
+
 		}
 	}
 
