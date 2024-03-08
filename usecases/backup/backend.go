@@ -22,12 +22,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
 )
 
 // TODO adjust or make configurable
@@ -297,7 +298,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	// processor
 	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
-		eg, ctx := errgroup.WithContext(ctx)
+		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
 		recvCh := make(chan chuckShards, nWorker)
 		go func() {
@@ -370,7 +371,7 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, reader); err != nil {
 			return err
@@ -394,10 +395,11 @@ type fileWriter struct {
 	movedFiles []string // files successfully moved to destination folder
 	compressed bool
 	GoPoolSize int
+	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	backupID string, compressed bool,
+	backupID string, compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -408,6 +410,7 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		movedFiles: make([]string, 0, 64),
 		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
+		logger:     logger,
 	}
 }
 
@@ -454,12 +457,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 	defer cancel()
 
 	// no compression processed as before
-	eg, ctx := errgroup.WithContext(ctx)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
 	if !fw.compressed {
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) }, shard.Name)
 		}
 		return eg.Wait()
 	}
