@@ -300,6 +300,9 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 }
 
 func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
+
 	if s.hashtree == nil {
 		return nil
 	}
