@@ -153,7 +153,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) getVoyageAIUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-VoyageAI-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Voyageai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
@@ -180,13 +180,13 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-VoyageAI-Api-Key"); apiKey != "" {
+	if apiKey := v.getValueFromContext(ctx, "X-Voyageai-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-VoyageAI-Api-Key " +
+		"neither in request header: X-Voyageai-Api-Key " +
 		"nor in environment variable under VOYAGE_API_KEY")
 }
