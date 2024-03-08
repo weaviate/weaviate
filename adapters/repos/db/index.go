@@ -550,6 +550,23 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error {
+	// TODO: this method as many others are not thread-safe
+	i.Config.AsyncReplicationEnabled = enabled
+
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
+			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
@@ -564,6 +581,7 @@ type IndexConfig struct {
 	MaxSegmentSize            int64
 	HNSWMaxLogSize            int64
 	ReplicationFactor         *atomic.Int64
+	AsyncReplicationEnabled   bool
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 
@@ -696,6 +714,10 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 
 func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor.Load() > 1
+}
+
+func (i *Index) asyncReplicationEnabled() bool {
+	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
