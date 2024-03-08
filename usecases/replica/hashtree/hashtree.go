@@ -230,6 +230,9 @@ func (ht *HashTree) Level(level int, discriminant *Bitset, digests []Digest) (n 
 }
 
 func (ht *HashTree) Clone() AggregatedHashTree {
+	ht.mux.Lock()
+	defer ht.mux.Unlock()
+
 	clone := &HashTree{
 		height:          ht.height,
 		nodes:           make([]Digest, len(ht.nodes)),
