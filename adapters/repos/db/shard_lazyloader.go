@@ -231,6 +231,13 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
+func (l *LazyLoadShard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.UpdateAsyncReplication(ctx, enabled)
+}
+
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if err := l.Load(ctx); err != nil {
 		return []error{err}

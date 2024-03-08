@@ -92,6 +92,7 @@ func (db *DB) init(ctx context.Context) error {
 				AvoidMMap:                 db.config.AvoidMMap,
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
 				ReplicationFactor:         class.ReplicationConfig.Factor,
+				AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
