@@ -244,6 +244,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	} else if !ok {
 		return executed, nil
 	}
+	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -330,7 +331,9 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 						continue
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
-					h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+					if h.getEntrypoint() != deletedID {
+						h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+					}
 				}
 			}
 		})
