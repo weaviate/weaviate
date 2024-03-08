@@ -16,11 +16,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -35,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type BM25Searcher struct {
@@ -176,7 +176,7 @@ func (b *BM25Searcher) wand(
 	results := make(terms, 0, 100)
 	indices := make([]map[uint64]int, 0, 100)
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	var resultsLock sync.Mutex
@@ -196,19 +196,6 @@ func (b *BM25Searcher) wand(
 				j := i
 
 				eg.Go(func() (err error) {
-					defer func() {
-						p := recover()
-						if p != nil {
-							b.logger.
-								WithField("query_term", queryTerms[j]).
-								WithField("prop_names", propNames).
-								WithField("has_filter", filterDocIds != nil).
-								Errorf("panic: %v", p)
-							debug.PrintStack()
-							err = fmt.Errorf("an internal error occurred during BM25 search")
-						}
-					}()
-
 					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
 					if termErr != nil {
@@ -220,7 +207,7 @@ func (b *BM25Searcher) wand(
 					indices = append(indices, docIndices)
 					resultsLock.Unlock()
 					return
-				})
+				}, "query_term", queryTerms[j], "prop_names", propNames, "has_filter", filterDocIds != nil)
 			}
 		}
 	}

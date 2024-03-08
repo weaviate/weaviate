@@ -24,9 +24,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -51,7 +53,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -85,14 +86,14 @@ func (m *shardMap) Range(f func(name string, shard ShardLike) error) (err error)
 // RangeConcurrently calls f for each key and value present in the map with at
 // most _NUMCPU executors running in parallel. As opposed to [Range] it does
 // not guarantee an exit on the first error.
-func (m *shardMap) RangeConcurrently(f func(name string, shard ShardLike) error) (err error) {
-	eg := errgroup.Group{}
+func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name string, shard ShardLike) error) (err error) {
+	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 	(*sync.Map)(m).Range(func(key, value any) bool {
 		name, shard := key.(string), value.(ShardLike)
 		eg.Go(func() error {
 			return f(name, shard)
-		})
+		}, name, shard)
 		return true
 	})
 
@@ -264,9 +265,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	eg := errgroup.Group{}
-	eg.SetLimit(_NUMCPU)
-
 	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
@@ -286,7 +284,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 ) error {
 	if i.Config.DisableLazyLoadShards {
 
-		eg := errgroup.Group{}
+		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
 		for _, shardName := range shardState.AllLocalPhysicalShards() {
@@ -305,7 +303,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 
 				i.shards.Store(shardName, shard)
 				return nil
-			})
+			}, shardName)
 		}
 
 		if err := eg.Wait(); err != nil {
@@ -398,7 +396,7 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
-	return i.shards.RangeConcurrently(f)
+	return i.shards.RangeConcurrently(i.logger, f)
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -409,7 +407,7 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
@@ -1236,7 +1234,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
@@ -1277,11 +1275,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			shardResultLock.Unlock()
 
 			return nil
-		})
+		}, shardName)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+
 	if len(resultObjects) == len(resultScores) {
 
 		// Force a stable sort order by UUID
@@ -1408,7 +1407,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		shardCap = len(shardNames) * limit
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
@@ -1450,7 +1449,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			m.Unlock()
 
 			return nil
-		})
+		}, shardName)
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -1682,7 +1681,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 func (i *Index) drop() error {
 	i.closingCancel()
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(name string, shard ShardLike) error {
@@ -1744,7 +1743,7 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 		}
 	}
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	commit = func(success bool) {
 		if !success {
@@ -1765,7 +1764,7 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 						WithField("shard", shard.ID()).Error(err)
 				}
 				return nil
-			})
+			}, shard)
 		}
 	}
 

@@ -155,7 +155,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}
-	fw := newFileWriter(r.sourcer, store, backupID, compressed).
+	fw := newFileWriter(r.sourcer, store, backupID, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
 	rollback, err := fw.Write(ctx, desc)

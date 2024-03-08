@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -28,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/sync/errgroup"
 )
 
 type Migrator struct {
@@ -225,7 +226,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	shardsColded := make(map[string]ShardLike)
 
 	rollbackHotted := func() {
-		eg := new(errgroup.Group)
+		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(2 * _NUMCPU)
 		for name, shard := range shardsHotted {
 			name, shard := name, shard
@@ -236,7 +237,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 						Errorf("cannot shutdown self activated shard %q: %s", name, err)
 				}
 				return nil
-			})
+			}, name, shard)
 		}
 		eg.Wait()
 	}
@@ -260,7 +261,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			idx.shards.LoadAndDelete(name)
 		}
 
-		eg := new(errgroup.Group)
+		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 		for name, shard := range shardsColded {
 			name, shard := name, shard
@@ -271,7 +272,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 						Errorf("cannot shutdown shard %q: %s", name, err)
 				}
 				return nil
-			})
+			}, name, shard)
 		}
 		eg.Wait()
 	}
@@ -543,7 +544,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 		return nil
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for _, index := range m.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
@@ -564,7 +565,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNames ...string) e
 				m.logInvertedReindexShard(shard).
 					Info("Finished inverted reindexing")
 				return nil
-			})
+			}, name)
 			return nil
 		})
 	}
@@ -597,7 +598,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 
 	m.logMissingFilterable().Info("staring missing text filterable task")
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.db.indices {
 		index := index
@@ -608,7 +609,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 		}
 
 		eg.Go(func() error {
-			errgrpShards := &errgroup.Group{}
+			errgrpShards := enterrors.NewErrorGroupWrapper(m.logger)
 			index.ForEachShard(func(_ string, shard ShardLike) error {
 				errgrpShards.Go(func() error {
 					m.logMissingFilterableShard(shard).
@@ -627,7 +628,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					m.logMissingFilterableShard(shard).
 						Info("finished filterable indexing on shard")
 					return nil
-				})
+				}, shard.ID())
 				return nil
 			})
 
@@ -649,7 +650,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 				Info("finished filterable indexing on index")
 
 			return nil
-		})
+		}, index.ID())
 	}
 
 	if err := eg.Wait(); err != nil {

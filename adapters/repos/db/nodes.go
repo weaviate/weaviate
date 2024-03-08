@@ -21,13 +21,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"golang.org/x/sync/errgroup"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
@@ -43,7 +42,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 			nodeStatuses[i] = status
 
 			return nil
-		})
+		}, nodeName)
 	}
 
 	if err := eg.Wait(); err != nil {

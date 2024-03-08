@@ -19,10 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 // Op is the kind of a backup operation
@@ -280,7 +281,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	nodeMapping := c.descriptor.NodeMapping
 	groups := c.descriptor.Nodes
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	reqChan := make(chan pair)
 	g.Go(func() error {
@@ -392,7 +393,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	defer cancel()
 
 	rs := make([]partialStatus, len(nodes))
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	i := 0
 	for node, hostname := range nodes {
@@ -438,7 +439,7 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	}
 	errChan := make(chan pair)
 	aCounter := int64(len(nodes))
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	for node, hostname := range nodes {
 		node, hostname := node, hostname

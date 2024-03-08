@@ -165,7 +165,7 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 	txClient cluster.Client, txPersistence cluster.Persistence,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
-	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient)
+	txBroadcaster := cluster.NewTxBroadcaster(clusterState, txClient, logger)
 	m := &Manager{
 		config:                  config,
 		migrator:                migrator,
