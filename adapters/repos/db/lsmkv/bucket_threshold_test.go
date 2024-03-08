@@ -44,7 +44,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
 	flushCycle.Start()
 
-	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(1024*1024*1024),
@@ -146,7 +146,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
 	flushCycle.Start()
 
-	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 		WithStrategy(StrategyReplace),
 		WithMemtableThreshold(memtableThreshold))
@@ -239,7 +239,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
 		flushCycle.Start()
 
-		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
@@ -283,7 +283,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
 		flushCycle.Start()
 
-		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
@@ -331,7 +331,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
 		flushCycle.Start()
 
-		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1e12), // large enough to not affect this test
