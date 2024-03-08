@@ -91,6 +91,7 @@ type ShardLike interface {
 	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error
+	UpdateAsyncReplication(ctx context.Context, enabled bool) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
@@ -463,17 +464,13 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
-	if s.index.replicationEnabled() {
-		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-
-		if bucket.GetSecondaryIndices() < 2 {
-			s.index.logger.Printf("secondary index for token ranges is not available in shard %q", s.ID())
-		} else {
-			err = s.initHashTree(ctx)
-			if err != nil {
-				return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
-			}
+	if s.index.asyncReplicationEnabled() {
+		err = s.initHashTree(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
 		}
+	} else if s.index.replicationEnabled() {
+		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 	}
 
 	counter, err := indexcounter.New(s.path())
@@ -579,6 +576,12 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 }
 
 func (s *Shard) initHashTree(ctx context.Context) error {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	if bucket.GetSecondaryIndices() < 2 {
+		s.index.logger.Printf("secondary index for token ranges is not available in shard %q", s.ID())
+	}
+
 	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
 
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
@@ -641,7 +644,6 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	}
 
 	// sync hashtree with current object states
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	go func() {
 		prevContextEvaluation := time.Now()
@@ -669,6 +671,32 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		s.hashtreeInitialized.Store(true)
 		s.initHashBeater()
 	}()
+
+	return nil
+}
+
+func (s *Shard) UpdateAsyncReplication(ctx context.Context, _ bool) error {
+	if s.index.asyncReplicationEnabled() {
+		if s.hashtree != nil {
+			return nil
+		}
+
+		err := s.initHashTree(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+		}
+
+		return nil
+	}
+
+	if s.hashtree == nil {
+		return nil
+	}
+
+	s.stopHashBeater()
+	s.hashtree = nil
+
+	s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 
 	return nil
 }

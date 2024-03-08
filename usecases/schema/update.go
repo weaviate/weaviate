@@ -181,6 +181,11 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 		return errors.Wrap(err, "inverted index config")
 	}
 
+	asyncEnabled := updated.ReplicationConfig != nil && updated.ReplicationConfig.AsyncEnabled
+	if err := m.migrator.UpdateAsyncReplication(ctx, className, asyncEnabled); err != nil {
+		return errors.Wrap(err, "inverted index config")
+	}
+
 	if !m.schemaCache.classExist(className) {
 		return ErrNotFound
 	}
