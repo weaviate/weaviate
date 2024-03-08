@@ -24,9 +24,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -1236,7 +1238,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper("filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
@@ -1277,11 +1279,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			shardResultLock.Unlock()
 
 			return nil
-		})
+		}, shardName)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+
 	if len(resultObjects) == len(resultScores) {
 
 		// Force a stable sort order by UUID

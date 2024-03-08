@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"runtime/debug"
 
+	"github.com/sirupsen/logrus"
+
 	"golang.org/x/sync/errgroup"
 )
 
@@ -23,14 +25,16 @@ type ErrorGroupWrapper struct {
 	*errgroup.Group
 	ReturnError error
 	Variables   []interface{}
+	Logger      logrus.FieldLogger
 }
 
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
-func NewErrorGroupWrapper(vars ...interface{}) *ErrorGroupWrapper {
+func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *ErrorGroupWrapper {
 	return &ErrorGroupWrapper{
 		Group:       new(errgroup.Group),
 		ReturnError: nil,
 		Variables:   vars,
+		Logger:      logger,
 	}
 }
 
@@ -39,7 +43,7 @@ func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 	egw.Group.Go(func() error {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.Variables)
+				egw.Logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.Variables)
 				debug.PrintStack()
 				egw.ReturnError = fmt.Errorf("panic occurred: %v", r)
 			}
