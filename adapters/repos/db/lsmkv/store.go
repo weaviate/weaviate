@@ -111,7 +111,7 @@ func (s *Store) bucketDir(bucketName string) string {
 // lockBucket it locks a specific bucket by it's name
 // to hold ant concurrent access to that specific bucket
 //
-//	don't forget calling unlockBucket() after locking it.
+//	do not forget calling unlockBucket() after locking it.
 func (s *Store) lockBucket(bucketName string) {
 	var bucketLock *sync.Mutex
 	var ok bool
@@ -129,6 +129,7 @@ func (s *Store) lockBucket(bucketName string) {
 }
 
 // unlockBucket it unlocks a specific bucket by it's name
+// and it will delete it from the shard locks map
 func (s *Store) unlockBucket(bucketName string) {
 	s.bucketLevelLock.Lock()
 	defer s.bucketLevelLock.Unlock()
@@ -324,6 +325,9 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	s.lockBucket(bucketName)
+	defer s.unlockBucket(bucketName)
+
 	if b := s.Bucket(bucketName); b != nil {
 		return fmt.Errorf("bucket %s exists and is already in use", bucketName)
 	}
