@@ -15,6 +15,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
@@ -132,7 +133,7 @@ func (h *hnsw) TurnOnCompression(callback func()) error {
 		return err
 	}
 
-	go h.compressThenCallback(callback)
+	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }

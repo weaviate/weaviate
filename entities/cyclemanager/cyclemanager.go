@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -66,7 +68,7 @@ func (c *cycleManager) Start() {
 		return
 	}
 
-	go func() {
+	f := func() {
 		c.cycleTicker.Start()
 		defer c.cycleTicker.Stop()
 
@@ -84,7 +86,8 @@ func (c *cycleManager) Start() {
 			}
 			c.cycleTicker.CycleExecuted(c.cycleCallback(c.shouldAbortCycleCallback))
 		}
-	}()
+	}
+	enterrors.GoWrapper(f)
 
 	c.running = true
 }

@@ -282,7 +282,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	// jobs produces work for the processor
 	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
 		sendCh := make(chan *backup.ShardDescriptor)
-		go func() {
+		f := func() {
 			defer close(sendCh)
 			defer hasJobs.Store(false)
 
@@ -296,7 +296,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					return
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return sendCh
 	}
 
@@ -305,7 +306,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
 		recvCh := make(chan chuckShards, nWorker)
-		go func() {
+		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
 				eg.Go(func() error {
@@ -327,7 +328,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 				})
 			}
 			err = eg.Wait()
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return recvCh
 	}
 

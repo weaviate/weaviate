@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -58,7 +60,7 @@ func (db *DB) ListBackupable() []string {
 func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
-	go func() {
+	f := func() {
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c}
 			idx := db.GetIndex(schema.ClassName(c))
@@ -73,7 +75,8 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 			}
 		}
 		close(ds)
-	}()
+	}
+	enterrors.GoWrapper(f, db.logger)
 	return ds
 }
 

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -170,7 +172,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 
 	i := 0
 	for r := 0; r < routinesLimit; r++ {
-		go func() {
+		f := func() {
 			for callbackId := range ch {
 				if shouldAbort() {
 					// keep reading from channel until it is closed
@@ -225,7 +227,8 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 				}()
 			}
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, c.logger)
 	}
 
 	for {

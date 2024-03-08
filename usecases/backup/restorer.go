@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -79,7 +81,7 @@ func (r *restorer) restore(ctx context.Context,
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
-	go func() {
+	f := func() {
 		var err error
 		status := Status{
 			Path:      destPath,
@@ -112,7 +114,8 @@ func (r *restorer) restore(ctx context.Context,
 		} else {
 			r.logger.WithFields(logFields).Info("backup restored successfully")
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, r.logger)
 
 	return ret, nil
 }

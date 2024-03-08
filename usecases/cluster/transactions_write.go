@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -219,7 +221,7 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 		close(clearCancelListener)
 	}
 
-	go func(id string) {
+	f := func() {
 		ctxDone := ctx.Done()
 		select {
 		case <-clearCancelListener:
@@ -244,7 +246,8 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 
 			c.clearTransaction()
 		}
-	}(id)
+	}
+	enterrors.GoWrapper(f, c.logger)
 }
 
 // expired is a helper to return a more meaningful error message to the user.
