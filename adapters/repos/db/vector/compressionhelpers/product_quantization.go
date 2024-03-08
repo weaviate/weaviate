@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"sync"
-	"sync/atomic"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -381,26 +380,30 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 			pq.kms[i].Fit(data)
 		})
 	case UseKMeansEncoder:
-		var res error = nil
-		var shouldStop atomic.Bool
+		mutex := sync.Mutex{}
+		var errorResult error = nil
 		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(i uint64) {
-			if shouldStop.Load() {
+			mutex.Lock()
+			if errorResult != nil {
+				mutex.Unlock()
 				return
 			}
+			mutex.Unlock()
 			pq.kms[i] = NewKMeans(
 				pq.ks,
 				pq.ds,
 				int(i),
 			)
 			err := pq.kms[i].Fit(data)
-			if !shouldStop.Load() {
-				shouldStop.Store(true)
-				res = err
+			mutex.Lock()
+			if errorResult == nil && err != nil {
+				errorResult = err
 			}
+			mutex.Unlock()
 		})
-		if res != nil {
-			return res
+		if errorResult != nil {
+			return errorResult
 		}
 	}
 	pq.buildGlobalDistances()
