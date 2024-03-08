@@ -4569,6 +4569,10 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean"
+        },
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
@@ -9923,6 +9927,10 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean"
+        },
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"

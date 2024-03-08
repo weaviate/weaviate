@@ -62,6 +62,7 @@ type Migrator interface {
 		old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
+	UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error
 	RecalculateVectorDimensions(ctx context.Context) error
 	RecountProperties(ctx context.Context) error
 	InvertedReindex(ctx context.Context, taskNames ...string) error

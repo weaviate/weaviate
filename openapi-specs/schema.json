@@ -382,6 +382,10 @@
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean"
         }
       },
       "type": "object"
