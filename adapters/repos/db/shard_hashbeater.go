@@ -139,6 +139,9 @@ type hashBeatHostStats struct {
 }
 
 func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
+
 	// Note: a copy of the hashtree could be used if a more stable comparison is desired s.hashtree.Clone()
 	// in such a case nodes may also need to have a stable copy of their corresponding hashtree.
 	ht := s.hashtree
