@@ -12,6 +12,7 @@
 package errors
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 
@@ -36,6 +37,17 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 		Variables:   vars,
 		Logger:      logger,
 	}
+}
+
+// NewErrorGroupWrapper creates a new ErrorGroupWrapper.
+func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
+	eg, ctx := errgroup.WithContext(ctx)
+	return &ErrorGroupWrapper{
+		Group:       eg,
+		ReturnError: nil,
+		Variables:   vars,
+		Logger:      logger,
+	}, ctx
 }
 
 // Go overrides the Go method to add panic recovery logic.

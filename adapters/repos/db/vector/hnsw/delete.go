@@ -21,13 +21,14 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -310,7 +311,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	g, ctx := errgroup.WithContext(h.shutdownCtx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	ch := make(chan uint64)
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
