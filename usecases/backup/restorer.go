@@ -106,8 +106,11 @@ func (r *restorer) restore(ctx context.Context,
 		}
 
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, req.NodeMapping)
+		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
-			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
+			r.logger.WithFields(logFields).Error(err)
+		} else {
+			r.logger.WithFields(logFields).Info("backup restored successfully")
 		}
 	}()
 
@@ -152,7 +155,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}
-	fw := newFileWriter(r.sourcer, store, backupID, compressed).
+	fw := newFileWriter(r.sourcer, store, backupID, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
 	rollback, err := fw.Write(ctx, desc)

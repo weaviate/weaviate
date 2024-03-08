@@ -66,10 +66,7 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
 				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
-			} else {
-				desc.Error = ctx.Err()
 			}
-
 			ds <- desc
 			if desc.Error != nil {
 				break
@@ -205,13 +202,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
-
 	defer func() {
 		if err != nil {
 			go i.ReleaseBackup(ctx, backupID)
 		}
 	}()
-
 	// prevent writing into the index during collection of metadata
 	i.backupMutex.Lock()
 	defer i.backupMutex.Unlock()
@@ -237,13 +232,14 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if desc.Schema, err = i.marshalSchema(); err != nil {
 		return fmt.Errorf("marshal schema %w", err)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
 // async background and maintenance processes. It errors if the backup does not exist
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
+	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 	defer i.resetBackupState()
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err

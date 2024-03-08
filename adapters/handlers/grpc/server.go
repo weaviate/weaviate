@@ -57,6 +57,7 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
 		state.SchemaManager,
 		state.BatchManager,
+		&state.ServerConfig.Config,
 	)
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)

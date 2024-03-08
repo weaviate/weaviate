@@ -171,7 +171,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:             config.ServerVersion,
 		GitHash:                   config.GitHash,
-		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesFlushDirtyAfter:  appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
 		MemtablesInitialSizeMB:    10,
 		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
@@ -560,6 +560,16 @@ func logger() *logrus.Logger {
 		logger.SetFormatter(&logrus.JSONFormatter{})
 	}
 	switch os.Getenv("LOG_LEVEL") {
+	case "panic":
+		logger.SetLevel(logrus.PanicLevel)
+	case "fatal":
+		logger.SetLevel(logrus.FatalLevel)
+	case "error":
+		logger.SetLevel(logrus.ErrorLevel)
+	case "warn":
+		logger.SetLevel(logrus.WarnLevel)
+	case "warning":
+		logger.SetLevel(logrus.WarnLevel)
 	case "debug":
 		logger.SetLevel(logrus.DebugLevel)
 	case "trace":

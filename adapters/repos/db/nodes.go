@@ -21,13 +21,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"golang.org/x/sync/errgroup"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
@@ -43,7 +42,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 			nodeStatuses[i] = status
 
 			return nil
-		})
+		}, nodeName)
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -171,15 +170,51 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+
+		// Don't force load a lazy shard to get nodes status
+		if lazy, ok := shard.(*LazyLoadShard); ok {
+			if !lazy.isLoaded() {
+				shardStatus := &models.NodeShardStatus{
+					Name:                 name,
+					Class:                shard.Index().Config.ClassName.String(),
+					VectorIndexingStatus: shard.GetStatus().String(),
+					Loaded:               false,
+				}
+				*status = append(*status, shardStatus)
+				shardCount++
+				return nil
+			}
+		}
+
 		objectCount := int64(shard.ObjectCountAsync())
 		totalCount += objectCount
+
+		// FIXME stats of target vectors
+		var queueLen int64
+		var compressed bool
+		if shard.hasTargetVectors() {
+			for _, queue := range shard.Queues() {
+				queueLen += queue.Size()
+			}
+			for _, vectorIndex := range shard.VectorIndexes() {
+				if vectorIndex.Compressed() {
+					compressed = true
+					break
+				}
+			}
+		} else {
+			queueLen = shard.Queue().Size()
+			compressed = shard.VectorIndex().Compressed()
+		}
+
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,
 			Class:                shard.Index().Config.ClassName.String(),
 			ObjectCount:          objectCount,
 			VectorIndexingStatus: shard.GetStatus().String(),
-			VectorQueueLength:    shard.Queue().Size(),
-			Compressed:           shard.VectorIndex().Compressed(),
+			VectorQueueLength:    queueLen,
+			Compressed:           compressed,
+			Loaded:               true,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
