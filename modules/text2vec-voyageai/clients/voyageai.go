@@ -187,6 +187,6 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Voyageai-Api-Key " +
+		"neither in request header: X-VoyageAI-Api-Key " +
 		"nor in environment variable under VOYAGE_API_KEY")
 }
