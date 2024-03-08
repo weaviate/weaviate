@@ -20,6 +20,8 @@ import (
 	"path"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -29,7 +31,6 @@ import (
 	ucschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/schema"
-	"golang.org/x/sync/errgroup"
 )
 
 type filterableToSearchableMigrator struct {
@@ -71,7 +72,7 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 
 	m.log().Debug("starting migration")
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.indexes {
 		index := index
@@ -92,7 +93,7 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 			migrationState.MissingFilterableClass2Props[index.Config.ClassName.String()] = migratedProps
 			migrationStateUpdated = true
 			return nil
-		})
+		}, index.ID())
 	}
 
 	err = eg.Wait()
@@ -194,7 +195,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		return nil, nil
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for shardName, props := range shard2PropsToFix {
 		shard := index.shards.Load(shardName)
@@ -206,7 +207,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 				return errors.Wrap(err, "failed migrating shard")
 			}
 			return nil
-		})
+		}, "shard:", shard, "props:", props)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
