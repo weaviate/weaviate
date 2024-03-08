@@ -103,7 +103,7 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 	}
 
 	targetVector := t.targetVectorParamHelper.GetTargetVectorFromParams(params)
-	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
+	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 var schemaTests = []struct {
@@ -59,6 +60,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeMetaHandler *fakeMet
 
 func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
 	t.Parallel()
+	handler.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
 	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 	class := &models.Class{
 		Class: "Car",
@@ -69,9 +71,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeMe
 		}},
 	}
 
-	classWithVectorizer := class
-	classWithVectorizer.Vectorizer = "hnsw"
-	fakeMetaHandler.On("AddClass", classWithVectorizer, mock.Anything).Return(nil)
+	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 
 	err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
@@ -161,7 +161,18 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeMetaHandler *
 
 	// Reset schema to simulate the class has been added
 	reset.Unset()
+	class = &models.Class{
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+	}
+	fakeMetaHandler.ExpectedCalls = fakeMetaHandler.ExpectedCalls[:0]
 	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{class}})
+	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(ErrNotFound)
 
 	// Add it again
 	err = handler.AddClass(context.Background(), nil, class)
