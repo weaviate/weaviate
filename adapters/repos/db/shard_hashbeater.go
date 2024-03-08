@@ -28,6 +28,20 @@ import (
 
 func (s *Shard) initHashBeater() {
 	go func() {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Info("hashbeater started...")
+
+		defer func() {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Info("hashbeater stopped")
+		}()
+
 		t := time.NewTicker(50 * time.Millisecond)
 
 		backoffs := []time.Duration{
@@ -54,7 +68,8 @@ func (s *Shard) initHashBeater() {
 					return
 				}
 				if err != nil {
-					s.index.logger.WithField("action", "async_replication").
+					s.index.logger.
+						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
 						Warnf("iteration failed: %v", err)
@@ -92,7 +107,8 @@ func (s *Shard) initHashBeater() {
 					}
 				}
 
-				logEntry := s.index.logger.WithField("action", "async_replication").
+				logEntry := s.index.logger.
+					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
 					WithField("hosts", hosts).
