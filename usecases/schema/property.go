@@ -46,12 +46,12 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	}
 
 	existingPropertyNames := map[string]bool{}
-	for _, existingProperty := range class.Properties {
+	for _, existingProperty := range cls.Properties {
 		existingPropertyNames[strings.ToLower(existingProperty.Name)] = true
 	}
 
-	m.setNewPropDefaults(class, prop)
-	if err := m.validateProperty(prop, class, existingPropertyNames, false); err != nil {
+	h.setNewPropDefaults(cls, prop)
+	if err := h.validateProperty(prop, cls, existingPropertyNames, false); err != nil {
 		return err
 	}
 	// migrate only after validation in completed
@@ -67,10 +67,6 @@ func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Pri
 	if err != nil {
 		return err
 	}
-
-	/// TODO-RAFT START
-	/// Implement RAFT based DeleteClassProperty
-	/// TODO-RAFT END
 
 	return fmt.Errorf("deleting a property is currently not supported, see " +
 		"https://github.com/weaviate/weaviate/issues/973 for details.")
@@ -173,10 +169,8 @@ func (h *Handler) MergeClassObjectProperty(
 	// reuse setDefaults/validation/migrate methods coming from add property
 	// (empty existing names map, to validate existing updated property)
 	// TODO nested - refactor / cleanup setDefaults/validation/migrate methods
-	if err := h.setNewPropDefaults(class, prop); err != nil {
-		return err
-	}
-	if err := h.validateProperty(prop, className, map[string]bool{}, false); err != nil {
+	h.setNewPropDefaults(class, prop)
+	if err := h.validateProperty(prop, class, map[string]bool{}, false); err != nil {
 		return err
 	}
 
