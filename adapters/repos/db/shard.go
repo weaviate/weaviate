@@ -22,7 +22,6 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -600,7 +599,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	for i := len(dirEntries) - 1; i >= 0; i-- {
 		dirEntry := dirEntries[i]
 
-		if dirEntry.IsDir() || !strings.HasPrefix(dirEntry.Name(), "hashtree-") {
+		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
 			continue
 		}
 
@@ -753,7 +752,7 @@ func (s *Shard) closeHashTree() error {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
 
-	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%x", string(b[:])))
+	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%x.ht", string(b[:])))
 
 	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
 	if err != nil {
