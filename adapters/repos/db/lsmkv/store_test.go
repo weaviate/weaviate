@@ -14,9 +14,11 @@ package lsmkv
 import (
 	"context"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -24,55 +26,85 @@ import (
 func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 	t.Parallel()
 
-	// not t.TempDir() because the dir is not empty
-	dirName := "./testdata"
+	dirName := t.TempDir()
 	defer os.RemoveAll(dirName)
-
 	logger, _ := test.NewNullLogger()
+
 	store, err := New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroup("classCompaction", logger, 1),
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	for _, bucket := range []string{"bucket1", "bucket1", "bucket1", "bucket2"} {
-		bucket := bucket
-		go func() {
-			require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucket))
-		}()
+	mockBucketCreator := NewMockBucketCreator(t)
+	mockBucketCreator.On("NewBucket",
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+	).Return(&Bucket{}, nil)
+	store.bcreator = mockBucketCreator
+
+	defer func() {
+		// this test create in total 2 new bucket so NewBucket
+		// shall be called only twice and the other go routine shall get it
+		// from memory
+		mockBucketCreator.AssertNumberOfCalls(t, "NewBucket", 2)
+		mockBucketCreator.AssertExpectations(t)
+	}()
+	tcs := []string{"bucket1", "bucket1", "bucket1", "bucket2"}
+	wg := sync.WaitGroup{}
+	ctx := context.Background()
+	wg.Add(len(tcs))
+
+	for _, bucket := range tcs {
+		go func(bucket string) {
+			defer wg.Done()
+			require.Nil(t, store.CreateOrLoadBucket(ctx, bucket))
+		}(bucket)
 	}
+	wg.Wait()
 }
 
 func TestCreateBucketConcurrency(t *testing.T) {
 	t.Parallel()
 
-	// not t.TempDir() because the dir is not empty
-	dirName := "./testdata"
+	dirName := t.TempDir()
 	defer os.RemoveAll(dirName)
-
 	logger, _ := test.NewNullLogger()
+
 	store, err := New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroup("classCompaction", logger, 1),
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	tcs := []struct {
-		bucket string
-		fail   bool
-	}{
-		{"bucket10", false},
-		{"bucket10", true},
-		{"bucket20", false},
-	}
+	mockBucketCreator := NewMockBucketCreator(t)
+	mockBucketCreator.On("NewBucket",
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+		mock.Anything,
+	).Return(&Bucket{}, nil)
+	store.bcreator = mockBucketCreator
+
+	tcs := []string{"bucket1", "bucket1", "bucket1"}
+	wg := sync.WaitGroup{}
+	ctx := context.Background()
+	wg.Add(len(tcs))
 
 	for _, tc := range tcs {
 		tc := tc
 		go func() {
-			err := store.CreateBucket(context.Background(), tc.bucket)
-			if tc.fail {
-				require.NotNil(t, err)
-				return
-			}
-			require.Nil(t, err)
+			defer wg.Done()
+			store.CreateBucket(ctx, tc)
 		}()
 	}
+	wg.Wait()
+	mockBucketCreator.AssertNumberOfCalls(t, "NewBucket", 1)
+	mockBucketCreator.AssertExpectations(t)
 }

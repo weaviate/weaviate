@@ -42,11 +42,10 @@ type Store struct {
 	metrics *Metrics
 
 	cycleCallbacks *storeCycleCallbacks
-
+	bcreator       BucketCreator
 	// Prevent concurrent manipulations to the same Bucket, specially if there is
 	// action on the bucket in the meantime.
-	bucketLevelLock sync.RWMutex
-	bucketsLocks    map[string]*sync.Mutex
+	bucketsLocks sync.Map
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -59,7 +58,8 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		dir:           dir,
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
-		bucketsLocks:  map[string]*sync.Mutex{},
+		bucketsLocks:  sync.Map{},
+		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
 	}
@@ -113,16 +113,13 @@ func (s *Store) bucketDir(bucketName string) string {
 //
 //	do not forget calling unlockBucket() after locking it.
 func (s *Store) lockBucket(bucketName string) {
-	var bucketLock *sync.Mutex
+	bucketLock := &sync.Mutex{}
+	bucketLocks, _ := s.bucketsLocks.LoadOrStore(bucketName, bucketLock)
 	var ok bool
-
-	s.bucketLevelLock.Lock()
-	defer s.bucketLevelLock.Unlock()
-
-	bucketLock, ok = s.bucketsLocks[bucketName]
+	bucketLock, ok = bucketLocks.(*sync.Mutex)
 	if !ok {
-		bucketLock = &sync.Mutex{}
-		s.bucketsLocks[bucketName] = bucketLock
+		s.logger.Error("lock of non existing lock for bucket=%s", bucketName)
+		return
 	}
 
 	bucketLock.Lock()
@@ -131,12 +128,14 @@ func (s *Store) lockBucket(bucketName string) {
 // unlockBucket it unlocks a specific bucket by it's name
 // and it will delete it from the shard locks map
 func (s *Store) unlockBucket(bucketName string) {
-	s.bucketLevelLock.Lock()
-	defer s.bucketLevelLock.Unlock()
-
-	bucketLock, ok := s.bucketsLocks[bucketName]
+	bucketLocks, ok := s.bucketsLocks.Load(bucketName)
 	if !ok {
 		s.logger.Error("unlock of non existing lock for bucket=%s", bucketName)
+		return
+	}
+	bucketLock, ok := bucketLocks.(*sync.Mutex)
+	if !ok {
+		s.logger.Error("lock of non existing lock for bucket=%s", bucketName)
 		return
 	}
 	bucketLock.Unlock()
@@ -165,7 +164,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
+	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
@@ -336,7 +335,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
-	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
+	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
