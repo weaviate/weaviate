@@ -277,48 +277,6 @@ func TestCycleCallback_Parallel(t *testing.T) {
 			sumDuration += 60 * time.Millisecond
 		}
 	})
-
-	t.Run("unregister while running", func(t *testing.T) {
-		counter := 0
-		callback := func(shouldAbort ShouldAbortCallback) bool {
-			for {
-				if shouldAbort() {
-					return true
-				}
-
-				time.Sleep(10 * time.Millisecond)
-				counter++
-
-				// 10ms * 100 = 1s
-				if counter > 100 {
-					return false
-				}
-			}
-		}
-		chStarted := make(chan struct{}, 1)
-		chFinished := make(chan struct{}, 1)
-		var executed bool
-		var d time.Duration
-
-		callbacks := NewCallbackGroup("id", logger, 1)
-		ctrl := callbacks.Register("c", callback)
-
-		go func() {
-			chStarted <- struct{}{}
-			start := time.Now()
-			executed = callbacks.CycleCallback(shouldNotAbort)
-			d = time.Since(start)
-			chFinished <- struct{}{}
-		}()
-		<-chStarted
-		time.Sleep(50 * time.Millisecond)
-		err := ctrl.Unregister(context.Background())
-		assert.NoError(t, err)
-		<-chFinished
-
-		assert.True(t, executed)
-		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
-	})
 }
 
 func TestCycleCallback_Parallel_Unregister(t *testing.T) {
@@ -629,6 +587,70 @@ func TestCycleCallback_Parallel_Unregister(t *testing.T) {
 		assert.Equal(t, 0, executedCounter3)
 		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
 	})
+
+	t.Run("unregister while running", func(t *testing.T) {
+		counter1 := 0
+		counter2 := 0
+		max := 25
+
+		callback1 := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return false
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter1++
+
+				// 10ms * 25 = 250ms
+				if counter1 > max {
+					return true
+				}
+			}
+		}
+		callback2 := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return false
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter2++
+
+				// 10ms * 25 = 250ms
+				if counter2 > max {
+					return true
+				}
+			}
+		}
+
+		chStarted := make(chan struct{}, 1)
+		chFinished := make(chan struct{}, 1)
+		var executed bool
+		var d time.Duration
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+
+		go func() {
+			chStarted <- struct{}{}
+			start := time.Now()
+			executed = callbacks.CycleCallback(shouldNotAbort)
+			d = time.Since(start)
+			chFinished <- struct{}{}
+		}()
+		<-chStarted
+		time.Sleep(50 * time.Millisecond)
+		require.NoError(t, ctrl1.Unregister(ctx))
+		require.NoError(t, ctrl2.Unregister(ctx))
+		<-chFinished
+
+		assert.False(t, executed)
+		assert.LessOrEqual(t, counter1, max)
+		assert.LessOrEqual(t, counter2, max)
+		assert.LessOrEqual(t, d, 200*time.Millisecond)
+	})
 }
 
 func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
@@ -938,6 +960,92 @@ func TestCycleCallback_Parallel_Deactivate(t *testing.T) {
 		assert.Equal(t, 0, executedCounter3)
 		assert.Equal(t, 0, executedCounter3)
 		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
+	})
+
+	t.Run("deactivate while running", func(t *testing.T) {
+		counter1 := 0
+		counter2 := 0
+		max := 25
+
+		callback1 := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return false
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter1++
+
+				// 10ms * 25 = 250ms
+				if counter1 > max {
+					return true
+				}
+			}
+		}
+		callback2 := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return false
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter2++
+
+				// 10ms * 25 = 250ms
+				if counter2 > max {
+					return true
+				}
+			}
+		}
+
+		chStarted := make(chan struct{}, 1)
+		chFinished := make(chan struct{}, 1)
+		var executed bool
+		var d time.Duration
+
+		callbacks := NewCallbackGroup("id", logger, 2)
+		ctrl1 := callbacks.Register("c1", callback1)
+		ctrl2 := callbacks.Register("c2", callback2)
+
+		go func() {
+			chStarted <- struct{}{}
+			start := time.Now()
+			executed = callbacks.CycleCallback(shouldNotAbort)
+			d = time.Since(start)
+			chFinished <- struct{}{}
+		}()
+		<-chStarted
+		time.Sleep(50 * time.Millisecond)
+		require.NoError(t, ctrl1.Deactivate(ctx))
+		require.NoError(t, ctrl2.Deactivate(ctx))
+		<-chFinished
+
+		assert.False(t, executed)
+		assert.LessOrEqual(t, counter1, max)
+		assert.LessOrEqual(t, counter2, max)
+		assert.LessOrEqual(t, d, 200*time.Millisecond)
+
+		t.Run("does not abort after activated back again", func(t *testing.T) {
+			require.NoError(t, ctrl1.Activate())
+			require.NoError(t, ctrl2.Activate())
+
+			counter1 = 0
+			counter2 = 0
+			max = 10
+
+			go func() {
+				start := time.Now()
+				executed = callbacks.CycleCallback(shouldNotAbort)
+				d = time.Since(start)
+				chFinished <- struct{}{}
+			}()
+			<-chFinished
+
+			assert.True(t, executed)
+			assert.Greater(t, counter1, max)
+			assert.Greater(t, counter2, max)
+			assert.GreaterOrEqual(t, d, 100*time.Millisecond)
+		})
 	})
 }
 
@@ -1466,6 +1574,49 @@ func TestCycleCallback_Sequential_Unregister(t *testing.T) {
 		assert.Equal(t, 0, executedCounter3)
 		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
 	})
+
+	t.Run("unregister while running", func(t *testing.T) {
+		counter := 0
+		max := 25
+		callback := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return false
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter++
+
+				// 10ms * 25 = 250ms
+				if counter > max {
+					return true
+				}
+			}
+		}
+		chStarted := make(chan struct{}, 1)
+		chFinished := make(chan struct{}, 1)
+		var executed bool
+		var d time.Duration
+
+		callbacks := NewCallbackGroup("id", logger, 1)
+		ctrl := callbacks.Register("c", callback)
+
+		go func() {
+			chStarted <- struct{}{}
+			start := time.Now()
+			executed = callbacks.CycleCallback(shouldNotAbort)
+			d = time.Since(start)
+			chFinished <- struct{}{}
+		}()
+		<-chStarted
+		time.Sleep(50 * time.Millisecond)
+		require.NoError(t, ctrl.Unregister(ctx))
+		<-chFinished
+
+		assert.False(t, executed)
+		assert.LessOrEqual(t, counter, max)
+		assert.LessOrEqual(t, d, 200*time.Millisecond)
+	})
 }
 
 func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
@@ -1767,5 +1918,67 @@ func TestCycleCallback_Sequential_Deactivate(t *testing.T) {
 		assert.Equal(t, 0, executedCounter2)
 		assert.Equal(t, 0, executedCounter3)
 		assert.GreaterOrEqual(t, d, 50*time.Millisecond)
+	})
+
+	t.Run("deactivate while running", func(t *testing.T) {
+		counter := 0
+		max := 25
+		callback := func(shouldAbort ShouldAbortCallback) bool {
+			for {
+				if shouldAbort() {
+					return false
+				}
+
+				time.Sleep(10 * time.Millisecond)
+				counter++
+
+				// 10ms * 25 = 250ms
+				if counter > max {
+					return true
+				}
+			}
+		}
+		chStarted := make(chan struct{}, 1)
+		chFinished := make(chan struct{}, 1)
+		var executed bool
+		var d time.Duration
+
+		callbacks := NewCallbackGroup("id", logger, 1)
+		ctrl := callbacks.Register("c", callback)
+
+		go func() {
+			chStarted <- struct{}{}
+			start := time.Now()
+			executed = callbacks.CycleCallback(shouldNotAbort)
+			d = time.Since(start)
+			chFinished <- struct{}{}
+		}()
+		<-chStarted
+		time.Sleep(50 * time.Millisecond)
+		require.NoError(t, ctrl.Deactivate(ctx))
+		<-chFinished
+
+		assert.False(t, executed)
+		assert.LessOrEqual(t, counter, max)
+		assert.LessOrEqual(t, d, 200*time.Millisecond)
+
+		t.Run("does not abort after activated back again", func(t *testing.T) {
+			require.NoError(t, ctrl.Activate())
+
+			counter = 0
+			max = 10
+
+			go func() {
+				start := time.Now()
+				executed = callbacks.CycleCallback(shouldNotAbort)
+				d = time.Since(start)
+				chFinished <- struct{}{}
+			}()
+			<-chFinished
+
+			assert.True(t, executed)
+			assert.Greater(t, counter, max)
+			assert.GreaterOrEqual(t, d, 100*time.Millisecond)
+		})
 	})
 }
