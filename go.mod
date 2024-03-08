@@ -55,7 +55,7 @@ require (
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea
 	golang.org/x/text v0.13.0
-	google.golang.org/protobuf v1.31.0
+	google.golang.org/protobuf v1.33.0
 )
 
 require (
