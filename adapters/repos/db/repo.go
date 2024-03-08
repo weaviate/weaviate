@@ -78,8 +78,7 @@ type DB struct {
 	asyncIndexRetryInterval time.Duration
 	shutDownWg              sync.WaitGroup
 	maxNumberGoroutines     int
-	batchMonitorLock        sync.Mutex
-	ratePerSecond           int
+	ratePerSecond           atomic.Int64
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -182,7 +181,7 @@ type Config struct {
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
@@ -303,9 +302,7 @@ func (db *DB) worker(first bool) {
 		jobToAdd.batcher.wg.Done()
 		objectCounter += 1
 		if first && time.Now().After(checkTime) { // only have one worker report the rate per second
-			db.batchMonitorLock.Lock()
-			db.ratePerSecond = objectCounter * db.maxNumberGoroutines
-			db.batchMonitorLock.Unlock()
+			db.ratePerSecond.Store(int64(objectCounter * db.maxNumberGoroutines))
 
 			objectCounter = 0
 			checkTime = time.Now().Add(time.Second)

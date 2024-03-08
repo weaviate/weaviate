@@ -291,6 +291,10 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
+	if len(x) != pq.m || len(y) != pq.m {
+		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
+	}
+
 	dist := float32(0)
 
 	for i := 0; i < pq.m; i++ {
@@ -345,6 +349,9 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	if d.lut == nil {
 		dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
 		return dist, err == nil, err
+	}
+	if len(x) != d.pq.m {
+		return 0, false, fmt.Errorf("inconsistent compressed vector length")
 	}
 	return d.pq.Distance(x, d.lut), true, nil
 }

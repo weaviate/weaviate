@@ -54,22 +54,15 @@ type ClassSettings interface {
 	IsAzure() bool
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.Class, comp, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
-func (v *Vectorizer) object(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg), cfg.TargetVector())
-	if vector != nil {
-		// dont' re-vectorize
-		return vector, nil
-	}
-	// vectorize text
+	text := v.objectVectorizer.Texts(ctx, object, NewClassSettings(cfg))
 	res, err := v.client.Vectorize(ctx, text, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err

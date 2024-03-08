@@ -44,7 +44,7 @@ type PalmModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
+	Object(ctx context.Context, obj *models.Object,
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
@@ -119,9 +119,9 @@ func (m *PalmModule) RootHandler() http.Handler {
 }
 
 func (m *PalmModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
 func (m *PalmModule) MetaInfo() (map[string]interface{}, error) {
@@ -136,6 +136,10 @@ func (m *PalmModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *PalmModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 // verify we implement the modules.Module interface

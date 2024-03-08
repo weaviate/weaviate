@@ -153,10 +153,8 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 }
 
 func (db *DB) localNodeBatchStats() *models.BatchStats {
-	db.batchMonitorLock.Lock()
-	rate := db.ratePerSecond
-	db.batchMonitorLock.Unlock()
-	stats := &models.BatchStats{RatePerSecond: int64(rate)}
+	rate := db.ratePerSecond.Load()
+	stats := &models.BatchStats{RatePerSecond: rate}
 	if !asyncEnabled() {
 		ql := int64(len(db.jobQueueCh))
 		stats.QueueLength = &ql
@@ -173,13 +171,32 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 		objectCount := int64(shard.ObjectCountAsync())
 		totalCount += objectCount
+
+		// FIXME stats of target vectors
+		var queueLen int64
+		var compressed bool
+		if shard.hasTargetVectors() {
+			for _, queue := range shard.Queues() {
+				queueLen += queue.Size()
+			}
+			for _, vectorIndex := range shard.VectorIndexes() {
+				if vectorIndex.Compressed() {
+					compressed = true
+					break
+				}
+			}
+		} else {
+			queueLen = shard.Queue().Size()
+			compressed = shard.VectorIndex().Compressed()
+		}
+
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,
 			Class:                shard.Index().Config.ClassName.String(),
 			ObjectCount:          objectCount,
 			VectorIndexingStatus: shard.GetStatus().String(),
-			VectorQueueLength:    shard.Queue().Size(),
-			Compressed:           shard.VectorIndex().Compressed(),
+			VectorQueueLength:    queueLen,
+			Compressed:           compressed,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++

@@ -194,11 +194,12 @@ type GRPC struct {
 type Profiling struct {
 	BlockProfileRate     int `json:"blockProfileRate" yaml:"blockProfileRate"`
 	MutexProfileFraction int `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	Port                 int `json:"port" yaml:"port"`
 }
 
 type Persistence struct {
 	DataPath                          string `json:"dataPath" yaml:"dataPath"`
-	FlushIdleMemtablesAfter           int    `json:"flushIdleMemtablesAfter" yaml:"flushIdleMemtablesAfter"`
+	MemtablesFlushDirtyAfter          int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
 	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`

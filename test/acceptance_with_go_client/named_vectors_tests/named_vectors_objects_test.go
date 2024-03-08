@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testCreateObject(t *testing.T, host string) func(t *testing.T) {
+func testCreateObject(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
@@ -99,6 +99,34 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 					resultVectors := getVectorsWithNearText(t, client, className, id1, nearText, targetVectors...)
 					checkTargetVectors(t, resultVectors)
 				}
+			})
+
+			t.Run("certainty checks", func(t *testing.T) {
+				var vectorC11y []float32
+				t.Run("nearText", func(t *testing.T) {
+					nearText := client.GraphQL().NearTextArgBuilder().
+						WithConcepts([]string{"book"}).
+						WithTargetVectors(c11y)
+					resultVectors := getVectorsWithNearTextWithCertainty(t, client, className, id1, nearText, c11y)
+					require.NotEmpty(t, resultVectors[c11y])
+					vectorC11y = resultVectors[c11y]
+				})
+
+				t.Run("nearVector", func(t *testing.T) {
+					nearVector := client.GraphQL().NearVectorArgBuilder().
+						WithVector(vectorC11y).
+						WithTargetVectors(c11y)
+					resultVectors := getVectorsWithNearVectorWithCertainty(t, client, className, id1, nearVector, c11y)
+					require.NotEmpty(t, resultVectors[c11y])
+				})
+
+				t.Run("nearObject", func(t *testing.T) {
+					nearObject := client.GraphQL().NearObjectArgBuilder().
+						WithID(id1).
+						WithTargetVectors(c11y)
+					resultVectors := getVectorsWithNearObjectWithCertainty(t, client, className, id1, nearObject, c11y)
+					require.NotEmpty(t, resultVectors[c11y])
+				})
 			})
 
 			t.Run("delete 1 object", func(t *testing.T) {
@@ -208,6 +236,37 @@ func testCreateObject(t *testing.T, host string) func(t *testing.T) {
 				checkTargetVectors(t, afterUpdateVectors)
 				for _, targetVector := range targetVectors {
 					assert.Equal(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
+				}
+			})
+
+			// note that vectors are different afterwards and you cant use checkTargetVectors anymore
+			t.Run("Update with a vector - use the given vector and dont revectorize", func(t *testing.T) {
+				targetVecUpdate := targetVectors[0]
+				beforeUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				checkTargetVectors(t, beforeUpdateVectors)
+				vecForNewObject := make([]float32, len(beforeUpdateVectors[targetVecUpdate]))
+				copy(vecForNewObject, beforeUpdateVectors[targetVecUpdate])
+				vecForNewObject[0] = vecForNewObject[0] + 0.1
+
+				require.NoError(t, client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"text": "Apple",
+					}).WithVectors(models.Vectors{targetVecUpdate: vecForNewObject}).
+					Do(ctx))
+
+				// vector from update should be used and it should be different from before
+				afterUpdateVectors := getVectors(t, client, className, id1, targetVectors...)
+				assert.NotEqual(t, beforeUpdateVectors[targetVecUpdate], afterUpdateVectors[targetVecUpdate])
+
+				// no vectorization
+				assert.Equal(t, vecForNewObject, afterUpdateVectors[targetVecUpdate])
+
+				// vectorization for vectors that have not been sent with the update
+				for _, targetVector := range targetVectors[1:] {
+					assert.NotEqual(t, beforeUpdateVectors[targetVector], afterUpdateVectors[targetVector])
 				}
 			})
 		})

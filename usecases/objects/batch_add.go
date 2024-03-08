@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 	"golang.org/x/sync/errgroup"
 )
@@ -141,6 +140,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
 	object.Vector = concept.Vector
+	object.Vectors = concept.Vectors
 	object.Tenant = concept.Tenant
 
 	if _, ok := fieldsToKeep["class"]; ok {
@@ -170,21 +170,8 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		ec.Add(err)
 
 		if err == nil {
-			compFactory := func() (moduletools.VectorizablePropsComparator, error) {
-				searchObj, err := b.vectorRepo.Object(ctx, object.Class, id, nil, additional.Properties{}, repl, object.Tenant)
-				if err != nil {
-					return nil, err
-				}
-				if searchObj != nil {
-					prevObj := searchObj.Object()
-					return moduletools.NewVectorizablePropsComparator(class.Properties,
-						object.Properties, prevObj.Properties, prevObj.Vector, prevObj.Vectors), nil
-				}
-				return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
-			}
-
 			// update vector only if we passed validation
-			err = b.modulesProvider.UpdateVector(ctx, object, class, compFactory, b.findObject, b.logger)
+			err = b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger)
 			ec.Add(err)
 		}
 	}

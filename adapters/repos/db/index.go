@@ -464,6 +464,29 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) updateVectorIndexConfigs(ctx context.Context,
+	updated map[string]schema.VectorIndexConfig,
+) error {
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	for targetName, targetCfg := range updated {
+		i.vectorIndexUserConfigs[targetName] = targetCfg
+	}
+
+	return nil
+}
+
 func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
@@ -488,7 +511,7 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
@@ -1801,7 +1824,13 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			if shard == nil {
 				err = errors.Errorf("shard %s does not exist", shardName)
 			} else {
-				size = shard.Queue().Size()
+				if shard.hasTargetVectors() {
+					for _, queue := range shard.Queues() {
+						size += queue.Size()
+					}
+				} else {
+					size = shard.Queue().Size()
+				}
 			}
 		}
 		if err != nil {
@@ -1819,7 +1848,14 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	if shard == nil {
 		return 0, errShardNotFound
 	}
-	return shard.Queue().Size(), nil
+	if !shard.hasTargetVectors() {
+		return shard.Queue().Size(), nil
+	}
+	size := int64(0)
+	for _, queue := range shard.Queues() {
+		size += queue.Size()
+	}
+	return size, nil
 }
 
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
@@ -2043,7 +2079,18 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 	return nil
 }
 
-func convertVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
+func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
+	if config == nil {
+		return nil
+	}
+	// in case legacy vector config was set as an empty map/object instead of nil
+	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
+		return nil
+	}
+	return config.(schema.VectorIndexConfig)
+}
+
+func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
 	if len(configs) > 0 {
 		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
 		for targetVector, vectorConfig := range configs {

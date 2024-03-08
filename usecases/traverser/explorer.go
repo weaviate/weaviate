@@ -328,8 +328,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		} else {
 			hybridSearchLimit = baseSearchLimit
 		}
+		targetVec := ""
+		if len(params.HybridSearch.TargetVectors) > 0 {
+			targetVec = params.HybridSearch.TargetVectors[0]
+		}
+
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
-			params.ClassName, vec, params.TargetVector, 0, hybridSearchLimit, params.Filters,
+			params.ClassName, vec, targetVec, 0, hybridSearchLimit, params.Filters,
 			params.AdditionalProperties, params.Tenant)
 		if err != nil {
 			return nil, nil, err
@@ -500,7 +505,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			}
 
 			if params.AdditionalProperties.Certainty {
-				if err := e.checkCertaintyCompatibility(params.ClassName); err != nil {
+				if err := e.checkCertaintyCompatibility(params); err != nil {
 					return nil, errors.Errorf("additional: %s", err)
 				}
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
@@ -770,16 +775,16 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	return nil, "", errors.New("no modules defined")
 }
 
-func (e *Explorer) checkCertaintyCompatibility(className string) error {
+func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	s := e.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
 		return errors.Errorf("failed to get schema")
 	}
-	class := s.GetClass(schema.ClassName(className))
+	class := s.GetClass(schema.ClassName(params.ClassName))
 	if class == nil {
-		return errors.Errorf("failed to get class: %s", className)
+		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	vectorConfig, err := schema.TypeAssertVectorIndex(class)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{params.TargetVector})
 	if err != nil {
 		return err
 	}
