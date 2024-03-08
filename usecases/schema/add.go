@@ -165,6 +165,10 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		return nil, err
 	}
 
+	if class.ReplicationConfig.Factor < 2 && class.ReplicationConfig.AsyncEnabled {
+		return nil, fmt.Errorf("cannot enable async replication without replicas")
+	}
+
 	shardState, err := sharding.InitState(class.Class,
 		class.ShardingConfig.(sharding.Config),
 		m.clusterState, class.ReplicationConfig.Factor,
