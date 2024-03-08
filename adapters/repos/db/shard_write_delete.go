@@ -201,6 +201,9 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 }
 
 func (s *Shard) mayDeleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
+
 	if s.hashtree == nil {
 		return nil
 	}
