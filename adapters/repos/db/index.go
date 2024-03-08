@@ -511,7 +511,7 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
@@ -2081,6 +2081,10 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 
 func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
 	if config == nil {
+		return nil
+	}
+	// in case legacy vector config was set as an empty map/object instead of nil
+	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
 		return nil
 	}
 	return config.(schema.VectorIndexConfig)

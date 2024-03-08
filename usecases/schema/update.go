@@ -60,6 +60,10 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	if err := m.validateVectorSettings(updated); err != nil {
+		return err
+	}
+
 	if err := m.parseVectorIndexConfig(ctx, updated); err != nil {
 		return err
 	}

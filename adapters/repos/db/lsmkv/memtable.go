@@ -34,9 +34,10 @@ type Memtable struct {
 	strategy           string
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
-	lastWrite          time.Time
-	createdAt          time.Time
-	metrics            *memtableMetrics
+	// stores time memtable got dirty to determine when flush is needed
+	dirtyAt   time.Time
+	createdAt time.Time
+	metrics   *memtableMetrics
 }
 
 func newMemtable(path string, strategy string,
@@ -52,7 +53,7 @@ func newMemtable(path string, strategy string,
 		path:             path,
 		strategy:         strategy,
 		secondaryIndices: secondaryIndices,
-		lastWrite:        time.Now(),
+		dirtyAt:          time.Time{},
 		createdAt:        time.Now(),
 		metrics:          newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 	}
@@ -144,8 +145,6 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 	}
 
 	netAdditions, previousKeys := m.key.insert(key, value, secondaryKeys)
-	m.size += uint64(netAdditions)
-	m.metrics.size(m.size)
 
 	for i, sec := range previousKeys {
 		m.secondaryToPrimary[i][string(sec)] = nil
@@ -155,7 +154,9 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		m.secondaryToPrimary[i][string(sec)] = key
 	}
 
-	m.lastWrite = time.Now()
+	m.size += uint64(netAdditions)
+	m.metrics.size(m.size)
+	m.updateDirtyAt()
 
 	return nil
 }
@@ -193,8 +194,8 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 	m.key.setTombstone(key, secondaryKeys)
 	m.size += uint64(len(key)) + 1 // 1 byte for tombstone
-	m.lastWrite = time.Now()
 	m.metrics.size(m.size)
+	m.updateDirtyAt()
 
 	return nil
 }
@@ -262,9 +263,9 @@ func (m *Memtable) append(key []byte, values []value) error {
 	for _, value := range values {
 		m.size += uint64(len(value.value))
 	}
-
 	m.metrics.size(m.size)
-	m.lastWrite = time.Now()
+	m.updateDirtyAt()
+
 	return nil
 }
 
@@ -298,10 +299,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	}
 
 	m.keyMap.insert(key, pair)
-
 	m.size += uint64(len(key) + len(valuesForCommitLog))
-	m.lastWrite = time.Now()
 	m.metrics.size(m.size)
+	m.updateDirtyAt()
 
 	return nil
 }
@@ -320,11 +320,22 @@ func (m *Memtable) ActiveDuration() time.Duration {
 	return time.Since(m.createdAt)
 }
 
-func (m *Memtable) IdleDuration() time.Duration {
+func (m *Memtable) updateDirtyAt() {
+	if m.dirtyAt.IsZero() {
+		m.dirtyAt = time.Now()
+	}
+}
+
+// returns time memtable got dirty (1st write occurred)
+// (0 if clean)
+func (m *Memtable) DirtyDuration() time.Duration {
 	m.RLock()
 	defer m.RUnlock()
 
-	return time.Since(m.lastWrite)
+	if m.dirtyAt.IsZero() {
+		return 0
+	}
+	return time.Since(m.dirtyAt)
 }
 
 func (m *Memtable) countStats() *countStats {
