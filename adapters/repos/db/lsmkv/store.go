@@ -140,7 +140,6 @@ func (s *Store) unlockBucket(bucketName string) {
 		return
 	}
 	bucketLock.Unlock()
-	delete(s.bucketsLocks, bucketName)
 }
 
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
