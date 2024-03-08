@@ -31,13 +31,14 @@ import (
 )
 
 func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler) {
-	cfg := config.Config{DefaultVectorizerModule: "hnsw"}
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
-		valid: []string{
-			"model1", "model2", "hnsw", "text2vec-contextionary",
-		},
+		valid: []string{"text2vec-contextionary", "model1", "model2"},
+	}
+	cfg := config.Config{
+		DefaultVectorizerModule:     config.VectorizerModuleNone,
+		DefaultVectorDistanceMetric: "cosine",
 	}
 	handler, err := NewHandler(
 		metaHandler, metaHandler, &fakeValidator{}, logger, &fakeAuthorizer{nil},
