@@ -7,6 +7,7 @@ function main() {
   run_all_tests=true
   run_acceptance_tests=false
   run_acceptance_only_fast=false
+  run_acceptance_only_python=false  
   run_acceptance_go_client=false
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
@@ -28,6 +29,7 @@ function main() {
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
           
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
+          --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;           
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
@@ -43,6 +45,7 @@ function main() {
               "--integration-only | -i"\
               "--acceptance-only | -a"\
               "--acceptance-only-fast | -aof"\
+              "--acceptance-only-python | -aop"\
               "--acceptance-go-client | -ag"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
@@ -85,7 +88,7 @@ function main() {
     echo_green "Integration tests successful"
   fi 
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_all_tests || $run_benchmark 
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark 
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -114,6 +117,13 @@ function main() {
     fi
   fi
 
+  if $run_acceptance_only_python || $run_all_tests
+  then
+    echo_green "Run python acceptance tests..."
+    ./test/acceptance_with_python/run.sh
+    echo_green "Python tests successful"
+  fi
+  
   if $only_module; then
     mod=${only_module_value//--only-module-/}
     echo_green "Running module acceptance tests for $mod..."
