@@ -460,7 +460,6 @@ func (h *Handler) validateCanAddClass(
 	ctx context.Context, class *models.Class,
 	relaxCrossRefValidation bool,
 ) error {
-
 	if err := h.validateClassName(class.Class); err != nil {
 		return err
 	}
