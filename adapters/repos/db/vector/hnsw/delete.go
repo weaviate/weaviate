@@ -213,6 +213,8 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
 	defer func() {
 		err := recover()
 		if err != nil {
