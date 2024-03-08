@@ -26,33 +26,11 @@ import (
 )
 
 const (
-	DefaultQueryMaximumResults            = int64(10000)
-	DefaultQueryNestedCrossReferenceLimit = int64(100000)
-)
-
-const (
-	DefaultPersistenceFlushIdleMemtablesAfter = 60
-	DefaultPersistenceMemtablesMaxSize        = 200
-	DefaultPersistenceMemtablesMinDuration    = 15
-	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = 0
-	DefaultGRPCPort                           = 50051
-	DefaultMinimumReplicationFactor           = 1
-
 	DefaultRaftPort             = 8300
 	DefaultRaftInternalPort     = 8301
 	DefaultRaftBootstrapTimeout = 10
 	DefaultRaftBootstrapExpect  = 1
 )
-
-const VectorizerModuleNone = "none"
-
-// DefaultGossipBindPort uses the hashicorp/memberlist default
-// port value assigned with the use of DefaultLocalConfig
-const DefaultGossipBindPort = 7946
-
-// TODO: This should be retrieved dynamically from all installed modules
-const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that

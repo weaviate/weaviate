@@ -2107,9 +2107,9 @@ func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConf
 
 func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schemaConfig.VectorIndexConfig {
 	if len(configs) > 0 {
-		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
+		vectorIndexConfigs := make(map[string]schemaConfig.VectorIndexConfig)
 		for targetVector, vectorConfig := range configs {
-			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schema.VectorIndexConfig); ok {
+			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 				vectorIndexConfigs[targetVector] = vectorIndexConfig
 			}
 		}

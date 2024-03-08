@@ -144,7 +144,8 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(
+			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
 			return nil, err
 		}
 	} else {
@@ -169,7 +170,9 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 				"to add additional properties")
 	}
 
-	if err := p.validator.ValidateInvertedIndexConfigUpdate(class.InvertedIndexConfig, update.InvertedIndexConfig); err != nil {
+	if err := p.validator.ValidateInvertedIndexConfigUpdate(
+		class.InvertedIndexConfig,
+		update.InvertedIndexConfig); err != nil {
 		return nil, fmt.Errorf("inverted index config: %w", err)
 	}
 
