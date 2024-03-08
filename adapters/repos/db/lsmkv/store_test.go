@@ -24,6 +24,7 @@ import (
 func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 	t.Parallel()
 
+	// not t.TempDir() because the dir is not empty
 	dirName := "./testdata"
 	defer os.RemoveAll(dirName)
 
@@ -44,6 +45,7 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 func TestCreateBucketConcurrency(t *testing.T) {
 	t.Parallel()
 
+	// not t.TempDir() because the dir is not empty
 	dirName := "./testdata"
 	defer os.RemoveAll(dirName)
 
