@@ -174,9 +174,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
 ) {
-	h.pools.visitedListsLock.Lock()
+	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.Unlock()
+	h.pools.visitedListsLock.RUnlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -276,6 +276,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
 					h.handleDeletedNode(e.DocID)
+					continue
 				} else {
 					if err != nil {
 						return nil, errors.Wrap(err, "calculate distance between candidate and query")
@@ -326,9 +327,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 	h.pools.pqCandidates.Put(candidates)
 
-	h.pools.visitedListsLock.Lock()
+	h.pools.visitedListsLock.RLock()
 	h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.Unlock()
+	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
 }
@@ -441,14 +442,7 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
 ) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
-		}
+		return 0, false, err
 	}
 
 	dist, _, err := distancer.Distance(candidateVec)

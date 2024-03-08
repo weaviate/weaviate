@@ -14,17 +14,19 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
-	"github.com/fatih/camelcase"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+
+	"github.com/fatih/camelcase"
 )
 
 type ClassSettings interface {
 	PropertyIndexed(property string) bool
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
+	Properties() []string
 }
 
 type ObjectVectorizer struct{}
@@ -33,78 +35,10 @@ func New() *ObjectVectorizer {
 	return &ObjectVectorizer{}
 }
 
-func (v *ObjectVectorizer) TextsOrVector(ctx context.Context, className string,
-	schema interface{}, objDiff *moduletools.ObjectDiff,
-	icheck ClassSettings,
-) (string, []float32, error) {
-	vectorize := objDiff == nil || objDiff.GetVec() == nil
-
-	var corpi []string
-	if icheck.VectorizeClassName() {
-		corpi = append(corpi, v.camelCaseToLower(className))
-	}
-	if schema != nil {
-		schemamap := schema.(map[string]interface{})
-		for _, prop := range v.sortStringKeys(schemamap) {
-			if !icheck.PropertyIndexed(prop) {
-				continue
-			}
-
-			appended := false
-			switch val := schemamap[prop].(type) {
-			case []string:
-				for _, elem := range val {
-					appended = v.appendPropIfText(icheck, &corpi, prop, elem) || appended
-				}
-			case []interface{}:
-				for _, elem := range val {
-					appended = v.appendPropIfText(icheck, &corpi, prop, elem) || appended
-				}
-			default:
-				appended = v.appendPropIfText(icheck, &corpi, prop, val)
-			}
-
-			vectorize = vectorize || (appended && objDiff != nil && objDiff.IsChangedProp(prop))
-		}
-	}
-	if len(corpi) == 0 {
-		// fall back to using the class name
-		corpi = append(corpi, v.camelCaseToLower(className))
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return "", objDiff.GetVec(), nil
-	}
-
-	text := strings.Join(corpi, " ")
-	return text, nil, nil
-}
-
-func (v *ObjectVectorizer) sortStringKeys(schemaMap map[string]interface{}) []string {
-	keys := make([]string, 0, len(schemaMap))
-	for k := range schemaMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func (v *ObjectVectorizer) appendPropIfText(icheck ClassSettings, list *[]string, propName string,
-	value interface{},
-) bool {
-	valueString, ok := value.(string)
-	if ok {
-		if icheck.VectorizePropertyName(propName) {
-			// use prop and value
-			*list = append(*list, strings.ToLower(
-				fmt.Sprintf("%s %s", v.camelCaseToLower(propName), valueString)))
-		} else {
-			*list = append(*list, strings.ToLower(valueString))
-		}
-		return true
-	}
-	return false
+func (v *ObjectVectorizer) Texts(ctx context.Context, object *models.Object, icheck ClassSettings,
+) string {
+	text, _ := v.TextsWithTitleProperty(ctx, object, icheck, "")
+	return text
 }
 
 func (v *ObjectVectorizer) camelCaseToLower(in string) string {
@@ -123,4 +57,59 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 	}
 
 	return sb.String()
+}
+
+func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *models.Object, icheck ClassSettings, titlePropertyName string,
+) (string, string) {
+	var corpi []string
+	var titlePropertyValue []string
+
+	if icheck.VectorizeClassName() {
+		corpi = append(corpi, v.camelCaseToLower(object.Class))
+	}
+	if object.Properties != nil {
+		propMap := object.Properties.(map[string]interface{})
+		for _, propName := range moduletools.SortStringKeys(propMap) {
+			if !icheck.PropertyIndexed(propName) {
+				continue
+			}
+			isTitleProperty := propName == titlePropertyName
+			isNameVectorizable := icheck.VectorizePropertyName(propName)
+
+			switch val := propMap[propName].(type) {
+			case []string:
+				if len(val) > 0 {
+					lowerPropertyName := v.camelCaseToLower(propName)
+
+					for i := range val {
+						str := strings.ToLower(val[i])
+						if isTitleProperty {
+							titlePropertyValue = append(titlePropertyValue, str)
+						}
+						if isNameVectorizable {
+							str = fmt.Sprintf("%s %s", lowerPropertyName, str)
+						}
+						corpi = append(corpi, str)
+					}
+				}
+			case string:
+				str := strings.ToLower(val)
+				if isTitleProperty {
+					titlePropertyValue = append(titlePropertyValue, str)
+				}
+				if icheck.VectorizePropertyName(propName) {
+					str = fmt.Sprintf("%s %s", v.camelCaseToLower(propName), str)
+				}
+				corpi = append(corpi, str)
+			default:
+				// properties that are not part of the object
+			}
+		}
+	}
+	if len(corpi) == 0 {
+		// fall back to using the class name
+		corpi = append(corpi, v.camelCaseToLower(object.Class))
+	}
+
+	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")
 }

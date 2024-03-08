@@ -147,6 +147,7 @@ type Index struct {
 	Config                    IndexConfig
 	vectorIndexUserConfig     schema.VectorIndexConfig
 	vectorIndexUserConfigLock sync.Mutex
+	vectorIndexUserConfigs    map[string]schema.VectorIndexConfig
 	getSchema                 schemaUC.SchemaGetter
 	logger                    logrus.FieldLogger
 	remote                    *sharding.RemoteIndex
@@ -212,7 +213,9 @@ type nodeResolver interface {
 // the shards that are local to a node
 func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
-	vectorIndexUserConfig schema.VectorIndexConfig, sg schemaUC.SchemaGetter,
+	vectorIndexUserConfig schema.VectorIndexConfig,
+	vectorIndexUserConfigs map[string]schema.VectorIndexConfig,
+	sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -232,14 +235,15 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	index := &Index{
-		Config:                cfg,
-		getSchema:             sg,
-		logger:                logger,
-		classSearcher:         cs,
-		vectorIndexUserConfig: vectorIndexUserConfig,
-		invertedIndexConfig:   invertedIndexConfig,
-		stopwords:             sd,
-		replicator:            repl,
+		Config:                 cfg,
+		getSchema:              sg,
+		logger:                 logger,
+		classSearcher:          cs,
+		vectorIndexUserConfig:  vectorIndexUserConfig,
+		vectorIndexUserConfigs: vectorIndexUserConfigs,
+		invertedIndexConfig:    invertedIndexConfig,
+		stopwords:              sd,
+		replicator:             repl,
 		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
@@ -456,6 +460,29 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	defer i.vectorIndexUserConfigLock.Unlock()
 
 	i.vectorIndexUserConfig = updated
+
+	return nil
+}
+
+func (i *Index) updateVectorIndexConfigs(ctx context.Context,
+	updated map[string]schema.VectorIndexConfig,
+) error {
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	for targetName, targetCfg := range updated {
+		i.vectorIndexUserConfigs[targetName] = targetCfg
+	}
 
 	return nil
 }
@@ -1221,7 +1248,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 			} else {
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, limit, filters, keywordRanking,
+					ctx, shardName, nil, "", limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
 					return fmt.Errorf(
@@ -1309,13 +1336,13 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 }
 
 func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
-	dist float32, limit int, filters *filters.LocalFilter,
+	targetVector string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	shard := i.localShard(shardName)
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
+		ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1342,7 +1369,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
+	targetVector string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
@@ -1356,7 +1383,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 	if len(shardNames) == 1 {
 		if i.localShard(shardNames[0]) != nil {
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, dist, limit, filters,
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, targetVector, dist, limit, filters,
 				sort, groupBy, additional, shardNames[0])
 		}
 	}
@@ -1389,14 +1416,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if shard := i.localShard(shardName); shard != nil {
 				nodeName = i.getSchema.NodeName()
 				res, resDists, err = shard.ObjectVectorSearch(
-					ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
+					ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
 
 			} else {
 				res, resDists, nodeName, err = i.remote.SearchShard(ctx,
-					shardName, searchVector, limit, filters,
+					shardName, searchVector, targetVector, limit, filters,
 					nil, sort, nil, groupBy, additional, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
@@ -1453,9 +1480,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVector []float32, distance float32, limit int, filters *filters.LocalFilter,
-	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+	searchVector []float32, targetVector string, distance float32, limit int,
+	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	shard := i.localShard(shardName)
@@ -1473,7 +1500,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, distance, limit, filters, sort, groupBy, additional)
+		ctx, searchVector, targetVector, distance, limit, filters, sort, groupBy, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1797,7 +1824,13 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			if shard == nil {
 				err = errors.Errorf("shard %s does not exist", shardName)
 			} else {
-				size = shard.Queue().Size()
+				if shard.hasTargetVectors() {
+					for _, queue := range shard.Queues() {
+						size += queue.Size()
+					}
+				} else {
+					size = shard.Queue().Size()
+				}
 			}
 		}
 		if err != nil {
@@ -1815,7 +1848,14 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	if shard == nil {
 		return 0, errShardNotFound
 	}
-	return shard.Queue().Size(), nil
+	if !shard.hasTargetVectors() {
+		return shard.Queue().Size(), nil
+	}
+	size := int64(0)
+	for _, queue := range shard.Queues() {
+		size += queue.Size()
+	}
+	return size, nil
 }
 
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
@@ -2035,6 +2075,26 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
 		)
+	}
+	return nil
+}
+
+func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
+	if config == nil {
+		return nil
+	}
+	return config.(schema.VectorIndexConfig)
+}
+
+func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
+	if len(configs) > 0 {
+		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
+		for targetVector, vectorConfig := range configs {
+			if vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schema.VectorIndexConfig); ok {
+				vectorIndexConfigs[targetVector] = vectorIndexConfig
+			}
+		}
+		return vectorIndexConfigs
 	}
 	return nil
 }

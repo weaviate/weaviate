@@ -34,7 +34,7 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 # This image gets grpc health check probe
 FROM build_base AS grpc_health_probe_builder
 ARG TARGETARCH
-RUN GRPC_HEALTH_PROBE_VERSION=v0.4.22 && \
+RUN GRPC_HEALTH_PROBE_VERSION=v0.4.24 && \
       wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-${TARGETARCH} && \
       chmod +x /bin/grpc_health_probe
 
@@ -44,6 +44,8 @@ FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
+RUN mkdir -p /go/pkg/mod/github.com/go-ego
+COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
 RUN apk add --no-cache --upgrade ca-certificates openssl
 RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

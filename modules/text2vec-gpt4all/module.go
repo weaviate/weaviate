@@ -44,8 +44,8 @@ type GPT4AllModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		cfg moduletools.ClassConfig) error
+	Object(ctx context.Context, obj *models.Object,
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
 }
@@ -126,9 +126,9 @@ func (m *GPT4AllModule) RootHandler() http.Handler {
 }
 
 func (m *GPT4AllModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
 func (m *GPT4AllModule) MetaInfo() (map[string]interface{}, error) {
@@ -137,6 +137,10 @@ func (m *GPT4AllModule) MetaInfo() (map[string]interface{}, error) {
 
 func (m *GPT4AllModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
+}
+
+func (m *GPT4AllModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 func (m *GPT4AllModule) VectorizeInput(ctx context.Context,

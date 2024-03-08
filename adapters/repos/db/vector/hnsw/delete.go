@@ -14,7 +14,10 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"time"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"golang.org/x/sync/errgroup"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -289,26 +293,73 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	return true, nil
 }
 
+func tombstoneDeletionConcurrency() int {
+	if v := os.Getenv("TOMBSTONE_DELETION_CONCURRENCY"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err == nil && asInt > 0 {
+			return asInt
+		}
+	}
+	return runtime.GOMAXPROCS(0) / 2
+}
+
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
-
-	for n := 0; n < size; n++ {
-		if ok, err := h.reassignNeighbor(uint64(n), deleteList, breakCleanUpTombstonedNodes); err != nil {
-			return false, errors.Wrap(err, "reassign neighbor edges")
-		} else if !ok {
-			return false, nil
-		}
-	}
-
-	return true, nil
-}
-
-func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
+	g, ctx := errgroup.WithContext(h.shutdownCtx)
+	ch := make(chan uint64)
+
+	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
+		g.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case deletedID, ok := <-ch:
+					if !ok {
+						return nil
+					}
+					h.shardedNodeLocks.RLock(deletedID)
+					if uint64(size) < deletedID || h.nodes[deletedID] == nil {
+						h.shardedNodeLocks.RUnlock(deletedID)
+						continue
+					}
+					h.shardedNodeLocks.RUnlock(deletedID)
+					h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+				}
+			}
+		})
+	}
+
+LOOP:
+	for i := 0; i < size; i++ {
+		select {
+		case ch <- uint64(i):
+		case <-ctx.Done():
+			break LOOP
+		}
+	}
+
+	close(ch)
+
+	err = g.Wait()
+	if errors.Is(err, context.Canceled) {
+		h.logger.Errorf("class %s: tombstone cleanup canceled", h.className)
+		return false, nil
+	}
+
+	return true, err
+}
+
+func (h *hnsw) reassignNeighbor(
+	neighbor uint64,
+	deleteList helpers.AllowList,
+	breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc,
+) (ok bool, err error) {
 	if breakCleanUpTombstonedNodes() {
 		return false, nil
 	}
@@ -328,7 +379,7 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
+		compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
@@ -386,23 +437,13 @@ func (h *hnsw) reassignNeighbor(neighbor uint64, deleteList helpers.AllowList, b
 			// reset connections according to level
 			neighborNode.connections = make([][]uint64, level+1)
 			neighborNode.Unlock()
+			neighborLevel = level
 		}
-		neighborLevel = level
 		entryPointID = alternative
 	}
 
 	neighborNode.markAsMaintenance()
-	neighborNode.Lock()
-	// delete all existing connections before re-assigning
-	for level := range neighborNode.connections {
-		neighborNode.connections[level] = neighborNode.connections[level][:0]
-	}
-	neighborNode.Unlock()
-	if err := h.commitLog.ClearLinks(neighbor); err != nil {
-		return false, err
-	}
-
-	if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec, compressorDistancer,
+	if err := h.reconnectNeighboursOf(neighborNode, entryPointID, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}

@@ -44,8 +44,8 @@ type OpenAIModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		cfg moduletools.ClassConfig) error
+	Object(ctx context.Context, obj *models.Object,
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
 }
@@ -122,9 +122,9 @@ func (m *OpenAIModule) RootHandler() http.Handler {
 }
 
 func (m *OpenAIModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
 func (m *OpenAIModule) MetaInfo() (map[string]interface{}, error) {
@@ -139,6 +139,10 @@ func (m *OpenAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *OpenAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 // verify we implement the modules.Module interface

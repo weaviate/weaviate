@@ -13,6 +13,8 @@ package indexcheckpoint
 
 import (
 	"encoding/binary"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -25,18 +27,21 @@ var checkpointBucket = []byte("checkpoint")
 // Checkpoints keeps track of the last indexed vector id for each shard.
 // It stores the ids in a BoltDB file.
 type Checkpoints struct {
-	db *bolt.DB
+	db   *bolt.DB
+	path string
 }
 
 func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 	path := filepath.Join(dir, "index.db")
+
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}
 
 	ic := Checkpoints{
-		db: db,
+		db:   db,
+		path: path,
 	}
 
 	err = ic.initDB()
@@ -61,33 +66,39 @@ func (c *Checkpoints) Close() {
 	c.db.Close()
 }
 
-func (c *Checkpoints) Get(shardID string) (uint64, error) {
-	var count uint64
-	err := c.db.View(func(tx *bolt.Tx) error {
+func (c *Checkpoints) getID(shardID, targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", shardID, targetVector)
+	}
+	return shardID
+}
+
+func (c *Checkpoints) Get(shardID, targetVector string) (count uint64, exists bool, err error) {
+	err = c.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		v := b.Get([]byte(shardID))
+		v := b.Get([]byte(c.getID(shardID, targetVector)))
 		if v == nil {
 			return nil
 		}
 
 		count = binary.LittleEndian.Uint64(v)
-
+		exists = true
 		return nil
 	})
 	if err != nil {
-		return 0, errors.Wrap(err, "get checkpoint")
+		return 0, false, errors.Wrap(err, "get checkpoint")
 	}
 
-	return count, nil
+	return
 }
 
-func (c *Checkpoints) Update(shardID string, id uint64) error {
+func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, id)
 
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Put([]byte(shardID), buf)
+		return b.Put([]byte(c.getID(shardID, targetVector)), buf)
 	})
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")
@@ -96,10 +107,10 @@ func (c *Checkpoints) Update(shardID string, id uint64) error {
 	return nil
 }
 
-func (c *Checkpoints) Delete(shardID string) error {
+func (c *Checkpoints) Delete(shardID, targetVector string) error {
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Delete([]byte(shardID))
+		return b.Delete([]byte(c.getID(shardID, targetVector)))
 	})
 	if err != nil {
 		return errors.Wrap(err, "delete checkpoint")
@@ -108,6 +119,11 @@ func (c *Checkpoints) Delete(shardID string) error {
 	return nil
 }
 
+func (c *Checkpoints) Drop() error {
+	c.db.Close()
+	return os.Remove(c.Filename())
+}
+
 func (c *Checkpoints) Filename() string {
-	return c.db.Path()
+	return c.path
 }

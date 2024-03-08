@@ -103,6 +103,7 @@ type Config struct {
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
+	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 }
 
 type moduleProvider interface {
@@ -193,6 +194,7 @@ type GRPC struct {
 type Profiling struct {
 	BlockProfileRate     int `json:"blockProfileRate" yaml:"blockProfileRate"`
 	MutexProfileFraction int `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	Port                 int `json:"port" yaml:"port"`
 }
 
 type Persistence struct {

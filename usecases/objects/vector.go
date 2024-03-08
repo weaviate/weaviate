@@ -38,13 +38,14 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 		if err != nil {
 			return err
 		}
+
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, class, nil, m.findObject, m.logger); err != nil {
+			ctx, obj, class, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, obj.Vectors, nil); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 

@@ -47,32 +47,18 @@ type ClassSettings interface {
 	PoolingStrategy() string
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	vec, err := v.object(ctx, object.Class, object.Properties, objDiff, cfg)
-	if err != nil {
-		return err
-	}
-
-	object.Vector = vec
-	return nil
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	vec, err := v.object(ctx, object, cfg)
+	return vec, nil, err
 }
 
-func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text, vector, err := v.objectVectorizer.TextsOrVector(ctx, className, schema, objDiff, NewClassSettings(cfg))
-	if err != nil {
-		return nil, err
-	}
-	if vector != nil {
-		// dont' re-vectorize
-		return vector, nil
-	}
-	// vectorize text
+	icheck := NewClassSettings(cfg)
+	text := v.objectVectorizer.Texts(ctx, object, icheck)
 	res, err := v.client.VectorizeObject(ctx, text, ent.VectorizationConfig{
-		PoolingStrategy: NewClassSettings(cfg).PoolingStrategy(),
+		PoolingStrategy: icheck.PoolingStrategy(),
 	})
 	if err != nil {
 		return nil, err

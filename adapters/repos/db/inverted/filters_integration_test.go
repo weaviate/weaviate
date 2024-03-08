@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -81,8 +82,11 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
+		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -314,6 +318,7 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
 		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
 	bucket := store.Bucket(bucketName)
+	maxDocID := uint64(21)
 
 	defer store.Shutdown(context.Background())
 
@@ -346,8 +351,11 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
+		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -390,8 +398,9 @@ func Test_Filters_Int(t *testing.T) {
 					},
 				},
 			},
-			expectedListBeforeUpdate: helpers.NewAllowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16),
-			expectedListAfterUpdate:  helpers.NewAllowList(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 21),
+			// For NotEqual, all doc ids not matching will be returned, up to `maxDocID`
+			expectedListBeforeUpdate: notEqualsExpectedResults(maxDocID, 13),
+			expectedListAfterUpdate:  notEqualsExpectedResults(maxDocID, 13),
 		},
 		{
 			name: "exact match - or filter",
@@ -528,8 +537,11 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
+		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -669,4 +681,20 @@ func createSchema() schema.Schema {
 			},
 		},
 	}
+}
+
+func newFakeMaxIDGetter(maxID uint64) func() uint64 {
+	return func() uint64 { return maxID }
+}
+
+func notEqualsExpectedResults(maxID uint64, skip int) helpers.AllowList {
+	allow := make([]uint64, maxID)
+	p := 0
+	for i := 0; i < len(allow); i++ {
+		if i != skip {
+			allow[p] = uint64(i)
+			p++
+		}
+	}
+	return helpers.NewAllowList(allow...)
 }

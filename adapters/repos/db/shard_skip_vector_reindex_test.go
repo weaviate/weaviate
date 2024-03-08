@@ -9,830 +9,822 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-// +build integrationTest
-
 package db
 
 import (
-	"context"
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func TestShard_SkipVectorReindex(t *testing.T) {
-	ctx := context.Background()
-	searchLimit := 10
-	vectorSearchLimit := -1 // negative to limit results by distance
-	vectorSearchDist := float32(1)
-
-	class := &models.Class{
-		Class: "TestClass",
-		InvertedIndexConfig: &models.InvertedIndexConfig{
-			IndexTimestamps:     true,
-			IndexNullState:      true,
-			IndexPropertyLength: true,
-		},
-		Properties: []*models.Property{
-			{
-				Name:         "texts",
-				DataType:     schema.DataTypeTextArray.PropString(),
-				Tokenization: models.PropertyTokenizationWord,
-			},
-			{
-				Name:     "numbers",
-				DataType: schema.DataTypeNumberArray.PropString(),
-			},
-			{
-				Name:     "ints",
-				DataType: schema.DataTypeIntArray.PropString(),
-			},
-			{
-				Name:     "booleans",
-				DataType: schema.DataTypeBooleanArray.PropString(),
-			},
-			{
-				Name:     "dates",
-				DataType: schema.DataTypeDateArray.PropString(),
-			},
-			{
-				Name:     "uuids",
-				DataType: schema.DataTypeUUIDArray.PropString(),
-			},
-			{
-				Name:         "text",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWord,
-			},
-			{
-				Name:     "number",
-				DataType: schema.DataTypeNumber.PropString(),
-			},
-			{
-				Name:     "int",
-				DataType: schema.DataTypeInt.PropString(),
-			},
-			{
-				Name:     "boolean",
-				DataType: schema.DataTypeBoolean.PropString(),
-			},
-			{
-				Name:     "date",
-				DataType: schema.DataTypeDate.PropString(),
-			},
-			{
-				Name:     "uuid",
-				DataType: schema.DataTypeUUID.PropString(),
-			},
-		},
-	}
-	vectorIndexConfig := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-
-	uuid := strfmt.UUID(uuid.NewString())
-	vector := []float32{1, 2, 3}
-	altVector := []float32{10, 0, -20}
-
-	origObj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    uuid,
-			Class: class.Class,
-			Properties: map[string]interface{}{
-				"texts": []interface{}{
-					"aaa",
-					"bbb",
-					"ccc",
-				},
-				"numbers": []interface{}{},
-				"ints": []interface{}{
-					asJsonNumber(101), asJsonNumber(101), asJsonNumber(101), asJsonNumber(101), asJsonNumber(101), asJsonNumber(101),
-					asJsonNumber(102),
-					asJsonNumber(103),
-					asJsonNumber(104),
-				},
-				"booleans": []interface{}{
-					true, true, true,
-					false,
-				},
-				"dates": []interface{}{
-					"2001-06-01T12:00:00.000000Z",
-					"2002-06-02T12:00:00.000000Z",
-				},
-				// no uuids
-				"text": "ddd",
-				// no number
-				"int":     int64(201),
-				"boolean": false,
-				"date":    asTime("2003-06-01T12:00:00.000000Z"),
-				// no uuid
-			},
-		},
-		Vector: vector,
+func TestGeoPropsEqual(t *testing.T) {
+	type testCase struct {
+		prevProps     map[string]interface{}
+		nextProps     map[string]interface{}
+		expectedEqual bool
 	}
 
-	updObj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:    uuid,
-			Class: class.Class,
-			Properties: map[string]interface{}{
-				"texts": []interface{}{},
-				// no numbers
-				"ints": []interface{}{
-					asJsonNumber(101), asJsonNumber(101), asJsonNumber(101), asJsonNumber(101),
-					asJsonNumber(103),
-					asJsonNumber(104),
-					asJsonNumber(105),
-				},
-				"booleans": []interface{}{
-					true, true, true,
-					false,
-				},
-				// no dates
-				"uuids": []interface{}{
-					asUuid("d726c960-aede-411c-85d3-2c77e9290a6e"),
-				},
-				"text": "",
-				// no number
-				"int":     int64(202),
-				"boolean": true,
-				// no date
-				"uuid": asUuid("7fabaf01-9e10-458a-acea-cc627376c506"),
-			},
-		},
-		Vector: vector,
+	ptrFloat32 := func(f float32) *float32 {
+		return &f
 	}
 
-	mergeDoc := objects.MergeDocument{
-		ID:    uuid,
-		Class: class.Class,
-		PrimitiveSchema: map[string]interface{}{
-			"texts": []interface{}{},
-			"ints": []interface{}{
-				asJsonNumber(101), asJsonNumber(101), asJsonNumber(101), asJsonNumber(101),
-				asJsonNumber(103),
-				asJsonNumber(104),
-				asJsonNumber(105),
-			},
-			"uuids": []interface{}{
-				asUuid("d726c960-aede-411c-85d3-2c77e9290a6e"),
-			},
-			"text":    "",
-			"int":     int64(202),
-			"boolean": true,
-			"uuid":    asUuid("7fabaf01-9e10-458a-acea-cc627376c506"),
+	testCases := []testCase{
+		{
+			prevProps:     map[string]interface{}{},
+			nextProps:     map[string]interface{}{},
+			expectedEqual: true,
 		},
-		PropertiesToDelete: []string{"numbers", "dates", "date"},
-		Vector:             vector,
+		{
+			prevProps: map[string]interface{}{
+				"notGeo": "abc",
+			},
+			nextProps: map[string]interface{}{
+				"notGeo": "def",
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": nil,
+			},
+			nextProps: map[string]interface{}{
+				"geo": nil,
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": nil,
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps:     map[string]interface{}{},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": nil,
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(-1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(-2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(-1.23),
+					Longitude: ptrFloat32(-2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo2": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"notGeo": "string",
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"notGeo": "otherString",
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"geo2": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(4.56),
+					Longitude: ptrFloat32(5.67),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"geo2": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(4.56),
+					Longitude: ptrFloat32(5.67),
+				},
+			},
+			expectedEqual: true,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"geo2": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(4.56),
+					Longitude: ptrFloat32(5.67),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"geo2": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(4.56),
+					Longitude: ptrFloat32(5.67),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geo": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(1.23),
+					Longitude: ptrFloat32(2.34),
+				},
+				"geo2": &models.GeoCoordinates{
+					Latitude:  ptrFloat32(4.56),
+					Longitude: ptrFloat32(-5.67),
+				},
+			},
+			expectedEqual: false,
+		},
+		{
+			prevProps: map[string]interface{}{
+				"geoLike": map[string]interface{}{
+					"Latitude":  ptrFloat32(1.23),
+					"Longitude": ptrFloat32(2.34),
+				},
+			},
+			nextProps: map[string]interface{}{
+				"geoLike": map[string]interface{}{
+					"Latitude":  ptrFloat32(1.23),
+					"Longitude": ptrFloat32(2.34),
+				},
+			},
+			expectedEqual: true,
+		},
 	}
 
-	filterTextsEqAAA := filterEqual[string]("aaa", schema.DataTypeText, class.Class, "texts")
-	filterTextsLen3 := filterEqual[int](3, schema.DataTypeInt, class.Class, "len(texts)")
-	filterTextsLen0 := filterEqual[int](0, schema.DataTypeInt, class.Class, "len(texts)")
-	filterTextsNotNil := filterNil(false, class.Class, "texts")
-	filterTextsNil := filterNil(true, class.Class, "texts")
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
+			eq := geoPropsEqual(tc.prevProps, tc.nextProps)
 
-	filterNumbersEq123 := filterEqual[float64](1.23, schema.DataTypeNumber, class.Class, "numbers")
-	filterNumbersLen1 := filterEqual[int](1, schema.DataTypeInt, class.Class, "len(numbers)")
-	filterNumbersLen0 := filterEqual[int](0, schema.DataTypeInt, class.Class, "len(numbers)")
-	filterNumbersNotNil := filterNil(false, class.Class, "numbers")
-	filterNumbersNil := filterNil(true, class.Class, "numbers")
+			if tc.expectedEqual {
+				assert.True(t, eq)
+			} else {
+				assert.False(t, eq)
+			}
+		})
+	}
+}
 
-	filterIntsEq102 := filterEqual[int](102, schema.DataTypeInt, class.Class, "ints")
-	filterIntsEq105 := filterEqual[int](105, schema.DataTypeInt, class.Class, "ints")
-	filterIntsLen9 := filterEqual[int](9, schema.DataTypeInt, class.Class, "len(ints)")
-	filterIntsLen7 := filterEqual[int](7, schema.DataTypeInt, class.Class, "len(ints)")
-	filterIntsNotNil := filterNil(false, class.Class, "ints")
-	filterIntsNil := filterNil(true, class.Class, "ints")
+func TestPropsEqual(t *testing.T) {
+	type testCase struct {
+		prevProps     map[string]interface{}
+		nextProps     map[string]interface{}
+		expectedEqual bool
+	}
 
-	filterBoolsEqTrue := filterEqual[bool](true, schema.DataTypeBoolean, class.Class, "booleans")
-	filterBoolsEqFalse := filterEqual[bool](false, schema.DataTypeBoolean, class.Class, "booleans")
-	filterBoolsLen4 := filterEqual[int](4, schema.DataTypeInt, class.Class, "len(booleans)")
-	filterBoolsLen0 := filterEqual[int](0, schema.DataTypeInt, class.Class, "len(booleans)")
-	filterBoolsNotNil := filterNil(false, class.Class, "booleans")
-	filterBoolsNil := filterNil(true, class.Class, "booleans")
+	_uuid := func(i int) uuid.UUID {
+		b := [16]byte{}
+		binary.BigEndian.PutUint64(b[:8], 0)
+		binary.BigEndian.PutUint64(b[8:], 1234567890+uint64(i))
+		return uuid.UUID(b)
+	}
+	_uuidAsText := func(i int) string {
+		u, _ := _uuid(i).MarshalText()
+		return string(u)
+	}
+	_date := func(i int) time.Time {
+		return time.Unix(int64(1704063600+i), 0)
+	}
+	_dateAsText := func(i int) string {
+		d, _ := _date(i).MarshalText()
+		return string(d)
+	}
+	_text := func(i int) string {
+		return fmt.Sprintf("text%d", i)
+	}
+	ptrFloat32 := func(f float32) *float32 {
+		return &f
+	}
 
-	filterDatesEq2001 := filterEqual[string]("2001-06-01T12:00:00.000000Z", schema.DataTypeDate, class.Class, "dates")
-	filterDatesLen2 := filterEqual[int](2, schema.DataTypeInt, class.Class, "len(dates)")
-	filterDatesLen0 := filterEqual[int](0, schema.DataTypeInt, class.Class, "len(dates)")
-	filterDatesNotNil := filterNil(false, class.Class, "dates")
-	filterDatesNil := filterNil(true, class.Class, "dates")
-
-	filterUuidsEqD726 := filterEqual[string]("d726c960-aede-411c-85d3-2c77e9290a6e", schema.DataTypeText, class.Class, "uuids")
-	filterUuidsLen1 := filterEqual[int](1, schema.DataTypeInt, class.Class, "len(uuids)")
-	filterUuidsLen0 := filterEqual[int](0, schema.DataTypeInt, class.Class, "len(uuids)")
-	filterUuidsNotNil := filterNil(false, class.Class, "uuids")
-	filterUuidsNil := filterNil(true, class.Class, "uuids")
-
-	filterTextEqDDD := filterEqual[string]("ddd", schema.DataTypeText, class.Class, "text")
-	filterTextLen3 := filterEqual[int](3, schema.DataTypeInt, class.Class, "len(text)")
-	filterTextLen0 := filterEqual[int](0, schema.DataTypeInt, class.Class, "len(text)")
-	filterTextNotNil := filterNil(false, class.Class, "text")
-	filterTextNil := filterNil(true, class.Class, "text")
-
-	filterNumberEq123 := filterEqual[float64](1.23, schema.DataTypeNumber, class.Class, "number")
-	filterNumberNotNil := filterNil(false, class.Class, "number")
-	filterNumberNil := filterNil(true, class.Class, "number")
-
-	filterIntEq201 := filterEqual[int](201, schema.DataTypeInt, class.Class, "int")
-	filterIntEq202 := filterEqual[int](202, schema.DataTypeInt, class.Class, "int")
-	filterIntNotNil := filterNil(false, class.Class, "int")
-	filterIntNil := filterNil(true, class.Class, "int")
-
-	filterBoolEqFalse := filterEqual[bool](false, schema.DataTypeBoolean, class.Class, "boolean")
-	filterBoolEqTrue := filterEqual[bool](true, schema.DataTypeBoolean, class.Class, "boolean")
-	filterBoolNotNil := filterNil(false, class.Class, "boolean")
-	filterBoolNil := filterNil(true, class.Class, "boolean")
-
-	filterDateEq2003 := filterEqual[string]("2003-06-01T12:00:00.000000Z", schema.DataTypeDate, class.Class, "date")
-	filterDateNotNil := filterNil(false, class.Class, "date")
-	filterDateNil := filterNil(true, class.Class, "date")
-
-	filterUuidEq7FAB := filterEqual[string]("7fabaf01-9e10-458a-acea-cc627376c506", schema.DataTypeText, class.Class, "uuid")
-	filterUuidNotNil := filterNil(false, class.Class, "uuid")
-	filterUuidNil := filterNil(true, class.Class, "uuid")
-
-	verifySearchAfterAdd := func(shard ShardLike) func(t *testing.T) {
-		return func(t *testing.T) {
-			t.Run("to be found", func(t *testing.T) {
-				for name, filter := range map[string]*filters.LocalFilter{
-					"textsEqAAA":  filterTextsEqAAA,
-					"textsLen3":   filterTextsLen3,
-					"textsNotNil": filterTextsNotNil,
-
-					"numbersLen0": filterNumbersLen0,
-					"numbersNil":  filterNumbersNil,
-
-					"intsEq102":  filterIntsEq102,
-					"intsLen9":   filterIntsLen9,
-					"intsNotNil": filterIntsNotNil,
-
-					"boolsEqTrue":  filterBoolsEqTrue,
-					"boolsEqFalse": filterBoolsEqFalse,
-					"boolsLen4":    filterBoolsLen4,
-					"boolsNotNil":  filterBoolsNotNil,
-
-					"datesEq2001": filterDatesEq2001,
-					"datesLen2":   filterDatesLen2,
-					"datesNotNil": filterDatesNotNil,
-
-					"uuidsLen0": filterUuidsLen0,
-					"uuidsNil":  filterUuidsNil,
-
-					"textEqDDD":  filterTextEqDDD,
-					"textLen3":   filterTextLen3,
-					"textNotNil": filterTextNotNil,
-
-					"numberNil": filterNumberNil,
-
-					"intEq201":  filterIntEq201,
-					"intNotNil": filterIntNotNil,
-
-					"boolEqFalse": filterBoolEqFalse,
-					"boolNotNil":  filterBoolNotNil,
-
-					"dateEq2003": filterDateEq2003,
-					"dateNotNil": filterDateNotNil,
-
-					"uuidNil": filterUuidNil,
-				} {
-					t.Run(name, func(t *testing.T) {
-						found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-							nil, nil, nil, additional.Properties{})
-						require.NoError(t, err)
-						require.Len(t, found, 1)
-						require.Equal(t, uuid, found[0].Object.ID)
-					})
-				}
-			})
-
-			t.Run("not to be found", func(t *testing.T) {
-				for name, filter := range map[string]*filters.LocalFilter{
-					"textsLen0": filterTextsLen0,
-					"textsNil":  filterTextsNil,
-
-					"numbersEq123":  filterNumbersEq123,
-					"numbersLen1":   filterNumbersLen1,
-					"numbersNotNil": filterNumbersNotNil,
-
-					"intsEq105": filterIntsEq105,
-					"intsLen7":  filterIntsLen7,
-					"intsNil":   filterIntsNil,
-
-					"boolsLen0": filterBoolsLen0,
-					"boolsNil":  filterBoolsNil,
-
-					"datesLen0": filterDatesLen0,
-					"datesNil":  filterDatesNil,
-
-					"uuidsEqD726": filterUuidsEqD726,
-					"uuidsLen1":   filterUuidsLen1,
-					"uuidsNotNil": filterUuidsNotNil,
-
-					"textLen0": filterTextLen0,
-					"textNil":  filterTextNil,
-
-					"numberEq123":  filterNumberEq123,
-					"numberNotNil": filterNumberNotNil,
-
-					"intEq202": filterIntEq202,
-					"intNil":   filterIntNil,
-
-					"boolEqTrue": filterBoolEqTrue,
-					"boolNil":    filterBoolNil,
-
-					"dateNil": filterDateNil,
-
-					"uuidEq7FAB": filterUuidEq7FAB,
-					"uuidNotNil": filterUuidNotNil,
-				} {
-					t.Run(name, func(t *testing.T) {
-						found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-							nil, nil, nil, additional.Properties{})
-						require.NoError(t, err)
-						require.Len(t, found, 0)
-					})
-				}
-			})
+	createPrevProps := func(i int) map[string]interface{} {
+		f := float64(i)
+		return map[string]interface{}{
+			"int":      f,
+			"number":   f + 0.5,
+			"text":     _text(i),
+			"boolean":  i%2 == 0,
+			"uuid":     _uuidAsText(i),
+			"date":     _dateAsText(i),
+			"ints":     []float64{f + 1, f + 2, f + 3},
+			"numbers":  []float64{f + 1.5, f + 2.5, f + 3.5},
+			"texts":    []string{_text(i + 1), _text(i + 2), _text(i + 3)},
+			"booleans": []bool{i%2 != 0, i%2 == 0},
+			"uuids":    []string{_uuidAsText(i + 1), _uuidAsText(i + 2), _uuidAsText(i + 3)},
+			"dates":    []string{_dateAsText(i + 1), _dateAsText(i + 2), _dateAsText(i + 3)},
+			"phone": &models.PhoneNumber{
+				DefaultCountry: "pl",
+				Input:          fmt.Sprintf("%d", 100_000_000+i),
+			},
+			"geo": &models.GeoCoordinates{
+				Latitude:  ptrFloat32(45.67),
+				Longitude: ptrFloat32(-12.34),
+			},
+			"object": map[string]interface{}{
+				"n_int":     f + 10,
+				"n_number":  f + 10.5,
+				"n_text":    _text(i + 10),
+				"n_boolean": i%2 == 0,
+				"n_uuid":    _uuidAsText(i + 10),
+				"n_date":    _dateAsText(i + 10),
+				"n_object": map[string]interface{}{
+					"nn_int": f + 20,
+				},
+			},
+			"objects": []interface{}{
+				map[string]interface{}{
+					"n_ints":     []float64{f + 11, f + 12, f + 13},
+					"n_numbers":  []float64{f + 11.5, f + 12.5, f + 13.5},
+					"n_texts":    []string{_text(i + 11), _text(i + 12), _text(i + 13)},
+					"n_booleans": []bool{i%2 != 0, i%2 == 0},
+					"n_uuids":    []string{_uuidAsText(i + 11), _uuidAsText(i + 12), _uuidAsText(i + 13)},
+					"n_dates":    []string{_dateAsText(i + 11), _dateAsText(i + 12), _dateAsText(i + 13)},
+					"n_objects": []interface{}{
+						map[string]interface{}{
+							"nn_ints": []float64{f + 21, f + 22, f + 23},
+						},
+					},
+				},
+			},
 		}
 	}
+	createNextProps := func(i int) map[string]interface{} {
+		props := createPrevProps(i)
+		props["uuid"] = _uuid(i)
+		props["date"] = _date(i)
+		props["uuids"] = []uuid.UUID{_uuid(i + 1), _uuid(i + 2), _uuid(i + 3)}
+		props["dates"] = []time.Time{_date(i + 1), _date(i + 2), _date(i + 3)}
 
-	verifySearchAfterUpdate := func(shard ShardLike) func(t *testing.T) {
-		return func(t *testing.T) {
-			t.Run("to be found", func(t *testing.T) {
-				for name, filter := range map[string]*filters.LocalFilter{
-					"textsLen0": filterTextsLen0,
-					"textsNil":  filterTextsNil,
+		obj := props["object"].(map[string]interface{})
+		obj["n_uuid"] = _uuid(i + 10)
+		obj["n_date"] = _date(i + 10)
 
-					"numbersLen0": filterNumbersLen0,
-					"numbersNil":  filterNumbersNil,
+		objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+		objs0["n_uuids"] = []uuid.UUID{_uuid(i + 11), _uuid(i + 12), _uuid(i + 13)}
+		objs0["n_dates"] = []time.Time{_date(i + 11), _date(i + 12), _date(i + 13)}
 
-					"intsEq105":  filterIntsEq105,
-					"intsLen7":   filterIntsLen7,
-					"intsNotNil": filterIntsNotNil,
-
-					"boolsEqTrue":  filterBoolsEqTrue,
-					"boolsEqFalse": filterBoolsEqFalse,
-					"boolsLen4":    filterBoolsLen4,
-					"boolsNotNil":  filterBoolsNotNil,
-
-					"datesLen0": filterDatesLen0,
-					"datesNil":  filterDatesNil,
-
-					"uuidsEqD726": filterUuidsEqD726,
-					"uuidsLen1":   filterUuidsLen1,
-					"uuidsNotNil": filterUuidsNotNil,
-
-					"textLen0": filterTextLen0,
-					"textNil":  filterTextNil,
-
-					"numberNil": filterNumberNil,
-
-					"intEq202":  filterIntEq202,
-					"intNotNil": filterIntNotNil,
-
-					"boolEqTrue": filterBoolEqTrue,
-					"boolNotNil": filterBoolNotNil,
-
-					"dateNil": filterDateNil,
-
-					"uuidEq7FAB": filterUuidEq7FAB,
-					"uuidNotNil": filterUuidNotNil,
-				} {
-					t.Run(name, func(t *testing.T) {
-						found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-							nil, nil, nil, additional.Properties{})
-						require.NoError(t, err)
-						require.Len(t, found, 1)
-						require.Equal(t, uuid, found[0].Object.ID)
-					})
-				}
-			})
-
-			t.Run("not to be found", func(t *testing.T) {
-				for name, filter := range map[string]*filters.LocalFilter{
-					"textsEqAAA":  filterTextsEqAAA,
-					"textsLen3":   filterTextsLen3,
-					"textsNotNil": filterTextsNotNil,
-
-					"numbersEq123":  filterNumbersEq123,
-					"numbersLen1":   filterNumbersLen1,
-					"numbersNotNil": filterNumbersNotNil,
-
-					"intsEq102": filterIntsEq102,
-					"intsLen9":  filterIntsLen9,
-					"intsNil":   filterIntsNil,
-
-					"boolsLen0": filterBoolsLen0,
-					"boolsNil":  filterBoolsNil,
-
-					"datesEq2001": filterDatesEq2001,
-					"datesLen2":   filterDatesLen2,
-					"datesNotNil": filterDatesNotNil,
-
-					"uuidsLen0": filterUuidsLen0,
-					"uuidsNil":  filterUuidsNil,
-
-					"textEqDDD":  filterTextEqDDD,
-					"textLen3":   filterTextLen3,
-					"textNotNil": filterTextNotNil,
-
-					"numberEq123":  filterNumberEq123,
-					"numberNotNil": filterNumberNotNil,
-
-					"intEq201": filterIntEq201,
-					"intNil":   filterIntNil,
-
-					"boolEqFalse": filterBoolEqFalse,
-					"boolNil":     filterBoolNil,
-
-					"dateEq2003": filterDateEq2003,
-					"dateNotNil": filterDateNotNil,
-
-					"uuidNil": filterUuidNil,
-				} {
-					t.Run(name, func(t *testing.T) {
-						found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-							nil, nil, nil, additional.Properties{})
-						require.NoError(t, err)
-						require.Len(t, found, 0)
-					})
-				}
-			})
-		}
+		return props
 	}
 
-	verifyVectorSearch := func(shard ShardLike, vectorToBeFound, vectorNotToBeFound []float32) func(t *testing.T) {
-		return func(t *testing.T) {
-			t.Run("to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorToBeFound,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
-				require.NoError(t, err)
-				require.Len(t, found, 1)
-				require.Equal(t, uuid, found[0].Object.ID)
-			})
-
-			t.Run("not to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorNotToBeFound,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
-				require.NoError(t, err)
-				require.Len(t, found, 0)
-			})
-		}
-	}
-
-	createShard := func(t *testing.T) ShardLike {
-		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true)
-		return shard
-	}
-
-	t.Run("single object", func(t *testing.T) {
-		t.Run("sanity check - search after add", func(t *testing.T) {
-			shard := createShard(t)
-
-			t.Run("add object", func(t *testing.T) {
-				expectedNextDocID := uint64(1)
-
-				err := shard.PutObject(ctx, origObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("verify search after add", verifySearchAfterAdd(shard))
-			t.Run("verify vector search after add", verifyVectorSearch(shard, vector, altVector))
-		})
-
-		t.Run("replaces object, same vector", func(t *testing.T) {
-			shard := createShard(t)
-
-			t.Run("add object", func(t *testing.T) {
-				expectedNextDocID := uint64(1)
-
-				err := shard.PutObject(ctx, origObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("put object", func(t *testing.T) {
-				expectedNextDocID := uint64(1) // has not changed
-
-				err := shard.PutObject(ctx, updObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("verify search after put", verifySearchAfterUpdate(shard))
-			t.Run("verify vector search after put", verifyVectorSearch(shard, vector, altVector))
-		})
-
-		t.Run("replaces object, different vector", func(t *testing.T) {
-			shard := createShard(t)
-
-			t.Run("add object", func(t *testing.T) {
-				expectedNextDocID := uint64(1)
-
-				err := shard.PutObject(ctx, origObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("put object", func(t *testing.T) {
-				altUpdObj := &storobj.Object{
-					MarshallerVersion: updObj.MarshallerVersion,
-					Object:            updObj.Object,
-					Vector:            altVector,
+	prevProps := createPrevProps(1)
+	nextProps := createNextProps(1)
+	testCases := []testCase{
+		{
+			prevProps:     nil,
+			nextProps:     nil,
+			expectedEqual: true,
+		},
+		{
+			prevProps:     prevProps,
+			nextProps:     nil,
+			expectedEqual: false,
+		},
+		{
+			prevProps:     nil,
+			nextProps:     nextProps,
+			expectedEqual: false,
+		},
+		{
+			prevProps:     prevProps,
+			nextProps:     nextProps,
+			expectedEqual: true,
+		},
+		{
+			prevProps:     prevProps,
+			nextProps:     createNextProps(2),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["int"] = float64(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["number"] = float64(1000.5)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["text"] = _text(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["boolean"] = true
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["uuid"] = _uuid(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["date"] = _date(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["ints"] = []float64{1000, 1001}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["numbers"] = []float64{1000.5, 1001.5}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["texts"] = []string{_text(1000), _text(1001)}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["booleans"] = []bool{false, true}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["uuids"] = []uuid.UUID{_uuid(1000), _uuid(1001)}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["dates"] = []time.Time{_date(1000), _date(1001)}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["phone"] = &models.PhoneNumber{
+					DefaultCountry: "pl",
+					Input:          fmt.Sprintf("%d", 123_456_789),
 				}
-				expectedNextDocID := uint64(2) // has changed
-
-				err := shard.PutObject(ctx, altUpdObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("verify search after put", verifySearchAfterUpdate(shard))
-			t.Run("verify vector search after put", verifyVectorSearch(shard, altVector, vector))
-		})
-
-		t.Run("merges object, same vector", func(t *testing.T) {
-			shard := createShard(t)
-
-			t.Run("add object", func(t *testing.T) {
-				expectedNextDocID := uint64(1)
-
-				err := shard.PutObject(ctx, origObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("merge object", func(t *testing.T) {
-				expectedNextDocID := uint64(1) // has not changed
-
-				err := shard.MergeObject(ctx, mergeDoc)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("verify search after merge", verifySearchAfterUpdate(shard))
-			t.Run("verify vector search after merge", verifyVectorSearch(shard, vector, altVector))
-		})
-
-		t.Run("merges object, different vector", func(t *testing.T) {
-			shard := createShard(t)
-
-			t.Run("add object", func(t *testing.T) {
-				expectedNextDocID := uint64(1)
-
-				err := shard.PutObject(ctx, origObj)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("merge object", func(t *testing.T) {
-				altMergeDoc := objects.MergeDocument{
-					ID:                 mergeDoc.ID,
-					Class:              mergeDoc.Class,
-					PrimitiveSchema:    mergeDoc.PrimitiveSchema,
-					PropertiesToDelete: mergeDoc.PropertiesToDelete,
-					Vector:             altVector,
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				props["geo"] = &models.GeoCoordinates{
+					Latitude:  ptrFloat32(45.67),
+					Longitude: ptrFloat32(12.34),
 				}
-				expectedNextDocID := uint64(2) // has changed
-
-				err := shard.MergeObject(ctx, altMergeDoc)
-				require.NoError(t, err)
-				require.Equal(t, expectedNextDocID, shard.Counter().Get())
-			})
-
-			t.Run("verify search after merge", verifySearchAfterUpdate(shard))
-			t.Run("verify vector search after merge", verifyVectorSearch(shard, altVector, vector))
-		})
-	})
-
-	t.Run("batch", func(t *testing.T) {
-		runBatch := func(t *testing.T) {
-			t.Run("sanity check - search after add", func(t *testing.T) {
-				shard := createShard(t)
-
-				t.Run("add batch", func(t *testing.T) {
-					expectedNextDocID := uint64(1)
-
-					errs := shard.PutObjectBatch(ctx, []*storobj.Object{origObj})
-					for i := range errs {
-						require.NoError(t, errs[i])
-					}
-					require.Equal(t, expectedNextDocID, shard.Counter().Get())
-				})
-
-				t.Run("verify search after batch", verifySearchAfterAdd(shard))
-				t.Run("verify vector search after batch", verifyVectorSearch(shard, vector, altVector))
-			})
-
-			t.Run("replaces object, same vector", func(t *testing.T) {
-				shard := createShard(t)
-
-				t.Run("add batch", func(t *testing.T) {
-					expectedNextDocID := uint64(1)
-
-					errs := shard.PutObjectBatch(ctx, []*storobj.Object{origObj})
-					for i := range errs {
-						require.NoError(t, errs[i])
-					}
-					require.Equal(t, expectedNextDocID, shard.Counter().Get())
-				})
-
-				t.Run("add 2nd batch", func(t *testing.T) {
-					expectedNextDocID := uint64(1) // has not changed
-
-					errs := shard.PutObjectBatch(ctx, []*storobj.Object{updObj})
-					for i := range errs {
-						require.NoError(t, errs[i])
-					}
-					require.Equal(t, expectedNextDocID, shard.Counter().Get())
-				})
-
-				t.Run("verify search after 2nd batch", verifySearchAfterUpdate(shard))
-				t.Run("verify vector search after 2nd batch", verifyVectorSearch(shard, vector, altVector))
-			})
-
-			t.Run("replaces object, different vector", func(t *testing.T) {
-				shard := createShard(t)
-
-				t.Run("add batch", func(t *testing.T) {
-					expectedNextDocID := uint64(1)
-
-					errs := shard.PutObjectBatch(ctx, []*storobj.Object{origObj})
-					for i := range errs {
-						require.NoError(t, errs[i])
-					}
-					require.Equal(t, expectedNextDocID, shard.Counter().Get())
-				})
-
-				t.Run("add 2nd batch", func(t *testing.T) {
-					altUpdObj := &storobj.Object{
-						MarshallerVersion: updObj.MarshallerVersion,
-						Object:            updObj.Object,
-						Vector:            altVector,
-					}
-					expectedNextDocID := uint64(2) // has changed
-
-					errs := shard.PutObjectBatch(ctx, []*storobj.Object{altUpdObj})
-					for i := range errs {
-						require.NoError(t, errs[i])
-					}
-					require.Equal(t, expectedNextDocID, shard.Counter().Get())
-				})
-
-				t.Run("verify search after 2nd batch", verifySearchAfterUpdate(shard))
-				t.Run("verify vector search after 2nd batch", verifyVectorSearch(shard, altVector, vector))
-			})
-		}
-
-		t.Run("sync", func(t *testing.T) {
-			currentIndexing := os.Getenv("ASYNC_INDEXING")
-			t.Setenv("ASYNC_INDEXING", "")
-			defer t.Setenv("ASYNC_INDEXING", currentIndexing)
-
-			runBatch(t)
-		})
-
-		// t.Run("async", func(t *testing.T) {
-		// 	asyncIndexing := os.Getenv("ASYNC_INDEXING")
-		// 	t.Setenv("ASYNC_INDEXING", "true")
-		// 	defer t.Setenv("ASYNC_INDEXING", asyncIndexing)
-
-		// 	runBatch(t)
-		// })
-	})
-}
-
-func filterEqual[T any](value T, dataType schema.DataType, className, propName string) *filters.LocalFilter {
-	return &filters.LocalFilter{
-		Root: &filters.Clause{
-			Operator: filters.OperatorEqual,
-			Value: &filters.Value{
-				Value: value,
-				Type:  dataType,
-			},
-			On: &filters.Path{
-				Class:    schema.ClassName(className),
-				Property: schema.PropertyName(propName),
-			},
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				obj["n_int"] = float64(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				obj["n_number"] = float64(1000.5)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				obj["n_text"] = _text(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				obj["n_boolean"] = true
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				obj["n_uuid"] = _uuid(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				obj["n_date"] = _date(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				obj := props["object"].(map[string]interface{})
+				nobj := obj["n_object"].(map[string]interface{})
+				nobj["nn_int"] = float64(1000)
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				objs0["n_ints"] = []float64{1000, 1001}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				objs0["n_numbers"] = []float64{1000.5, 1001.5}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				objs0["n_texts"] = []string{_text(1000), _text(1001)}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				objs0["n_booleans"] = []bool{false, true}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				objs0["n_uuids"] = []uuid.UUID{_uuid(1000), _uuid(1001)}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				objs0["n_dates"] = []time.Time{_date(1000), _date(1001)}
+				return props
+			}(),
+			expectedEqual: false,
+		},
+		{
+			prevProps: prevProps,
+			nextProps: func() map[string]interface{} {
+				props := createNextProps(1)
+				objs0 := props["objects"].([]interface{})[0].(map[string]interface{})
+				nobjs0 := objs0["n_objects"].([]interface{})[0].(map[string]interface{})
+				nobjs0["nn_ints"] = []float64{1000, 1001}
+				return props
+			}(),
+			expectedEqual: false,
 		},
 	}
+
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
+			eq := propsEqual(tc.prevProps, tc.nextProps)
+
+			if tc.expectedEqual {
+				assert.True(t, eq)
+			} else {
+				assert.False(t, eq)
+			}
+		})
+	}
 }
 
-func filterNil(value bool, className, propName string) *filters.LocalFilter {
-	return &filters.LocalFilter{
-		Root: &filters.Clause{
-			Operator: filters.OperatorIsNull,
-			Value: &filters.Value{
-				Value: value,
-				Type:  schema.DataTypeBoolean,
-			},
-			On: &filters.Path{
-				Class:    schema.ClassName(className),
-				Property: schema.PropertyName(propName),
-			},
+func TestTargetVectorsEqual(t *testing.T) {
+	vec1 := []float32{1, 2, 3}
+	vec2 := []float32{2, 3, 4}
+	vec3 := []float32{3, 4, 5}
+	vec4 := []float32{4, 5, 6}
+
+	type testCase struct {
+		prevVecs      map[string][]float32
+		nextVecs      map[string][]float32
+		expectedEqual bool
+	}
+
+	testCases := []testCase{
+		{
+			prevVecs:      nil,
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      map[string][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      nil,
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      map[string][]float32{},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      map[string][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+
+		{
+			prevVecs:      map[string][]float32{"vec": nil},
+			nextVecs:      nil,
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      nil,
+			nextVecs:      map[string][]float32{"vec": nil},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": nil},
+			nextVecs:      map[string][]float32{},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{},
+			nextVecs:      map[string][]float32{"vec": nil},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      map[string][]float32{"vec": nil},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": nil},
+			nextVecs:      map[string][]float32{"vec": vec1},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			expectedEqual: true,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec4": vec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec": vec1},
+			nextVecs:      map[string][]float32{"vec": vec2},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": vec4},
+			expectedEqual: false,
+		},
+		{
+			prevVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3, "vec4": vec4},
+			nextVecs:      map[string][]float32{"vec1": vec1, "vec2": vec2, "vec3": vec3},
+			expectedEqual: false,
 		},
 	}
-}
 
-func asJsonNumber(input int) json.Number {
-	return json.Number(fmt.Sprint(input))
-}
+	for i, tc := range testCases {
+		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
+			eq := targetVectorsEqual(tc.prevVecs, tc.nextVecs)
 
-func asTime(input string) time.Time {
-	asTime, err := time.Parse(time.RFC3339Nano, input)
-	if err != nil {
-		panic(err)
+			if tc.expectedEqual {
+				assert.True(t, eq)
+			} else {
+				assert.False(t, eq)
+			}
+		})
 	}
-	return asTime
 }
-
-func asUuid(input string) uuid.UUID {
-	asUuid, err := uuid.Parse(input)
-	if err != nil {
-		panic(err)
-	}
-	return asUuid
-}
-
-// "textsEqAAA":  filterTextsEqAAA,
-// "textsLen3":   filterTextsLen3,
-// "textsNotNil": filterTextsNotNil,
-// "textsLen0":   filterTextsLen0,
-// "textsNil":    filterTextsNil,
-
-// "numbersLen0":   filterNumbersLen0,
-// "numbersNil":    filterNumbersNil,
-// "numbersEq123":  filterNumbersEq123,
-// "numbersLen1":   filterNumbersLen1,
-// "numbersNotNil": filterNumbersNotNil,
-
-// "intsEq102":  filterIntsEq102,
-// "intsLen9":   filterIntsLen9,
-// "intsNotNil": filterIntsNotNil,
-// "intsEq105":  filterIntsEq105,
-// "intsLen7":   filterIntsLen7,
-// "intsNil":    filterIntsNil,
-
-// "boolsEqTrue":  filterBoolsEqTrue,
-// "boolsEqFalse": filterBoolsEqFalse,
-// "boolsLen4":    filterBoolsLen4,
-// "boolsNotNil":  filterBoolsNotNil,
-// "boolsLen0":    filterBoolsLen0,
-// "boolsNil":     filterBoolsNil,
-
-// "datesEq2001": filterDatesEq2001,
-// "datesLen2":   filterDatesLen2,
-// "datesNotNil": filterDatesNotNil,
-// "datesLen0":   filterDatesLen0,
-// "datesNil":    filterDatesNil,
-
-// "uuidsLen0":   filterUuidsLen0,
-// "uuidsNil":    filterUuidsNil,
-// "uuidsEqD726": filterUuidsEqD726,
-// "uuidsLen1":   filterUuidsLen1,
-// "uuidsNotNil": filterUuidsNotNil,
-
-// "textEqDDD":  filterTextEqDDD,
-// "textLen3":   filterTextLen3,
-// "textNotNil": filterTextNotNil,
-// "textLen0":   filterTextLen0,
-// "textNil":    filterTextNil,
-
-// "numberNil":    filterNumberNil,
-// "numberEq123":  filterNumberEq123,
-// "numberNotNil": filterNumberNotNil,
-
-// "intEq201":  filterIntEq201,
-// "intNotNil": filterIntNotNil,
-// "intEq202":  filterIntEq202,
-// "intNil":    filterIntNil,
-
-// "boolEqFalse": filterBoolEqFalse,
-// "boolNotNil":  filterBoolNotNil,
-// "boolEqTrue":  filterBoolEqTrue,
-// "boolNil":     filterBoolNil,
-
-// "dateEq2003": filterDateEq2003,
-// "dateNotNil": filterDateNotNil,
-// "dateNil":    filterDateNil,
-
-// "uuidNil":    filterUuidNil,
-// "uuidEq7FAB": filterUuidEq7FAB,
-// "uuidNotNil": filterUuidNotNil,

@@ -204,7 +204,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	repl *additional.ReplicationProperties,
+	vectors models.Vectors, repl *additional.ReplicationProperties,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
@@ -341,7 +341,7 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 }
 
 func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-	objectDiff *moduletools.ObjectDiff, findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
 	args := p.Called(object, findObjFn)
 	switch vec := args.Get(0).(type) {

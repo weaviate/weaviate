@@ -13,7 +13,7 @@ package helpers
 
 import (
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 type AllowList interface {
@@ -27,6 +27,7 @@ type AllowList interface {
 	Min() uint64
 	Max() uint64
 	Size() uint64
+	Truncate(uint64) AllowList
 
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
@@ -88,6 +89,14 @@ func (al *bitmapAllowList) Max() uint64 {
 func (al *bitmapAllowList) Size() uint64 {
 	// TODO provide better size estimation
 	return uint64(1.5 * float64(len(al.bm.ToBuffer())))
+}
+
+func (al *bitmapAllowList) Truncate(upTo uint64) AllowList {
+	card := al.bm.GetCardinality()
+	if upTo < uint64(card) {
+		al.bm.RemoveRange(upTo, uint64(al.bm.GetCardinality()+1))
+	}
+	return al
 }
 
 func (al *bitmapAllowList) Iterator() AllowListIterator {

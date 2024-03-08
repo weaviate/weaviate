@@ -13,7 +13,7 @@ package modopenai
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
 func (m *OpenAIModule) initNearText() error {

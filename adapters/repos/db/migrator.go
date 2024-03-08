@@ -64,7 +64,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		// no backward-compatibility check required, since newly added classes will
 		// always have the field set
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
-		class.VectorIndexConfig.(schema.VectorIndexConfig),
+		convertToVectorIndexConfig(class.VectorIndexConfig),
+		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
 	if err != nil {
@@ -365,6 +366,17 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 	return idx.updateVectorIndexConfig(ctx, updated)
 }
 
+func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
+	className string, updated map[string]schema.VectorIndexConfig,
+) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update vector config of non-existing index for %s", className)
+	}
+
+	return idx.updateVectorIndexConfigs(ctx, updated)
+}
+
 func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	old, updated schema.VectorIndexConfig,
 ) error {
@@ -378,6 +390,17 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 		return flat.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
+}
+
+func (m *Migrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
+	old, updated map[string]schema.VectorIndexConfig,
+) error {
+	for vecName := range old {
+		if err := m.ValidateVectorIndexConfigUpdate(ctx, old[vecName], updated[vecName]); err != nil {
+			return fmt.Errorf("vector %q", vecName)
+		}
+	}
+	return nil
 }
 
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
@@ -410,8 +433,18 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		// Iterate over all shards
 		if err := index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID)
-			return err
+			if shard.hasTargetVectors() {
+				for vecName, vec := range object.Vectors {
+					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
+						return err
+					}
+				}
+			} else {
+				if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
+					return err
+				}
+			}
+			return nil
 		}); err != nil {
 			return err
 		}

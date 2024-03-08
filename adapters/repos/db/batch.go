@@ -44,7 +44,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 			continue
 		}
 		queue := objectByClass[item.Object.Class]
-		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Vector))
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, item.Object.Vectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
 	}
@@ -215,7 +215,7 @@ func estimateBatchMemory(objs objects.BatchObjects) int64 {
 		// it's not meant to fail exactly on the last available byte, but rather
 		// prevent OOM crashes. Given the fuzziness and async style of the
 		// memtrackinga somewhat decent estimate should be go good enough.
-		sum += int64(len(item.Vector)*4 + 30)
+		sum += int64(len(item.Object.Vector)*4 + 30)
 	}
 
 	return sum

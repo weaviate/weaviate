@@ -140,6 +140,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 	object.LastUpdateTimeUnix = 0
 	object.ID = id
 	object.Vector = concept.Vector
+	object.Vectors = concept.Vectors
 	object.Tenant = concept.Tenant
 
 	if _, ok := fieldsToKeep["class"]; ok {
@@ -170,7 +171,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 
 		if err == nil {
 			// update vector only if we passed validation
-			err = b.modulesProvider.UpdateVector(ctx, object, class, nil, b.findObject, b.logger)
+			err = b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger)
 			ec.Add(err)
 		}
 	}
@@ -180,7 +181,6 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		Object:        object,
 		Err:           ec.ToError(),
 		OriginalIndex: originalIndex,
-		Vector:        object.Vector,
 	}
 }
 

@@ -28,7 +28,7 @@ import (
 func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabilities.Module {
 	switch t {
 	case modulecapabilities.Text2Vec:
-		return newDummyText2VecModule(name)
+		return newDummyText2VecModule(name, nil)
 	case modulecapabilities.Ref2Vec:
 		return newDummyRef2VecModule(name)
 	default:
@@ -36,12 +36,13 @@ func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabili
 	}
 }
 
-func newDummyText2VecModule(name string) dummyText2VecModuleNoCapabilities {
-	return dummyText2VecModuleNoCapabilities{name: name}
+func newDummyText2VecModule(name string, mediaProperties []string) dummyText2VecModuleNoCapabilities {
+	return dummyText2VecModuleNoCapabilities{name: name, mediaProperties: mediaProperties}
 }
 
 type dummyText2VecModuleNoCapabilities struct {
-	name string
+	name            string
+	mediaProperties []string
 }
 
 func (m dummyText2VecModuleNoCapabilities) Name() string {
@@ -64,10 +65,13 @@ func (m dummyText2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType 
 }
 
 func (m dummyText2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
-	in *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	in.Vector = []float32{1, 2, 3}
-	return nil
+	in *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return []float32{1, 2, 3}, nil, nil
+}
+
+func (m dummyText2VecModuleNoCapabilities) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, m.mediaProperties, nil
 }
 
 func newDummyRef2VecModule(name string) dummyRef2VecModuleNoCapabilities {
@@ -100,9 +104,8 @@ func (m dummyRef2VecModuleNoCapabilities) Type() modulecapabilities.ModuleType {
 func (m dummyRef2VecModuleNoCapabilities) VectorizeObject(ctx context.Context,
 	in *models.Object, cfg moduletools.ClassConfig,
 	findRefVecsFn modulecapabilities.FindObjectFn,
-) error {
-	in.Vector = []float32{1, 2, 3}
-	return nil
+) ([]float32, error) {
+	return []float32{1, 2, 3}, nil
 }
 
 func newDummyNonVectorizerModule(name string) dummyNonVectorizerModule {
@@ -147,9 +150,5 @@ func (r *fakeObjectsRepo) Object(ctx context.Context, class string,
 	id strfmt.UUID, props search.SelectProperties,
 	addl additional.Properties, tenant string,
 ) (*search.Result, error) {
-	args := r.Called(ctx, class, id, props, addl)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*search.Result), args.Error(1)
+	return nil, nil
 }

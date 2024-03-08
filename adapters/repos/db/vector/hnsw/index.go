@@ -53,6 +53,10 @@ type hnsw struct {
 	resetCtx       context.Context
 	resetCtxCancel context.CancelFunc
 
+	// indicates the index is shutting down
+	shutdownCtx       context.Context
+	shutdownCtxCancel context.CancelFunc
+
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
 	// empty graph
@@ -161,7 +165,7 @@ type hnsw struct {
 	className          string
 	shardName          string
 	VectorForIDThunk   common.VectorForID[float32]
-	shardedNodeLocks   *common.ShardedLocks
+	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 }
 
@@ -221,6 +225,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
+	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
 	index := &hnsw{
 		maximumConnections: uc.MaxConnections,
 
@@ -245,6 +250,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		resetLock:         &sync.Mutex{},
 		resetCtx:          resetCtx,
 		resetCtxCancel:    resetCtxCancel,
+		shutdownCtx:       shutdownCtx,
+		shutdownCtxCancel: shutdownCtxCancel,
 		initialInsertOnce: &sync.Once{},
 
 		ef:       int64(uc.EF),
@@ -261,7 +268,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
-		shardedNodeLocks:     common.NewDefaultShardedLocks(),
+		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
@@ -405,6 +412,10 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 		var err error
 		if h.compressed.Load() {
 			dist, ok, err = distancer.DistanceToNode(entryPointID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+			}
 		} else {
 			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		}
@@ -629,6 +640,8 @@ func (h *hnsw) Drop(ctx context.Context) error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
+	h.shutdownCtxCancel()
+
 	if err := h.commitLog.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "hnsw shutdown")
 	}

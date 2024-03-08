@@ -19,9 +19,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -100,35 +102,40 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 }
 
 func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName string) {
-	client, err := storage.NewClient(ctx, option.WithoutAuthentication())
-	require.Nil(t, err)
-
-	err = client.Bucket(bucketName).Create(ctx, projectID, nil)
-	gcsErr, ok := err.(*googleapi.Error)
-	if ok {
-		// the bucket persists from the previous test.
-		// if the bucket already exists, we can proceed
-		if gcsErr.Code == http.StatusConflict {
-			return
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		require.Nil(t, err)
+		err = client.Bucket(bucketName).Create(ctx, projectID, nil)
+		gcsErr, ok := err.(*googleapi.Error)
+		if ok {
+			// the bucket persists from the previous test.
+			// if the bucket already exists, we can proceed
+			if gcsErr.Code == http.StatusConflict {
+				return
+			}
 		}
-	}
-	require.Nil(t, err)
+		require.Nil(t, err)
+	}, 5*time.Second, 500*time.Millisecond)
 }
 
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
-	connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-	client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-	require.Nil(t, err)
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
+		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
+		require.Nil(t, err)
 
-	_, err = client.CreateContainer(ctx, containerName, nil)
-	require.Nil(t, err)
+		_, err = client.CreateContainer(ctx, containerName, nil)
+		require.Nil(t, err)
+	}, 5*time.Second, 500*time.Millisecond)
 }
 
 func DeleteAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
-	connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
-	client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-	require.Nil(t, err)
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
+		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
+		require.Nil(t, err)
 
-	_, err = client.DeleteContainer(ctx, containerName, nil)
-	require.Nil(t, err)
+		_, err = client.DeleteContainer(ctx, containerName, nil)
+		require.Nil(t, err)
+	}, 5*time.Second, 500*time.Millisecond)
 }

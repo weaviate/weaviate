@@ -19,13 +19,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -48,13 +49,14 @@ type Searcher struct {
 	tenant                 string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
+	bitmapFactory       *roaringset.BitmapFactory
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64,
+	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
 	return &Searcher{
 		logger:                 logger,
@@ -67,6 +69,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
+		bitmapFactory:          bitmapFactory,
 	}
 }
 
@@ -82,20 +85,20 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 
 	var it docIDsIterator
 	if len(sort) > 0 {
-		docIDs, err := s.sort(ctx, limit, sort, allowList, additional, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
 		if err != nil {
-			return nil, errors.Wrap(err, "sort doc ids")
+			return nil, fmt.Errorf("sort doc ids: %w", err)
 		}
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		it = allowList.LimitedIterator(limit)
+		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional)
+	return s.objectsByDocID(it, additional, limit)
 }
 
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,
-	additional additional.Properties, className schema.ClassName,
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
+	docIDs helpers.AllowList, className schema.ClassName,
 ) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
 	if err != nil {
@@ -105,15 +108,20 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 }
 
 func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties,
+	additional additional.Properties, limit int,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
-		return nil, errors.Errorf("objects bucket not found")
+		return nil, fmt.Errorf("objects bucket not found")
 	}
 
 	out := make([]*storobj.Object, it.Len())
 	docIDBytes := make([]byte, 8)
+
+	// Prevent unbounded iteration
+	if limit == 0 {
+		limit = int(config.DefaultQueryMaximumResults)
+	}
 
 	i := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -134,11 +142,15 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
 		}
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
 		}
 
 		out[i] = unmarshalled
 		i++
+
+		if i >= limit {
+			break
+		}
 	}
 
 	return out[:i], nil
@@ -157,7 +169,16 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, 0)
+	allow, err := s.docIDs(ctx, filter, additional, className, 0)
+	if err != nil {
+		return nil, err
+	}
+	// Some filters, such as NotEqual, return a theoretical range of docIDs
+	// which also includes a buffer in the underlying bitmap, to reduce the
+	// overhead of repopulating the base bitmap. Here we can truncate that
+	// buffer to ensure that the caller is receiving only the possible range
+	// of docIDs
+	return allow.Truncate(s.bitmapFactory.ActualMaxVal()), nil
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -170,12 +191,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	}
 
 	if err := pv.fetchDocIDs(s, limit); err != nil {
-		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
+		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
-		return nil, errors.Wrap(err, "merge doc ids by operator")
+		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
 
 	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
@@ -190,7 +211,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 	out, err := newPropValuePair(class)
 	if err != nil {
-		return nil, errors.Wrap(err, "new prop value pair")
+		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
 	if filter.Operands != nil {
 		// nested filter
@@ -269,7 +290,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 		eg.Go(func() error {
 			child, err := s.extractPropValuePair(&clause, className)
 			if err != nil {
-				return errors.Wrapf(err, "nested clause at pos %d", i)
+				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
 			children[i] = child
 
@@ -479,7 +500,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		}
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			return nil, errors.Wrap(err, "trying parse time as RFC3339 string")
+			return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
 		}
 
 		// if propType is a `valueDate`, we need to convert
@@ -552,7 +573,8 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
 	}
-	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
+	return nil, fmt.Errorf("invalid search term, only stopwords provided. " +
+		"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
 func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType,
@@ -654,7 +676,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	}
 	out, err := newPropValuePair(class)
 	if err != nil {
-		return nil, errors.Wrap(err, "new prop value pair")
+		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
 	out.children = children
 	// filters.ContainsAny

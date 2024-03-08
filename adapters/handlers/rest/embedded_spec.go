@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.23.7"
+    "version": "1.24.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -2958,6 +2958,58 @@ func init() {
           }
         }
       }
+    },
+    "/schema/{className}/tenants/{tenantName}": {
+      "head": {
+        "description": "Check if a tenant exists for a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenant.exists",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenantName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant exists in the specified class"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The tenant not found"
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -3580,6 +3632,12 @@ func init() {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -4104,7 +4162,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -4158,11 +4217,15 @@ func init() {
           "type": "string"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         }
       }
     },
@@ -4433,7 +4496,9 @@ func init() {
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "trigram",
+            "gse"
           ]
         }
       }
@@ -4686,9 +4751,41 @@ func init() {
         }
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -5006,7 +5103,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.23.7"
+    "version": "1.24.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -8038,6 +8135,58 @@ func init() {
           }
         }
       }
+    },
+    "/schema/{className}/tenants/{tenantName}": {
+      "head": {
+        "description": "Check if a tenant exists for a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenant.exists",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenantName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant exists in the specified class"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The tenant not found"
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -8793,6 +8942,12 @@ func init() {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
           "type": "object"
@@ -9343,7 +9498,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -9397,11 +9553,15 @@ func init() {
           "type": "string"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         }
       }
     },
@@ -9690,7 +9850,9 @@ func init() {
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "trigram",
+            "gse"
           ]
         }
       }
@@ -9943,9 +10105,41 @@ func init() {
         }
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",

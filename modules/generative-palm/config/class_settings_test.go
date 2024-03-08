@@ -162,6 +162,23 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
+			name: "Generative AI with gemini-ultra model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "gemini-ultra",
+				},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "gemini-ultra",
+			wantTemperature: 0.2,
+			wantTokenLimit:  256,
+			wantTopK:        40,
+			wantTopP:        0.95,
+			wantErr:         nil,
+		},
+		{
 			name: "Generative AI with not supported model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -169,7 +186,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":     "unsupported-model",
 				},
 			},
-			wantErr: fmt.Errorf("unsupported-model is not supported available models are: [chat-bison-001 gemini-pro]"),
+			wantErr: fmt.Errorf("unsupported-model is not supported available models are: [chat-bison-001 gemini-pro gemini-ultra]"),
 		},
 	}
 	for _, tt := range tests {
@@ -208,4 +225,8 @@ func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interfa
 
 func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

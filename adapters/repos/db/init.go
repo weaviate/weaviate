@@ -89,7 +89,8 @@ func (db *DB) init(ctx context.Context) error {
 				ReplicationFactor:         class.ReplicationConfig.Factor,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
-				class.VectorIndexConfig.(schema.VectorIndexConfig),
+				convertToVectorIndexConfig(class.VectorIndexConfig),
+				convertToVectorIndexConfigs(class.VectorConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
 			if err != nil {

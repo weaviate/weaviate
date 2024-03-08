@@ -72,7 +72,7 @@ type diskIndex interface {
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
-	useBloomFilter bool, calcCountNetAdditions bool,
+	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
 ) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -147,12 +147,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics); err != nil {
+		if err := seg.initBloomFilters(metrics, overwriteDerived); err != nil {
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, overwriteDerived); err != nil {
 			return nil, err
 		}
 	}
@@ -257,7 +257,7 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
-	_, err = n.Read(b)
+	_, err = io.ReadFull(n, b)
 	return err
 }
 

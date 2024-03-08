@@ -290,11 +290,18 @@ func (s *Shard) reinit(ctx context.Context) error {
 		return fmt.Errorf("reinit non-vector: %w", err)
 	}
 
-	if err := s.initVector(ctx); err != nil {
-		return fmt.Errorf("reinit vector: %w", err)
+	if s.hasTargetVectors() {
+		if err := s.initTargetVectors(ctx); err != nil {
+			return fmt.Errorf("reinit vector: %w", err)
+		}
+	} else {
+		if err := s.initLegacyVector(ctx); err != nil {
+			return fmt.Errorf("reinit vector: %w", err)
+		}
 	}
 
 	s.initCycleCallbacks()
+	s.initDimensionTracking()
 
 	return nil
 }
@@ -338,7 +345,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 		case curUpdateTime == u.StaleUpdateTime:
 			// the stored object is not the most recent version. in
 			// this case, we overwrite it with the more recent one.
-			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector))
+			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector, u.Vectors))
 			if err != nil {
 				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
 			}

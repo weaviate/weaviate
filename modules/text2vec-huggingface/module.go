@@ -44,8 +44,8 @@ type HuggingFaceModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		cfg moduletools.ClassConfig) error
+	Object(ctx context.Context, obj *models.Object,
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
 }
@@ -119,9 +119,13 @@ func (m *HuggingFaceModule) RootHandler() http.Handler {
 }
 
 func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *HuggingFaceModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {

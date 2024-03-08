@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	localvectorizer "github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	text2vecprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
-	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/nearText"
+	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
 // MinimumRequiredRemoteVersion describes the minimal semver version
@@ -210,9 +210,9 @@ func (m *ContextionaryModule) RootHandler() http.Handler {
 }
 
 func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	return m.vectorizer.Object(ctx, obj, objDiff, cfg)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
 func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
@@ -231,6 +231,10 @@ func (m *ContextionaryModule) VectorSearches() map[string]modulecapabilities.Vec
 
 func (m *ContextionaryModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
+}
+
+func (m *ContextionaryModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 func (m *ContextionaryModule) Classifiers() []modulecapabilities.Classifier {

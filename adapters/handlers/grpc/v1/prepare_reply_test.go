@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
+
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -89,6 +91,7 @@ func TestGRPCReply(t *testing.T) {
 	refClass2 := "RefClass2"
 	className := "className"
 	objClass := "objClass"
+	NamedVecClass := "NamedVecs"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -124,6 +127,22 @@ func TestGRPCReply(t *testing.T) {
 					Properties: []*models.Property{
 						{Name: "else", DataType: schema.DataTypeText.PropString()},
 						{Name: "ref3", DataType: []string{refClass2}},
+					},
+				},
+				{
+					Class: NamedVecClass,
+					Properties: []*models.Property{
+						{Name: "name", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"custom": {
+							VectorIndexType: "hnsw",
+							Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+						},
+						"first": {
+							VectorIndexType: "flat",
+							Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
 					},
 				},
 				{
@@ -179,6 +198,7 @@ func TestGRPCReply(t *testing.T) {
 		outGenerative      string
 		outGroup           []*pb.GroupByResult
 		usesWeaviateStruct bool
+		hasError           bool
 	}{
 		{
 			name: "vector only",
@@ -194,6 +214,22 @@ func TestGRPCReply(t *testing.T) {
 			outSearch: []*pb.SearchResult{
 				{Metadata: &pb.MetadataResult{Vector: []float32{1}, VectorBytes: byteVector([]float32{1})}, Properties: &pb.PropertiesResult{}},
 				{Metadata: &pb.MetadataResult{Vector: []float32{2}, VectorBytes: byteVector([]float32{2})}, Properties: &pb.PropertiesResult{}},
+			},
+			usesWeaviateStruct: true,
+		},
+		{
+			name: "named vector only",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{"vectors": map[string][]float32{"custom": {1}, "first": {2}}},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}}},
+			outSearch: []*pb.SearchResult{
+				{Metadata: &pb.MetadataResult{Vectors: []*pb.Vectors{
+					{Name: "custom", VectorBytes: byteVector([]float32{1})},
+					{Name: "first", VectorBytes: byteVector([]float32{2})},
+				}}, Properties: &pb.PropertiesResult{}},
 			},
 			usesWeaviateStruct: true,
 		},
@@ -1250,6 +1286,24 @@ func TestGRPCReply(t *testing.T) {
 			},
 		},
 		{
+			name: "generative with error",
+			res: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{ // different place for generative
+						"generate": &addModels.GenerateResult{Error: errors.New("error")},
+					},
+				},
+			},
+			searchParams: dto.GetParams{AdditionalProperties: additional.Properties{
+				ModuleParams: map[string]interface{}{
+					"generate": &generate.Params{
+						Prompt: &refClass1,
+					},
+				},
+			}},
+			hasError: true,
+		},
+		{
 			name: "generative group only",
 			res: []interface{}{
 				map[string]interface{}{
@@ -1496,12 +1550,23 @@ func TestGRPCReply(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme, tt.usesWeaviateStruct)
-			require.Nil(t, err)
-			for i := range tt.outSearch {
-				require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
-				require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
+			if tt.hasError {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				for i := range tt.outSearch {
+					require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
+					// order of the vectors is not guaranteed, doesn't matter for results
+					vectorsOut := out.Results[i].Metadata.Vectors
+					vectorsExpected := tt.outSearch[i].Metadata.Vectors
+					require.ElementsMatch(t, vectorsOut, vectorsExpected)
+
+					out.Results[i].Metadata.Vectors = nil
+					tt.outSearch[i].Metadata.Vectors = nil
+					require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
+				}
+				require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 			}
-			require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)
 		})
 	}
 }

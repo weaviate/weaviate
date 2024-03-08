@@ -121,12 +121,12 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err != nil {
 		return nil, err
 	}
-	err = m.modulesProvider.UpdateVector(ctx, object, class, nil, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

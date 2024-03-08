@@ -38,9 +38,10 @@ func TestSearcher(t *testing.T) {
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
-						Type:  "hybrid",
-						Alpha: 0.5,
-						Query: "some query",
+						Type:          "hybrid",
+						Alpha:         0.5,
+						Query:         "some query",
+						TargetVectors: []string{"default"},
 					},
 					Class: class,
 				}
@@ -246,7 +247,8 @@ func TestSearcher(t *testing.T) {
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
-						Type: "hybrid",
+						TargetVectors: []string{"default"},
+						Type:          "hybrid",
 						SubSearches: []searchparams.WeightedSearchResult{
 							{
 								Type: "nearText",
@@ -292,7 +294,8 @@ func TestSearcher(t *testing.T) {
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
-						Type: "hybrid",
+						TargetVectors: []string{"default"},
+						Type:          "hybrid",
 						SubSearches: []searchparams.WeightedSearchResult{
 							{
 								Type: "nearVector",
@@ -339,7 +342,8 @@ func TestSearcher(t *testing.T) {
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
-						Type: "hybrid",
+						TargetVectors: []string{"default"},
+						Type:          "hybrid",
 						SubSearches: []searchparams.WeightedSearchResult{
 							{
 								Type: "nearVector",
@@ -425,7 +429,7 @@ type fakeModuleProvider struct {
 	vector []float32
 }
 
-func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className string, input string) ([]float32, error) {
+func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	return f.vector, nil
 }
 
@@ -436,6 +440,7 @@ func TestNullScores(t *testing.T) {
 
 	params := &Params{
 		HybridSearch: &searchparams.HybridSearch{
+			TargetVectors:   []string{"default"},
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			Type:            "hybrid",
 			SubSearches: []searchparams.WeightedSearchResult{

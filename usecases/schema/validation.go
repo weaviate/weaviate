@@ -66,7 +66,7 @@ func (m *Manager) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
 			}
 		default:
@@ -281,14 +281,16 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 }
 
 func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
-	if err := m.validateVectorizer(ctx, class); err != nil {
-		return err
-	}
+	// validate only when no target vectors configured
+	if !hasTargetVectors(class) {
+		if err := m.validateVectorizer(ctx, class); err != nil {
+			return err
+		}
 
-	if err := m.validateVectorIndex(ctx, class); err != nil {
-		return err
+		if err := m.validateVectorIndex(ctx, class); err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 

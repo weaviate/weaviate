@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -226,19 +227,22 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
-	if class.Vectorizer == "" {
-		class.Vectorizer = m.config.DefaultVectorizerModule
-	}
+	// set only when no target vectors configured
+	if !hasTargetVectors(class) {
+		if class.Vectorizer == "" {
+			class.Vectorizer = m.config.DefaultVectorizerModule
+		}
 
-	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
-	}
+		if class.VectorIndexType == "" {
+			class.VectorIndexType = "hnsw"
+		}
 
-	if m.config.DefaultVectorDistanceMetric != "" {
-		if class.VectorIndexConfig == nil {
-			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
-		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
-			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+		if m.config.DefaultVectorDistanceMetric != "" {
+			if class.VectorIndexConfig == nil {
+				class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
+			} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+				class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+			}
 		}
 	}
 
@@ -266,7 +270,11 @@ func setPropertyDefaultTokenization(prop *models.Property) {
 		}
 	case schema.DataTypeText, schema.DataTypeTextArray:
 		if prop.Tokenization == "" {
-			prop.Tokenization = models.PropertyTokenizationWord
+			if os.Getenv("DEFAULT_TOKENIZATION") != "" {
+				prop.Tokenization = os.Getenv("DEFAULT_TOKENIZATION")
+			} else {
+				prop.Tokenization = models.PropertyTokenizationWord
+			}
 		}
 	default:
 		// tokenization not supported for other data types
@@ -474,7 +482,7 @@ func (m *Manager) validateProperty(
 	}
 
 	if existingPropertyNames[strings.ToLower(property.Name)] {
-		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, className)
+		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", className, property.Name)
 	}
 
 	// Validate data type of property.
@@ -512,20 +520,46 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	if class.VectorIndexType != "hnsw" && class.VectorIndexType != "flat" {
-		return errors.Errorf(
-			"parse vector index config: unsupported vector index type: %q",
-			class.VectorIndexType)
+	if !hasTargetVectors(class) {
+		parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+		if err != nil {
+			return err
+		}
+		class.VectorIndexConfig = parsed
 	}
 
-	parsed, err := m.configParser(class.VectorIndexConfig, class.VectorIndexType)
-	if err != nil {
-		return errors.Wrap(err, "parse vector index config")
+	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
+		return err
 	}
-
-	class.VectorIndexConfig = parsed
-
 	return nil
+}
+
+func (m *Manager) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+	for targetVector, vectorConfig := range class.VectorConfig {
+		parsed, err := m.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		if err != nil {
+			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		vectorConfig.VectorIndexConfig = parsed
+		class.VectorConfig[targetVector] = vectorConfig
+	}
+	return nil
+}
+
+func (m *Manager) parseGivenVectorIndexConfig(vectorIndexType string,
+	vectorIndexConfig interface{},
+) (schema.VectorIndexConfig, error) {
+	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
+		return nil, errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
+			vectorIndexType)
+	}
+
+	parsed, err := m.configParser(vectorIndexConfig, vectorIndexType)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse vector index config")
+	}
+	return parsed, nil
 }
 
 func (m *Manager) parseShardingConfig(ctx context.Context, class *models.Class) (err error) {
@@ -591,4 +625,8 @@ func CreateClassPayload(class *models.Class,
 		}
 	}
 	return pl, nil
+}
+
+func hasTargetVectors(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
 }

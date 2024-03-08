@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -90,7 +89,7 @@ type authorizer interface {
 }
 
 type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32,
+	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
 		repl *additional.ReplicationProperties) error
 	DeleteObject(ctx context.Context, className string, id strfmt.UUID,
 		repl *additional.ReplicationProperties, tenant string) error
@@ -117,8 +116,7 @@ type ModulesProvider interface {
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
-	UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-		objectDiff *moduletools.ObjectDiff, repo modulecapabilities.FindObjectFn,
+	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, repo modulecapabilities.FindObjectFn,
 		logger logrus.FieldLogger) error
 	VectorizerName(className string) (string, error)
 }

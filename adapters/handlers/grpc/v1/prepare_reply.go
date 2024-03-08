@@ -178,6 +178,10 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 			}
 		}
 
+		if generateFmt.Error != nil {
+			return nil, "", generateFmt.Error
+		}
+
 		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
 		if !ok {
 			return nil, "", errors.New("could not cast generative search params")
@@ -225,6 +229,23 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 				metadata.Vector = vectorfmt // deprecated, remove in a bit
 				metadata.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
 			}
+		}
+	}
+
+	if len(additionalPropsParams.Vectors) > 0 {
+		vectors, ok := additionalPropertiesMap["vectors"]
+		if ok {
+			vectorfmt, ok2 := vectors.(map[string][]float32)
+			if ok2 {
+				metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
+				for name, vector := range vectorfmt {
+					metadata.Vectors = append(metadata.Vectors, &pb.Vectors{
+						VectorBytes: byteops.Float32ToByteVector(vector),
+						Name:        name,
+					})
+				}
+			}
+
 		}
 	}
 

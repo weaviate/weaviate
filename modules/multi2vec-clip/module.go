@@ -46,17 +46,13 @@ type metaClient interface {
 }
 
 type imageVectorizer interface {
-	Object(ctx context.Context, object *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
-	VectorizeImage(ctx context.Context, image string) ([]float32, error)
+	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type textVectorizer interface {
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors(vectors [][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (m *ClipModule) Name() string {
@@ -103,7 +99,6 @@ func (m *ClipModule) InitExtension(modules []modulecapabilities.Module) error {
 func (m *ClipModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	// TODO: proper config management
 	uri := os.Getenv("CLIP_INFERENCE_API")
 	if uri == "" {
 		return errors.Errorf("required variable CLIP_INFERENCE_API is not set")
@@ -127,10 +122,9 @@ func (m *ClipModule) RootHandler() http.Handler {
 }
 
 func (m *ClipModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.imageVectorizer.Object(ctx, obj, objDiff, icheck)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.imageVectorizer.Object(ctx, obj, cfg)
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
@@ -140,7 +134,13 @@ func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
 func (m *ClipModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.textVectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *ClipModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return false, mediaProps, err
 }
 
 // verify we implement the modules.Module interface
