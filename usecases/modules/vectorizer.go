@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"runtime"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -122,7 +123,7 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
 	modConfigs map[string]map[string]interface{}, logger logrus.FieldLogger,
 ) error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 
 	for targetVector, modConfig := range modConfigs {
@@ -133,7 +134,7 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 				return err
 			}
 			return nil
-		})
+		}, targetVector)
 	}
 	if err := eg.Wait(); err != nil {
 		return err

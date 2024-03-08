@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -34,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 type Searcher struct {
@@ -209,7 +210,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out, err := newPropValuePair(class)
+	out, err := newPropValuePair(class, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
@@ -280,7 +281,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 
 func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	// prevent unbounded concurrency, see
 	// https://github.com/weaviate/weaviate/issues/3179 for details
 	eg.SetLimit(2 * _NUMCPU)
@@ -295,7 +296,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 			children[i] = child
 
 			return nil
-		})
+		}, clause)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
@@ -674,7 +675,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	if err != nil {
 		return nil, err
 	}
-	out, err := newPropValuePair(class)
+	out, err := newPropValuePair(class, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
