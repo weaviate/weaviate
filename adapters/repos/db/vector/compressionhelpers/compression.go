@@ -244,7 +244,10 @@ func NewHNSWPQCompressor(
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
-	quantizer.Fit(data)
+	err = quantizer.Fit(data)
+	if err != nil {
+		return nil, err
+	}
 	return pqVectorsCompressor, nil
 }
 
