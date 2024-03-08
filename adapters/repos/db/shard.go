@@ -579,7 +579,9 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
 	if bucket.GetSecondaryIndices() < 2 {
-		s.index.logger.Printf("secondary index for token ranges is not available in shard %q", s.ID())
+		s.index.logger.Warnf(`async replication disabled on shard %q: 
+		secondary index for token ranges is not available`, s.ID())
+		return nil
 	}
 
 	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
@@ -700,7 +702,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	s.hashtree = nil
 	s.hashtreeInitialized.Store(false)
 
-	s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+	s.index.logger.Infof("async replication successfully disabled on shard %q", s.ID())
 
 	return nil
 }
