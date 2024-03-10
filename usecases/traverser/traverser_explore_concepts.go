@@ -48,6 +48,7 @@ func (t *Traverser) Explore(ctx context.Context,
 type ExploreParams struct {
 	NearVector        *searchparams.NearVector
 	NearObject        *searchparams.NearObject
+	EF                *searchparams.EF
 	Offset            int
 	Limit             int
 	ModuleParams      map[string]interface{}

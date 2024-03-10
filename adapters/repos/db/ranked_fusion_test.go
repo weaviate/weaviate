@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -829,7 +830,7 @@ func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams) ([]sea
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter, *searchparams.EF) ([]search.Result, error) {
 	return nil, nil
 }
 
@@ -865,7 +866,7 @@ func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.
 	return out[:lim], []float32{0.008, 0.001}[:lim], nil
 }
 
-func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string, vector []float32, targetVector string, offset int, limit int, filters *filters.LocalFilter, additinal additional.Properties, tenant string) ([]*storobj.Object, []float32, error) {
+func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string, vector []float32, targetVector string, offset int, limit int, filters *filters.LocalFilter, additinal additional.Properties, ef *searchparams.EF, tenant string) ([]*storobj.Object, []float32, error) {
 	out := []*storobj.Object{
 		{
 			Object: models.Object{

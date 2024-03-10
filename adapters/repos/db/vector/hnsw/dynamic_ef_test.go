@@ -18,6 +18,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -97,6 +99,69 @@ func Test_DynamicEF(t *testing.T) {
 			require.Nil(t, err)
 
 			actualEF := index.searchTimeEF(test.limit)
+			assert.Equal(t, test.expectedEf, actualEF)
+
+			require.Nil(t, index.Drop(context.Background()))
+		})
+	}
+}
+
+func Test_AutoEfFromOption(t *testing.T) {
+	type test struct {
+		name            string
+		userSpecifiedEF *common.SearchWithEFOptions
+		limit           int
+		expectedEf      int
+	}
+
+	tests := []test{
+		{
+			name: "limit greater than max",
+			userSpecifiedEF: &common.SearchWithEFOptions{
+				DynamicMin:    50,
+				DynamicMax:    300,
+				DynamicFactor: 7,
+			},
+			limit:      100,
+			expectedEf: 300,
+		},
+		{
+			name: "limit lower than min",
+			userSpecifiedEF: &common.SearchWithEFOptions{
+				DynamicMin:    300,
+				DynamicMax:    400,
+				DynamicFactor: 2,
+			},
+			limit:      100,
+			expectedEf: 300,
+		},
+		{
+			name: "limit within the dynamic range",
+			userSpecifiedEF: &common.SearchWithEFOptions{
+				DynamicMin:    100,
+				DynamicMax:    400,
+				DynamicFactor: 2,
+			},
+			limit:      100,
+			expectedEf: 200,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			index, err := New(Config{
+				RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+				ID:                    "dynaimc-ef-test",
+				MakeCommitLoggerThunk: MakeNoopCommitLogger,
+				DistanceProvider:      distancer.NewCosineDistanceProvider(),
+				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+					return nil, errors.Errorf("not implemented")
+				},
+			}, ent.UserConfig{}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+			require.Nil(t, err)
+
+			actualEF := index.autoEfFromOption(test.limit, test.userSpecifiedEF)
 			assert.Equal(t, test.expectedEf, actualEF)
 
 			require.Nil(t, index.Drop(context.Background()))

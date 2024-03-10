@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -88,7 +89,7 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector []float32, targetVector string, offset, limit int, filters *filters.LocalFilter,
+	vector []float32, targetVector string, offset, limit int, filters *filters.LocalFilter, ef *searchparams.EF,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
@@ -140,7 +141,7 @@ func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
-	[]float32, string, int, int, *filters.LocalFilter, additional.Properties, string,
+	[]float32, string, int, int, *filters.LocalFilter, additional.Properties, *searchparams.EF, string,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }

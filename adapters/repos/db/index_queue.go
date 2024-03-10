@@ -23,10 +23,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -93,9 +96,8 @@ type IndexQueueOptions struct {
 
 type batchIndexer interface {
 	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
-	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVectorDistance(vector []float32, dist float32,
-		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
+	SearchByVector(vector []float32, k int, allowList helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error)
+	SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allow helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error)
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
@@ -447,24 +449,37 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 
 // SearchByVector performs the search through the index first, then uses brute force to
 // query unindexed vectors.
-func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	return q.search(vector, -1, k, allowList)
+func (q *IndexQueue) SearchByVector(vector []float32, k int, allowList helpers.AllowList, ef *searchparams.EF) ([]uint64, []float32, error) {
+	return q.search(vector, -1, k, allowList, ef)
 }
 
 // SearchByVectorDistance performs the search through the index first, then uses brute force to
 // query unindexed vectors.
-func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	return q.search(vector, dist, int(maxLimit), allowList)
+func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList, ef *searchparams.EF) ([]uint64, []float32, error) {
+	return q.search(vector, dist, int(maxLimit), allowList, ef)
 }
 
-func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
-	var indexedResults []uint64
-	var distances []float32
-	var err error
+func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowList helpers.AllowList, ef *searchparams.EF) ([]uint64, []float32, error) {
+	var (
+		indexedResults []uint64
+		distances      []float32
+		err            error
+		dynamicMin     int
+		dynamicMax     int
+		dynamicFactor  int
+	)
+	if ef != nil {
+		dynamicMin = ef.DynamicMin
+		dynamicMax = ef.DynamicMax
+		dynamicFactor = ef.DynamicFactor
+	}
+
 	if dist == -1 {
-		indexedResults, distances, err = q.Index.SearchByVector(vector, maxLimit, allowList)
+		indexedResults, distances, err = q.Index.SearchByVector(vector, maxLimit, allowList,
+			common.WithEFOptions(dynamicMin, dynamicMax, dynamicFactor))
 	} else {
-		indexedResults, distances, err = q.Index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList)
+		indexedResults, distances, err = q.Index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList,
+			common.WithEFOptions(dynamicMin, dynamicMax, dynamicFactor))
 	}
 	if err != nil {
 		return nil, nil, err

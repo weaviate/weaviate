@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	test_helper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -2283,6 +2284,56 @@ func TestGroupBy(t *testing.T) {
 
 				tt.resolver.AssertResolve(t, query)
 			})
+		})
+	}
+}
+
+func TestEF(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resolver *mockResolver
+	}{
+		{
+			name:     "with modules",
+			resolver: newMockResolver(),
+		},
+		{
+			name:     "with no modules",
+			resolver: newMockResolverWithNoModules(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("specify ef", func(t *testing.T) {
+				query := `{
+							  Get {
+								SomeAction(
+								  ef: {
+									dynamicMin: 1,
+									dynamicMax: 10,
+									dynamicFactor: 2
+								  }
+								) {
+								   intField
+								}
+							  }
+						}`
+
+				expectedParams := dto.GetParams{
+					ClassName:  "SomeAction",
+					Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+					EF:         &searchparams.EF{DynamicMin: 1, DynamicMax: 10, DynamicFactor: 2, Enable: true},
+				}
+
+				tt.resolver.On("GetClass", expectedParams).
+					Return([]interface{}{}, nil).Once()
+
+				tt.resolver.AssertResolve(t, query)
+			})
+
 		})
 	}
 }

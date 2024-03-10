@@ -19,6 +19,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -231,6 +232,7 @@ func buildGetClassField(classObject *graphql.Object,
 			"where":      whereArgument(class.Class),
 			"group":      groupArgument(class.Class),
 			"groupBy":    groupByArgument(class.Class),
+			"ef":         efArgument(class.Class),
 		},
 		Resolve: newResolver(modulesProvider).makeResolveGetClass(class.Class),
 	}
@@ -387,6 +389,15 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		nearObjectParams = &p
 	}
 
+	var EFParams *searchparams.EF
+	if ef, ok := p.Args["ef"]; ok {
+		e, err := common_filters.ExtractEF(ef.(map[string]interface{}))
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract ef params: %s", err)
+		}
+		EFParams = &e
+	}
+
 	var moduleParams map[string]interface{}
 	if r.modulesProvider != nil {
 		extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
@@ -457,6 +468,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		ReplicationProperties: replProps,
 		GroupBy:               groupByParams,
 		Tenant:                tenant,
+		EF:                    EFParams,
 	}
 
 	// need to perform vector search by distance

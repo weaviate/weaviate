@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -118,7 +119,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 
 	targetDist := extractDistanceFromParams(params)
 	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, params.TargetVector,
-		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
+		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy, params.EF,
 		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
@@ -151,7 +152,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 // for the raw storage objects, such as hybrid search.
 func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []float32,
 	targetVector string, offset int, limit int, filters *filters.LocalFilter,
-	addl additional.Properties, tenant string,
+	addl additional.Properties, ef *searchparams.EF, tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
@@ -162,7 +163,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 
 	// TODO: groupBy think of this
 	objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector, 0,
-		totalLimit, filters, nil, nil, addl, nil, tenant)
+		totalLimit, filters, nil, nil, ef, addl, nil, tenant)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
 	}
@@ -171,8 +172,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 }
 
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
-	filters *filters.LocalFilter,
-) ([]search.Result, error) {
+	filters *filters.LocalFilter, ef *searchparams.EF) ([]search.Result, error) {
 	var found search.Results
 
 	wg := &sync.WaitGroup{}
@@ -188,7 +188,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 
 			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "")
+				ef, additional.Properties{}, nil, "")
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))

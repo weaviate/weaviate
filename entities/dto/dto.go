@@ -43,4 +43,5 @@ type GetParams struct {
 	ReplicationProperties *additional.ReplicationProperties
 	Tenant                string
 	IsRefOrigin           bool // is created by ref filter
+	EF                    *searchparams.EF
 }

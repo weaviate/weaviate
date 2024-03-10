@@ -17,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -81,6 +83,12 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 
 	t.Run("run a search that would typically find the new ep", func(t *testing.T) {
 		res, _, err := vectorIndex.SearchByVector([]float32{1.7, 1.7}, 20, nil)
+		require.Nil(t, err)
+		assert.Equal(t, []uint64{2, 0}, res, "right results are found")
+	})
+
+	t.Run("run a search with specified ef", func(t *testing.T) {
+		res, _, err := vectorIndex.SearchByVector([]float32{1.7, 1.7}, 3, nil, common.WithEFOptions(3, 5, 2))
 		require.Nil(t, err)
 		assert.Equal(t, []uint64{2, 0}, res, "right results are found")
 	})

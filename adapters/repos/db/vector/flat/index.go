@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -299,7 +300,7 @@ func (index *flat) searchTimeRescore(k int) int {
 	return k
 }
 
-func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) SearchByVector(vector []float32, k int, allow helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error) {
 	switch index.compression {
 	case compressionBQ:
 		return index.searchByVectorBQ(vector, k, allow)
@@ -523,7 +524,7 @@ func (index *flat) normalized(vector []float32) []float32 {
 	return vector
 }
 
-func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 
