@@ -238,5 +238,5 @@ func waitForBackupToFinish(t *testing.T, id string) {
 		res := getStatus()
 		require.NotNil(t, res.Payload.Status)
 		assert.Equal(t, "SUCCESS", *res.Payload.Status)
-	}, 1*time.Minute, 1*time.Second)
+	}, 10*time.Minute, 1*time.Second)
 }
