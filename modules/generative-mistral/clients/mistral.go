@@ -69,6 +69,7 @@ func (v *mistral) GenerateAllResults(ctx context.Context, textProperties []map[s
 func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
+	mistralUrl, err := v.getMistralUrl(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "join Mistral API host and path")
 	}
@@ -83,6 +84,11 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 		Model:       settings.Model(),
 		MaxTokens:   settings.MaxTokens(),
 		Temperature: settings.Temperature(),
+	}
+
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal body")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", mistralUrl,
@@ -181,7 +187,7 @@ func (v *mistral) getApiKey(ctx context.Context) (string, error) {
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Mistral-Api-Key " +
-		"nor in environment variable under COHERE_APIKEY")
+		"nor in environment variable under MISTRAL_APIKEY")
 }
 
 type generateInput struct {
