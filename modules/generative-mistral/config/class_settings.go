@@ -113,24 +113,6 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	return nil
 }
 
-func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("generative-mistral")[name]
-	if ok {
-		asStringList, ok := model.([]string)
-		if ok {
-			return &asStringList
-		}
-		var empty []string
-		return &empty
-	}
-	return &defaultValue
-}
-
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
 	return DefaultMistralMaxTokens
 }
