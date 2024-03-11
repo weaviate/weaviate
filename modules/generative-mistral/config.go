@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modgenerativecohere
+package modgenerativemistral
 
 import (
 	"context"
@@ -18,20 +18,20 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/generative-cohere/config"
+	"github.com/weaviate/weaviate/modules/generative-mistral/config"
 )
 
-func (m *GenerativeCohereModule) ClassConfigDefaults() map[string]interface{} {
+func (m *GenerativeMistralModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *GenerativeCohereModule) PropertyConfigDefaults(
+func (m *GenerativeMistralModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *GenerativeCohereModule) ValidateClass(ctx context.Context,
+func (m *GenerativeMistralModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := config.NewClassSettings(cfg)

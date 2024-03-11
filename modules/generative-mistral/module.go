@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modgenerativecohere
+package modgenerativemistral
 
 import (
 	"context"
@@ -21,18 +21,18 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-cohere/clients"
+	"github.com/weaviate/weaviate/modules/generative-mistral/clients"
 	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
-const Name = "generative-cohere"
+const Name = "generative-mistral"
 
-func New() *GenerativeCohereModule {
-	return &GenerativeCohereModule{}
+func New() *GenerativeMistralModule {
+	return &GenerativeMistralModule{}
 }
 
-type GenerativeCohereModule struct {
+type GenerativeMistralModule struct {
 	generative                   generativeClient
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
@@ -44,15 +44,15 @@ type generativeClient interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-func (m *GenerativeCohereModule) Name() string {
+func (m *GenerativeMistralModule) Name() string {
 	return Name
 }
 
-func (m *GenerativeCohereModule) Type() modulecapabilities.ModuleType {
+func (m *GenerativeMistralModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2TextGenerative
 }
 
-func (m *GenerativeCohereModule) Init(ctx context.Context,
+func (m *GenerativeMistralModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
@@ -62,10 +62,10 @@ func (m *GenerativeCohereModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *GenerativeCohereModule) initAdditional(ctx context.Context, timeout time.Duration,
+func (m *GenerativeMistralModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("COHERE_APIKEY")
+	apiKey := os.Getenv("MISTRAL_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
 
@@ -76,16 +76,16 @@ func (m *GenerativeCohereModule) initAdditional(ctx context.Context, timeout tim
 	return nil
 }
 
-func (m *GenerativeCohereModule) MetaInfo() (map[string]interface{}, error) {
+func (m *GenerativeMistralModule) MetaInfo() (map[string]interface{}, error) {
 	return m.generative.MetaInfo()
 }
 
-func (m *GenerativeCohereModule) RootHandler() http.Handler {
+func (m *GenerativeMistralModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *GenerativeCohereModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *GenerativeMistralModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
