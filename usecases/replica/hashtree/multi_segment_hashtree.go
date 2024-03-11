@@ -61,19 +61,24 @@ type MultiSegmentHashTree struct {
 	hashtree AggregatedHashTree
 }
 
-func NewMultiSegmentHashTree(segments []Segment, maxHeight int) *MultiSegmentHashTree {
+func NewMultiSegmentHashTree(segments []Segment, maxHeight int) (*MultiSegmentHashTree, error) {
 	var capacity uint64
 
 	for _, s := range segments {
 		capacity += s.Size()
 	}
 
-	return newMultiSegmentHashTree(segments, NewCompactHashTree(capacity, maxHeight))
+	ht, err := NewCompactHashTree(capacity, maxHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	return newMultiSegmentHashTree(segments, ht)
 }
 
-func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHashTree) *MultiSegmentHashTree {
+func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHashTree) (*MultiSegmentHashTree, error) {
 	if len(segments) == 0 {
-		panic("illegal segments")
+		return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
 	}
 
 	// prevent undesired effects if segment list is externally manipulated
@@ -87,16 +92,16 @@ func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHa
 	// validate segments are in increasing order and that there is enough space in between
 	var minNextSegmentStart uint64
 
-	for _, s := range ownSegments {
+	for i, s := range ownSegments {
 		segmentStart := s.Start()
 		segmentSize := s.Size()
 
 		if segmentStart < minNextSegmentStart {
-			panic("illegal segments")
+			return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
 		}
 
 		if segmentSize < 1 {
-			panic("illegal segment size")
+			return nil, fmt.Errorf("%w: illegal segment size(%d)", ErrIllegalArguments, i)
 		}
 
 		if math.MaxUint64-segmentSize < segmentStart {
@@ -104,7 +109,7 @@ func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHa
 			minNextSegmentStart = segmentSize - (math.MaxUint64 - segmentStart)
 
 			if len(ownSegments) > 1 && minNextSegmentStart > ownSegments[0].Start() {
-				panic("illegal segments")
+				return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
 			}
 		} else {
 			minNextSegmentStart = segmentStart + segmentSize
@@ -114,7 +119,7 @@ func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHa
 	return &MultiSegmentHashTree{
 		segments: ownSegments,
 		hashtree: underlyingHashTree,
-	}
+	}, nil
 }
 
 func (ht *MultiSegmentHashTree) Segments() []Segment {
@@ -128,10 +133,8 @@ func (ht *MultiSegmentHashTree) Height() int {
 	return ht.hashtree.Height()
 }
 
-func (ht *MultiSegmentHashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
-	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
-
-	return ht
+func (ht *MultiSegmentHashTree) AggregateLeafWith(i uint64, val []byte) error {
+	return ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 }
 
 func (ht *MultiSegmentHashTree) mapLeaf(i uint64) uint64 {
@@ -192,9 +195,8 @@ func (ht *MultiSegmentHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 	panic("out of segment")
 }
 
-func (ht *MultiSegmentHashTree) Sync() AggregatedHashTree {
+func (ht *MultiSegmentHashTree) Sync() {
 	ht.hashtree.Sync()
-	return ht
 }
 
 func (ht *MultiSegmentHashTree) Root() Digest {
@@ -205,9 +207,8 @@ func (ht *MultiSegmentHashTree) Level(level int, discriminant *Bitset, digests [
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *MultiSegmentHashTree) Reset() AggregatedHashTree {
+func (ht *MultiSegmentHashTree) Reset() {
 	ht.hashtree.Reset()
-	return ht
 }
 
 func (ht *MultiSegmentHashTree) Clone() AggregatedHashTree {

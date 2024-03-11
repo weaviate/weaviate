@@ -30,13 +30,15 @@ func TestSingleSegmentedHashTree(t *testing.T) {
 
 	expectedHeight := 1
 
-	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
 	someValue := []byte("somevalue")
 
-	ht.AggregateLeafWith(0, someValue)
+	err = ht.AggregateLeafWith(0, someValue)
+	require.NoError(t, err)
 
 	var rootLevel [1]Digest
 
@@ -57,13 +59,15 @@ func TestMultiSegmentedHashTree(t *testing.T) {
 	segments := []uint64{100, 300, 900}
 	maxHeight := 4
 
-	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	require.NoError(t, err)
 
 	valuePrefix := "somevalue"
 
 	for _, s := range segments {
 		for i := 0; i < int(segmentSize); i++ {
-			ht.AggregateLeafWith(s+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			err = ht.AggregateLeafWith(s+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			require.NoError(t, err)
 		}
 	}
 }
@@ -84,7 +88,8 @@ func TestSegmentedBigHashTree(t *testing.T) {
 	maxHeight := 16
 	expectedHeight := 16
 
-	ht := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.(*CompactHashTree).capacity)
@@ -96,7 +101,8 @@ func TestSegmentedBigHashTree(t *testing.T) {
 	for _, s := range segments {
 		for i := 0; i < actualNumberOfElementsPerSegment; i++ {
 			l := s + uint64(rand.Int()%int(segmentSize))
-			ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
+			err = ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
+			require.NoError(t, err)
 		}
 	}
 
@@ -112,8 +118,11 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 	segments := []uint64{1_000, segmentSize + 3_000, 2*segmentSize + 9_000}
 	maxHeight := 16
 
-	ht1 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
-	ht2 := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	ht1, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewSegmentedHashTree(segmentSize, segments, maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -123,7 +132,8 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht1.AggregateLeafWith(1_000, []byte("val1"))
+	err = ht1.AggregateLeafWith(1_000, []byte("val1"))
+	require.NoError(t, err)
 
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -138,7 +148,8 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht2.AggregateLeafWith(1_000, []byte("val1"))
+	err = ht2.AggregateLeafWith(1_000, []byte("val1"))
+	require.NoError(t, err)
 
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -164,8 +175,11 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 	sort.Slice(segments, func(i, j int) bool { return segments[i] < segments[j] })
 
-	ht1 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
-	ht2 := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
+	ht1, err := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewSegmentedHashTree(uint64(segmentSize), segments, maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -181,8 +195,11 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		for _, i := range rand.Perm(segmentSize)[:actualNumberOfElementsPerSegment] {
 			l := s + uint64(i)
 
-			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
-			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+			err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+			require.NoError(t, err)
+
+			err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+			require.NoError(t, err)
 
 			toConciliate[l] = struct{}{}
 		}
@@ -197,8 +214,11 @@ func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		_, ok := conciliated[l]
 		require.False(t, ok)
 
-		ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
-		ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+		err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+		require.NoError(t, err)
+
+		err = ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+		require.NoError(t, err)
 
 		conciliated[l] = struct{}{}
 

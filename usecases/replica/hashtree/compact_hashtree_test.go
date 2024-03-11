@@ -27,13 +27,15 @@ func TestCompactHashTree(t *testing.T) {
 	maxHeight := 2
 	expectedHeight := 1
 
-	ht := NewCompactHashTree(capacity, maxHeight)
+	ht, err := NewCompactHashTree(capacity, maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
 	someValue := []byte("somevalue")
 
-	ht.AggregateLeafWith(0, someValue)
+	err = ht.AggregateLeafWith(0, someValue)
+	require.NoError(t, err)
 
 	var rootLevel [1]Digest
 
@@ -54,14 +56,16 @@ func TestCompactedHashTree(t *testing.T) {
 	maxHeight := 6
 	expectedHeight := 6
 
-	ht := NewCompactHashTree(uint64(capacity), maxHeight)
+	ht, err := NewCompactHashTree(uint64(capacity), maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
 	valuePrefix := "somevalue"
 
 	for i := 0; i < capacity; i++ {
-		ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+		err = ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+		require.NoError(t, err)
 	}
 }
 
@@ -70,7 +74,8 @@ func TestCompactBigHashTree(t *testing.T) {
 	maxHeight := 16
 	expectedHeight := 16
 
-	ht := NewCompactHashTree(capacity, maxHeight)
+	ht, err := NewCompactHashTree(capacity, maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
@@ -79,7 +84,8 @@ func TestCompactBigHashTree(t *testing.T) {
 	valuePrefix := "somevalue"
 
 	for i := 0; i < actualNumberOfElements; i++ {
-		ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+		err = ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+		require.NoError(t, err)
 	}
 
 	var rootLevel [1]Digest
@@ -93,8 +99,11 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	capacity := uint64(math.MaxUint64 / 128)
 	maxHeight := 16
 
-	ht1 := NewCompactHashTree(capacity, maxHeight)
-	ht2 := NewCompactHashTree(capacity, maxHeight)
+	ht1, err := NewCompactHashTree(capacity, maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewCompactHashTree(capacity, maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -105,7 +114,8 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht1.AggregateLeafWith(16, []byte("val1"))
+	err = ht1.AggregateLeafWith(16, []byte("val1"))
+	require.NoError(t, err)
 
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -120,7 +130,8 @@ func TestCompactHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht2.AggregateLeafWith(0, []byte("val1"))
+	err = ht2.AggregateLeafWith(0, []byte("val1"))
+	require.NoError(t, err)
 
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -135,7 +146,8 @@ func TestCompactHashTreeLeafMapping(t *testing.T) {
 	capacity := uint64(100_000)
 	maxHeight := 13
 
-	ht := NewCompactHashTree(capacity, maxHeight)
+	ht, err := NewCompactHashTree(capacity, maxHeight)
+	require.NoError(t, err)
 
 	require.True(t, ht.Height() <= maxHeight)
 	require.Equal(t, LeavesCount(ht.Height()), ht.leavesCount)
@@ -190,8 +202,11 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	capacity := 10_000
 	maxHeight := 7
 
-	ht1 := NewCompactHashTree(uint64(capacity), maxHeight)
-	ht2 := NewCompactHashTree(uint64(capacity), maxHeight)
+	ht1, err := NewCompactHashTree(uint64(capacity), maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewCompactHashTree(uint64(capacity), maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -203,8 +218,11 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoMoreDifferences) // no differences should be found
 
 	for i := 0; i < capacity; i++ {
-		ht1.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val1_%d", i)))
-		ht2.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val2_%d", i)))
+		err = ht1.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val1_%d", i)))
+		require.NoError(t, err)
+
+		err = ht2.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val2_%d", i)))
+		require.NoError(t, err)
 	}
 
 	conciliated := make(map[int]struct{})
@@ -217,8 +235,11 @@ func TestCompactHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		_, ok := conciliated[i]
 		require.False(t, ok)
 
-		ht1.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val2_%d", i)))
-		ht2.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val1_%d", i)))
+		err = ht1.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val2_%d", i)))
+		require.NoError(t, err)
+
+		err = ht2.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("val1_%d", i)))
+		require.NoError(t, err)
 
 		conciliated[i] = struct{}{}
 

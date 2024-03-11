@@ -47,9 +47,9 @@ type HashTree struct {
 	mux sync.Mutex
 }
 
-func NewHashTree(height int) *HashTree {
+func NewHashTree(height int) (*HashTree, error) {
 	if height < 1 {
-		panic("illegal height")
+		return nil, fmt.Errorf("%w: illegal height", ErrIllegalArguments)
 	}
 
 	nodesCount := NodesCount(height)
@@ -66,7 +66,7 @@ func NewHashTree(height int) *HashTree {
 		syncState:       NewBitset(nodesCount),
 		hash:            murmur3.New128(),
 		innerNodesCount: innerNodesCount,
-	}
+	}, nil
 }
 
 func NodesCount(height int) int {
@@ -85,7 +85,7 @@ func (ht *HashTree) Height() int {
 	return ht.height
 }
 
-func (ht *HashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
+func (ht *HashTree) AggregateLeafWith(i uint64, val []byte) error {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
@@ -95,6 +95,10 @@ func (ht *HashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
 
 	leaf := ht.innerNodesCount + int(i)
 
+	if leaf >= len(ht.nodes) {
+		return fmt.Errorf("leaf out of bounds")
+	}
+
 	// XOR with current leaf digest
 	ht.nodes[leaf][0] ^= valh1
 	ht.nodes[leaf][1] ^= valh2
@@ -102,10 +106,10 @@ func (ht *HashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
 	ht.syncState.Unset(leaf) // sync required
 	ht.syncState.Unset(0)    // used to quickly determine if some sync required
 
-	return ht
+	return nil
 }
 
-func (ht *HashTree) Reset() AggregatedHashTree {
+func (ht *HashTree) Reset() {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
@@ -115,8 +119,6 @@ func (ht *HashTree) Reset() AggregatedHashTree {
 	}
 
 	ht.syncState.Reset()
-
-	return ht
 }
 
 func (ht *HashTree) syncRequired(node int) bool {
@@ -130,13 +132,11 @@ func writeDigest(w io.Writer, d Digest) {
 	w.Write(b[:])
 }
 
-func (ht *HashTree) Sync() AggregatedHashTree {
+func (ht *HashTree) Sync() {
 	ht.mux.Lock()
 	defer ht.mux.Unlock()
 
 	ht.sync()
-
-	return ht
 }
 
 func (ht *HashTree) sync() {

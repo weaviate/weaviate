@@ -161,7 +161,5 @@ func DeserializeMultiSegmentHashTree(r io.Reader) (*MultiSegmentHashTree, error)
 		return nil, err
 	}
 
-	ht := newMultiSegmentHashTree(segments, hashtree)
-
-	return ht, nil
+	return newMultiSegmentHashTree(segments, hashtree)
 }

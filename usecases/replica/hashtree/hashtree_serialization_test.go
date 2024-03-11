@@ -21,7 +21,8 @@ import (
 
 func TestHashTreeSerialization(t *testing.T) {
 	for h := 1; h < 10; h++ {
-		ht := NewHashTree(h)
+		ht, err := NewHashTree(h)
+		require.NoError(t, err)
 
 		require.Equal(t, h, ht.Height())
 
@@ -29,12 +30,13 @@ func TestHashTreeSerialization(t *testing.T) {
 		valuePrefix := "somevalue"
 
 		for i := 0; i < leavesCount; i++ {
-			ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			err = ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			require.NoError(t, err)
 		}
 
 		var buf bytes.Buffer
 
-		_, err := ht.Serialize(&buf)
+		_, err = ht.Serialize(&buf)
 		require.NoError(t, err)
 
 		readBuf := bytes.NewBuffer(buf.Bytes())

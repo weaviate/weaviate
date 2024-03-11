@@ -96,7 +96,5 @@ func DeserializeCompactHashTree(r io.Reader) (*CompactHashTree, error) {
 		return nil, err
 	}
 
-	ht := newCompactHashTree(capacity, hashtree)
-
-	return ht, nil
+	return newCompactHashTree(capacity, hashtree)
 }
