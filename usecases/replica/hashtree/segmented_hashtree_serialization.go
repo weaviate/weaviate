@@ -162,7 +162,5 @@ func DeserializeSegmentedHashTree(r io.Reader) (*SegmentedHashTree, error) {
 		return nil, err
 	}
 
-	ht := newSegmentedHashTree(segmentSize, segments, hashtree)
-
-	return ht, nil
+	return newSegmentedHashTree(segmentSize, segments, hashtree)
 }

@@ -11,6 +11,8 @@
 
 package hashtree
 
+import "fmt"
+
 var _ AggregatedHashTree = (*CompactHashTree)(nil)
 
 type CompactHashTree struct {
@@ -26,28 +28,33 @@ type CompactHashTree struct {
 	leavesCountInExtendedGroups uint64
 }
 
-func NewCompactHashTree(capacity uint64, maxHeight int) *CompactHashTree {
+func NewCompactHashTree(capacity uint64, maxHeight int) (*CompactHashTree, error) {
 	height := requiredHeight(capacity)
 
 	if height > maxHeight {
 		height = maxHeight
 	}
 
-	return newCompactHashTree(capacity, NewHashTree(height))
+	ht, err := NewHashTree(height)
+	if err != nil {
+		return nil, err
+	}
+
+	return newCompactHashTree(capacity, ht)
 }
 
-func newCompactHashTree(capacity uint64, underlyingHashTree AggregatedHashTree) *CompactHashTree {
+func newCompactHashTree(capacity uint64, underlyingHashTree AggregatedHashTree) (*CompactHashTree, error) {
 	if capacity < 1 {
-		panic("illegal capacity")
+		return nil, fmt.Errorf("%w: illegal capacity", ErrIllegalArguments)
 	}
 
 	if underlyingHashTree == nil {
-		panic("illegal underlying hashtree")
+		return nil, fmt.Errorf("%w: illegal underlying hashtree", ErrIllegalArguments)
 	}
 
 	requiredHeight := requiredHeight(capacity)
 	if requiredHeight < underlyingHashTree.Height() {
-		panic("underlying hashtree height is bigger than required")
+		return nil, fmt.Errorf("%w: underlying hashtree height is bigger than required", ErrIllegalArguments)
 	}
 
 	leavesCount := LeavesCount(underlyingHashTree.Height())
@@ -65,7 +72,7 @@ func newCompactHashTree(capacity uint64, underlyingHashTree AggregatedHashTree) 
 		extendedGroupSize:           extendedGroupSize,
 		extendedGroupsCount:         extendedGroupsCount,
 		leavesCountInExtendedGroups: leavesCountInExtendedGroups,
-	}
+	}, nil
 }
 
 func (ht *CompactHashTree) Capacity() uint64 {
@@ -78,10 +85,8 @@ func (ht *CompactHashTree) Height() int {
 
 // AggregateLeafWith aggregates a new value into a shared leaf
 // Each compacted leaf is shared by a number of consecutive leaves
-func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
-	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
-
-	return ht
+func (ht *CompactHashTree) AggregateLeafWith(i uint64, val []byte) error {
+	return ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 }
 
 func (ht *CompactHashTree) mapLeaf(i uint64) uint64 {
@@ -104,9 +109,8 @@ func (ht *CompactHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 	return mappedLeaf*ht.groupSize + uint64(ht.extendedGroupsCount)
 }
 
-func (ht *CompactHashTree) Sync() AggregatedHashTree {
+func (ht *CompactHashTree) Sync() {
 	ht.hashtree.Sync()
-	return ht
 }
 
 func (ht *CompactHashTree) Root() Digest {
@@ -117,9 +121,8 @@ func (ht *CompactHashTree) Level(level int, discriminant *Bitset, digests []Dige
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *CompactHashTree) Reset() AggregatedHashTree {
+func (ht *CompactHashTree) Reset() {
 	ht.hashtree.Reset()
-	return ht
 }
 
 func (ht *CompactHashTree) Clone() AggregatedHashTree {

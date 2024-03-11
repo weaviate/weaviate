@@ -36,7 +36,8 @@ func TestMultiSegmentHashTreeSerialization(t *testing.T) {
 	sort.Slice(segments, func(i, j int) bool { return segments[i].Start() < segments[j].Start() })
 
 	for h := 1; h < 2; h++ {
-		ht := NewMultiSegmentHashTree(segments, h)
+		ht, err := NewMultiSegmentHashTree(segments, h)
+		require.NoError(t, err)
 
 		actualNumberOfElementsPerSegment := 1_000
 
@@ -45,13 +46,14 @@ func TestMultiSegmentHashTreeSerialization(t *testing.T) {
 		for _, s := range segments {
 			for i := 0; i < actualNumberOfElementsPerSegment; i++ {
 				l := s.Start() + uint64(rand.Int()%int(s.Size()))
-				ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
+				err = ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
+				require.NoError(t, err)
 			}
 		}
 
 		var buf bytes.Buffer
 
-		_, err := ht.Serialize(&buf)
+		_, err = ht.Serialize(&buf)
 		require.NoError(t, err)
 
 		readBuf := bytes.NewBuffer(buf.Bytes())

@@ -29,13 +29,15 @@ func TestMultiSegmentHashTree(t *testing.T) {
 
 	expectedHeight := 1
 
-	ht := NewMultiSegmentHashTree(segments, maxHeight)
+	ht, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 
 	someValue := []byte("somevalue")
 
-	ht.AggregateLeafWith(0, someValue)
+	err = ht.AggregateLeafWith(0, someValue)
+	require.NoError(t, err)
 
 	var rootLevel [1]Digest
 
@@ -55,13 +57,15 @@ func TestMultiSegmentHashTree1(t *testing.T) {
 	segments := []Segment{NewSegment(0, 100), NewSegment(300, 100), NewSegment(900, 100)}
 	maxHeight := 4
 
-	ht := NewMultiSegmentHashTree(segments, maxHeight)
+	ht, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
 
 	valuePrefix := "somevalue"
 
 	for _, s := range segments {
 		for i := 0; i < int(s.Size()); i++ {
-			ht.AggregateLeafWith(s.Start()+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			err = ht.AggregateLeafWith(s.Start()+uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			require.NoError(t, err)
 		}
 	}
 }
@@ -82,7 +86,8 @@ func TestMultiSegmentBigHashTree(t *testing.T) {
 	maxHeight := 16
 	expectedHeight := 16
 
-	ht := NewMultiSegmentHashTree(segments, maxHeight)
+	ht, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
 
 	require.Equal(t, expectedHeight, ht.Height())
 	require.Equal(t, uint64(len(segments))*segmentSize, ht.hashtree.(*CompactHashTree).capacity)
@@ -94,7 +99,8 @@ func TestMultiSegmentBigHashTree(t *testing.T) {
 	for _, s := range segments {
 		for i := 0; i < actualNumberOfElementsPerSegment; i++ {
 			l := s.Start() + uint64(rand.Int()%int(s.Size()))
-			ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
+			err = ht.AggregateLeafWith(l, []byte(fmt.Sprintf("%s%d", valuePrefix, l)))
+			require.NoError(t, err)
 		}
 	}
 
@@ -114,8 +120,11 @@ func TestMultiSegmentHashTreeComparisonHeight1(t *testing.T) {
 	}
 	maxHeight := 16
 
-	ht1 := NewMultiSegmentHashTree(segments, maxHeight)
-	ht2 := NewMultiSegmentHashTree(segments, maxHeight)
+	ht1, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -126,7 +135,8 @@ func TestMultiSegmentHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht1.AggregateLeafWith(1_000, []byte("val1"))
+	err = ht1.AggregateLeafWith(1_000, []byte("val1"))
+	require.NoError(t, err)
 
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -141,7 +151,8 @@ func TestMultiSegmentHashTreeComparisonHeight1(t *testing.T) {
 	_, _, err = diffReader.Next()
 	require.ErrorIs(t, err, ErrNoMoreDifferences)
 
-	ht2.AggregateLeafWith(1_000, []byte("val1"))
+	err = ht2.AggregateLeafWith(1_000, []byte("val1"))
+	require.NoError(t, err)
 
 	diff, err = ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -167,8 +178,11 @@ func TestMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
 
 	sort.Slice(segments, func(i, j int) bool { return segments[i].Start() < segments[j].Start() })
 
-	ht1 := NewMultiSegmentHashTree(segments, maxHeight)
-	ht2 := NewMultiSegmentHashTree(segments, maxHeight)
+	ht1, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -184,8 +198,11 @@ func TestMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		for _, i := range rand.Perm(segmentSize)[:actualNumberOfElementsPerSegment] {
 			l := s.Start() + uint64(i)
 
-			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
-			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+			err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+			require.NoError(t, err)
+
+			err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+			require.NoError(t, err)
 
 			toConciliate[l] = struct{}{}
 		}
@@ -200,8 +217,11 @@ func TestMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
 		_, ok := conciliated[l]
 		require.False(t, ok)
 
-		ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
-		ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+		err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+		require.NoError(t, err)
+
+		err = ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+		require.NoError(t, err)
 
 		conciliated[l] = struct{}{}
 
@@ -289,8 +309,11 @@ func TestNonUniformMultiSegmentHashTreeComparisonIncrementalConciliation(t *test
 
 	maxHeight := 11
 
-	ht1 := NewMultiSegmentHashTree(segments, maxHeight)
-	ht2 := NewMultiSegmentHashTree(segments, maxHeight)
+	ht1, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
+
+	ht2, err := NewMultiSegmentHashTree(segments, maxHeight)
+	require.NoError(t, err)
 
 	diff, err := ht1.Diff(ht2)
 	require.NoError(t, err)
@@ -310,8 +333,11 @@ func TestNonUniformMultiSegmentHashTreeComparisonIncrementalConciliation(t *test
 		for _, i := range rand.Perm(segmentSize)[:elementsInSegment] {
 			l := s.Start() + uint64(i)
 
-			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
-			ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+			err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+			require.NoError(t, err)
+
+			err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+			require.NoError(t, err)
 
 			toConciliate[l] = struct{}{}
 		}
@@ -326,8 +352,11 @@ func TestNonUniformMultiSegmentHashTreeComparisonIncrementalConciliation(t *test
 		_, ok := conciliated[l]
 		require.False(t, ok)
 
-		ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
-		ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+		err = ht1.AggregateLeafWith(l, []byte(fmt.Sprintf("val2_%d", l)))
+		require.NoError(t, err)
+
+		err = ht2.AggregateLeafWith(l, []byte(fmt.Sprintf("val1_%d", l)))
+		require.NoError(t, err)
 
 		conciliated[l] = struct{}{}
 

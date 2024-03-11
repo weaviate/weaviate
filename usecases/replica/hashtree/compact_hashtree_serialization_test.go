@@ -24,7 +24,8 @@ func TestCompactHashTreeSerialization(t *testing.T) {
 	capacity := uint64(math.MaxUint64)
 
 	for h := 1; h < 10; h++ {
-		ht := NewCompactHashTree(capacity, h)
+		ht, err := NewCompactHashTree(capacity, h)
+		require.NoError(t, err)
 
 		require.Equal(t, h, ht.Height())
 
@@ -32,12 +33,13 @@ func TestCompactHashTreeSerialization(t *testing.T) {
 		valuePrefix := "somevalue"
 
 		for i := 0; i < leavesCount; i++ {
-			ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			err = ht.AggregateLeafWith(uint64(i), []byte(fmt.Sprintf("%s%d", valuePrefix, i)))
+			require.NoError(t, err)
 		}
 
 		var buf bytes.Buffer
 
-		_, err := ht.Serialize(&buf)
+		_, err = ht.Serialize(&buf)
 		require.NoError(t, err)
 
 		readBuf := bytes.NewBuffer(buf.Bytes())
