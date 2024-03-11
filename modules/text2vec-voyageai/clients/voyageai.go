@@ -127,11 +127,12 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode >= 500 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "connection to VoyageAI failed with status: %d error: %v")
-		return nil, errors.Errorf(errorMessage)
-	} else if res.StatusCode > 200 {
-		errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "failed with status: %d error: %v")
+	if res.StatusCode != 200 {
+		if resBody.Detail != "" {
+			errorMessage := getErrorMessage(res.StatusCode, resBody.Detail, "connection to VoyageAI failed with status: %d error: %v")
+			return nil, errors.Errorf(errorMessage)
+		}
+		errorMessage := getErrorMessage(res.StatusCode, "", "connection to VoyageAI failed with status: %d")
 		return nil, errors.Errorf(errorMessage)
 	}
 

@@ -49,7 +49,7 @@ func TestClient(t *testing.T) {
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
 				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com/v1",
+				BaseURL: server.URL,
 			})
 
 		assert.Nil(t, err)
@@ -72,8 +72,7 @@ func TestClient(t *testing.T) {
 		defer cancel()
 
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
-			Model:   "voyage-2",
-			BaseURL: "https://api.voyageai.com/v1",
+			Model: "voyage-2",
 		})
 
 		require.NotNil(t, err)
@@ -98,7 +97,7 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
 				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com/v1",
+				BaseURL: server.URL,
 			})
 
 		require.NotNil(t, err)
@@ -118,7 +117,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-VoyageAI-Api-Key", []string{"some-key"})
+			"X-Voyageai-Api-Key", []string{"some-key"})
 
 		expected := &ent.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -127,8 +126,7 @@ func TestClient(t *testing.T) {
 		}
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com/v1",
+				Model: "voyage-2",
 			})
 
 		require.Nil(t, err)
@@ -151,8 +149,7 @@ func TestClient(t *testing.T) {
 		defer cancel()
 
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
-			Model:   "voyage-2",
-			BaseURL: "https://api.voyageai.com/v1",
+			Model: "voyage-2",
 		})
 
 		require.NotNil(t, err)
@@ -178,8 +175,7 @@ func TestClient(t *testing.T) {
 
 		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
-				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com/v1",
+				Model: "voyage-2",
 			})
 
 		require.NotNil(t, err)
@@ -203,13 +199,13 @@ func TestClient(t *testing.T) {
 
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-VoyageAI-Baseurl", []string{"http://base-url-passed-in-header.com"})
+			"X-Voyageai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL := c.getVoyageAIUrl(ctxWithValue, baseURL)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/embeddings", buildURL)
 
 		buildURL = c.getVoyageAIUrl(context.TODO(), baseURL)
-		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
+		assert.Equal(t, "http://default-url.com/embeddings", buildURL)
 	})
 }
 
@@ -222,14 +218,10 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != nil {
-		embeddingError := map[string]interface{}{
-			"message": f.serverError.Error(),
-			"type":    "invalid_request_error",
+		resp := embeddingsResponse{
+			Detail: "nope, not gonna happen",
 		}
-		embeddingResponse := map[string]interface{}{
-			"message": embeddingError["message"],
-		}
-		outBytes, err := json.Marshal(embeddingResponse)
+		outBytes, err := json.Marshal(resp)
 		require.Nil(f.t, err)
 
 		w.WriteHeader(http.StatusInternalServerError)
@@ -241,16 +233,16 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 	defer r.Body.Close()
 
-	var b map[string]interface{}
-	require.Nil(f.t, json.Unmarshal(bodyBytes, &b))
+	var req embeddingsRequest
+	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 
-	textInput := b["texts"].([]interface{})
-	assert.Greater(f.t, len(textInput), 0)
+	assert.NotNil(f.t, req)
+	assert.NotEmpty(f.t, req.Input)
 
-	embeddingResponse := map[string]interface{}{
-		"embeddings": [][]float32{{0.1, 0.2, 0.3}},
+	resp := embeddingsResponse{
+		Data: []embeddingsDataResponse{{Embeddings: []float32{0.1, 0.2, 0.3}}},
 	}
-	outBytes, err := json.Marshal(embeddingResponse)
+	outBytes, err := json.Marshal(resp)
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
