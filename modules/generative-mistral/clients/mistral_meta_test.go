@@ -57,11 +57,11 @@ func (f *testMetaHandler) metaInfo() string {
 	return `{
   "hostname": "http://127.0.0.1:8080",
   "modules": {
-    "generative-cohere": {
+    "generative-mistral": {
       "documentationHref": URL_HERE",
-      "name": "Cohere Generative Module"
+      "name": "Mistral Generative Module"
     }
   },
-  "version": "1.16.0"
+  "version": "1.24.2"
 }`
 }
