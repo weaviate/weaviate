@@ -126,6 +126,7 @@ func (ws *runWorkers) work(ctx context.Context) runWorkerResults {
 
 	wg := &sync.WaitGroup{}
 	for _, worker := range ws.workers {
+		worker := worker
 		wg.Add(1)
 		enterrors.GoWrapper(func() { worker.work(ctx, wg) }, ws.logger)
 
