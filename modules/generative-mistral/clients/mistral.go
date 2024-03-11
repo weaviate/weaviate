@@ -28,20 +28,20 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-cohere/config"
+	"github.com/weaviate/weaviate/modules/generative-mistral/config"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-type cohere struct {
+type mistral struct {
 	apiKey     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
 
-func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *cohere {
-	return &cohere{
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *mistral {
+	return &mistral{
 		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
@@ -50,7 +50,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *coher
 	}
 }
 
-func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *mistral) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (v *cohere) GenerateSingleResult(ctx context.Context, textProperties map[st
 	return v.Generate(ctx, cfg, forPrompt)
 }
 
-func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *mistral) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
@@ -66,21 +66,18 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 	return v.Generate(ctx, cfg, forTask)
 }
 
-func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	cohereUrl, err := v.getCohereUrl(ctx, settings.BaseURL())
+	mistralUrl, err := v.getMistralUrl(ctx, settings.BaseURL())
 	if err != nil {
-		return nil, errors.Wrap(err, "join Cohere API host and path")
+		return nil, errors.Wrap(err, "join Mistral API host and path")
 	}
 	input := generateInput{
-		Prompt:            prompt,
-		Model:             settings.Model(),
-		MaxTokens:         settings.MaxTokens(),
-		Temperature:       settings.Temperature(),
-		K:                 settings.K(),
-		StopSequences:     settings.StopSequences(),
-		ReturnLikelihoods: settings.ReturnLikelihoods(),
+		Prompt:      prompt,
+		Model:       settings.Model(),
+		MaxTokens:   settings.MaxTokens(),
+		Temperature: settings.Temperature(),
 	}
 
 	body, err := json.Marshal(input)
@@ -88,14 +85,14 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", cohereUrl,
+	req, err := http.NewRequestWithContext(ctx, "POST", mistralUrl,
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Cohere API Key")
+		return nil, errors.Wrapf(err, "Mistral API Key")
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("BEARER %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
@@ -118,27 +115,27 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	if res.StatusCode != 200 || resBody.Error != nil {
 		if resBody.Error != nil {
-			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+			return nil, errors.Errorf("connection to Mistral API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
 		}
-		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
+		return nil, errors.Errorf("connection to Mistral API failed with status: %d", res.StatusCode)
 	}
 
-	textResponse := resBody.Generations[0].Text
+	textResponse := resBody.Choices[0].Message.Content
 
 	return &generativemodels.GenerateResponse{
 		Result: &textResponse,
 	}, nil
 }
 
-func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, error) {
+func (v *mistral) getMistralUrl(ctx context.Context, baseURL string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Mistral-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return url.JoinPath(passedBaseURL, "/v1/generate")
+	return url.JoinPath(passedBaseURL, "/v1/chat/completions")
 }
 
-func (v *cohere) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
+func (v *mistral) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
 		return "", err
@@ -147,7 +144,7 @@ func (v *cohere) generatePromptForTask(textProperties []map[string]string, task 
 %v`, task, string(marshal)), nil
 }
 
-func (v *cohere) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
+func (v *mistral) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
 	all := compile.FindAll([]byte(prompt), -1)
 	for _, match := range all {
 		originalProperty := string(match)
@@ -162,7 +159,7 @@ func (v *cohere) generateForPrompt(textProperties map[string]string, prompt stri
 	return prompt, nil
 }
 
-func (v *cohere) getValueFromContext(ctx context.Context, key string) string {
+func (v *mistral) getValueFromContext(ctx context.Context, key string) string {
 	if value := ctx.Value(key); value != nil {
 		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
 			return keyHeader[0]
@@ -175,39 +172,45 @@ func (v *cohere) getValueFromContext(ctx context.Context, key string) string {
 	return ""
 }
 
-func (v *cohere) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+func (v *mistral) getApiKey(ctx context.Context) (string, error) {
+	if apiKey := v.getValueFromContext(ctx, "X-Mistral-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Cohere-Api-Key " +
+		"neither in request header: X-Mistral-Api-Key " +
 		"nor in environment variable under COHERE_APIKEY")
 }
 
 type generateInput struct {
-	Prompt            string   `json:"prompt"`
-	Model             string   `json:"model"`
-	MaxTokens         int      `json:"max_tokens"`
-	Temperature       int      `json:"temperature"`
-	K                 int      `json:"k"`
-	StopSequences     []string `json:"stop_sequences"`
-	ReturnLikelihoods string   `json:"return_likelihoods"`
+	Prompt      string `json:"prompt"`
+	Model       string `json:"model"`
+	MaxTokens   int    `json:"max_tokens"`
+	Temperature int    `json:"temperature"`
 }
 
 type generateResponse struct {
-	Generations []generation
-	Error       *cohereApiError `json:"error,omitempty"`
+	Choices []Choice
+	Error   *mistralApiError `json:"error,omitempty"`
 }
 
-type generation struct {
-	Text string `json:"text"`
+type Choice struct {
+	Index        int     `json:"index"`
+	Message      Message `json:"message"`
+	FinishReason string  `json:"finish_reason"`
+	Logprobs     *string `json:"logprobs"`
+}
+
+type Message struct {
+	Role      string  `json:"role"`
+	Content   string  `json:"content"`
+	ToolCalls *string `json:"tool_calls"`
 }
 
 // need to check this
 // I think you just get message
-type cohereApiError struct {
+type mistralApiError struct {
 	Message string `json:"message"`
 }

@@ -29,21 +29,19 @@ const (
 	returnLikelihoodsProperty = "returnLikelihoods"
 )
 
-var availableCohereModels = []string{
-	"command-xlarge-beta",
-	"command-xlarge", "command-medium", "command-xlarge-nightly", "command-medium-nightly", "xlarge", "medium",
-	"command", "command-light", "command-nightly", "command-light-nightly", "base", "base-light",
+var availableMistralModels = []string{
+	"open-mistral-7b", "mistral-tiny-2312", "mistral-tiny", "open-mixtral-8x7b",
+	"mistral-small-2312", "mistral-small", "mistral-small-2402", "mistral-small-latest",
+	"mistral-medium-latest", "mistral-medium-2312", "mistral-medium", "mistral-large-latest",
+	"mistral-large-2402",
 }
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL                 = "https://api.cohere.ai"
-	DefaultCohereModel             = "command-nightly"
-	DefaultCohereTemperature       = 0
-	DefaultCohereMaxTokens         = 2048
-	DefaultCohereK                 = 0
-	DefaultCohereStopSequences     = []string{}
-	DefaultCohereReturnLikelihoods = "NONE"
+	DefaultBaseURL            = "https://api.mistral.ai"
+	DefaultMistralModel       = "open-mistral-7b"
+	DefaultMistralTemperature = 0
+	DefaultMistralMaxTokens   = 2048
 )
 
 type classSettings struct {
@@ -59,9 +57,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultCohereModel)
+	model := ic.getStringProperty(modelProperty, DefaultMistralModel)
 	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong Cohere model name, available model names are: %v", availableCohereModels)
+		return errors.Errorf("wrong Mistral model name, available model names are: %v", availableMistralModels)
 	}
 
 	return nil
@@ -73,7 +71,7 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 		return &defaultValue
 	}
 
-	model, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
+	model, ok := ic.cfg.ClassByModuleName("generative-mistral")[name]
 	if ok {
 		asString, ok := model.(string)
 		if ok {
@@ -91,7 +89,7 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 		return defaultValue
 	}
 
-	val, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
+	val, ok := ic.cfg.ClassByModuleName("generative-mistral")[name]
 	if ok {
 		asInt, ok := val.(int)
 		if ok {
@@ -124,7 +122,7 @@ func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []st
 		return &defaultValue
 	}
 
-	model, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
+	model, ok := ic.cfg.ClassByModuleName("generative-mistral")[name]
 	if ok {
 		asStringList, ok := model.([]string)
 		if ok {
@@ -137,11 +135,11 @@ func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []st
 }
 
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
-	return DefaultCohereMaxTokens
+	return DefaultMistralMaxTokens
 }
 
 func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableCohereModels, model)
+	return contains(availableMistralModels, model)
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -149,27 +147,15 @@ func (ic *classSettings) BaseURL() string {
 }
 
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultCohereModel)
+	return *ic.getStringProperty(modelProperty, DefaultMistralModel)
 }
 
 func (ic *classSettings) MaxTokens() int {
-	return *ic.getIntProperty(maxTokensProperty, &DefaultCohereMaxTokens)
+	return *ic.getIntProperty(maxTokensProperty, &DefaultMistralMaxTokens)
 }
 
 func (ic *classSettings) Temperature() int {
-	return *ic.getIntProperty(temperatureProperty, &DefaultCohereTemperature)
-}
-
-func (ic *classSettings) K() int {
-	return *ic.getIntProperty(kProperty, &DefaultCohereK)
-}
-
-func (ic *classSettings) StopSequences() []string {
-	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultCohereStopSequences)
-}
-
-func (ic *classSettings) ReturnLikelihoods() string {
-	return *ic.getStringProperty(returnLikelihoodsProperty, DefaultCohereReturnLikelihoods)
+	return *ic.getIntProperty(temperatureProperty, &DefaultMistralTemperature)
 }
 
 func contains[T comparable](s []T, e T) bool {

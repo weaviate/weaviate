@@ -41,24 +41,30 @@ func TestGetAnswer(t *testing.T) {
 		expectedResult string
 	}{
 		{
-			name: "when the server has a successful aner",
+			name: "when the server has a successful answer",
 			answer: generateResponse{
-				Generations: []generation{{Text: "John"}},
-				Error:       nil,
+				Choices: []Choice{
+					{
+						Message: Message{
+							Content: "John",
+						},
+					},
+				},
+				Error: nil,
 			},
 			expectedResult: "John",
 		},
 		{
-			name: "when the server has a an error",
+			name: "when the server has an error",
 			answer: generateResponse{
-				Error: &cohereApiError{
+				Error: &mistralApiError{
 					Message: "some error from the server",
 				},
 			},
 		},
 		{
 			name:    "when the server does not respond in time",
-			answer:  generateResponse{Error: &cohereApiError{Message: "context deadline exceeded"}},
+			answer:  generateResponse{Error: &mistralApiError{Message: "context deadline exceeded"}},
 			timeout: time.Second,
 		},
 	}
@@ -84,21 +90,20 @@ func TestGetAnswer(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("when X-Cohere-BaseURL header is passed", func(t *testing.T) {
+	t.Run("when X-Mistral-BaseURL header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
 
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
+			"X-Mistral-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
+		buildURL, err := c.getMistralUrl(ctxWithValue, baseURL)
 		require.NoError(t, err)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/generate", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat/completions", buildURL)
 
-		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
+		buildURL, err = c.getMistralUrl(context.TODO(), baseURL)
 		require.NoError(t, err)
-		assert.Equal(t, "http://default-url.com/v1/generate", buildURL)
+		assert.Equal(t, "http://default-url.com/v1/chat/completions", buildURL)
 	})
 }
 
@@ -110,7 +115,7 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/generate", r.URL.String())
+	assert.Equal(f.t, "/v1/chat/completions", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
