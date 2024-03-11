@@ -16,7 +16,7 @@ export ORIGIN=${ORIGIN:-"http://localhost:8080"}
 export QUERY_DEFAULTS_LIMIT=${QUERY_DEFAULTS_LIMIT:-"20"}
 export QUERY_MAXIMUM_RESULTS=${QUERY_MAXIMUM_RESULTS:-"10000"}
 export TRACK_VECTOR_DIMENSIONS=true
-export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"5c87dcdc6da0"}
+export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
