@@ -257,7 +257,7 @@ jobs:
           owner: jfrancoa
           repo: weaviate-chaos-engineering
           github_token: ${{ secrets.CHAOS_ENGINEERING_TOKEN }}
-          workflow_file_name: tests.yaml
+          workflow_file_name: matrix.yaml
           ref: main
           wait_interval: 30
           client_payload: '{ "weaviate_version" : "${{ env.WEAVIATE_VERSION }}" }'
