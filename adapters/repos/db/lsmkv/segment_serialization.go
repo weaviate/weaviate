@@ -164,7 +164,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	return out, nil
 }
 
-func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) error {
+func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) (err error) {
 	out.offset = 0
 
 	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
@@ -184,7 +184,7 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 		out.value = out.value[:valueLength]
 	}
 
-	if n, err := r.Read(out.value); err != nil {
+	if n, err := io.ReadFull(r, out.value); err != nil {
 		return errors.Wrap(err, "read value")
 	} else {
 		out.offset += n
@@ -197,7 +197,7 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 	out.offset += 4
 
 	out.primaryKey = make([]byte, keyLength)
-	if n, err := r.Read(out.primaryKey); err != nil {
+	if n, err := io.ReadFull(r, out.primaryKey); err != nil {
 		return errors.Wrap(err, "read key")
 	} else {
 		out.offset += n
@@ -219,7 +219,7 @@ func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *seg
 		}
 
 		out.secondaryKeys[j] = make([]byte, secKeyLen)
-		if n, err := r.Read(out.secondaryKeys[j]); err != nil {
+		if n, err := io.ReadFull(r, out.secondaryKeys[j]); err != nil {
 			return errors.Wrap(err, "read secondary key")
 		} else {
 			out.offset += n

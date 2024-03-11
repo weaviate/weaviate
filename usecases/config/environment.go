@@ -81,6 +81,15 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
+	if v := os.Getenv("PROFILING_PORT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+		}
+
+		config.Profiling.Port = asInt
+	}
+
 	if Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
@@ -374,20 +383,27 @@ func (c *Config) parseCORSConfig() error {
 }
 
 func (c *Config) parseMemtableConfig() error {
-	// first parse old name for flush value
+	// first parse old idle name for flush value
 	if err := parsePositiveInt(
 		"PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		DefaultPersistenceFlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		DefaultPersistenceMemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
-
-	// then parse with new name and use previous value in case it's not set
+	// then parse with new idle name and use previous value in case it's not set
 	if err := parsePositiveInt(
 		"PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		c.Persistence.FlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
+	); err != nil {
+		return err
+	}
+	// then parse with dirty name and use idle value as fallback
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS",
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
@@ -442,13 +458,13 @@ const (
 )
 
 const (
-	DefaultPersistenceFlushIdleMemtablesAfter = 60
-	DefaultPersistenceMemtablesMaxSize        = 200
-	DefaultPersistenceMemtablesMinDuration    = 15
-	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = 0
-	DefaultGRPCPort                           = 50051
-	DefaultMinimumReplicationFactor           = 1
+	DefaultPersistenceMemtablesFlushDirtyAfter = 60
+	DefaultPersistenceMemtablesMaxSize         = 200
+	DefaultPersistenceMemtablesMinDuration     = 15
+	DefaultPersistenceMemtablesMaxDuration     = 45
+	DefaultMaxConcurrentGetRequests            = 0
+	DefaultGRPCPort                            = 50051
+	DefaultMinimumReplicationFactor            = 1
 )
 
 const VectorizerModuleNone = "none"

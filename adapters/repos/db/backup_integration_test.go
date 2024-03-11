@@ -261,7 +261,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		shardState: singleShardState(),
 	}
 	db, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,

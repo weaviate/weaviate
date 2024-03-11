@@ -467,21 +467,23 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schema.VectorIndexConfig,
 ) error {
-	for vecName, updatedCfg := range updated {
-		err := i.ForEachShard(func(name string, shard ShardLike) error {
-			if err := shard.UpdateVectorConfigForName(ctx, updatedCfg, vecName); err != nil {
-				return fmt.Errorf("shard '%s', target vector '%s': %w", name, vecName, err)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
 		}
-
-		i.vectorIndexUserConfigLock.Lock()
-		i.vectorIndexUserConfigs[vecName] = updatedCfg
-		i.vectorIndexUserConfigLock.Unlock()
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	for targetName, targetCfg := range updated {
+		i.vectorIndexUserConfigs[targetName] = targetCfg
+	}
+
 	return nil
 }
 
@@ -509,7 +511,7 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
@@ -2079,6 +2081,10 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 
 func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
 	if config == nil {
+		return nil
+	}
+	// in case legacy vector config was set as an empty map/object instead of nil
+	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
 		return nil
 	}
 	return config.(schema.VectorIndexConfig)

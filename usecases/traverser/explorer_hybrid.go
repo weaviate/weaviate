@@ -71,6 +71,7 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 		params.Pagination.Limit = hybrid.DefaultLimit
 	}
 
+	//TODO confirm that targetVectos is being passed through as part of the params
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
 	if err != nil {
 		return nil, "", err
@@ -117,6 +118,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	subSearchParams.Limit = params.HybridSearch.NearTextParams.Limit
 	subSearchParams.MoveTo.Force = params.HybridSearch.NearTextParams.MoveTo.Force
 	subSearchParams.MoveTo.Values = params.HybridSearch.NearTextParams.MoveTo.Values
+
 	// TODO objects
 
 	subSearchParams.MoveAwayFrom.Force = params.HybridSearch.NearTextParams.MoveAwayFrom.Force
