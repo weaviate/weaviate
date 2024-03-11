@@ -277,6 +277,7 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	resp, err := get.Do(context.Background())
 	require.NoError(t, err)
 
+	t.Logf("Got ids for class '%s': %v", className, resp)
 	ids := acceptance_with_go_client.GetIds(t, resp, className)
 	require.ElementsMatch(t, ids, []string{id})
 

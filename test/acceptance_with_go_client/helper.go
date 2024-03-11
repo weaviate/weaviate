@@ -13,6 +13,7 @@ package acceptance_with_go_client
 
 import (
 	"testing"
+	"fmt"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -24,13 +25,27 @@ var (
 )
 
 func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []string {
-	t.Logf("GetIds: %+v", resp)
+	t.Logf("GetIds: %+v for class %s", resp, className)
 	require.NotNil(t, resp)
 	t.Logf("GetIds data: %v", resp.Data)
 	require.NotNil(t, resp.Data)
 	t.Logf("GetIds errors: %+v", resp.Errors)
 	for _, err := range resp.Errors {
 		t.Logf("GetIds error: %v", err)
+		for _, loc := range err.Locations {
+			t.Logf("GetIds error location: %v", loc)
+		}
+		t.Logf("GetIds error path: %v", err.Path)
+	}
+	if resp.Errors != nil {
+		for _, err := range resp.Errors {
+			fmt.Printf("GetIds error: %v", err)
+			for _, loc := range err.Locations {
+				fmt.Printf("GetIds error location: %v", loc)
+			}
+			fmt.Printf("GetIds error path: %v", err.Path)
+		}
+		require.Empty(t, resp.Errors)
 	}
 	require.Empty(t, resp.Errors)
 
