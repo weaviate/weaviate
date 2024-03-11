@@ -191,6 +191,24 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
 }
 
+func (cl *commitLogger) addSimple(node *roaringset.SegmentNodeSimple) error {
+	if cl.paused {
+		return nil
+	}
+
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode, 0)
+	if err != nil {
+		return err
+	}
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
+	}
+
+	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
+}
+
 // Size returns the amount of data that has been written since the commit
 // logger was initialized. After a flush a new logger is initialized which
 // automatically resets the logger.
