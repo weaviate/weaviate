@@ -55,7 +55,7 @@ type vectorizer struct {
 type inputType string
 
 const (
-	searchDocument inputType = "query"
+	searchDocument inputType = "document"
 	searchQuery    inputType = "query"
 )
 
