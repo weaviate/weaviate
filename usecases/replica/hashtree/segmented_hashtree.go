@@ -11,7 +11,10 @@
 
 package hashtree
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 var _ AggregatedHashTree = (*SegmentedHashTree)(nil)
 
@@ -21,18 +24,24 @@ type SegmentedHashTree struct {
 	hashtree    AggregatedHashTree
 }
 
-func NewSegmentedHashTree(segmentSize uint64, segments []uint64, maxHeight int) *SegmentedHashTree {
+func NewSegmentedHashTree(segmentSize uint64, segments []uint64, maxHeight int) (*SegmentedHashTree, error) {
 	capacity := uint64(len(segments)) * segmentSize
-	return newSegmentedHashTree(segmentSize, segments, NewCompactHashTree(capacity, maxHeight))
+
+	ht, err := NewCompactHashTree(capacity, maxHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	return newSegmentedHashTree(segmentSize, segments, ht)
 }
 
-func newSegmentedHashTree(segmentSize uint64, segments []uint64, underlyingHashtree AggregatedHashTree) *SegmentedHashTree {
+func newSegmentedHashTree(segmentSize uint64, segments []uint64, underlyingHashtree AggregatedHashTree) (*SegmentedHashTree, error) {
 	if len(segments) == 0 {
-		panic("illegal segments")
+		return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
 	}
 
 	if segmentSize < 1 {
-		panic("illegal segment size")
+		return nil, fmt.Errorf("%w: illegal segment size", ErrIllegalArguments)
 	}
 
 	// validate segments are in increasing order and that there is enough space in between
@@ -40,11 +49,11 @@ func newSegmentedHashTree(segmentSize uint64, segments []uint64, underlyingHasht
 
 	for _, segmentStart := range segments {
 		if segmentStart < prevSegmentEnd {
-			panic("illegal segments")
+			return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
 		}
 
 		if math.MaxUint64-segmentSize < segmentStart {
-			panic("illegal segments")
+			return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
 		}
 
 		prevSegmentEnd = segmentStart + segmentSize - 1
@@ -58,7 +67,7 @@ func newSegmentedHashTree(segmentSize uint64, segments []uint64, underlyingHasht
 		segmentSize: segmentSize,
 		segments:    ownSegments,
 		hashtree:    underlyingHashtree,
-	}
+	}, nil
 }
 
 func (ht *SegmentedHashTree) SegmentSize() uint64 {
@@ -76,10 +85,8 @@ func (ht *SegmentedHashTree) Height() int {
 	return ht.hashtree.Height()
 }
 
-func (ht *SegmentedHashTree) AggregateLeafWith(i uint64, val []byte) AggregatedHashTree {
-	ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
-
-	return ht
+func (ht *SegmentedHashTree) AggregateLeafWith(i uint64, val []byte) error {
+	return ht.hashtree.AggregateLeafWith(ht.mapLeaf(i), val)
 }
 
 func (ht *SegmentedHashTree) mapLeaf(i uint64) uint64 {
@@ -99,9 +106,8 @@ func (ht *SegmentedHashTree) unmapLeaf(mappedLeaf uint64) uint64 {
 	return ht.segments[segment] + (mappedLeaf - segment*ht.segmentSize)
 }
 
-func (ht *SegmentedHashTree) Sync() AggregatedHashTree {
+func (ht *SegmentedHashTree) Sync() {
 	ht.hashtree.Sync()
-	return ht
 }
 
 func (ht *SegmentedHashTree) Root() Digest {
@@ -112,9 +118,8 @@ func (ht *SegmentedHashTree) Level(level int, discriminant *Bitset, digests []Di
 	return ht.hashtree.Level(level, discriminant, digests)
 }
 
-func (ht *SegmentedHashTree) Reset() AggregatedHashTree {
+func (ht *SegmentedHashTree) Reset() {
 	ht.hashtree.Reset()
-	return ht
 }
 
 func (ht *SegmentedHashTree) Clone() AggregatedHashTree {

@@ -114,7 +114,10 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 		return nil, fmt.Errorf("header checksum mismatch")
 	}
 
-	ht := NewHashTree(height)
+	ht, err := NewHashTree(height)
+	if err != nil {
+		return nil, err
+	}
 
 	for i := 0; i < LeavesCount(ht.Height()); i++ {
 		var leafBs [DigestLength]byte

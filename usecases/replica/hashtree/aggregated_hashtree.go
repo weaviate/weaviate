@@ -15,11 +15,11 @@ import "io"
 
 type AggregatedHashTree interface {
 	Height() int
-	AggregateLeafWith(i uint64, val []byte) AggregatedHashTree
-	Sync() AggregatedHashTree
+	AggregateLeafWith(i uint64, val []byte) error
+	Sync()
 	Root() Digest
 	Level(level int, discriminant *Bitset, digests []Digest) (n int, err error)
-	Reset() AggregatedHashTree
+	Reset()
 	Clone() AggregatedHashTree
 
 	Diff(ht AggregatedHashTree) (discriminant *Bitset, err error)
