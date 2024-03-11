@@ -232,6 +232,7 @@ func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error
 func (s *Store) runJobOnBuckets(ctx context.Context,
 	jobFunc jobFunc, rollbackFunc rollbackFunc,
 ) ([]interface{}, error) {
+	s.bucketAccessLock.Lock()
 	var (
 		status      = newBucketJobStatus()
 		resultQueue = make(chan interface{}, len(s.bucketsByName))
@@ -250,7 +251,7 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 			wg.Done()
 		}()
 	}
-
+	s.bucketAccessLock.Unlock()
 	wg.Wait()
 	close(resultQueue)
 
