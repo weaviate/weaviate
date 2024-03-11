@@ -38,7 +38,7 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string) (*ent.VectorizationResult, error)
+		texts, images []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
 type ClassSettings interface {
@@ -46,6 +46,7 @@ type ClassSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
+	InferenceURL() string
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -56,7 +57,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{image})
+	res, err := v.client.Vectorize(ctx, []string{}, []string{image}, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 
 	vectors := [][]float32{}
 	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images)
+		res, err := v.client.Vectorize(ctx, texts, images, v.getVectorizationConfig(cfg))
 		if err != nil {
 			return nil, err
 		}
