@@ -426,7 +426,7 @@ func TestRFJourney(t *testing.T) {
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -464,7 +464,7 @@ func TestRFJourney(t *testing.T) {
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("Elephant Parade", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -503,7 +503,7 @@ func TestRFJourney(t *testing.T) {
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("Elephant Parade", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -544,7 +544,7 @@ func TestRFJourney(t *testing.T) {
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
 		testerModule.AddVector("Elephant Parade", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -668,7 +668,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -698,7 +698,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -738,7 +738,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
@@ -986,7 +986,7 @@ func TestHybridOverSearch(t *testing.T) {
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
 		testerModule.AddVector("elephant", elephantVector())
-		testerModule.AddVector("journey", journeyVector())
+		testerModule.AddVector("journey", JourneyVector())
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
