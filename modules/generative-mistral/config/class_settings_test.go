@@ -63,8 +63,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("wrong Mistral model name, available model names are: " +
-				"[command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
-				"command-medium-nightly xlarge medium command command-light command-nightly command-light-nightly base base-light]"),
+				"[open-mistral-7b mistral-tiny-2312 mistral-tiny open-mixtral-8x7b mistral-small-2312 mistral-small mistral-small-2402 mistral-small-latest mistral-medium-latest mistral-medium-2312 mistral-medium mistral-large-latest mistral-large-2402]"),
 		},
 		{
 			name: "default settings with command-light-nightly",
@@ -80,14 +79,14 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "default settings with command-light-nightly and baseURL",
+			name: "default settings with mistral-medium and baseURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":   "command-light-nightly",
+					"model":   "mistral-medium",
 					"baseURL": "http://custom-url.com",
 				},
 			},
-			wantModel:       "command-light-nightly",
+			wantModel:       "mistral-medium",
 			wantMaxTokens:   2048,
 			wantTemperature: 0,
 			wantBaseURL:     "http://custom-url.com",
