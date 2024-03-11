@@ -62,40 +62,6 @@ func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return nearTextFields
 }
 
-func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
-	nearVectorFields := graphql.InputObjectConfigFieldMap{
-		"concepts": &graphql.InputObjectFieldConfig{
-			// Description: descriptions.Concepts,
-			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
-		},
-		"moveTo": &graphql.InputObjectFieldConfig{
-			Description: descriptions.VectorMovement,
-			Type: graphql.NewInputObject(
-				graphql.InputObjectConfig{
-					Name:   fmt.Sprintf("%sMoveTo", prefix),
-					Fields: movementInp(fmt.Sprintf("%sMoveTo", prefix)),
-				}),
-		},
-		"certainty": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Certainty,
-			Type:        graphql.Float,
-		},
-		"distance": &graphql.InputObjectFieldConfig{
-			Description: descriptions.Distance,
-			Type:        graphql.Float,
-		},
-		"moveAwayFrom": &graphql.InputObjectFieldConfig{
-			Description: descriptions.VectorMovement,
-			Type: graphql.NewInputObject(
-				graphql.InputObjectConfig{
-					Name:   fmt.Sprintf("%sMoveAwayFrom", prefix),
-					Fields: movementInp(fmt.Sprintf("%sMoveAwayFrom", prefix)),
-				}),
-		},
-	}
-	return nearVectorFields
-}
-
 func movementInp(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
