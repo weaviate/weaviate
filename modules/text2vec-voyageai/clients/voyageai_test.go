@@ -49,7 +49,7 @@ func TestClient(t *testing.T) {
 		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
 				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com",
+				BaseURL: "https://api.voyageai.com/v1",
 			})
 
 		assert.Nil(t, err)
@@ -73,7 +73,7 @@ func TestClient(t *testing.T) {
 
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
 			Model:   "voyage-2",
-			BaseURL: "https://api.voyageai.com",
+			BaseURL: "https://api.voyageai.com/v1",
 		})
 
 		require.NotNil(t, err)
@@ -98,7 +98,7 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
 			ent.VectorizationConfig{
 				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com",
+				BaseURL: "https://api.voyageai.com/v1",
 			})
 
 		require.NotNil(t, err)
@@ -128,7 +128,7 @@ func TestClient(t *testing.T) {
 		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
 				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com",
+				BaseURL: "https://api.voyageai.com/v1",
 			})
 
 		require.Nil(t, err)
@@ -152,7 +152,7 @@ func TestClient(t *testing.T) {
 
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
 			Model:   "voyage-2",
-			BaseURL: "https://api.voyageai.com",
+			BaseURL: "https://api.voyageai.com/v1",
 		})
 
 		require.NotNil(t, err)
@@ -179,7 +179,7 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			ent.VectorizationConfig{
 				Model:   "voyage-2",
-				BaseURL: "https://api.voyageai.com",
+				BaseURL: "https://api.voyageai.com/v1",
 			})
 
 		require.NotNil(t, err)

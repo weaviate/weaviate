@@ -20,7 +20,7 @@ type voyageaiUrlBuilder struct {
 
 func newVoyageAIUrlBuilder() *voyageaiUrlBuilder {
 	return &voyageaiUrlBuilder{
-		origin:   "https://api.voyageai.com",
+		origin:   "https://api.voyageai.com/v1",
 		pathMask: "/embeddings",
 	}
 }
