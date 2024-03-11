@@ -14,7 +14,9 @@ package errors
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime/debug"
+	"strconv"
 
 	"github.com/sirupsen/logrus"
 
@@ -24,42 +26,50 @@ import (
 // ErrorGroupWrapper is a custom type that embeds errgroup.Group.
 type ErrorGroupWrapper struct {
 	*errgroup.Group
-	ReturnError error
-	Variables   []interface{}
-	Logger      logrus.FieldLogger
+	returnError error
+	variables   []interface{}
+	logger      logrus.FieldLogger
 }
 
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
 func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *ErrorGroupWrapper {
 	return &ErrorGroupWrapper{
 		Group:       new(errgroup.Group),
-		ReturnError: nil,
-		Variables:   vars,
-		Logger:      logger,
+		returnError: nil,
+		variables:   vars,
+		logger:      logger,
 	}
 }
 
-// NewErrorGroupWrapper creates a new ErrorGroupWrapper.
+// NewErrorGroupWithContextWrapper creates a new ErrorGroupWrapper
 func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
 	eg, ctx := errgroup.WithContext(ctx)
 	return &ErrorGroupWrapper{
 		Group:       eg,
-		ReturnError: nil,
-		Variables:   vars,
-		Logger:      logger,
+		returnError: nil,
+		variables:   vars,
+		logger:      logger,
 	}, ctx
 }
 
 // Go overrides the Go method to add panic recovery logic.
 func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
-	egw.Group.Go(func() error {
-		defer func() {
+	disable, err := strconv.ParseBool(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
+	var deferFunc func()
+	if err != nil || !disable {
+		deferFunc = func() {
 			if r := recover(); r != nil {
-				egw.Logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.Variables)
+				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
-				egw.ReturnError = fmt.Errorf("panic occurred: %v", r)
+				egw.returnError = fmt.Errorf("panic occurred: %v", r)
 			}
-		}()
+		}
+	} else {
+		deferFunc = func() {}
+	}
+
+	egw.Group.Go(func() error {
+		defer deferFunc()
 		return f()
 	})
 }
@@ -69,5 +79,5 @@ func (egw *ErrorGroupWrapper) Wait() error {
 	if err := egw.Group.Wait(); err != nil {
 		return err
 	}
-	return egw.ReturnError
+	return egw.returnError
 }
