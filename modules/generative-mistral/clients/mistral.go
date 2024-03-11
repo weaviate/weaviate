@@ -73,8 +73,14 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 	if err != nil {
 		return nil, errors.Wrap(err, "join Mistral API host and path")
 	}
+
+	message := Message{
+		Role:    "user",
+		Content: prompt,
+	}
+
 	input := generateInput{
-		Prompt:      prompt,
+		Messages:    []Message{message},
 		Model:       settings.Model(),
 		MaxTokens:   settings.MaxTokens(),
 		Temperature: settings.Temperature(),
@@ -94,7 +100,7 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 	if err != nil {
 		return nil, errors.Wrapf(err, "Mistral API Key")
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("BEARER %s", apiKey))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -185,10 +191,10 @@ func (v *mistral) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Prompt      string `json:"prompt"`
-	Model       string `json:"model"`
-	MaxTokens   int    `json:"max_tokens"`
-	Temperature int    `json:"temperature"`
+	Messages    []Message `json:"messages"`
+	Model       string    `json:"model"`
+	MaxTokens   int       `json:"max_tokens"`
+	Temperature int       `json:"temperature"`
 }
 
 type generateResponse struct {
@@ -204,9 +210,8 @@ type Choice struct {
 }
 
 type Message struct {
-	Role      string  `json:"role"`
-	Content   string  `json:"content"`
-	ToolCalls *string `json:"tool_calls"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // need to check this
