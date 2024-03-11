@@ -59,6 +59,7 @@ import (
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
+	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
@@ -693,6 +694,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", "multi2vec-clip").
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmulti2vecpalm.Name]; ok {
+		appState.Modules.Register(modmulti2vecpalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecpalm.Name).
 			Debug("enabled module")
 	}
 
