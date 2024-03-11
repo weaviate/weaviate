@@ -44,13 +44,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":       "command-xlarge",
-					"maxTokens":   2048,
+					"model":       "mistral-medium",
+					"maxTokens":   50,
 					"temperature": 1,
 				},
 			},
-			wantModel:       "command-xlarge",
-			wantMaxTokens:   2048,
+			wantModel:       "mistral-medium",
+			wantMaxTokens:   50,
 			wantTemperature: 1,
 			wantBaseURL:     "https://api.mistral.ai",
 			wantErr:         nil,
