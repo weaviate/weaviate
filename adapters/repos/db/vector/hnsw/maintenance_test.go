@@ -17,7 +17,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 )
 
 func Test_growIndexToAccomodateNode(t *testing.T) {
@@ -42,8 +41,8 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 		{
 			name: "is one before the initial size",
 			args: args{
-				id:    cache.InitialSize - 1,
-				index: createVertexSlice(cache.InitialSize),
+				id:    InitialSize - 1,
+				index: createVertexSlice(InitialSize),
 			},
 			wantIndexSize: 0,
 			changed:       false,
@@ -51,46 +50,46 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 		{
 			name: "exactly equals the initial size",
 			args: args{
-				id:    cache.InitialSize,
-				index: createVertexSlice(cache.InitialSize),
+				id:    InitialSize,
+				index: createVertexSlice(InitialSize),
 			},
-			wantIndexSize: cache.InitialSize + cache.MinimumIndexGrowthDelta,
+			wantIndexSize: InitialSize + MinimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
 			name: "is one after the initial size",
 			args: args{
-				id:    cache.InitialSize + 1,
-				index: createVertexSlice(cache.InitialSize),
+				id:    InitialSize + 1,
+				index: createVertexSlice(InitialSize),
 			},
-			wantIndexSize: cache.InitialSize + cache.MinimumIndexGrowthDelta,
+			wantIndexSize: InitialSize + MinimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
 			name: "4 times the initial size minus 1",
 			args: args{
-				id:    4*cache.InitialSize - 1,
-				index: createVertexSlice(cache.InitialSize),
+				id:    4*InitialSize - 1,
+				index: createVertexSlice(InitialSize),
 			},
-			wantIndexSize: 4*cache.InitialSize - 1 + cache.MinimumIndexGrowthDelta,
+			wantIndexSize: 4*InitialSize - 1 + MinimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
 			name: "4 times the initial size",
 			args: args{
-				id:    4 * cache.InitialSize,
-				index: createVertexSlice(cache.InitialSize),
+				id:    4 * InitialSize,
+				index: createVertexSlice(InitialSize),
 			},
-			wantIndexSize: 4*cache.InitialSize + cache.MinimumIndexGrowthDelta,
+			wantIndexSize: 4*InitialSize + MinimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
 			name: "4 times the initial size plus 1",
 			args: args{
-				id:    4*cache.InitialSize + 1,
-				index: createVertexSlice(cache.InitialSize),
+				id:    4*InitialSize + 1,
+				index: createVertexSlice(InitialSize),
 			},
-			wantIndexSize: 4*cache.InitialSize + 1 + cache.MinimumIndexGrowthDelta,
+			wantIndexSize: 4*InitialSize + 1 + MinimumIndexGrowthDelta,
 			changed:       true,
 		},
 		{
@@ -105,10 +104,10 @@ func Test_growIndexToAccomodateNode(t *testing.T) {
 		{
 			name: "panic case",
 			args: args{
-				id:    uint64(cache.InitialSize + cache.MinimumIndexGrowthDelta + 1),
-				index: createVertexSlice(cache.InitialSize + 1),
+				id:    uint64(InitialSize + MinimumIndexGrowthDelta + 1),
+				index: createVertexSlice(InitialSize + 1),
 			},
-			wantIndexSize: cache.InitialSize + 1 + 2*cache.MinimumIndexGrowthDelta,
+			wantIndexSize: InitialSize + 1 + 2*MinimumIndexGrowthDelta,
 			changed:       true,
 		},
 	}
