@@ -736,7 +736,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 
 		err := s.initHashTree(ctx)
 		if err != nil {
-			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+			return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
 		}
 
 		return nil
@@ -828,7 +828,7 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	defer s.hashtreeRWMux.RUnlock()
 
 	if !s.hashtreeInitialized.Load() {
-		return nil, fmt.Errorf("hashtree was not initialized")
+		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 
 	// TODO (jeroiraz): reusable pool of digests slices
