@@ -20,13 +20,10 @@ import (
 )
 
 const (
-	baseURLProperty           = "baseURL"
-	modelProperty             = "model"
-	temperatureProperty       = "temperature"
-	maxTokensProperty         = "maxTokens"
-	kProperty                 = "k"
-	stopSequencesProperty     = "stopSequences"
-	returnLikelihoodsProperty = "returnLikelihoods"
+	baseURLProperty     = "baseURL"
+	modelProperty       = "model"
+	temperatureProperty = "temperature"
+	maxTokensProperty   = "maxTokens"
 )
 
 var availableMistralModels = []string{
