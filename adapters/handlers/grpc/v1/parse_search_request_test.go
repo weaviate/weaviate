@@ -514,17 +514,47 @@ func TestGRPCRequest(t *testing.T) {
 		{
 			name: "hybrid neartext",
 			req: &pb.SearchRequest{
-				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{Query: "query", NearText: &pb.NearTextSearch{
-					Query:    []string{"first and", "second", "query"},
-					MoveTo:   &pb.NearTextSearch_Move{Force: 0.5, Concepts: []string{"first", "and second"}, Uuids: []string{UUID3, UUID4}},
-					MoveAway: &pb.NearTextSearch_Move{Force: 0.3, Concepts: []string{"second to last", "really last"}, Uuids: []string{UUID4}},
-				}},
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{Query: "query",
+					NearText: &pb.NearTextSearch{
+						Query:    []string{"first and", "second", "query"},
+						MoveTo:   &pb.NearTextSearch_Move{Force: 0.5, Concepts: []string{"first", "and second"}, Uuids: []string{UUID3, UUID4}},
+						MoveAway: &pb.NearTextSearch_Move{Force: 0.3, Concepts: []string{"second to last", "really last"}, Uuids: []string{UUID4}},
+					}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid nearvector returns all named vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+
+				HybridSearch: &pb.Hybrid{
+					Alpha:      1.0,
+					Query: "query",
+					NearVector: &pb.NearVector{
+						Vector:        []float32{1, 2, 3},
+						TargetVectors: []string{"custom"},
+					},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					Vector:        []float32{1, 2, 3},
+					TargetVectors: []string{"custom"},
+				},
 			},
 			error: false,
 		},
