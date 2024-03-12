@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -199,10 +201,10 @@ func NewManager(migrator migrate.Migrator, repo SchemaStore,
 
 func (m *Manager) Shutdown(ctx context.Context) error {
 	allCommitsDone := make(chan struct{})
-	go func() {
+	enterrors.GoWrapper(func() {
 		m.cluster.Shutdown()
 		allCommitsDone <- struct{}{}
-	}()
+	}, m.logger)
 
 	select {
 	case <-ctx.Done():

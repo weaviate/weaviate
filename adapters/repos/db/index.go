@@ -325,11 +325,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		i.shards.Store(shardName, shard)
 	}
 
-	go func() {
+	f := func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		defer i.allShardsReady.Store(true)
-
 		i.ForEachShard(func(name string, shard ShardLike) error {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
@@ -349,7 +348,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 				}
 			}
 		})
-	}()
+	}
+	enterrors.GoWrapper(f, i.logger)
 
 	return nil
 }
@@ -759,8 +759,10 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 
 	wg := &sync.WaitGroup{}
 	for shardName, group := range byShard {
+		shardName := shardName
+		group := group
 		wg.Add(1)
-		go func(shardName string, group objsAndPos) {
+		f := func() {
 			defer wg.Done()
 
 			defer func() {
@@ -793,7 +795,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				desiredPos := group.pos[i]
 				out[desiredPos] = err
 			}
-		}(shardName, group)
+		}
+		enterrors.GoWrapper(f, i.logger)
 	}
 
 	wg.Wait()
@@ -1993,8 +1996,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 	ch := make(chan result, len(shardUUIDs))
 	for shardName, uuids := range shardUUIDs {
 		uuids := uuids
+		shardName := shardName
 		wg.Add(1)
-		go func(shardName string, uuids []strfmt.UUID) {
+		f := func() {
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
@@ -2014,7 +2018,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 				})
 			}
 			ch <- result{objs}
-		}(shardName, uuids)
+		}
+		enterrors.GoWrapper(f, i.logger)
 	}
 
 	wg.Wait()

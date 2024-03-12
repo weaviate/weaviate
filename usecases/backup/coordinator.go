@@ -167,7 +167,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		Backend: req.Backend,
 	}
 
-	go func() {
+	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
@@ -180,7 +180,8 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		} else {
 			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, c.log)
 
 	return nil
 }
@@ -218,7 +219,7 @@ func (c *coordinator) Restore(
 	}
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
-	go func() {
+	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
@@ -231,7 +232,8 @@ func (c *coordinator) Restore(
 		} else {
 			c.log.WithFields(logFields).Errorf("coordinator: %v", c.descriptor.Error)
 		}
-	}()
+	}
+	enterrors.GoWrapper(g, c.log)
 
 	return nil
 }

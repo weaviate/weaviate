@@ -450,14 +450,15 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			return err
 		}
 	}
-	go func() {
+	f := func() {
 		for {
 			m.logger.
 				WithField("action", "reindex").
 				Warnf("Reindexed %v objects. Reindexing dimensions complete. Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count)
 			time.Sleep(5 * time.Minute)
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, m.logger)
 
 	return nil
 }
@@ -507,14 +508,15 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 		}
 
 	}
-	go func() {
+	f := func() {
 		for {
 			m.logger.
 				WithField("action", "recount").
 				Warnf("Recounted %v objects. Recounting properties complete. Please remove environment variable 	RECOUNT_PROPERTIES_AT_STARTUP before next startup", count)
 			time.Sleep(5 * time.Minute)
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, m.logger)
 
 	return nil
 }

@@ -49,7 +49,7 @@ type MemberLister interface {
 }
 
 func NewTxBroadcaster(state MemberLister, client Client, logger logrus.FieldLogger) *TxBroadcaster {
-	ideal := NewIdealClusterState(state)
+	ideal := NewIdealClusterState(state, logger)
 	return &TxBroadcaster{
 		state:  state,
 		client: client,
