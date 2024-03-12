@@ -96,6 +96,8 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 
 	// Generate a goroutine for each separate request
 	for i, ref := range refs {
+		i := i
+		ref := ref
 		wg.Add(1)
 		enterrors.GoWrapper(func() { b.validateReference(ctx, principal, wg, ref, i, &c) }, b.logger)
 	}
