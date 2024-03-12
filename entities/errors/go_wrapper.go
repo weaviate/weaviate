@@ -12,7 +12,10 @@
 package errors
 
 import (
+	"os"
 	"runtime/debug"
+
+	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/sirupsen/logrus"
 )
@@ -20,9 +23,11 @@ import (
 func GoWrapper(f func(), logger logrus.FieldLogger) {
 	go func() {
 		defer func() {
-			if r := recover(); r != nil {
-				logger.Errorf("Recovered from panic: %v", r)
-				debug.PrintStack()
+			if !configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				if r := recover(); r != nil {
+					logger.Errorf("Recovered from panic: %v", r)
+					debug.PrintStack()
+				}
 			}
 		}()
 		f()
