@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	wsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 // Store groups multiple buckets together, it "owns" one folder on the file
@@ -45,7 +46,7 @@ type Store struct {
 	bcreator       BucketCreator
 	// Prevent concurrent manipulations to the same Bucket, specially if there is
 	// action on the bucket in the meantime.
-	bucketsLocks sync.Map
+	bucketsLocks *wsync.KeyLocker
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -58,7 +59,7 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 		dir:           dir,
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
-		bucketsLocks:  sync.Map{},
+		bucketsLocks:  wsync.New(logger),
 		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
@@ -108,39 +109,6 @@ func (s *Store) bucketDir(bucketName string) string {
 	return path.Join(s.dir, bucketName)
 }
 
-// lockBucket it locks a specific bucket by it's name
-// to hold ant concurrent access to that specific bucket
-//
-//	do not forget calling unlockBucket() after locking it.
-func (s *Store) lockBucket(bucketName string) {
-	bucketLock := &sync.Mutex{}
-	bucketLocks, _ := s.bucketsLocks.LoadOrStore(bucketName, bucketLock)
-	var ok bool
-	bucketLock, ok = bucketLocks.(*sync.Mutex)
-	if !ok {
-		s.logger.Error("lock of non existing lock for bucket=%s", bucketName)
-		return
-	}
-
-	bucketLock.Lock()
-}
-
-// unlockBucket it unlocks a specific bucket by it's name
-// and it will delete it from the shard locks map
-func (s *Store) unlockBucket(bucketName string) {
-	bucketLocks, ok := s.bucketsLocks.Load(bucketName)
-	if !ok {
-		s.logger.Error("unlock of non existing lock for bucket=%s", bucketName)
-		return
-	}
-	bucketLock, ok := bucketLocks.(*sync.Mutex)
-	if !ok {
-		s.logger.Error("lock of non existing lock for bucket=%s", bucketName)
-		return
-	}
-	bucketLock.Unlock()
-}
-
 // CreateOrLoadBucket registers a bucket with the given name. If state on disk
 // exists for this bucket it is loaded, otherwise created. Pass [BucketOptions]
 // to configure the strategy of a bucket. The strategy defaults to "replace".
@@ -155,8 +123,8 @@ func (s *Store) unlockBucket(bucketName string) {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-	s.lockBucket(bucketName)
-	defer s.unlockBucket(bucketName)
+	s.bucketsLocks.Lock(bucketName)
+	defer s.bucketsLocks.Unlock(bucketName)
 
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
@@ -323,8 +291,8 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-	s.lockBucket(bucketName)
-	defer s.unlockBucket(bucketName)
+	s.bucketsLocks.Lock(bucketName)
+	defer s.bucketsLocks.Unlock(bucketName)
 
 	if b := s.Bucket(bucketName); b != nil {
 		return fmt.Errorf("bucket %s exists and is already in use", bucketName)
