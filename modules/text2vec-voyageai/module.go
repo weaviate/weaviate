@@ -99,7 +99,7 @@ func (m *VoyageAIModule) InitExtension(modules []modulecapabilities.Module) erro
 func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("VOYAGE_API_KEY")
+	apiKey := os.Getenv("VOYAGEAI_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
