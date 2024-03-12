@@ -39,7 +39,6 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
-
 	return h.metaReader.ReadOnlyClass(name), nil
 }
 

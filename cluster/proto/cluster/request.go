@@ -37,3 +37,12 @@ type DeleteClassRequest struct {
 type UpdateShardStatusRequest struct {
 	Class, Shard, Status string
 }
+
+type QueryReadOnlyClassRequest struct {
+	Class string
+}
+
+type QueryReadOnlyClassResponse struct {
+	Class *models.Class
+	State *sharding.State
+}
