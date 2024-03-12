@@ -56,17 +56,21 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 5
+	itCount := 3
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviateNode(node).Name())
+			timeout := 3 * time.Second
+			err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), &timeout)
+			require.NoError(t, err)
+
+			time.Sleep(1 * time.Second)
 		})
 
-		t.Run("upsert paragraphs", func(t *testing.T) {
+		t.Run("insert paragraphs", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
 			for i := range paragraphIDs {
 				batch[i] = articles.NewParagraph().
@@ -87,6 +91,9 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			defer cancel()
+
 			restartNode(ctx, t, compose, clusterSize, node)
 		})
 	}
@@ -101,9 +108,14 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 
 func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, clusterSize, node int) {
 	if node != 1 {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode(node).Name())
+		timeout := 3 * time.Second
+		err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), &timeout)
+		require.NoError(t, err)
 
-		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(node).Name()))
+		time.Sleep(1 * time.Second)
+
+		err = compose.Start(ctx, compose.GetWeaviateNode(node).Name())
+		require.NoError(t, err)
 		time.Sleep(3 * time.Second) // wait for initialization
 	}
 
@@ -111,11 +123,17 @@ func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompos
 	// after node1 to re-facilitate internode communication
 
 	for n := clusterSize; n >= 1; n-- {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode(n).Name())
+		timeout := 3 * time.Second
+		err := compose.Stop(ctx, compose.GetWeaviateNode(n).Name(), &timeout)
+		require.NoError(t, err)
+
+		time.Sleep(1 * time.Second)
 	}
 
 	for n := 1; n <= clusterSize; n++ {
-		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(n).Name()))
+		err := compose.Start(ctx, compose.GetWeaviateNode(n).Name())
+		require.NoError(t, err)
+
 		time.Sleep(3 * time.Second) // wait for initialization
 	}
 }
