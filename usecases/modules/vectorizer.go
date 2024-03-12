@@ -188,7 +188,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		// each target vector can have its own associated properties, and we need to determine for each one if we should
-		// skip it or not
+		// skip it or not. To simplify things, we create a boolean slice that indicates for each object if the given
+		// vectorizer needs to act on it or not. This allows us to use the same objects slice for all vectorizers and
+		// simplifies the mapping of the returned vectors to the objects.
 		skipRevectorization := make([]bool, len(objects))
 		for i, obj := range objects {
 			if !p.shouldVectorizeObject(obj, cfg) {
