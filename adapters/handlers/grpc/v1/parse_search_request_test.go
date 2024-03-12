@@ -158,6 +158,40 @@ func TestGRPCRequest(t *testing.T) {
 		out   dto.GetParams
 		error bool
 	}{
+
+		{
+			name: "hybrid nearvector returns all named vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+
+				HybridSearch: &pb.Hybrid{
+					Alpha: 1.0,
+					Query: "nearvecquery",
+					NearVector: &pb.NearVector{
+						Vector:        []float32{1, 2, 3},
+						TargetVectors: []string{"custom"},
+					},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha:           1.0,
+					Query:           "nearvecquery",
+					FusionAlgorithm: 1,
+					NearVectorParams: &searchparams.NearVector{
+						Vector:        []float32{1, 2, 3},
+						TargetVectors: []string{"custom"},
+					},
+				},
+			},
+			error: false,
+		},
 		{
 			name: "near text wrong uuid format",
 			req: &pb.SearchRequest{
@@ -529,39 +563,6 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRelativeScoreFusion},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
-			},
-			error: false,
-		},
-		{
-			name: "hybrid nearvector returns all named vectors",
-			req: &pb.SearchRequest{
-				Collection: multiVecClass,
-				Metadata:   &pb.MetadataRequest{Vector: true},
-				Properties: &pb.PropertiesRequest{},
-
-				HybridSearch: &pb.Hybrid{
-					Alpha: 1.0,
-					Query: "query",
-					NearVector: &pb.NearVector{
-						Vector:        []float32{1, 2, 3},
-						TargetVectors: []string{"custom"},
-					},
-				},
-			},
-			out: dto.GetParams{
-				ClassName:            multiVecClass,
-				Pagination:           defaultPagination,
-				Properties:           search.SelectProperties{},
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
-				HybridSearch: &searchparams.HybridSearch{
-					Alpha:           1.0,
-					Query:           "query",
-					FusionAlgorithm: 1,
-					NearVectorParams: &searchparams.NearVector{
-						Vector:        []float32{1, 2, 3},
-						TargetVectors: []string{"custom"},
-					},
-				},
 			},
 			error: false,
 		},

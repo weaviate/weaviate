@@ -231,7 +231,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-		nearVec := req.NearVector
+		nearVec := req.HybridSearch.NearVector
 
 		out.HybridSearch = &searchparams.HybridSearch{
 			Query:           hs.Query,
