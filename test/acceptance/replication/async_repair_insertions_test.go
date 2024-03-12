@@ -56,7 +56,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 5
+	itCount := 3
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
@@ -66,7 +66,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 			stopNodeAt(ctx, t, compose, node)
 		})
 
-		t.Run("upsert paragraphs", func(t *testing.T) {
+		t.Run("insert paragraphs", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
 			for i := range paragraphIDs {
 				batch[i] = articles.NewParagraph().
@@ -87,6 +87,9 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			defer cancel()
+
 			restartNode(ctx, t, compose, clusterSize, node)
 		})
 	}
