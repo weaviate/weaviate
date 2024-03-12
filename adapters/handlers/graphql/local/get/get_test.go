@@ -785,8 +785,6 @@ func TestNearCustomTextRanker(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
-
-
 	t.Run("for actions with targetvec", func(t *testing.T) {
 		query := `{ Get { SomeAction(nearCustomText: {
 								concepts: ["c1", "c2", "c3"],
@@ -815,7 +813,7 @@ func TestNearCustomTextRanker(t *testing.T) {
 						"concepts": []interface{}{"epic"},
 						"force":    float64(0.25),
 					},
-					"targetVectors":[]interface{}{"epic"},
+					"targetVectors": []interface{}{"epic"},
 				}),
 			},
 		}
@@ -825,7 +823,6 @@ func TestNearCustomTextRanker(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
-
 
 	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
 		query := `{ Get { CustomVectorClass(nearCustomText: {

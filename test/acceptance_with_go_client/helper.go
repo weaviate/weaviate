@@ -12,8 +12,8 @@
 package acceptance_with_go_client
 
 import (
-	"testing"
 	"fmt"
+	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
