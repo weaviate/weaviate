@@ -403,7 +403,6 @@ func TestSearcher(t *testing.T) {
 					}, []float32{0.008}, nil
 				}
 				provider := &fakeModuleProvider{}
-
 				res, err := Search(ctx, params, logger, sparse, dense, nil, provider)
 				require.Nil(t, err)
 				assert.Len(t, res, 2)

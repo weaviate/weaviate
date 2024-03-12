@@ -267,7 +267,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
 		}
