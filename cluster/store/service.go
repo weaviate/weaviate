@@ -35,6 +35,7 @@ type Service struct {
 // client to communicate with remote services
 type client interface {
 	Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error)
+	Query(ctx context.Context, leaderAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 	Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error)
 	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
 }
@@ -261,6 +262,58 @@ func (s *Service) Stats() map[string]string {
 
 func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
 	return s.store.WaitToRestoreDB(ctx, period)
+}
+
+// QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
+// ensure we will read the class with strong consistency
+func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
+	if class == "" {
+		return &models.Class{}, fmt.Errorf("empty class name: %w", errBadRequest)
+	}
+
+	// Build the query and execute it
+	req := cmd.QueryReadOnlyClassRequest{Class: class}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return &models.Class{}, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_READONLY_CLASS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return &models.Class{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Empty payload doesn't unmarshal to an empty struct and will instead result in an error.
+	// We have an empty payload when the requested class if not present in the schema.
+	// In that case return a nil pointer and no error.
+	if len(queryResp.Payload) == 0 {
+		return nil, nil
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryReadOnlyClassResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return &models.Class{}, fmt.Errorf("failed to nmarshal query result: %w", err)
+	}
+	return resp.Class, nil
+}
+
+// Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
+// If any error happens it returns it
+func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	if s.store.IsLeader() {
+		return s.store.Query(req)
+	}
+
+	leaderAddr := s.store.Leader()
+	if leaderAddr == "" {
+		return &cmd.QueryResponse{}, ErrLeaderNotFound
+	}
+	return s.cl.Query(ctx, leaderAddr, req)
 }
 
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {

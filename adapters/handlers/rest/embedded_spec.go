@@ -2423,6 +2423,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -7610,6 +7617,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {

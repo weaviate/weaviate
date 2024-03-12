@@ -30,6 +30,7 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type metaWriter interface {
+	// Schema writes operation
 	AddClass(cls *models.Class, ss *sharding.State) error
 	RestoreClass(cls *models.Class, ss *sharding.State) error
 	UpdateClass(cls *models.Class, ss *sharding.State) error
@@ -39,6 +40,11 @@ type metaWriter interface {
 	AddTenants(class string, req *command.AddTenantsRequest) error
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
+
+	// Strongly consistent schema read
+	QueryReadOnlyClass(name string) (*models.Class, error)
+
+	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]string

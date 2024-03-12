@@ -106,6 +106,12 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.AddClass(cls, ss))
 	assert.Equal(t, schema.ClassEqual("C"), "C")
 
+	// QueryReadOnlyClass
+	readOnlyClass, err := srv.QueryReadOnlyClass(cls.Class)
+	assert.NoError(t, err)
+	assert.NotNil(t, readOnlyClass)
+	assert.Equal(t, cls, readOnlyClass)
+
 	// UpdateClass
 	info := ClassInfo{
 		Exists:            true,

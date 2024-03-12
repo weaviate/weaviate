@@ -34,6 +34,7 @@ type members interface {
 
 type executor interface {
 	Execute(cmd *cmd.ApplyRequest) error
+	Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
 type Service struct {
@@ -81,6 +82,15 @@ func (c *Service) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyRes
 		return &cmd.ApplyResponse{}, nil
 	}
 	return &cmd.ApplyResponse{Leader: c.members.Leader()}, toRPCError(err)
+}
+
+func (c *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	resp, err := c.executor.Query(ctx, req)
+	if err != nil {
+		return &cmd.QueryResponse{}, toRPCError(err)
+	}
+
+	return resp, nil
 }
 
 func (c *Service) Leader() string {
