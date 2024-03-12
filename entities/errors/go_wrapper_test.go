@@ -39,9 +39,6 @@ func TestGoWrapper(t *testing.T) {
 			var buf bytes.Buffer
 			log := logrus.New()
 			log.SetOutput(&buf)
-			defer func() {
-				log.SetOutput(os.Stderr)
-			}()
 
 			if tt.set {
 				t.Setenv("DISABLE_RECOVERY_ON_PANIC", tt.env)
@@ -50,8 +47,7 @@ func TestGoWrapper(t *testing.T) {
 			wg.Add(1)
 			GoWrapper(func() {
 				defer wg.Done()
-				slice := make([]string, 0)
-				slice[0] = "test"
+				panic("test")
 			}, log)
 			wg.Wait()
 
@@ -59,6 +55,7 @@ func TestGoWrapper(t *testing.T) {
 			// in the function we pass to the wrapper has been called and we have no way to block until it is done.
 			// Note that this does not matter in normal operation as we do not depend on the log being written to
 			time.Sleep(100 * time.Millisecond)
+			log.SetOutput(os.Stderr)
 			assert.Contains(t, buf.String(), "Recovered from panic")
 		})
 	}
