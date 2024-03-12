@@ -1077,7 +1077,6 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
-
 		{
 			name: "near audio search",
 			req: &pb.SearchRequest{
@@ -1118,7 +1117,6 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
-
 		{
 			name: "near image search",
 			req: &pb.SearchRequest{
