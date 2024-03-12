@@ -553,9 +553,14 @@ func TestGRPCRequest(t *testing.T) {
 				Pagination:           defaultPagination,
 				Properties:           search.SelectProperties{},
 				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
-				NearVector: &searchparams.NearVector{
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha: 1.0,
+					Query: "query",
+					FusionAlgorithm: 1,
+				NearVectorParams: &searchparams.NearVector{
 					Vector:        []float32{1, 2, 3},
 					TargetVectors: []string{"custom"},
+				},
 				},
 			},
 			error: false,
