@@ -155,7 +155,7 @@ func TestClient(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "VoyageAI API Key: no api key found "+
 			"neither in request header: X-VoyageAI-Api-Key "+
-			"nor in environment variable under VOYAGE_API_KEY")
+			"nor in environment variable under VOYAGEAI_APIKEY")
 	})
 
 	t.Run("when X-VoyageAI-Api-Key header is passed but empty", func(t *testing.T) {
@@ -181,7 +181,7 @@ func TestClient(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "VoyageAI API Key: no api key found "+
 			"neither in request header: X-VoyageAI-Api-Key "+
-			"nor in environment variable under VOYAGE_API_KEY")
+			"nor in environment variable under VOYAGEAI_APIKEY")
 	})
 
 	t.Run("when X-VoyageAI-BaseURL header is passed", func(t *testing.T) {
