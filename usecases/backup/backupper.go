@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -141,7 +143,7 @@ func (b *backupper) backup(ctx context.Context,
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 	// waits for ack from coordinator in order to processed with the backup
-	go func() {
+	f := func() {
 		defer b.lastOp.reset()
 		if err := b.waitForCoordinator(expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
@@ -175,7 +177,8 @@ func (b *backupper) backup(ctx context.Context,
 			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
 		result.CompletedAt = time.Now().UTC()
-	}()
+	}
+	enterrors.GoWrapper(f, b.logger)
 
 	return ret, nil
 }

@@ -141,7 +141,7 @@ func (c *Classifier) runItems(ctx context.Context, classifyItem ClassifyItemFn, 
 		workerCount = len(items)
 	}
 
-	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo)
+	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo, c.logger)
 	workers.addJobs(items)
 	res := workers.work(ctx)
 

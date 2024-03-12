@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/go-openapi/strfmt"
@@ -157,7 +158,9 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 
 	for j, object := range batch {
 		wg.Add(1)
-		go func(index int, object *storobj.Object) {
+		object := object
+		index := j
+		f := func() {
 			defer wg.Done()
 
 			// Acquire a semaphore to control the concurrency. Otherwise we would
@@ -176,7 +179,9 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 				errs[index] = err
 				errLock.Unlock()
 			}
-		}(j, object)
+		}
+		enterrors.GoWrapper(f, ob.shard.Index().logger)
+
 	}
 	wg.Wait()
 
