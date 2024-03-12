@@ -198,7 +198,7 @@ function run_acceptance_only_fast() {
   # needed for test/docker package during replication tests
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
-    for pkg in $(go list ./... | grep 'test/acceptance' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers'); do
+    for pkg in $(go list ./... | grep 'test/acceptance' | grep 'schema' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers'); do
       if ! go test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1

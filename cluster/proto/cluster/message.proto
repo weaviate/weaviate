@@ -2,7 +2,13 @@ syntax = "proto3";
 
 package weaviate.cloud.internal.cluster;
 
-//option go_package = "github.com/weaviate/weaviate/cloud/proto/cluster";
+service ClusterService {
+  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
+  rpc JoinPeer(JoinPeerRequest) returns (JoinPeerResponse) {}
+  rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {}
+  rpc Query(QueryRequest) returns (QueryResponse) {}
+}
 
 message JoinPeerRequest {
   string id = 1;
@@ -10,8 +16,16 @@ message JoinPeerRequest {
   bool voter = 3;
 }
 
+message JoinPeerResponse {
+  string leader = 1;
+}
+
 message RemovePeerRequest {
   string id = 1;
+}
+
+message RemovePeerResponse {
+  string leader = 1;
 }
 
 message NotifyPeerRequest {
@@ -19,29 +33,7 @@ message NotifyPeerRequest {
   string address = 2;
 }
 
-message RemovePeerResponse {
-  string leader = 1;
-}
-
-message JoinPeerResponse {
-  string leader = 1;
-
-}
-
 message NotifyPeerResponse {
-}
-
-message ApplyResponse {
-  string leader = 1;
-}
-
-
-service ClusterService {
-  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
-  rpc JoinPeer(JoinPeerRequest) returns (JoinPeerResponse) {}
-  rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
-  rpc Apply(ApplyRequest) returns (ApplyResponse) {}
-
 }
 
 message ApplyRequest {
@@ -62,6 +54,24 @@ message ApplyRequest {
   Type type = 1;
   string class = 2;
   bytes sub_command = 3;
+}
+
+message ApplyResponse {
+  string leader = 1;
+}
+
+message QueryRequest {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_GET_READONLY_CLASS = 1;
+  }
+
+  Type type = 1;
+  bytes sub_command = 2;
+}
+
+message QueryResponse {
+  bytes payload = 1;
 }
 
 message AddTenantsRequest {
