@@ -49,6 +49,7 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 	multiVecClass := "MultiVecClass"
+	one := float64(1.0)
 
 	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
 
@@ -172,6 +173,8 @@ func TestGRPCRequest(t *testing.T) {
 					NearVector: &pb.NearVector{
 						Vector:        []float32{1, 2, 3},
 						TargetVectors: []string{"custom"},
+						Certainty: &one,
+						Distance: &one,
 					},
 				},
 			},
@@ -187,6 +190,8 @@ func TestGRPCRequest(t *testing.T) {
 					NearVectorParams: &searchparams.NearVector{
 						Vector:        []float32{1, 2, 3},
 						TargetVectors: []string{"custom"},
+						Certainty:     1.0,
+						Distance:      1.0,
 					},
 				},
 			},
