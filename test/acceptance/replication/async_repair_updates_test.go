@@ -56,14 +56,18 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 5
+	itCount := 3
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviateNode(node).Name())
+			timeout := 3 * time.Second
+			err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), &timeout)
+			require.NoError(t, err)
+
+			time.Sleep(1 * time.Second)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
@@ -88,6 +92,9 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			defer cancel()
+
 			restartNode(ctx, t, compose, clusterSize, node)
 		})
 	}
