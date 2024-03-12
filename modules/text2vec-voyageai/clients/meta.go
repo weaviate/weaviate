@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationConfig struct {
-	PoolingStrategy                        string
-	InferenceURL                           string
-	PassageInferenceURL, QueryInferenceURL string
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "VoyageAI Module",
+		"documentationHref": "https://docs.voyageai.com/docs/embeddings",
+	}, nil
 }

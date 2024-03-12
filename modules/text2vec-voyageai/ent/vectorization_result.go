@@ -11,8 +11,8 @@
 
 package ent
 
-type VectorizationConfig struct {
-	PoolingStrategy                        string
-	InferenceURL                           string
-	PassageInferenceURL, QueryInferenceURL string
+type VectorizationResult struct {
+	Text       []string
+	Dimensions int
+	Vectors    [][]float32
 }

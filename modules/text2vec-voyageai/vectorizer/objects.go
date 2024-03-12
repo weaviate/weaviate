@@ -13,11 +13,13 @@ package vectorizer
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 type Vectorizer struct {
@@ -33,18 +35,20 @@ func New(client Client) *Vectorizer {
 }
 
 type Client interface {
-	VectorizeObject(ctx context.Context, input string,
-		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input string,
-		cfg ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	Vectorize(ctx context.Context, input []string,
+		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	VectorizeQuery(ctx context.Context, input []string,
+		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
 type ClassSettings interface {
 	PropertyIndexed(property string) bool
-	VectorizeClassName() bool
 	VectorizePropertyName(propertyName string) bool
-	PoolingStrategy() string
+	VectorizeClassName() bool
+	Model() string
+	Truncate() string
+	BaseURL() string
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -63,10 +67,20 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return vector, nil
 	}
 	// vectorize text
-	res, err := v.client.VectorizeObject(ctx, text, v.getVectorizationConfig(cfg))
+	icheck := NewClassSettings(cfg)
+	res, err := v.client.Vectorize(ctx, []string{text}, ent.VectorizationConfig{
+		Model:   icheck.Model(),
+		BaseURL: icheck.BaseURL(),
+	})
 	if err != nil {
 		return nil, err
 	}
+	if len(res.Vectors) == 0 {
+		return nil, fmt.Errorf("no vectors generated")
+	}
 
-	return res.Vector, nil
+	if len(res.Vectors) > 1 {
+		return libvectorizer.CombineVectors(res.Vectors), nil
+	}
+	return res.Vectors[0], nil
 }
