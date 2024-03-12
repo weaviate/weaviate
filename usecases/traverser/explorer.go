@@ -693,7 +693,8 @@ func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{params.TargetVector})
+	targetVector := e.targetParamHelper.getTargetVectorFromParams(params)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err
 	}
