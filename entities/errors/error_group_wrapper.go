@@ -16,9 +16,9 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
-	"strconv"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -29,16 +29,30 @@ type ErrorGroupWrapper struct {
 	returnError error
 	variables   []interface{}
 	logger      logrus.FieldLogger
+	deferFunc   func(localVars ...interface{})
 }
 
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
 func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *ErrorGroupWrapper {
-	return &ErrorGroupWrapper{
+	egw := &ErrorGroupWrapper{
 		Group:       new(errgroup.Group),
 		returnError: nil,
 		variables:   vars,
 		logger:      logger,
 	}
+	disable := configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
+	if !disable {
+		egw.deferFunc = func(localVars ...interface{}) {
+			if r := recover(); r != nil {
+				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
+				debug.PrintStack()
+				egw.returnError = fmt.Errorf("panic occurred: %v", r)
+			}
+		}
+	} else {
+		egw.deferFunc = func(localVars ...interface{}) {}
+	}
+	return egw
 }
 
 // NewErrorGroupWithContextWrapper creates a new ErrorGroupWrapper
@@ -54,22 +68,8 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 
 // Go overrides the Go method to add panic recovery logic.
 func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
-	disable, err := strconv.ParseBool(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
-	var deferFunc func()
-	if err != nil || !disable {
-		deferFunc = func() {
-			if r := recover(); r != nil {
-				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
-				debug.PrintStack()
-				egw.returnError = fmt.Errorf("panic occurred: %v", r)
-			}
-		}
-	} else {
-		deferFunc = func() {}
-	}
-
 	egw.Group.Go(func() error {
-		defer deferFunc()
+		defer egw.deferFunc(localVars)
 		return f()
 	})
 }

@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestName(t *testing.T) {
+func TestErrorGroupWrapper(t *testing.T) {
 	cases := []struct {
 		env string
 		set bool
@@ -29,6 +29,8 @@ func TestName(t *testing.T) {
 		{env: "something", set: false},
 		{env: "", set: true},
 		{env: "false", set: true},
+		// {env: "true", set: true}, this will NOT recover the panic, but we cannot recover on a higher level and there
+		// is no way to have the test succeed
 	}
 	for _, tt := range cases {
 		t.Run(tt.env, func(t *testing.T) {
