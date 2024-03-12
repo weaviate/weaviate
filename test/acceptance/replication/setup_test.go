@@ -23,6 +23,7 @@ func TestReplication(t *testing.T) {
 	t.Run("ReadRepair", readRepair)
 	t.Run("AsyncRepair", asyncRepairSimpleScenario)
 	t.Run("AsyncRepairInsertion", asyncRepairObjectInsertionScenario)
+	t.Run("AsyncRepairUpdate", asyncRepairObjectUpdateScenario)
 	t.Run("GraphqlSearch", graphqlSearch)
 	t.Run("MultiTenancy", multiTenancyEnabled)
 }

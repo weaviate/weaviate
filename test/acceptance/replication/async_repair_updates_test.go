@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func asyncRepairObjectInsertionScenario(t *testing.T) {
+func asyncRepairObjectUpdateScenario(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -68,8 +68,9 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
-			for i := range paragraphIDs {
+			for i, id := range paragraphIDs {
 				batch[i] = articles.NewParagraph().
+					WithID(id).
 					WithContents(fmt.Sprintf("paragraph#%d_%d", it, i)).
 					Object()
 			}
@@ -94,7 +95,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 	for n := 1; n <= clusterSize; n++ {
 		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
 			count := countObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
-			require.EqualValues(t, itCount*len(paragraphIDs), count)
+			require.EqualValues(t, len(paragraphIDs), count)
 		})
 	}
 }

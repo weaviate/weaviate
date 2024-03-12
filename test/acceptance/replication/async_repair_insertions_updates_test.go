@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func asyncRepairObjectInsertionScenario(t *testing.T) {
+func asyncRepairUpsertScenario(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -49,41 +49,30 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       int64(clusterSize),
-			AsyncEnabled: true,
+			Factor: int64(clusterSize),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 5
-
-	for it := 0; it < itCount; it++ {
+	for it := 0; it < 3; it++ {
 		// pick one node to be down during upserts
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, node)
+			stopNodeAt(ctx, t, compose, 1)
+			time.Sleep(10 * time.Second)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
-			for i := range paragraphIDs {
+			for i, id := range paragraphIDs {
 				batch[i] = articles.NewParagraph().
+					WithID(id).
 					WithContents(fmt.Sprintf("paragraph#%d_%d", it, i)).
 					Object()
 			}
-
-			// choose one more node to insert the objects into
-			var targetNode int
-			for {
-				targetNode = 1 + rand.Intn(clusterSize)
-				if targetNode != node {
-					break
-				}
-			}
-
-			createObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, replica.One)
+			createObjectsCL(t, compose.GetWeaviate().URI(), batch, replica.One)
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
@@ -91,10 +80,35 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 	}
 
+	time.Sleep(1 * time.Second)
+
 	for n := 1; n <= clusterSize; n++ {
 		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
 			count := countObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
-			require.EqualValues(t, itCount*len(paragraphIDs), count)
+			require.EqualValues(t, len(paragraphIDs), count)
 		})
+	}
+}
+
+func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, clusterSize, node int) {
+	if node != 1 {
+		stopNodeAt(ctx, t, compose, node)
+		time.Sleep(10 * time.Second)
+
+		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(node).Name()))
+		time.Sleep(5 * time.Second) // wait for initialization
+	}
+
+	// since node1 is the gossip "leader", the other nodes must be stopped and restarted
+	// after node1 to re-facilitate internode communication
+
+	for n := clusterSize; n >= 1; n-- {
+		stopNodeAt(ctx, t, compose, n)
+		time.Sleep(10 * time.Second)
+	}
+
+	for n := 1; n <= clusterSize; n++ {
+		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(n).Name()))
+		time.Sleep(5 * time.Second) // wait for initialization
 	}
 }
