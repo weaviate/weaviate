@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -83,17 +82,12 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	model, truncate, baseURL string, inputType inputType,
+	model string, truncate bool, baseURL string, inputType inputType,
 ) (*ent.VectorizationResult, error) {
-	truncation, err := strconv.ParseBool(truncate)
-	if err != nil && truncate != "" {
-		return nil, errors.Wrap(err, "create POST request")
-	}
-
 	body, err := json.Marshal(embeddingsRequest{
 		Input:      input,
 		Model:      model,
-		Truncation: truncation,
+		Truncation: truncate,
 		InputType:  inputType,
 	})
 	if err != nil {
