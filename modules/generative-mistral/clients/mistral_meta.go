@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationConfig struct {
-	PoolingStrategy                        string
-	InferenceURL                           string
-	PassageInferenceURL, QueryInferenceURL string
+func (v *mistral) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "Generative Search - Mistral",
+		"documentationHref": "https://docs.mistral.ai/api/",
+	}, nil
 }

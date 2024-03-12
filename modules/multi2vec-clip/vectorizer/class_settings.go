@@ -45,6 +45,24 @@ func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
 	return ic.getFieldsWeights("text")
 }
 
+func (ic *classSettings) InferenceURL() string {
+	if ic.cfg == nil {
+		return ""
+	}
+
+	url, ok := ic.cfg.Class()["inferenceUrl"]
+	if !ok {
+		return ""
+	}
+
+	asString, ok := url.(string)
+	if !ok {
+		return ""
+	}
+
+	return asString
+}
+
 func (ic *classSettings) field(name, property string) bool {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}

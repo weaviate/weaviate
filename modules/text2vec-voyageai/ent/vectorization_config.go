@@ -12,7 +12,7 @@
 package ent
 
 type VectorizationConfig struct {
-	PoolingStrategy                        string
-	InferenceURL                           string
-	PassageInferenceURL, QueryInferenceURL string
+	Model    string
+	Truncate string
+	BaseURL  string
 }

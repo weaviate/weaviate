@@ -16,23 +16,21 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, inputs, []string{}, v.getVectorizationConfig(cfg))
+	settings := NewClassSettings(cfg)
+	res, err := v.client.VectorizeQuery(ctx, inputs, ent.VectorizationConfig{
+		Model:    settings.Model(),
+		Truncate: settings.Truncate(),
+		BaseURL:  settings.BaseURL(),
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
-	if len(inputs) != len(res.TextVectors) {
-		return nil, errors.New("inputs are not equal to vectors returned")
-	}
-	return libvectorizer.CombineVectors(res.TextVectors), nil
-}
-
-func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
-	return ent.VectorizationConfig{InferenceURL: NewClassSettings(cfg).InferenceURL()}
+	return libvectorizer.CombineVectors(res.Vectors), nil
 }
