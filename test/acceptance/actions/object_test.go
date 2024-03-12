@@ -360,7 +360,6 @@ func TestDeleteObject(t *testing.T) {
 	resp, err := helper.BatchClient(t).BatchObjectsCreate(params, nil)
 
 	// ensure that the response is OK
-	fmt.Println(resp)
 	helper.AssertRequestOk(t, resp, err, func() {
 		objectsCreateResponse := resp.Payload
 
