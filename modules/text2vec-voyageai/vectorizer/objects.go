@@ -47,7 +47,7 @@ type ClassSettings interface {
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
 	Model() string
-	Truncate() string
+	Truncate() bool
 	BaseURL() string
 }
 
@@ -67,11 +67,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return vector, nil
 	}
 	// vectorize text
-	icheck := NewClassSettings(cfg)
-	res, err := v.client.Vectorize(ctx, []string{text}, ent.VectorizationConfig{
-		Model:   icheck.Model(),
-		BaseURL: icheck.BaseURL(),
-	})
+	res, err := v.client.Vectorize(ctx, []string{text}, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -83,4 +79,13 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return libvectorizer.CombineVectors(res.Vectors), nil
 	}
 	return res.Vectors[0], nil
+}
+
+func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	settings := NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		Model:    settings.Model(),
+		BaseURL:  settings.BaseURL(),
+		Truncate: settings.Truncate(),
+	}
 }

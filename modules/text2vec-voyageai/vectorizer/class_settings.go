@@ -13,6 +13,7 @@ package vectorizer
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -26,7 +27,7 @@ import (
 const (
 	DefaultBaseURL               = "https://api.voyageai.com/v1"
 	DefaultVoyageAIModel         = "voyage-large-2"
-	DefaultTruncate              = "True"
+	DefaultTruncate              = true
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
@@ -37,7 +38,6 @@ var (
 		"voyage-large-2", "voyage-code-2", "voyage-2",
 	}
 	experimetnalVoyageAIModels = []string{}
-	availableTruncates         = []string{"True", "False"}
 )
 
 type classSettings struct {
@@ -53,8 +53,8 @@ func (cs *classSettings) Model() string {
 	return cs.getProperty("model", DefaultVoyageAIModel)
 }
 
-func (cs *classSettings) Truncate() string {
-	return cs.getProperty("truncate", DefaultTruncate)
+func (cs *classSettings) Truncate() bool {
+	return cs.getBoolProperty("truncate", DefaultTruncate)
 }
 
 func (cs *classSettings) BaseURL() string {
@@ -74,10 +74,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	model := cs.Model()
 	if !cs.validateVoyageAISetting(model, append(availableVoyageAIModels, experimetnalVoyageAIModels...)) {
 		return errors.Errorf("wrong VoyageAI model name, available model names are: %v", availableVoyageAIModels)
-	}
-	truncate := cs.Truncate()
-	if !cs.validateVoyageAISetting(truncate, availableTruncates) {
-		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
 	}
 
 	err := cs.validateIndexState(class, cs)
@@ -103,14 +99,34 @@ func (cs *classSettings) getProperty(name, defaultValue string) string {
 		return defaultValue
 	}
 
-	model, ok := cs.cfg.Class()[name]
+	value, ok := cs.cfg.Class()[name]
 	if ok {
-		asString, ok := model.(string)
+		asString, ok := value.(string)
 		if ok {
-			if name == "truncate" {
-				return asString
-			} else {
-				return strings.ToLower(asString)
+			return strings.ToLower(asString)
+		}
+	}
+
+	return defaultValue
+}
+
+func (cs *classSettings) getBoolProperty(name string, defaultValue bool) bool {
+	if cs.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return defaultValue
+	}
+
+	value, ok := cs.cfg.Class()[name]
+	if ok {
+		asBool, ok := value.(bool)
+		if ok {
+			return asBool
+		}
+		asString, ok := value.(string)
+		if ok {
+			asBool, err := strconv.ParseBool(asString)
+			if err == nil {
+				return asBool
 			}
 		}
 	}

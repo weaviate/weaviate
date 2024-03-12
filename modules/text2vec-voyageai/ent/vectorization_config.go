@@ -13,6 +13,6 @@ package ent
 
 type VectorizationConfig struct {
 	Model    string
-	Truncate string
+	Truncate bool
 	BaseURL  string
 }
