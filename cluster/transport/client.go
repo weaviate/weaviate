@@ -130,6 +130,21 @@ func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyRes
 	return c.Apply(ctx, req)
 }
 
+func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	addr, err := cl.rpc.Address(leaderAddress)
+	if err != nil {
+		return nil, fmt.Errorf("resolve address: %w", err)
+	}
+
+	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+	c := cmd.NewClusterServiceClient(conn)
+	return c.Query(ctx, req)
+}
+
 func NewRPCResolver(isLocalHost bool, rpcPort int) rpcAddressResolver {
 	return &rpcResolver{isLocalCluster: isLocalHost, rpcPort: rpcPort}
 }

@@ -223,6 +223,7 @@ func (m *MockMembers) Leader() string {
 
 type MockExecutor struct {
 	ef func() error
+	qf func(*cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
 func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) error {
@@ -230,6 +231,13 @@ func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) error {
 		return m.ef()
 	}
 	return nil
+}
+
+func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	if m.qf != nil {
+		return m.qf(req)
+	}
+	return nil, nil
 }
 
 type MockSLog struct {

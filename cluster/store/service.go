@@ -35,6 +35,7 @@ type Service struct {
 // client to communicate with remote services
 type client interface {
 	Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error)
+	Query(ctx context.Context, leaderAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 	Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error)
 	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
 }
@@ -261,6 +262,18 @@ func (s *Service) Stats() map[string]string {
 
 func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
 	return s.store.WaitToRestoreDB(ctx, period)
+}
+
+func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	if s.store.IsLeader() {
+		return s.store.Query(req)
+	}
+
+	leaderAddr := s.store.Leader()
+	if leaderAddr == "" {
+		return nil, ErrLeaderNotFound
+	}
+	return s.cl.Query(ctx, leaderAddr, req)
 }
 
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
