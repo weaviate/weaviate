@@ -40,6 +40,25 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 		variables:   vars,
 		logger:      logger,
 	}
+	egw.setDeferFunc()
+	return egw
+}
+
+// NewErrorGroupWithContextWrapper creates a new ErrorGroupWrapper
+func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
+	eg, ctx := errgroup.WithContext(ctx)
+	egw := &ErrorGroupWrapper{
+		Group:       eg,
+		returnError: nil,
+		variables:   vars,
+		logger:      logger,
+	}
+	egw.setDeferFunc()
+
+	return egw, ctx
+}
+
+func (egw *ErrorGroupWrapper) setDeferFunc() {
 	disable := configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
 	if !disable {
 		egw.deferFunc = func(localVars ...interface{}) {
@@ -52,18 +71,6 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 	} else {
 		egw.deferFunc = func(localVars ...interface{}) {}
 	}
-	return egw
-}
-
-// NewErrorGroupWithContextWrapper creates a new ErrorGroupWrapper
-func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
-	eg, ctx := errgroup.WithContext(ctx)
-	return &ErrorGroupWrapper{
-		Group:       eg,
-		returnError: nil,
-		variables:   vars,
-		logger:      logger,
-	}, ctx
 }
 
 // Go overrides the Go method to add panic recovery logic.
