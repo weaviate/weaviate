@@ -49,9 +49,7 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) (VectorI
 		}
 		vectorConfig, ok := class.VectorConfig[targetVectors[0]]
 		if !ok {
-			//Stack trace in string
-			trace := fmt.Sprintf("%+v", errors.WithStack(errors.New("vector config not found for target vector")))
-			return nil, errors.Errorf("vector config not found for target vector: %s in call %s", targetVectors[0], trace)
+			return nil, errors.Errorf("vector config not found for target vector: %s in call %s", targetVectors[0])
 		}
 		vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(VectorIndexConfig)
 		if !ok {

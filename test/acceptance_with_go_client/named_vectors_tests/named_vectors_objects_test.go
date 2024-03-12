@@ -117,7 +117,6 @@ func testCreateObject(host string) func(t *testing.T) {
 						WithVector(vectorC11y).
 						WithTargetVectors(c11y)
 					resultVectors := getVectorsWithNearVectorWithCertainty(t, client, className, id1, nearVector, c11y)
-					t.Logf("resultVectors: %v", resultVectors)
 					require.NotEmpty(t, resultVectors[c11y])
 				})
 
