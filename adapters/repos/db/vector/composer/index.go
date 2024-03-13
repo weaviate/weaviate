@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -66,6 +67,7 @@ type upgradableIndexer interface {
 }
 
 type composer struct {
+	sync.RWMutex
 	id                       string
 	targetVector             string
 	store                    *lsmkv.Store
@@ -137,26 +139,38 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 }
 
 func (composer *composer) Compressed() bool {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.Compressed()
 }
 
 func (composer *composer) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.AddBatch(ctx, ids, vectors)
 }
 
 func (composer *composer) Add(id uint64, vector []float32) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.Add(id, vector)
 }
 
 func (composer *composer) Delete(ids ...uint64) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.Delete(ids...)
 }
 
 func (composer *composer) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.SearchByVector(vector, k, allow)
 }
 
 func (composer *composer) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.SearchByVectorDistance(vector, targetDistance, maxLimit, allow)
 }
 
@@ -166,40 +180,58 @@ func (composer *composer) UpdateUserConfig(updated schema.VectorIndexConfig, cal
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
-	if composer.Upgraded() {
+	if composer.upgraded.Load() {
+		composer.RLock()
+		defer composer.RUnlock()
 		composer.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
 		composer.hnswUC = parsed.HnswUC
+		composer.RLock()
+		defer composer.RUnlock()
 		composer.index.UpdateUserConfig(parsed.FlatUC, callback)
 	}
 	return nil
 }
 
 func (composer *composer) Drop(ctx context.Context) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.Drop(ctx)
 }
 
 func (composer *composer) Flush() error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.Flush()
 }
 
 func (composer *composer) Shutdown(ctx context.Context) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.Shutdown(ctx)
 }
 
 func (composer *composer) SwitchCommitLogs(ctx context.Context) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.SwitchCommitLogs(ctx)
 }
 
 func (composer *composer) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.ListFiles(ctx, basePath)
 }
 
 func (composer *composer) ValidateBeforeInsert(vector []float32) error {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.ValidateBeforeInsert(vector)
 }
 
 func (composer *composer) PostStartup() {
+	composer.RLock()
+	defer composer.RUnlock()
 	composer.index.PostStartup()
 }
 
@@ -214,18 +246,26 @@ func (composer *composer) Dump(labels ...string) {
 }
 
 func (composer *composer) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.DistanceBetweenVectors(x, y)
 }
 
 func (composer *composer) ContainsNode(id uint64) bool {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.ContainsNode(id)
 }
 
 func (composer *composer) AlreadyIndexed() uint64 {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.AlreadyIndexed()
 }
 
 func (composer *composer) DistancerProvider() distancer.Provider {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.index.DistancerProvider()
 }
 
@@ -233,10 +273,14 @@ func (composer *composer) ShouldUpgrade() (bool, int) {
 	if !composer.upgraded.Load() {
 		return true, int(composer.threshold)
 	}
+	composer.RLock()
+	defer composer.RUnlock()
 	return (composer.index).(upgradableIndexer).ShouldUpgrade()
 }
 
 func (composer *composer) Upgraded() bool {
+	composer.RLock()
+	defer composer.RUnlock()
 	return composer.upgraded.Load() && composer.index.(upgradableIndexer).Upgraded()
 }
 
@@ -248,6 +292,8 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (composer *composer) Upgrade(callback func()) error {
+	composer.Lock()
+	defer composer.Unlock()
 	if composer.upgraded.Load() {
 		return composer.index.(upgradableIndexer).Upgrade(callback)
 	}
