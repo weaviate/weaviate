@@ -46,10 +46,6 @@ func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument
 	return map[string]modulecapabilities.GraphQLArgument{}
 }
 
-func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
-	return map[string]modulecapabilities.VectorForParams{}
-}
-
 func (m *BigramModule) Name() string {
 	return Name
 }
