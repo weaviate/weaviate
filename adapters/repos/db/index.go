@@ -227,6 +227,7 @@ func (i *Index) path() string {
 }
 
 type nodeResolver interface {
+	AllHostnames() []string
 	NodeHostname(nodeName string) (string, bool)
 }
 
