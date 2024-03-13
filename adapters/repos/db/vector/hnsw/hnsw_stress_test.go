@@ -24,9 +24,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -316,7 +318,7 @@ Ex: go test -v -run TestHnswStress . -download
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 			defer cancel()
 
-			g, ctx := errgroup.WithContext(ctx)
+			g, ctx := enterrors.NewErrorGroupWithContextWrapper(logrus.New(), ctx)
 
 			// run parallelGoroutines goroutines
 			for i := 0; i < parallelGoroutines; i++ {

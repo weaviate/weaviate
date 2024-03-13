@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -94,8 +96,10 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 
 	// Generate a goroutine for each separate request
 	for i, ref := range refs {
+		i := i
+		ref := ref
 		wg.Add(1)
-		go b.validateReference(ctx, principal, wg, ref, i, &c)
+		enterrors.GoWrapper(func() { b.validateReference(ctx, principal, wg, ref, i, &c) }, b.logger)
 	}
 
 	wg.Wait()

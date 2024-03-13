@@ -186,7 +186,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":     "unsupported-model",
 				},
 			},
-			wantErr: fmt.Errorf("unsupported-model is not supported available models are: [chat-bison-001 gemini-pro gemini-ultra]"),
+			wantErr: fmt.Errorf("unsupported-model is not supported available models are: [chat-bison-001 gemini-pro gemini-pro-vision gemini-ultra]"),
 		},
 	}
 	for _, tt := range tests {

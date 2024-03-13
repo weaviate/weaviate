@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -163,11 +165,12 @@ func NewIndexQueue(
 	}
 
 	q.wg.Add(1)
-	go func() {
+	f := func() {
 		defer q.wg.Done()
 
 		q.indexer()
-	}()
+	}
+	enterrors.GoWrapper(f, q.Logger)
 
 	return &q, nil
 }

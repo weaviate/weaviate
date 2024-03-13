@@ -16,13 +16,14 @@ import (
 	"errors"
 	"fmt"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -69,6 +70,7 @@ func NewFinder(className string,
 			repairer: repairer{
 				class:  className,
 				client: cl,
+				logger: l,
 			},
 			log: l,
 		},
@@ -139,7 +141,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 		return nil
 	}
 	// check shard consistency concurrently
-	gr, ctx := errgroup.WithContext(ctx)
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
@@ -149,7 +151,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 					WithField("shard", part.Shard).Error(err)
 			}
 			return err
-		})
+		}, part)
 	}
 	return gr.Wait()
 }
