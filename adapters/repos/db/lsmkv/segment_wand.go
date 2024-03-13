@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 	"sort"
 
@@ -30,6 +29,7 @@ var (
 	TOMBSTONE_PATTERN     = []byte{0x01, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	BAD_TOMBSTONE_PATTERN = []byte{0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	NON_TOMBSTONE_PATTERN = []byte{0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	BUFFER_SIZE           = 1024
 )
 
 type docPointerWithScore struct {
@@ -57,32 +57,7 @@ type Term struct {
 	Exhausted     bool
 	QueryTerm     string
 	PropertyBoost float64
-	buffer        []byte
-	bufferOffset  uint64
-}
-
-func (t *Term) seekBuffer(offsetStart uint64, offsetEnd uint64) {
-	if t.offsetPointer >= offsetStart && t.offsetPointer < offsetEnd {
-		return
-	}
-	if offsetEnd > t.actualEnd {
-		offsetEnd = t.actualEnd
-		t.buffer = make([]byte, offsetEnd-offsetStart)
-	}
-	t.bufferOffset = offsetStart
-	f := t.segment.contentFile
-	f.Seek(int64(offsetStart), 0)
-	_, err := io.ReadFull(f, t.buffer)
-	if err == io.EOF {
-		return
-	}
-}
-
-func (t *Term) read(offsetStart uint64, offsetEnd uint64) []byte {
-	if t.bufferOffset < offsetStart || t.bufferOffset >= offsetEnd {
-		t.seekBuffer(offsetStart, offsetEnd)
-	}
-	return t.buffer[offsetStart-t.bufferOffset : offsetEnd-t.bufferOffset]
+	values        []value
 }
 
 func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64) error {
@@ -101,10 +76,12 @@ func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node
 	if t.segment.mmapContents {
 		t.DocCount = binary.LittleEndian.Uint64(t.segment.contents[node.Start : node.Start+8])
 	} else {
-		t.buffer = make([]byte, BUFFER_SIZE)
-		t.bufferOffset = 0
-		t.read(node.Start, node.Start+8)
-		t.DocCount = binary.LittleEndian.Uint64(t.buffer[:8])
+		var err error
+		t.values, err = t.segment.getCollection(key)
+		if err != nil {
+			return err
+		}
+		t.DocCount = uint64(len(t.values))
 	}
 
 	n := float64(t.DocCount)
@@ -152,12 +129,10 @@ func (t *Term) decode() error {
 		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
 
 	} else {
-		t.read(docIdOffsetStart, docIdOffsetStart+8+2+4+4)
-
-		t.IdBytes = t.buffer[:8]
 		// read two floats
-		t.Data.frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.buffer[10:14]))
-		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.buffer[14:18]))
+		t.IdBytes = t.values[t.PosPointer].value[2:10]
+		t.Data.frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[12:16]))
+		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[16:20]))
 	}
 	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
 	return nil
@@ -168,7 +143,7 @@ func (t *Term) decodeIdOnly() {
 	if t.segment.mmapContents {
 		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
 	} else {
-		t.IdBytes = t.read(docIdOffsetStart, docIdOffsetStart+8)
+		t.IdBytes = t.values[t.PosPointer].value[2:10]
 	}
 }
 
