@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -117,7 +119,7 @@ func (s *Shard) initDimensionTracking() {
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics()
 		// start tracking vector dimensions goroutine only when tracking is enabled
-		go func() {
+		f := func() {
 			t := time.NewTicker(5 * time.Minute)
 			defer t.Stop()
 			for {
@@ -128,7 +130,8 @@ func (s *Shard) initDimensionTracking() {
 					s.publishDimensionMetrics()
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, s.index.logger)
 	}
 }
 

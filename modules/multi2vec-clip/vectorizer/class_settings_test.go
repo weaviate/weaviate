@@ -80,6 +80,14 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 		},
 		{
+			name: "should pass with proper value in imageFields and inferenceUrl",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("inferenceUrl", "http://inference.url").
+					addSetting("imageFields", []interface{}{"field"}).build(),
+			},
+		},
+		{
 			name: "should pass with proper value in imageFields and textFields",
 			fields: fields{
 				cfg: newConfigBuilder().

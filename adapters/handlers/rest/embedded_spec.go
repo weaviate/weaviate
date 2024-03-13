@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.24.1"
+    "version": "1.24.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -4086,6 +4086,11 @@ func init() {
           "format": "boolean",
           "x-omitempty": false
         },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "name": {
           "description": "The name of the shard.",
           "type": "string",
@@ -5103,7 +5108,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.24.1"
+    "version": "1.24.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -9420,6 +9425,11 @@ func init() {
         "compressed": {
           "description": "The status of vector compression/quantization.",
           "format": "boolean",
+          "x-omitempty": false
+        },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
           "x-omitempty": false
         },
         "name": {
