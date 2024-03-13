@@ -13,6 +13,7 @@ package t2vbigram
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -20,13 +21,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
-
-	"fmt"
-
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 const Name = "text2vec-bigram"
@@ -46,7 +44,6 @@ type BigramModule struct {
 
 func (m *BigramModule) Name() string {
 	return Name
-
 }
 
 func (m *BigramModule) Type() modulecapabilities.ModuleType {
@@ -85,7 +82,6 @@ func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object, 
 	}
 	vector, error := m.VectorizeInput(ctx, text, cfg)
 	return vector, nil, error
-
 }
 
 func (m *BigramModule) MetaInfo() (map[string]interface{}, error) {
