@@ -17,6 +17,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -80,6 +81,17 @@ func hybridOperands(classObject *graphql.Object,
 					Description: descriptions.GetWhereInpObj,
 				},
 			),
+		},
+
+		"nearVector": &graphql.InputObjectFieldConfig{
+			Description: "nearVector element",
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   fmt.Sprintf("%sNearVectorInpObj", prefixName),
+					Fields: common_filters.NearVectorFields(prefixName),
+				},
+			),
+
 		},
 	}
 
