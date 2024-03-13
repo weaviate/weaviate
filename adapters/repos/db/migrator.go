@@ -47,7 +47,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	defer m.db.indicesLockers.Unlock(class.Class)
 
 	m.db.indexLock.Lock()
-	idx, exists := m.db.indices[class.Class]
+	_, exists := m.db.indices[class.Class]
 	m.db.indexLock.Unlock()
 	if exists {
 		// TODO: check if states are equal, otherwise update
