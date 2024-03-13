@@ -176,6 +176,49 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	return fused, nil
 }
 
+// Search combines the result sets using Reciprocal Rank Fusion or Relative Score Fusion
+func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
+	if len(weights) != len(resultSet) {
+		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(resultSet))
+	}
+	if len(weights) != len(names) {
+		return nil, fmt.Errorf("length of weights and names do not match for hybrid search %v vs. %v", len(weights), len(names))
+	}
+
+	var fused []*search.Result
+	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
+		fused = FusionRanked(weights, resultSet, names)
+	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
+		fused = FusionRelativeScore(weights, resultSet, names)
+	} else {
+		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
+	}
+
+	if postProc != nil {
+		sr, err := postProc(fused)
+		if err != nil {
+			return nil, fmt.Errorf("hybrid search post-processing: %w", err)
+		}
+		newResults := make([]*search.Result, len(sr))
+		for i := range sr {
+			if err != nil {
+				return nil, fmt.Errorf("hybrid search post-processing: %w", err)
+			}
+			newResults[i] = &sr[i]
+		}
+		fused = newResults
+	}
+	if params.Autocut > 0 {
+		scores := make([]float32, len(fused))
+		for i := range fused {
+			scores[i] = fused[i].Score
+		}
+		cutOff := autocut.Autocut(scores, params.Autocut)
+		fused = fused[:cutOff]
+	}
+	return fused, nil
+}
+
 func processSparseSearch(results []*storobj.Object, scores []float32, err error) ([]*search.Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sparse search: %w", err)

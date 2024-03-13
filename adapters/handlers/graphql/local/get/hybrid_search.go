@@ -17,6 +17,7 @@ import (
 
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -43,6 +44,8 @@ func hybridOperands(classObject *graphql.Object,
 		Fields: hybridSubSearch(classObject, class, modulesProvider),
 	})
 
+	prefixName := class.Class + "SubSearch"
+
 	fieldMap := graphql.InputObjectConfigFieldMap{
 		"query": &graphql.InputObjectFieldConfig{
 			Description: "Query string",
@@ -67,6 +70,27 @@ func hybridOperands(classObject *graphql.Object,
 		"targetVectors": &graphql.InputObjectFieldConfig{
 			Description: "Target vectors",
 			Type:        graphql.NewList(graphql.String),
+		},
+		"nearText": &graphql.InputObjectFieldConfig{
+			Description: "nearText element",
+
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
+					Fields:      nearTextFields(prefixName),
+					Description: descriptions.GetWhereInpObj,
+				},
+			),
+		},
+
+		"nearVector": &graphql.InputObjectFieldConfig{
+			Description: "nearVector element",
+			Type: graphql.NewInputObject(
+				graphql.InputObjectConfig{
+					Name:   fmt.Sprintf("%sNearVectorInpObj", prefixName),
+					Fields: common_filters.NearVectorFields(prefixName),
+				},
+			),
 		},
 	}
 
