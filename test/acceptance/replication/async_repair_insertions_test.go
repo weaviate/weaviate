@@ -44,7 +44,6 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create schema", func(t *testing.T) {
@@ -53,10 +52,12 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 			AsyncEnabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
+
+		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 3
+	itCount := 5
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
@@ -87,7 +88,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 
 			restartNode(ctx, t, compose, clusterSize, node)
