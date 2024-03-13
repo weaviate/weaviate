@@ -81,7 +81,6 @@ type DB struct {
 	shutDownWg              sync.WaitGroup
 	maxNumberGoroutines     int
 	ratePerSecond           atomic.Int64
-	batchMonitorLock        sync.Mutex
 
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
