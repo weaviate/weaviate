@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package t2vbigram
 
 import (
@@ -6,18 +17,17 @@ import (
 	"net/http"
 	"time"
 
-
-
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema"
-	"fmt"
 )
 
 const Name = "text2vec-bigram"
@@ -69,15 +79,13 @@ func (m *BigramModule) initVectorizer(ctx context.Context, timeout time.Duration
 	return nil
 }
 
-func (m *BigramModule) VectorizableProperties (
+func (m *BigramModule) VectorizableProperties(
 	cfg moduletools.ClassConfig,
 ) (bool, []string, error) {
 	log.Println("VectorizableProperties bigram module")
 	m.logger.Printf("VectorizableProperties bigram module\n")
 	return true, []string{}, nil
 }
-
-
 
 func (m *BigramModule) initAdditionalPropertiesProvider() error {
 	log.Println("InitAdditionalPropertiesProvider bigram module")
@@ -91,7 +99,7 @@ func (m *BigramModule) RootHandler() http.Handler {
 }
 
 func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object,
-cfg moduletools.ClassConfig)  ([]float32, models.AdditionalProperties, error) {
+	cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error) {
 	log.Println("VectorizeObject bigram module")
 	m.logger.Printf("VectorizeObject bigram module\n")
 	// Concatenate all properties
@@ -100,7 +108,7 @@ cfg moduletools.ClassConfig)  ([]float32, models.AdditionalProperties, error) {
 		text += prop.(string)
 	}
 	log.Printf("Text: %s\n", text)
-	vector, error:= m.VectorizeInput(ctx, text, cfg)
+	vector, error := m.VectorizeInput(ctx, text, cfg)
 	return vector, nil, error
 
 }
@@ -134,7 +142,6 @@ func text2vector(input string) ([]float32, error) {
 		sum += v
 	}
 
-
 	for i, v := range vector {
 		vector[i] = v / sum
 	}
@@ -147,7 +154,7 @@ func (m *BigramModule) VectorizeInput(ctx context.Context,
 ) ([]float32, error) {
 	log.Println("VectorizeInput bigram module")
 	m.logger.Printf("VectorizeInput bigram module\n")
-	vector,err := text2vector(input)
+	vector, err := text2vector(input)
 	return vector, err
 }
 
@@ -163,18 +170,18 @@ func (m *BigramModule) AddVector(text string, vector []float32) error {
 
 func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{},
 	className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
-		log.Println("VectorFromParams bigram module")
-		m.logger.Printf("VectorFromParams bigram module\n")
-		//Switch on type
-		switch  params.(type) {
-		case *nearText.NearTextParams:
-			return m.Texts(ctx, params.(*nearText.NearTextParams).Values, cfg)
-		default:
-			return nil, fmt.Errorf("unsupported params type: %T", params)
+	log.Println("VectorFromParams bigram module")
+	m.logger.Printf("VectorFromParams bigram module\n")
+	//Switch on type
+	switch params.(type) {
+	case *nearText.NearTextParams:
+		return m.Texts(ctx, params.(*nearText.NearTextParams).Values, cfg)
+	default:
+		return nil, fmt.Errorf("unsupported params type: %T", params)
 	}
 }
 
-func (m *BigramModule)   VectorSearches() map[string]modulecapabilities.VectorForParams  {
+func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	log.Println("VectorSearches bigram module")
 	m.logger.Printf("VectorSearches bigram module\n")
 	vectorSearches := map[string]modulecapabilities.VectorForParams{}
@@ -198,10 +205,6 @@ func (m *BigramModule) Texts(ctx context.Context, inputs []string,
 	}
 	return libvectorizer.CombineVectors(vectors), nil
 }
-
-
-
-
 
 var (
 	_ = modulecapabilities.Module(New())
