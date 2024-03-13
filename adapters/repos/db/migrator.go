@@ -43,6 +43,21 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("replication config: %w", err)
 	}
 
+	m.db.indicesLockers.Lock(class.Class)
+	defer m.db.indicesLockers.Unlock(class.Class)
+
+	m.db.indexLock.Lock()
+	idx, exists := m.db.indices[class.Class]
+	m.db.indexLock.Unlock()
+	if exists {
+		// TODO: check if states are equal, otherwise update
+		// shards := shardState.AllPhysicalShards()
+		// if len(shards) != idx.shards.Len() {
+		// 	// TODO: update index
+		// }
+		return nil
+	}
+
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                 schema.ClassName(class.Class),

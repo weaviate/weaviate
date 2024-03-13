@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	wsync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -35,10 +36,13 @@ import (
 )
 
 type DB struct {
-	logger            logrus.FieldLogger
-	schemaGetter      schemaUC.SchemaGetter
-	config            Config
-	indices           map[string]*Index
+	logger       logrus.FieldLogger
+	schemaGetter schemaUC.SchemaGetter
+	config       Config
+	indices      map[string]*Index
+	// indicesLockers its a map of locks to be used
+	// to synchronize concurrency access on the same index
+	indicesLockers    *wsync.KeyLocker
 	remoteIndex       sharding.RemoteIndexClient
 	replicaClient     replica.Client
 	nodeResolver      nodeResolver
@@ -133,6 +137,7 @@ func New(logger logrus.FieldLogger, config Config,
 		logger:                  logger,
 		config:                  config,
 		indices:                 map[string]*Index{},
+		indicesLockers:          wsync.New(logger),
 		remoteIndex:             remoteIndex,
 		nodeResolver:            nodeResolver,
 		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
