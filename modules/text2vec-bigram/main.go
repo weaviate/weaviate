@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package t2vbigram
 
 import (
@@ -42,9 +53,7 @@ func (m *BigramModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2Vec
 }
 
-func (m *BigramModule) Init(ctx context.Context,
-	params moduletools.ModuleInitParams,
-) error {
+func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.logger = params.GetLogger()
 	return nil
 }
@@ -53,15 +62,11 @@ func (m *BigramModule) InitExtension(modules []modulecapabilities.Module) error 
 	return nil
 }
 
-func (m *BigramModule) initVectorizer(ctx context.Context, timeout time.Duration,
-	logger logrus.FieldLogger,
-) error {
+func (m *BigramModule) initVectorizer(ctx context.Context, timeout time.Duration, logger logrus.FieldLogger) error {
 	return nil
 }
 
-func (m *BigramModule) VectorizableProperties(
-	cfg moduletools.ClassConfig,
-) (bool, []string, error) {
+func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, []string{}, nil
 }
 
@@ -73,8 +78,7 @@ func (m *BigramModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object,
-	cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error) {
+func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error) {
 	var text string
 	for _, prop := range obj.Properties.(map[string]interface{}) {
 		text += prop.(string)
@@ -115,9 +119,7 @@ func text2vector(input string) ([]float32, error) {
 	return vector[1:], nil
 }
 
-func (m *BigramModule) VectorizeInput(ctx context.Context,
-	input string, cfg moduletools.ClassConfig,
-) ([]float32, error) {
+func (m *BigramModule) VectorizeInput(ctx context.Context, input string, cfg moduletools.ClassConfig) ([]float32, error) {
 	vector, err := text2vector(input)
 	return vector, err
 }
@@ -130,8 +132,7 @@ func (m *BigramModule) AddVector(text string, vector []float32) error {
 	return nil
 }
 
-func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{},
-	className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
+func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{}, className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
 	switch params.(type) {
 	case *nearText.NearTextParams:
 		return m.Texts(ctx, params.(*nearText.NearTextParams).Values, cfg)
@@ -147,9 +148,7 @@ func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForP
 	return vectorSearches
 }
 
-func (m *BigramModule) Texts(ctx context.Context, inputs []string,
-	cfg moduletools.ClassConfig,
-) ([]float32, error) {
+func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletools.ClassConfig) ([]float32, error) {
 	var vectors [][]float32
 	for _, input := range inputs {
 		vector, err := text2vector(input)
@@ -174,18 +173,14 @@ func (m *BigramModule) ClassConfigDefaults() map[string]interface{} {
 	}
 }
 
-func (m *BigramModule) PropertyConfigDefaults(
-	dt *schema.DataType,
-) map[string]interface{} {
+func (m *BigramModule) PropertyConfigDefaults(dt *schema.DataType) map[string]interface{} {
 	return map[string]interface{}{
 		"skip":                  false,
 		"vectorizePropertyName": true,
 	}
 }
 
-func (m *BigramModule) ValidateClass(ctx context.Context,
-	class *models.Class, cfg moduletools.ClassConfig,
-) error {
+func (m *BigramModule) ValidateClass(ctx context.Context, class *models.Class, cfg moduletools.ClassConfig) error {
 	return nil
 }
 
