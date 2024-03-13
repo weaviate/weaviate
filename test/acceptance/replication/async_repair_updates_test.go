@@ -97,9 +97,18 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 	}
 
 	for n := 1; n <= clusterSize; n++ {
-		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
+		t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", n), func(t *testing.T) {
 			count := countObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
 			require.EqualValues(t, len(paragraphIDs), count)
+
+			for i, id := range paragraphIDs {
+				resp, err := getObjectCL(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class, id, replica.One)
+				require.NoError(t, err)
+				require.Equal(t, id, resp.ID)
+
+				props := resp.Properties.(map[string]interface{})
+				props["contents"] = fmt.Sprintf("paragraph#%d_%d", itCount, i)
+			}
 		})
 	}
 }
