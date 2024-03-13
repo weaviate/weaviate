@@ -200,11 +200,12 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	hashtree             hashtree.AggregatedHashTree
-	hashtreeRWMux        sync.RWMutex
-	hashtreeInitialized  atomic.Bool
-	hashBeaterCtx        context.Context
-	hashBeaterCancelFunc context.CancelFunc
+	hashtree                hashtree.AggregatedHashTree
+	hashtreeRWMux           sync.RWMutex
+	hashtreeInitialized     atomic.Bool
+	hashBeaterCtx           context.Context
+	hashBeaterCancelFunc    context.CancelFunc
+	objectPropagationNeeded atomic.Bool
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
