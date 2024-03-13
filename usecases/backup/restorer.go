@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -24,7 +25,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	ucs "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
@@ -127,7 +132,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, desc.ID, &cdesc, compressed, cpuPercentage, store, nodeMapping); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, nodeMapping); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -146,7 +151,7 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	backupID string, desc *backup.ClassDescriptor,
+	desc *backup.ClassDescriptor, serverVersion string,
 	compressed bool, cpuPercentage int, store nodeStore, nodeMapping map[string]string,
 ) (err error) {
 	classLabel := desc.Name
@@ -162,8 +167,17 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}
-	fw := newFileWriter(r.sourcer, store, backupID, compressed, r.logger).
+	fw := newFileWriter(r.sourcer, store, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
+
+	// Pre-v1.23 versions store files in a flat format
+	if serverVersion < "1.23" {
+		f, err := hfsMigrator(desc, r.node, serverVersion)
+		if err != nil {
+			return fmt.Errorf("migrate to pre 1.23: %w", err)
+		}
+		fw.setMigrator(f)
+	}
 
 	rollback, err := fw.Write(ctx, desc)
 	if err != nil {
@@ -227,4 +241,48 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		meta.Include(req.Classes)
 	}
 	return meta, cs, nil
+}
+
+// oneClassSchema allows for creating schema with one class
+// This is required when migrating to hierarchical file structure from pre-v1.23
+type oneClassSchema struct {
+	cls *models.Class
+	ss  *sharding.State
+}
+
+func (s oneClassSchema) CopyShardingState(class string) *sharding.State {
+	return s.ss
+}
+
+func (s oneClassSchema) GetSchemaSkipAuth() schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{s.cls},
+		},
+	}
+}
+
+// hfsMigrator builds and return a class migrator ready for use
+func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
+	if serverVersion >= "1.23" {
+		return func(string) error { return nil }, nil
+	}
+	var ss sharding.State
+	if desc.ShardingState != nil {
+		err := json.Unmarshal(desc.ShardingState, &ss)
+		if err != nil {
+			return nil, fmt.Errorf("marshal sharding state: %w", err)
+		}
+	}
+	ss.SetLocalName(nodeName)
+
+	// get schema and sharding state
+	class := &models.Class{}
+	if err := json.Unmarshal(desc.Schema, &class); err != nil {
+		return nil, fmt.Errorf("marshal class schema: %w", err)
+	}
+
+	return func(classDir string) error {
+		return ucs.MigrateToHierarchicalFS(classDir, oneClassSchema{class, &ss})
+	}, nil
 }
