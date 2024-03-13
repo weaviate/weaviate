@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,10 +64,12 @@ func (s *Shard) initHashBeater() {
 			case <-s.hashBeaterCtx.Done():
 				return
 			case <-t.C:
-				if !s.objectPropagationNeeded.CompareAndSwap(true, false) {
-					// no object has been added, updated or deleted since last object propagation
-					continue
+				s.objectPropagationNeededCond.L.Lock()
+				for !s.objectPropagationNeeded {
+					s.objectPropagationNeededCond.Wait()
 				}
+				s.objectPropagationNeeded = false
+				s.objectPropagationNeededCond.L.Unlock()
 
 				stats, err := s.hashBeat()
 				if s.hashBeaterCtx.Err() != nil {
@@ -87,7 +90,7 @@ func (s *Shard) initHashBeater() {
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
 
-					s.objectPropagationNeeded.Store(true)
+					s.objectPropagationRequired()
 
 					continue
 				}
@@ -133,7 +136,7 @@ func (s *Shard) initHashBeater() {
 						backoffTimer.IncreaseInterval()
 					} else {
 						backoffTimer.Reset()
-						s.objectPropagationNeeded.Store(true)
+						s.objectPropagationRequired()
 					}
 				} else {
 					logEntry.Warnf("propagation error: %v", propagationErr)
@@ -141,11 +144,57 @@ func (s *Shard) initHashBeater() {
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
 
-					s.objectPropagationNeeded.Store(true)
+					s.objectPropagationRequired()
 				}
 			}
 		}
 	}()
+
+	go func() {
+		t := time.NewTicker(100 * time.Millisecond)
+
+		for {
+			select {
+			case <-s.hashBeaterCtx.Done():
+				return
+			case <-t.C:
+				comparedHosts := s.getLastComparedHosts()
+				aliveHosts := s.allAliveHostnames()
+
+				slices.Sort(comparedHosts)
+				slices.Sort(aliveHosts)
+
+				if !slices.Equal(comparedHosts, aliveHosts) {
+					s.objectPropagationRequired()
+				}
+			}
+		}
+	}()
+}
+
+func (s *Shard) setLastComparedNodes(hosts []string) {
+	s.lastComparedHostsMux.Lock()
+	defer s.lastComparedHostsMux.Unlock()
+
+	s.lastComparedHosts = hosts
+}
+
+func (s *Shard) getLastComparedHosts() []string {
+	s.lastComparedHostsMux.RLock()
+	defer s.lastComparedHostsMux.RUnlock()
+
+	return s.lastComparedHosts
+}
+
+func (s *Shard) allAliveHostnames() []string {
+	return s.index.replicator.AllHostnames()
+}
+
+func (s *Shard) objectPropagationRequired() {
+	s.objectPropagationNeededCond.L.Lock()
+	s.objectPropagationNeeded = true
+	s.objectPropagationNeededCond.Signal()
+	s.objectPropagationNeededCond.L.Unlock()
 }
 
 type hashBeatStats struct {
@@ -168,16 +217,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 
 	diffCalculationStart := time.Now()
 
-	// Note: any consistency level could be used
-	replyCh, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, s.hashtree, replica.One, "")
+	replyCh, hosts, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, s.hashtree)
 	if err != nil {
-		if errors.Is(err, hashtree.ErrNoMoreDifferences) {
-			// shard fully replicated
-			return hashBeatStats{
-				diffCalculationTook: time.Since(diffCalculationStart),
-			}, nil
-		}
-
 		return stats, fmt.Errorf("collecting differences: %w", err)
 	}
 
@@ -251,6 +292,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 		diffCollectionDone = true
 		diffCollectionErr = nil
 	}
+
+	s.setLastComparedNodes(hosts)
 
 	return stats, diffCollectionErr
 }
