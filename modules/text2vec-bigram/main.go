@@ -14,6 +14,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"fmt"
 )
 
@@ -106,9 +107,8 @@ func (m *BigramModule) MetaInfo() (map[string]interface{}, error) {
 }
 
 func (m *BigramModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 	log.Println("AdditionalProperties bigram module")
-	return additionalProperties
+	return additional.NewText2VecProvider().AdditionalProperties()
 }
 
 func text2vector(input string) ([]float32, error) {
