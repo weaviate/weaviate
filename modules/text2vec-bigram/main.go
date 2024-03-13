@@ -15,6 +15,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+
+	"github.com/weaviate/weaviate/entities/schema"
 	"fmt"
 )
 
@@ -74,6 +76,8 @@ func (m *BigramModule) VectorizableProperties (
 	m.logger.Printf("VectorizableProperties bigram module\n")
 	return true, []string{}, nil
 }
+
+
 
 func (m *BigramModule) initAdditionalPropertiesProvider() error {
 	log.Println("InitAdditionalPropertiesProvider bigram module")
@@ -135,7 +139,7 @@ func text2vector(input string) ([]float32, error) {
 		vector[i] = v / sum
 	}
 	log.Printf("Vector sum: %f\n", sum)
-	return vector, nil
+	return vector[1:], nil
 }
 
 func (m *BigramModule) VectorizeInput(ctx context.Context,
@@ -205,3 +209,26 @@ var (
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 )
+
+func (m *BigramModule) ClassConfigDefaults() map[string]interface{} {
+	return map[string]interface{}{
+		"vectorizeClassName": true,
+	}
+}
+
+func (m *BigramModule) PropertyConfigDefaults(
+	dt *schema.DataType,
+) map[string]interface{} {
+	return map[string]interface{}{
+		"skip":                  false,
+		"vectorizePropertyName": true,
+	}
+}
+
+func (m *BigramModule) ValidateClass(ctx context.Context,
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
+	return nil
+}
+
+var _ = modulecapabilities.ClassConfigurator(New())
