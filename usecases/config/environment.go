@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/configbase"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -27,13 +29,13 @@ import (
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
 
-		if Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+		if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
 			// The variable was renamed with v1.20. Prior to v1.20 the recommended
 			// way to do MT was using classes. This lead to a lot of metrics which
 			// could be grouped with this variable. With v1.20 we introduced native
@@ -45,30 +47,30 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+	if configbase.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
 
-	if Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
 	}
 
-	if Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+	if configbase.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		config.DisableLazyLoadShards = true
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
-	if Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
 	}
 
-	if Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
-	if Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
@@ -90,14 +92,14 @@ func FromEnv(config *Config) error {
 		config.Profiling.Port = asInt
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 
-		if Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
+		if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			config.Authentication.OIDC.SkipClientIDCheck = true
 		}
 
@@ -122,7 +124,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
 		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
@@ -136,7 +138,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
 		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
@@ -342,7 +344,7 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
-	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = configbase.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
@@ -353,7 +355,7 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableTelemetry = false
-	if Enabled(os.Getenv("DISABLE_TELEMETRY")) {
+	if configbase.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
 	}
 
@@ -383,20 +385,27 @@ func (c *Config) parseCORSConfig() error {
 }
 
 func (c *Config) parseMemtableConfig() error {
-	// first parse old name for flush value
+	// first parse old idle name for flush value
 	if err := parsePositiveInt(
 		"PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		DefaultPersistenceFlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		DefaultPersistenceMemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
-
-	// then parse with new name and use previous value in case it's not set
+	// then parse with new idle name and use previous value in case it's not set
 	if err := parsePositiveInt(
 		"PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		c.Persistence.FlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
+	); err != nil {
+		return err
+	}
+	// then parse with dirty name and use idle value as fallback
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS",
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
@@ -451,13 +460,13 @@ const (
 )
 
 const (
-	DefaultPersistenceFlushIdleMemtablesAfter = 60
-	DefaultPersistenceMemtablesMaxSize        = 200
-	DefaultPersistenceMemtablesMinDuration    = 15
-	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = 0
-	DefaultGRPCPort                           = 50051
-	DefaultMinimumReplicationFactor           = 1
+	DefaultPersistenceMemtablesFlushDirtyAfter = 60
+	DefaultPersistenceMemtablesMaxSize         = 200
+	DefaultPersistenceMemtablesMinDuration     = 15
+	DefaultPersistenceMemtablesMaxDuration     = 45
+	DefaultMaxConcurrentGetRequests            = 0
+	DefaultGRPCPort                            = 50051
+	DefaultMinimumReplicationFactor            = 1
 )
 
 const VectorizerModuleNone = "none"
@@ -468,21 +477,6 @@ const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
-
-func Enabled(value string) bool {
-	if value == "" {
-		return false
-	}
-
-	if value == "on" ||
-		value == "enabled" ||
-		value == "1" ||
-		value == "true" {
-		return true
-	}
-
-	return false
-}
 
 func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	ru := ResourceUsage{}
@@ -566,9 +560,9 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
-	cfg.IgnoreStartupSchemaSync = Enabled(
+	cfg.IgnoreStartupSchemaSync = configbase.Enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
-	cfg.SkipSchemaSyncRepair = Enabled(
+	cfg.SkipSchemaSyncRepair = configbase.Enabled(
 		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")

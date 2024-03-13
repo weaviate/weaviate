@@ -199,7 +199,7 @@ type Profiling struct {
 
 type Persistence struct {
 	DataPath                          string `json:"dataPath" yaml:"dataPath"`
-	FlushIdleMemtablesAfter           int    `json:"flushIdleMemtablesAfter" yaml:"flushIdleMemtablesAfter"`
+	MemtablesFlushDirtyAfter          int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
 	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
@@ -264,7 +264,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

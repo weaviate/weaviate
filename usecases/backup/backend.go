@@ -22,12 +22,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
 )
 
 // TODO adjust or make configurable
@@ -247,7 +248,11 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor) (err error) {
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), desc.Name)
+	classLabel := desc.Name
+	if monitoring.GetMetrics().Group {
+		classLabel = "n/a"
+	}
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), classLabel)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -277,7 +282,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	// jobs produces work for the processor
 	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
 		sendCh := make(chan *backup.ShardDescriptor)
-		go func() {
+		f := func() {
 			defer close(sendCh)
 			defer hasJobs.Store(false)
 
@@ -291,16 +296,17 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					return
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return sendCh
 	}
 
 	// processor
 	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
-		eg, ctx := errgroup.WithContext(ctx)
+		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
 		recvCh := make(chan chuckShards, nWorker)
-		go func() {
+		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
 				eg.Go(func() error {
@@ -322,7 +328,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 				})
 			}
 			err = eg.Wait()
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return recvCh
 	}
 
@@ -370,7 +377,7 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, reader); err != nil {
 			return err
@@ -394,10 +401,11 @@ type fileWriter struct {
 	movedFiles []string // files successfully moved to destination folder
 	compressed bool
 	GoPoolSize int
+	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	backupID string, compressed bool,
+	backupID string, compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -408,6 +416,7 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		movedFiles: make([]string, 0, 64),
 		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
+		logger:     logger,
 	}
 }
 
@@ -454,12 +463,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 	defer cancel()
 
 	// no compression processed as before
-	eg, ctx := errgroup.WithContext(ctx)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
 	if !fw.compressed {
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) }, shard.Name)
 		}
 		return eg.Wait()
 	}

@@ -51,7 +51,7 @@ func TestRestartJourney(t *testing.T) {
 		shardState: shardState,
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -167,7 +167,7 @@ func TestRestartJourney(t *testing.T) {
 		repo = nil
 
 		newRepo, err = New(logger, Config{
-			MemtablesFlushIdleAfter:   60,
+			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,

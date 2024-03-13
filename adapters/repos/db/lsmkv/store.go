@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -41,6 +43,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
+	bucketByNameLock map[string]*sync.Mutex
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -50,11 +53,12 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
-		dir:           dir,
-		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
-		logger:        logger,
-		metrics:       metrics,
+		dir:              dir,
+		rootDir:          rootDir,
+		bucketsByName:    map[string]*Bucket{},
+		bucketByNameLock: make(map[string]*sync.Mutex),
+		logger:           logger,
+		metrics:          metrics,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
@@ -115,17 +119,38 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	var bucketLock *sync.Mutex
+
+	s.bucketAccessLock.Lock()
+
+	_, ok := s.bucketByNameLock[bucketName]
+	if !ok {
+		s.bucketByNameLock[bucketName] = &sync.Mutex{}
+	}
+	bucketLock = s.bucketByNameLock[bucketName]
+
+	s.bucketAccessLock.Unlock()
+
+	bucketLock.Lock()
+	defer bucketLock.Unlock()
+
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
 
+	// bucket can be concurrently loaded with another buckets but
+	// the same bucket will be loaded only once
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
+		s.bucketAccessLock.Lock()
+		delete(s.bucketByNameLock, bucketName)
+		s.bucketAccessLock.Unlock()
 		return err
 	}
 
 	s.setBucket(bucketName, b)
+
 	return nil
 }
 
@@ -209,6 +234,7 @@ func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error
 func (s *Store) runJobOnBuckets(ctx context.Context,
 	jobFunc jobFunc, rollbackFunc rollbackFunc,
 ) ([]interface{}, error) {
+	s.bucketAccessLock.Lock()
 	var (
 		status      = newBucketJobStatus()
 		resultQueue = make(chan interface{}, len(s.bucketsByName))
@@ -218,16 +244,17 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	for _, bucket := range s.bucketsByName {
 		wg.Add(1)
 		b := bucket
-		go func() {
+		f := func() {
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, s.logger)
 	}
-
+	s.bucketAccessLock.Unlock()
 	wg.Wait()
 	close(resultQueue)
 

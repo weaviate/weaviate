@@ -53,6 +53,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
@@ -76,6 +77,7 @@ import (
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
+	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -171,7 +173,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:             config.ServerVersion,
 		GitHash:                   config.GitHash,
-		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesFlushDirtyAfter:  appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
 		MemtablesInitialSizeMB:    10,
 		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
@@ -725,6 +727,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativemistral.Name]; ok {
+		appState.Modules.Register(modgenerativemistral.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativemistral.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativeopenai.Name]; ok {
 		appState.Modules.Register(modgenerativeopenai.New())
 		appState.Logger.
@@ -826,6 +836,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modcohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modvoyageai.Name]; ok {
+		appState.Modules.Register(modvoyageai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modvoyageai.Name).
 			Debug("enabled module")
 	}
 

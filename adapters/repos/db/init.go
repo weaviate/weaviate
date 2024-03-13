@@ -78,7 +78,7 @@ func (db *DB) init(ctx context.Context) error {
 				ResourceUsage:             db.config.ResourceUsage,
 				QueryMaximumResults:       db.config.QueryMaximumResults,
 				QueryNestedRefLimit:       db.config.QueryNestedRefLimit,
-				MemtablesFlushIdleAfter:   db.config.MemtablesFlushIdleAfter,
+				MemtablesFlushDirtyAfter:  db.config.MemtablesFlushDirtyAfter,
 				MemtablesInitialSizeMB:    db.config.MemtablesInitialSizeMB,
 				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
 				MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
@@ -101,6 +101,17 @@ func (db *DB) init(ctx context.Context) error {
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()
 		}
+	}
+
+	// If metrics aren't grouped, there is no need to observe node-wide metrics
+	// asynchronously. In that case, each shard could track its own metrics with
+	// a unique label. It is only when we conflate all collections/shards into
+	// "n/a" that we need to actively aggregate node-wide metrics.
+	//
+	// See also https://github.com/weaviate/weaviate/issues/4396
+	if db.promMetrics != nil && db.promMetrics.Group {
+		db.metricsObserver = newNodeWideMetricsObserver(db)
+		go db.metricsObserver.Start()
 	}
 
 	return nil
