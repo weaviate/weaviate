@@ -37,11 +37,11 @@ func New() *BigramModule {
 
 type BigramModule struct {
 	vectors                      map[string][]float32
-	graphqlProvider              modulecapabilities.GraphQLArguments
-	searcher                     modulecapabilities.Searcher
-	nearTextTransformer          modulecapabilities.TextTransform
+	GraphqlProvider              modulecapabilities.GraphQLArguments
+	Searcher                     modulecapabilities.Searcher
+	NearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	AdditionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
 func (m *BigramModule) Name() string {
@@ -62,7 +62,7 @@ func (m *BigramModule) InitExtension(modules []modulecapabilities.Module) error 
 	return nil
 }
 
-func (m *BigramModule) initVectorizer(ctx context.Context, timeout time.Duration, logger logrus.FieldLogger) error {
+func (m *BigramModule) InitVectorizer(ctx context.Context, timeout time.Duration, logger logrus.FieldLogger) error {
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 	return true, []string{}, nil
 }
 
-func (m *BigramModule) initAdditionalPropertiesProvider() error {
+func (m *BigramModule) InitAdditionalPropertiesProvider() error {
 	return nil
 }
 
@@ -133,11 +133,11 @@ func (m *BigramModule) AddVector(text string, vector []float32) error {
 }
 
 func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{}, className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
-	switch params.(type) {
+	switch whatever := params.(type) {
 	case *nearText.NearTextParams:
 		return m.Texts(ctx, params.(*nearText.NearTextParams).Values, cfg)
 	default:
-		return nil, fmt.Errorf("unsupported params type: %T", params)
+		return nil, fmt.Errorf("unsupported params type: %T, %v", params, whatever)
 	}
 }
 
