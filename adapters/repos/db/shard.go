@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -53,7 +55,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"golang.org/x/sync/errgroup"
 )
 
 const IdLockPoolSize = 128
@@ -89,7 +90,7 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group)
+	createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper)
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -254,7 +255,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.initDimensionTracking()
 
 	if asyncEnabled() {
-		go func() {
+		f := func() {
 			// preload unindexed objects in the background
 			if s.hasTargetVectors() {
 				for targetVector, queue := range s.queues {
@@ -269,7 +270,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 					s.queue.Logger.WithError(err).Error("preload shard")
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
 
@@ -446,7 +448,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 	s.counter = counter
-	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get)
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get, s.index.logger)
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")
@@ -513,15 +515,23 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		return errors.Wrapf(err, "init lsmkv store at %s", s.pathLSM())
 	}
 
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
-		lsmkv.WithMonitorCount(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
-	)
+	}
+
+	if s.metrics != nil && !s.metrics.grouped {
+		// If metrics are grouped we cannot observe the count of an individual
+		// shard's object store because there is just a single metric. We would
+		// override it. See https://github.com/weaviate/weaviate/issues/4396 for
+		// details.
+		opts = append(opts, lsmkv.WithMonitorCount())
+	}
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...)
 	if err != nil {
 		return errors.Wrap(err, "create objects bucket")
 	}
@@ -555,7 +565,7 @@ func (s *Shard) drop() error {
 	defer cancel()
 
 	// unregister all callbacks at once, in parallel
-	if err := cyclemanager.NewCombinedCallbackCtrl(0,
+	if err := cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
@@ -702,7 +712,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
 	if !inverted.HasInvertedIndex(prop) {
 		return
 	}
@@ -847,10 +857,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		}
 	}
 
-	go func() {
+	f := func() {
 		wg.Wait()
 		s.UpdateStatus(storagestate.StatusReady.String())
-	}()
+	}
+	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
 }
@@ -900,7 +911,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 	}
 
 	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0,
+	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,

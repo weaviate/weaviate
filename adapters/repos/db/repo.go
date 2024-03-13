@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -79,6 +81,11 @@ type DB struct {
 	shutDownWg              sync.WaitGroup
 	maxNumberGoroutines     int
 	ratePerSecond           atomic.Int64
+	batchMonitorLock        sync.Mutex
+
+	// in the case of metrics grouping we need to observe some metrics
+	// node-centric, rather than shard-centric
+	metricsObserver *nodeWideMetricsObserver
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -155,7 +162,8 @@ func New(logger logrus.FieldLogger, config Config,
 		db.jobQueueCh = make(chan job, 100000)
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
-			go db.worker(i == 0)
+			i := i
+			enterrors.GoWrapper(func() { db.worker(i == 0) }, db.logger)
 		}
 	} else {
 		logger.Info("async indexing enabled")
@@ -163,11 +171,12 @@ func New(logger logrus.FieldLogger, config Config,
 		db.shutDownWg.Add(w)
 		db.jobQueueCh = make(chan job, w)
 		for i := 0; i < w; i++ {
-			go func() {
+			f := func() {
 				defer db.shutDownWg.Done()
-
 				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
-			}()
+			}
+			enterrors.GoWrapper(f, db.logger)
+
 		}
 	}
 
@@ -266,6 +275,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 				index: -1,
 			}
 		}
+	}
+
+	if db.metricsObserver != nil {
+		db.metricsObserver.Shutdown()
 	}
 
 	db.indexLock.Lock()

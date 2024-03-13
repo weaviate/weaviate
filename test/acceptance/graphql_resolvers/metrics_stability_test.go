@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -36,8 +37,12 @@ const metricClassPrefix = "MetricsClassPrefix"
 func metricsCount(t *testing.T) {
 	defer cleanupMetricsClasses(t, 0, 20)
 	createImportQueryMetricsClasses(t, 0, 10)
+	backupID := startBackup(t, 0, 10)
+	waitForBackupToFinish(t, backupID)
 	metricsLinesBefore := countMetricsLines(t)
 	createImportQueryMetricsClasses(t, 10, 20)
+	backupID = startBackup(t, 0, 20)
+	waitForBackupToFinish(t, backupID)
 	metricsLinesAfter := countMetricsLines(t)
 	assert.Equal(t, metricsLinesBefore, metricsLinesAfter, "number of metrics should not have changed")
 }
@@ -198,4 +203,40 @@ func countMetricsLines(t *testing.T) int {
 
 func metricsClassName(classIndex int) string {
 	return fmt.Sprintf("%s_%d", metricClassPrefix, classIndex)
+}
+
+func startBackup(t *testing.T, start, end int) string {
+	var includeClasses []string
+	for i := start; i < end; i++ {
+		includeClasses = append(includeClasses, metricsClassName(i))
+	}
+
+	backupID := fmt.Sprintf("metrics-test-backup-%d", rand.Intn(100000000))
+
+	_, err := helper.Client(t).Backups.BackupsCreate(
+		backups.NewBackupsCreateParams().
+			WithBackend("filesystem").
+			WithBody(&models.BackupCreateRequest{
+				ID:      backupID,
+				Include: includeClasses,
+			}),
+		nil)
+	require.Nil(t, err)
+
+	return backupID
+}
+
+func waitForBackupToFinish(t *testing.T, id string) {
+	getStatus := func() *backups.BackupsCreateStatusOK {
+		res, err := helper.Client(t).Backups.BackupsCreateStatus(
+			backups.NewBackupsCreateStatusParams().WithBackend("filesystem").WithID(id),
+			nil)
+		require.Nil(t, err)
+		return res
+	}
+	assert.EventuallyWithT(t, func(t *assert.CollectT) {
+		res := getStatus()
+		require.NotNil(t, res.Payload.Status)
+		assert.Equal(t, "SUCCESS", *res.Payload.Status)
+	}, 10*time.Minute, 1*time.Second)
 }

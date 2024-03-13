@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -81,7 +83,7 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 		tel.failedToStart = true
 		return fmt.Errorf("push: %w", err)
 	}
-	go func() {
+	f := func() {
 		t := time.NewTicker(tel.pushInterval)
 		defer t.Stop()
 		for {
@@ -104,7 +106,8 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 					Info("telemetry update")
 			}
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, tel.logger)
 
 	tel.logger.
 		WithField("action", "telemetry_push").
