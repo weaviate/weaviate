@@ -159,7 +159,6 @@ func TestGRPCRequest(t *testing.T) {
 		out   dto.GetParams
 		error bool
 	}{
-
 		{
 			name: "hybrid nearvector returns all named vectors",
 			req: &pb.SearchRequest{
@@ -173,8 +172,8 @@ func TestGRPCRequest(t *testing.T) {
 					NearVector: &pb.NearVector{
 						Vector:        []float32{1, 2, 3},
 						TargetVectors: []string{"custom"},
-						Certainty: &one,
-						Distance: &one,
+						Certainty:     &one,
+						Distance:      &one,
 					},
 				},
 			},
@@ -192,7 +191,7 @@ func TestGRPCRequest(t *testing.T) {
 						TargetVectors: []string{"custom"},
 						Certainty:     1.0,
 						Distance:      1.0,
-						WithDistance: true,
+						WithDistance:  true,
 					},
 				},
 			},

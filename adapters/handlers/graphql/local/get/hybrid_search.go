@@ -91,7 +91,6 @@ func hybridOperands(classObject *graphql.Object,
 					Fields: common_filters.NearVectorFields(prefixName),
 				},
 			),
-
 		},
 	}
 
