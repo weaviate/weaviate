@@ -44,7 +44,6 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create schema", func(t *testing.T) {
@@ -53,21 +52,22 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 			AsyncEnabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
+
+		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 3
+	itCount := 5
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			timeout := 3 * time.Second
-			err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), &timeout)
+			err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), nil)
 			require.NoError(t, err)
 
-			time.Sleep(1 * time.Second)
+			time.Sleep(10 * time.Second)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
@@ -92,7 +92,7 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 
 			restartNode(ctx, t, compose, clusterSize, node)
