@@ -57,6 +57,32 @@ type Term struct {
 	Exhausted     bool
 	QueryTerm     string
 	PropertyBoost float64
+	buffer        []byte
+	bufferOffset  uint64
+}
+
+func (t *Term) seekBuffer(offsetStart uint64, offsetEnd uint64) {
+	if t.offsetPointer >= offsetStart && t.offsetPointer < offsetEnd {
+		return
+	}
+	if offsetEnd > t.actualEnd {
+		offsetEnd = t.actualEnd
+		t.buffer = make([]byte, offsetEnd-offsetStart)
+	}
+	t.bufferOffset = offsetStart
+	f := t.segment.contentFile
+	f.Seek(int64(offsetStart), 0)
+	_, err := io.ReadFull(f, t.buffer)
+	if err == io.EOF {
+		return
+	}
+}
+
+func (t *Term) read(offsetStart uint64, offsetEnd uint64) []byte {
+	if t.bufferOffset < offsetStart || t.bufferOffset >= offsetEnd {
+		t.seekBuffer(offsetStart, offsetEnd)
+	}
+	return t.buffer[offsetStart-t.bufferOffset : offsetEnd-t.bufferOffset]
 }
 
 func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64) error {
@@ -68,16 +94,19 @@ func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node
 	t.PosPointer = 0
 	t.Exhausted = false
 	t.actualStart = node.Start + 8
+	t.actualEnd = node.End - 4 - uint64(len(node.Key))
 	t.offsetPointer = t.actualStart
 	t.PropertyBoost = propertyBoost
-	docCountOffset := nodeOffset{node.Start, node.Start + 8}
-	docCountReader, err := segment.newNodeReader(docCountOffset)
-	if err != nil {
-		return err
+
+	if t.segment.mmapContents {
+		t.DocCount = binary.LittleEndian.Uint64(t.segment.contents[node.Start : node.Start+8])
+	} else {
+		t.buffer = make([]byte, BUFFER_SIZE)
+		t.bufferOffset = 0
+		t.read(node.Start, node.Start+8)
+		t.DocCount = binary.LittleEndian.Uint64(t.buffer[:8])
 	}
-	if err := binary.Read(docCountReader, binary.LittleEndian, &t.DocCount); err != nil {
-		return errors.Wrap(err, "read value length encoding")
-	}
+
 	n := float64(t.DocCount)
 	t.Idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * duplicateTextBoost
 	t.actualEnd = node.End - 4 - uint64(len(node.Key))
@@ -123,29 +152,12 @@ func (t *Term) decode() error {
 		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
 
 	} else {
+		t.read(docIdOffsetStart, docIdOffsetStart+8+2+4+4)
 
-		documentOffsets := nodeOffset{docIdOffsetStart, docIdOffsetStart + 8 + 2 + 4 + 4}
-		documentReader, err := t.segment.newNodeReader(documentOffsets)
-		if err != nil {
-			return err
-		}
-
-		_, err = io.ReadFull(documentReader, t.IdBytes)
-		if err != nil {
-			return err
-		}
-		// skip 2 bytes
-		io.ReadFull(documentReader, make([]byte, 2))
-
+		t.IdBytes = t.buffer[:8]
 		// read two floats
-		err = binary.Read(documentReader, binary.LittleEndian, &t.Data.frequency)
-		if err != nil {
-			return err
-		}
-		err = binary.Read(documentReader, binary.LittleEndian, &t.Data.propLength)
-		if err != nil {
-			return err
-		}
+		t.Data.frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.buffer[10:14]))
+		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.buffer[14:18]))
 	}
 	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
 	return nil
@@ -156,15 +168,7 @@ func (t *Term) decodeIdOnly() {
 	if t.segment.mmapContents {
 		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
 	} else {
-		documentOffsets := nodeOffset{docIdOffsetStart, docIdOffsetStart + 8}
-		documentReader, err := t.segment.newNodeReader(documentOffsets)
-		if err != nil {
-			return
-		}
-		_, err = io.ReadFull(documentReader, t.IdBytes)
-		if err != nil {
-			return
-		}
+		t.IdBytes = t.read(docIdOffsetStart, docIdOffsetStart+8)
 	}
 }
 
