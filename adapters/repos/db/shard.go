@@ -186,12 +186,17 @@ type Shard struct {
 	propLenTracker   *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
 
-	hashtree                hashtree.AggregatedHashTree
-	hashtreeRWMux           sync.RWMutex
-	hashtreeInitialized     atomic.Bool
-	hashBeaterCtx           context.Context
-	hashBeaterCancelFunc    context.CancelFunc
-	objectPropagationNeeded atomic.Bool
+	hashtree             hashtree.AggregatedHashTree
+	hashtreeRWMux        sync.RWMutex
+	hashtreeInitialized  atomic.Bool
+	hashBeaterCtx        context.Context
+	hashBeaterCancelFunc context.CancelFunc
+
+	objectPropagationNeededCond *sync.Cond
+	objectPropagationNeeded     bool
+
+	lastComparedHosts    []string
+	lastComparedHostsMux sync.RWMutex
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -225,6 +230,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (*Shard, error) {
 	before := time.Now()
 	var err error
+
 	s := &Shard{
 		index:       index,
 		class:       class,
@@ -252,6 +258,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
+
+	mux := sync.Mutex{}
+	s.objectPropagationNeededCond = sync.NewCond(&mux)
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())

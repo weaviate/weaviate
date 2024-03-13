@@ -43,6 +43,7 @@ type (
 	}
 
 	nodeResolver interface {
+		AllHostnames() []string // All node names for live members, including self
 		NodeHostname(nodeName string) (string, bool)
 	}
 
@@ -84,6 +85,10 @@ func NewReplicator(className string,
 		log:         l,
 		Finder:      NewFinder(className, resolver, client, l),
 	}
+}
+
+func (r *Replicator) AllHostnames() []string {
+	return r.resolver.AllHostnames()
 }
 
 func (r *Replicator) PutObject(ctx context.Context,

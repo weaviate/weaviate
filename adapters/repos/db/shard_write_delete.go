@@ -234,7 +234,7 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 
 	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
-	s.objectPropagationNeeded.Store(true)
+	s.objectPropagationRequired()
 
 	return nil
 }

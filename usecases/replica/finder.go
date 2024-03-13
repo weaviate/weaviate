@@ -236,13 +236,12 @@ type ShardDifferenceReader struct {
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree,
-	consistencyLevel ConsistencyLevel, directCandidate string,
-) (<-chan _Result[*ShardDifferenceReader], error) {
+) (replyCh <-chan _Result[*ShardDifferenceReader], hosts []string, err error) {
 	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName)
 
 	sourceHost, ok := f.resolver.NodeHostname(f.resolver.NodeName)
 	if !ok {
-		return nil, fmt.Errorf("getting host %s", f.resolver.NodeName)
+		return nil, nil, fmt.Errorf("getting host %s", f.resolver.NodeName)
 	}
 
 	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
@@ -283,12 +282,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, _, err := coord.Pull(ctx, consistencyLevel, op, directCandidate)
+	replyCh, state, err := coord.Pull(ctx, One, op, "")
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", errReplicas)
+		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}
 
-	return replyCh, nil
+	return replyCh, state.Hosts, nil
 }
 
 func (f *Finder) DigestObjectsInTokenRange(ctx context.Context,
