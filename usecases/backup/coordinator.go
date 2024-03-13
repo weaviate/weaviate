@@ -19,10 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 // Op is the kind of a backup operation
@@ -166,15 +167,21 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		Backend: req.Backend,
 	}
 
-	go func() {
+	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
+		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
-			c.log.WithField("action", OpCreate).
-				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
+			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
-	}()
+		if c.descriptor.Status == backup.Success {
+			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
+		} else {
+			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+		}
+	}
+	enterrors.GoWrapper(f, c.log)
 
 	return nil
 }
@@ -212,14 +219,21 @@ func (c *coordinator) Restore(
 	}
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
-	go func() {
+	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
+		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
-			c.log.WithField("action", OpRestore).WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
-	}()
+		if c.descriptor.Status == backup.Success {
+			c.log.WithFields(logFields).Info("coordinator: backup restored successfully")
+		} else {
+			c.log.WithFields(logFields).Errorf("coordinator: %v", c.descriptor.Error)
+		}
+	}
+	enterrors.GoWrapper(g, c.log)
 
 	return nil
 }
@@ -269,7 +283,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	nodeMapping := c.descriptor.NodeMapping
 	groups := c.descriptor.Nodes
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	reqChan := make(chan pair)
 	g.Go(func() error {
@@ -381,7 +395,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	defer cancel()
 
 	rs := make([]partialStatus, len(nodes))
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	i := 0
 	for node, hostname := range nodes {
@@ -410,7 +424,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 		} else if now.Sub(st.LastTime) > c.timeoutNodeDown {
 			n++
 			st.Status = backup.Failed
-			st.Reason = "might be down:" + r.err.Error()
+			st.Reason = fmt.Sprintf("node %q might be down: %v", r.node, r.err.Error())
 			delete(nodes, r.node)
 		}
 		c.Participants[r.node] = st
@@ -427,7 +441,7 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	}
 	errChan := make(chan pair)
 	aCounter := int64(len(nodes))
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	for node, hostname := range nodes {
 		node, hostname := node, hostname

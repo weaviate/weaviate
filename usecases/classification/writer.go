@@ -15,6 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -49,9 +52,10 @@ type batchWriter struct {
 	ec              *errorcompounder.SafeErrorCompounder
 	cancel          chan struct{}
 	batchThreshold  int
+	logger          logrus.FieldLogger
 }
 
-func newBatchWriter(vectorRepo vectorRepo) Writer {
+func newBatchWriter(vectorRepo vectorRepo, logger logrus.FieldLogger) Writer {
 	return &batchWriter{
 		vectorRepo:      vectorRepo,
 		batchItemsCount: 0,
@@ -61,6 +65,7 @@ func newBatchWriter(vectorRepo vectorRepo) Writer {
 		ec:              &errorcompounder.SafeErrorCompounder{},
 		cancel:          make(chan struct{}),
 		batchThreshold:  100,
+		logger:          logger,
 	}
 }
 
@@ -73,7 +78,7 @@ func (r *batchWriter) Store(item search.Result) error {
 
 // Start starts the batch save goroutine
 func (r *batchWriter) Start() {
-	go r.batchSave()
+	enterrors.GoWrapper(func() { r.batchSave() }, r.logger)
 }
 
 // Stop stops the batch save goroutine and saves the last items

@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package inverted
 
@@ -97,7 +96,7 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -194,7 +193,7 @@ func TestDocIDs(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",

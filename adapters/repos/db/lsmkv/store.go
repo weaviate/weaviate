@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -242,14 +244,15 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	for _, bucket := range s.bucketsByName {
 		wg.Add(1)
 		b := bucket
-		go func() {
+		f := func() {
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, s.logger)
 	}
 	s.bucketAccessLock.Unlock()
 	wg.Wait()

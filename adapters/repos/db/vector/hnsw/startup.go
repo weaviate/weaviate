@@ -18,6 +18,8 @@ import (
 	"os"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -198,7 +200,7 @@ func (h *hnsw) prefillCache() {
 		limit = int(h.cache.CopyMaxSize())
 	}
 
-	go func() {
+	f := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
@@ -212,5 +214,6 @@ func (h *hnsw) prefillCache() {
 		if err != nil {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, h.logger)
 }

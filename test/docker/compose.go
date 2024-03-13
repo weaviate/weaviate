@@ -34,6 +34,7 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
+	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 )
 
 const (
@@ -203,6 +204,11 @@ func (d *Compose) WithText2VecOpenAI() *Compose {
 
 func (d *Compose) WithText2VecCohere() *Compose {
 	d.enableModules = append(d.enableModules, modcohere.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecVoyageAI() *Compose {
+	d.enableModules = append(d.enableModules, modvoyageai.Name)
 	return d
 }
 

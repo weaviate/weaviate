@@ -18,6 +18,8 @@ import (
 	"time"
 	"unsafe"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -256,7 +258,7 @@ func (s *shardedLockCache[T]) deleteAllVectors() {
 
 func (s *shardedLockCache[T]) watchForDeletion() {
 	if s.deletionInterval != 0 {
-		go func() {
+		f := func() {
 			t := time.NewTicker(s.deletionInterval)
 			defer t.Stop()
 			for {
@@ -267,7 +269,8 @@ func (s *shardedLockCache[T]) watchForDeletion() {
 					s.replaceIfFull()
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, s.logger)
 	}
 }
 
