@@ -230,7 +230,10 @@ func (composer *composer) DistancerProvider() distancer.Provider {
 }
 
 func (composer *composer) ShouldUpgrade() (bool, int) {
-	return true, int(composer.threshold)
+	if !composer.upgraded.Load() {
+		return true, int(composer.threshold)
+	}
+	return (composer.index).(upgradableIndexer).ShouldUpgrade()
 }
 
 func (composer *composer) Upgraded() bool {
