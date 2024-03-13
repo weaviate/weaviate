@@ -90,7 +90,6 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
-	fmt.Printf("Updating vector for %s\n", object.ID.String())
 	if !p.hasMultipleVectorsConfiguration(class) {
 		// legacy vectorizer configuration
 		vectorize, err := p.shouldVectorize(object, class, "", logger)
@@ -176,7 +175,6 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 	targetVector string, modConfig map[string]interface{},
 	logger logrus.FieldLogger,
 ) error {
-	fmt.Printf("Vectorizing %s\n", object.ID.String())
 	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
 	if err != nil {
 		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
@@ -194,7 +192,6 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 	targetVector string, modConfig map[string]interface{},
 	logger logrus.FieldLogger,
 ) error {
-	fmt.Printf("Vectorizing %s\n", object.ID.String())
 	found := p.getModule(class, modConfig)
 	if found == nil {
 		return fmt.Errorf(
@@ -203,12 +200,8 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	cfg := NewClassBasedModuleConfig(class, found.Name(), "", targetVector)
 
-	fmt.Printf("Vectorizing %s\n", object.ID.String())
-
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
-		fmt.Printf("Vectorizing %s\n", object.ID.String())
 		if p.shouldVectorizeObject(object, cfg) {
-			fmt.Printf("Vectorizing %s\n", object.ID.String())
 			var targetProperties []string = nil
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
@@ -219,7 +212,6 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
 			if needsRevectorization {
 				var err error
-				fmt.Printf("Revectorizing %s\n", object.ID.String())
 				vector, additionalProperties, err = vectorizer.VectorizeObject(ctx, object, cfg)
 				if err != nil {
 					return fmt.Errorf("update vector: %w", err)
