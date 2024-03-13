@@ -63,6 +63,11 @@ func (s *Shard) initHashBeater() {
 			case <-s.hashBeaterCtx.Done():
 				return
 			case <-t.C:
+				if !s.objectPropagationNeeded.CompareAndSwap(true, false) {
+					// no object has been added, updated or deleted since last object propagation
+					continue
+				}
+
 				stats, err := s.hashBeat()
 				if s.hashBeaterCtx.Err() != nil {
 					return
@@ -80,8 +85,9 @@ func (s *Shard) initHashBeater() {
 					}
 
 					time.Sleep(backoffTimer.CurrentInterval())
-
 					backoffTimer.IncreaseInterval()
+
+					s.objectPropagationNeeded.Store(true)
 
 					continue
 				}
@@ -127,13 +133,15 @@ func (s *Shard) initHashBeater() {
 						backoffTimer.IncreaseInterval()
 					} else {
 						backoffTimer.Reset()
+						s.objectPropagationNeeded.Store(true)
 					}
 				} else {
 					logEntry.Warnf("propagation error: %v", propagationErr)
 
 					time.Sleep(backoffTimer.CurrentInterval())
-
 					backoffTimer.IncreaseInterval()
+
+					s.objectPropagationNeeded.Store(true)
 				}
 			}
 		}
