@@ -133,11 +133,11 @@ func (m *BigramModule) AddVector(text string, vector []float32) error {
 }
 
 func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{}, className string, findVectorFn modulecapabilities.FindVectorFn, cfg moduletools.ClassConfig) ([]float32, error) {
-	switch whatever := params.(type) {
+	switch thing := params.(type) {
 	case *nearText.NearTextParams:
 		return m.Texts(ctx, params.(*nearText.NearTextParams).Values, cfg)
 	default:
-		return nil, fmt.Errorf("unsupported params type: %T, %v", params, whatever)
+		return nil, fmt.Errorf("unsupported params type: %T, %v", params, thing)
 	}
 }
 
