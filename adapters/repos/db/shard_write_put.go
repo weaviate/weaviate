@@ -340,6 +340,8 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
 	s.hashtree.AggregateLeafWith(token, objectDigest[:])
 
+	s.objectPropagationNeeded.Store(true)
+
 	return nil
 }
 
