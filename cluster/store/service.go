@@ -264,6 +264,35 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration)
 	return s.store.WaitToRestoreDB(ctx, period)
 }
 
+func (s *Service) ReadOnlyClass(class string) (*models.Class, error) {
+	if class == "" {
+		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
+	}
+
+	// Build the query and execute it
+	req := cmd.QueryReadOnlyClassRequest{Class: class}
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_READONLY_CLASS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryReadOnlyClassResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to Unmarshal query result: %w", err)
+	}
+	return resp.Class, nil
+}
+
 func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	if s.store.IsLeader() {
 		return s.store.Query(req)

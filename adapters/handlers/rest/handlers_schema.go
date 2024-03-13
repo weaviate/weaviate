@@ -76,7 +76,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
