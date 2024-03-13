@@ -283,6 +283,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
+		sch := s.index.getSchema.GetSchemaSkipAuth()
+	prop, err := sch.GetProperty(className, schema.PropertyName(groupBy.Property))
+	Group(ctx ,sr , groupBy *searchparams.GroupBy,  propertyDataType schema.PropertyDataType, additional additional.Properties) ([]*storobj.Object, []float32, error
+
 	var pointerResultList hybrid.Results
 
 	if origParams.Pagination.Limit <= 0 {

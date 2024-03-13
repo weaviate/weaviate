@@ -208,6 +208,10 @@ func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.
 		}
 		fused = newResults
 	}
+	sch := s.index.getSchema.GetSchemaSkipAuth()
+	prop, err := sch.GetProperty(params.Class, schema.(groupBy.Property))
+	Group(ctx ,sr , groupBy,  prop.PropertyDataType, params.Properties)
+
 	if params.Autocut > 0 {
 		scores := make([]float32, len(fused))
 		for i := range fused {
