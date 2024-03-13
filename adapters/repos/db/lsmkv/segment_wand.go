@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"sort"
 
@@ -63,7 +64,7 @@ func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node
 	t.node = node
 	t.QueryTerm = queryTerm
 	t.IdPointer = 0
-	t.IdBytes = nil
+	t.IdBytes = make([]byte, 8)
 	t.PosPointer = 0
 	t.Exhausted = false
 	t.actualStart = node.Start + 8
@@ -111,23 +112,60 @@ func (t *Term) decode() error {
 	}
 	docIdOffsetStart := t.offsetPointer + 11
 
-	t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
+	if t.segment.mmapContents {
+		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
+		// skip 2 extra bytes for fixed value length
+		freqOffsetStart := docIdOffsetStart + 10
+
+		// read two floats
+		t.Data.frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
+		propLengthOffsetStart := freqOffsetStart + 4
+		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
+
+	} else {
+
+		documentOffsets := nodeOffset{docIdOffsetStart, docIdOffsetStart + 8 + 2 + 4 + 4}
+		documentReader, err := t.segment.newNodeReader(documentOffsets)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.ReadFull(documentReader, t.IdBytes)
+		if err != nil {
+			return err
+		}
+		// skip 2 bytes
+		io.ReadFull(documentReader, make([]byte, 2))
+
+		// read two floats
+		err = binary.Read(documentReader, binary.LittleEndian, &t.Data.frequency)
+		if err != nil {
+			return err
+		}
+		err = binary.Read(documentReader, binary.LittleEndian, &t.Data.propLength)
+		if err != nil {
+			return err
+		}
+	}
 	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
-
-	freqOffsetStart := docIdOffsetStart + 10
-
-	// read two floats
-	freq := math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
-	propLengthOffsetStart := freqOffsetStart + 4
-	propLength := math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
-
-	t.Data = docPointerWithScore{t.IdPointer, freq, propLength}
 	return nil
 }
 
 func (t *Term) decodeIdOnly() {
 	docIdOffsetStart := t.offsetPointer + 11
-	t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
+	if t.segment.mmapContents {
+		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
+	} else {
+		documentOffsets := nodeOffset{docIdOffsetStart, docIdOffsetStart + 8}
+		documentReader, err := t.segment.newNodeReader(documentOffsets)
+		if err != nil {
+			return
+		}
+		_, err = io.ReadFull(documentReader, t.IdBytes)
+		if err != nil {
+			return
+		}
+	}
 }
 
 func (t *Term) advance() {
