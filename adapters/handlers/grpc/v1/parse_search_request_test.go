@@ -192,6 +192,7 @@ func TestGRPCRequest(t *testing.T) {
 						TargetVectors: []string{"custom"},
 						Certainty:     1.0,
 						Distance:      1.0,
+						WithDistance: true,
 					},
 				},
 			},
