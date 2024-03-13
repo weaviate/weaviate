@@ -80,7 +80,6 @@ type composer struct {
 	tempVectorForIDThunk     common.TempVectorForID
 	distanceProvider         distancer.Provider
 	makeCommitLoggerThunk    hnsw.MakeCommitLogger
-	distancerProvider        distancer.Provider
 	threshold                uint64
 	index                    VectorIndex
 	upgraded                 atomic.Bool
@@ -117,7 +116,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		id:                       cfg.ID,
 		targetVector:             cfg.TargetVector,
 		logger:                   logger,
-		distancerProvider:        cfg.DistanceProvider,
 		rootPath:                 cfg.RootPath,
 		shardName:                cfg.ShardName,
 		className:                cfg.ClassName,
