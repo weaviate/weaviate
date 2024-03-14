@@ -11,8 +11,7 @@ for file in $files; do
     # Check if the file is not one of the permitted usages
     if [ "$file" != "entities/errors/error_group_wrapper.go" ] && [ "$file" != "tools/linter_error_groups.sh" ]; then
         echo "Error: $file directly uses error groups. Please use entities/errors/error_group_wrapper.go instead."
-        found_error=true
-        exit 1
+        found_error=true        
     fi
 done
 
