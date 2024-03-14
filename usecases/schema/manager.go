@@ -16,9 +16,6 @@ import (
 	"fmt"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
