@@ -365,7 +365,7 @@ func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 	return dist, err == nil, err
 }
 
-func (pq *ProductQuantizer) Fit(data [][]float32) {
+func (pq *ProductQuantizer) Fit(data [][]float32) error {
 	if pq.trainingLimit > 0 && len(data) > pq.trainingLimit {
 		data = data[:pq.trainingLimit]
 	}
@@ -380,20 +380,34 @@ func (pq *ProductQuantizer) Fit(data [][]float32) {
 			pq.kms[i].Fit(data)
 		})
 	case UseKMeansEncoder:
+		mutex := sync.Mutex{}
+		var errorResult error = nil
 		pq.kms = make([]PQEncoder, pq.m)
 		Concurrently(uint64(pq.m), func(i uint64) {
+			mutex.Lock()
+			if errorResult != nil {
+				mutex.Unlock()
+				return
+			}
+			mutex.Unlock()
 			pq.kms[i] = NewKMeans(
 				pq.ks,
 				pq.ds,
 				int(i),
 			)
 			err := pq.kms[i].Fit(data)
-			if err != nil {
-				panic(err)
+			mutex.Lock()
+			if errorResult == nil && err != nil {
+				errorResult = err
 			}
+			mutex.Unlock()
 		})
+		if errorResult != nil {
+			return errorResult
+		}
 	}
 	pq.buildGlobalDistances()
+	return nil
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {

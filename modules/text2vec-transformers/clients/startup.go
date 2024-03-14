@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
 func (v *vectorizer) WaitForStartup(initCtx context.Context,
@@ -26,10 +27,10 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 ) error {
 	endpoints := map[string]string{}
 	if v.originPassage != v.originQuery {
-		endpoints["passage"] = v.urlPassage("/.well-known/ready")
-		endpoints["query"] = v.urlQuery("/.well-known/ready")
+		endpoints["passage"] = v.urlPassage("/.well-known/ready", ent.VectorizationConfig{})
+		endpoints["query"] = v.urlQuery("/.well-known/ready", ent.VectorizationConfig{})
 	} else {
-		endpoints[""] = v.urlPassage("/.well-known/ready")
+		endpoints[""] = v.urlPassage("/.well-known/ready", ent.VectorizationConfig{})
 	}
 
 	ch := make(chan error, len(endpoints))

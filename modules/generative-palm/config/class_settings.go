@@ -46,6 +46,7 @@ var (
 var supportedGenerativeAIModels = []string{
 	DefaulGenerativeAIModelID,
 	"gemini-pro",
+	"gemini-pro-vision",
 	"gemini-ultra",
 }
 
