@@ -73,7 +73,7 @@ func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context, timeout tim
 
 	m.generative = client
 
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
 
 	return nil
 }

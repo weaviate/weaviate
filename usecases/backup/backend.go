@@ -259,7 +259,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	}
 	defer func() {
 		// backups need to be released anyway
-		go u.sourcer.ReleaseBackup(context.Background(), id, desc.Name)
+		enterrors.GoWrapper(func() { u.sourcer.ReleaseBackup(context.Background(), id, desc.Name) }, u.log)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
@@ -480,9 +480,9 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
 			uz, w := NewUnzip(classTempDir)
-			go func() {
+			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, w)
-			}()
+			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err
 		})

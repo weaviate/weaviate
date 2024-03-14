@@ -95,7 +95,7 @@ func (db *DB) ShardsBackup(
 
 	defer func() {
 		if err != nil {
-			go idx.ReleaseBackup(ctx, bakID)
+			enterrors.GoWrapper(func() { idx.ReleaseBackup(ctx, bakID) }, db.logger)
 		}
 	}()
 
@@ -207,7 +207,7 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	}
 	defer func() {
 		if err != nil {
-			go i.ReleaseBackup(ctx, backupID)
+			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
 	// prevent writing into the index during collection of metadata
