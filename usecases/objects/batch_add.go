@@ -166,7 +166,7 @@ func (b *BatchManager) validateObject(ctx context.Context, principal *models.Pri
 		object.LastUpdateTimeUnix = now
 	}
 
-	class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
+	class, err := b.schemaManager.GetClass(ctx, principal, object.Class, false)
 	ec.Add(err)
 
 	if class == nil {

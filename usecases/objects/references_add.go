@@ -155,7 +155,7 @@ func (req *AddReferenceInput) validate(
 		return nil, err
 	}
 
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	class, err := sm.GetClass(ctx, principal, req.Class, false)
 	if err != nil {
 		return nil, err
 	}

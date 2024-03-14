@@ -119,7 +119,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 
 		target, ok := classPropTarget[className+propName]
 		if !ok {
-			class, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String())
+			class, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String(), false)
 			if class == nil || err != nil {
 				batchReferences[i].Err = fmt.Errorf("class %s does not exist or there was an error getting it err=%v", className, err)
 				continue
@@ -235,7 +235,7 @@ func getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	sourceClass, err = schemaManager.GetClass(ctx, principal, classFrom)
+	sourceClass, err = schemaManager.GetClass(ctx, principal, classFrom, false)
 	if err != nil {
 		err = fmt.Errorf("get source class %q: %w", classFrom, err)
 		return
@@ -259,7 +259,7 @@ func getReferenceClasses(ctx context.Context,
 		classTo = refProp.DataType[0]
 	}
 
-	targetClass, err = schemaManager.GetClass(ctx, principal, classTo)
+	targetClass, err = schemaManager.GetClass(ctx, principal, classTo, false)
 	if err != nil {
 		err = fmt.Errorf("get target class %q: %w", classTo, err)
 		return

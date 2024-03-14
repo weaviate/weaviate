@@ -101,13 +101,13 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	return m.schemaManager.GetClass(ctx, principal, res.ClassName)
+	return m.schemaManager.GetClass(ctx, principal, res.ClassName, false)
 }
 
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
-	return m.schemaManager.GetClass(ctx, principal, className)
+	return m.schemaManager.GetClass(ctx, principal, className, false)
 }
 
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,

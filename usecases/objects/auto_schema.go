@@ -74,7 +74,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 	// Batch together the GetClass and subsequent createClass or updateClass to ensure we will retry if the schema changes
 	// have not yet propagated back to the follower node.
 	return backoff.Retry(func() error {
-		schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+		schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class, false)
 		if err != nil {
 			return err
 		}

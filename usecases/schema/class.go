@@ -35,13 +35,16 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
-	name string,
+	name string, consistency bool,
 ) (*models.Class, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
-
-	return h.metaReader.ReadOnlyClass(name), nil
+	if consistency {
+		return h.metaWriter.QueryReadOnlyClass(name)
+	} else {
+		return h.metaReader.ReadOnlyClass(name), nil
+	}
 }
 
 // AddClass to the schema

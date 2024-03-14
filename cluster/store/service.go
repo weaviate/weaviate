@@ -264,7 +264,7 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration)
 	return s.store.WaitToRestoreDB(ctx, period)
 }
 
-func (s *Service) ReadOnlyClass(class string) (*models.Class, error) {
+func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
 	if class == "" {
 		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
 	}

@@ -42,6 +42,28 @@ func Test_GetSchema(t *testing.T) {
 	fakeMetaHandler.AssertExpectations(t)
 }
 
+func Test_GetClass(t *testing.T) {
+	t.Parallel()
+	t.Run("default consistency", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&models.Class{})
+
+		sch, err := handler.GetClass(context.Background(), nil, "C", false)
+		assert.Nil(t, err)
+		assert.NotNil(t, sch)
+		fakeMetaHandler.AssertExpectations(t)
+	})
+	t.Run("strong consistency", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		fakeMetaHandler.On("QueryReadOnlyClass", mock.Anything).Return(&models.Class{})
+
+		sch, err := handler.GetClass(context.Background(), nil, "C", true)
+		assert.Nil(t, err)
+		assert.NotNil(t, sch)
+		fakeMetaHandler.AssertExpectations(t)
+	})
+}
+
 func Test_AddClass(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -25,7 +25,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	var err error
 	switch req.Type {
 	case cmd.QueryRequest_TYPE_GET_READONLY_CLASS:
-		payload, err = st.GetReadOnlyClass(req)
+		payload, err = st.QueryReadOnlyClass(req)
 		if err != nil {
 			return nil, fmt.Errorf("could not get read only class: %w", err)
 		}
@@ -39,7 +39,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	return &cmd.QueryResponse{Payload: payload}, nil
 }
 
-func (st *Store) GetReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
+func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
 	var payload []byte
 
 	// Validate that the subcommand is the correct type

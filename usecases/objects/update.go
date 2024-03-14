@@ -87,7 +87,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, err := m.schemaManager.GetClass(ctx, principal, className, false)
 	if err != nil {
 		return nil, err
 	}

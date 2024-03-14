@@ -47,7 +47,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetClass",
-			additionalArgs:   []interface{}{"classname"},
+			additionalArgs:   []interface{}{"classname", false},
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},

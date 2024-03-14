@@ -143,7 +143,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	principal *models.Principal, prevVec, nextVec []float32,
 	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
-	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, err := m.schemaManager.GetClass(ctx, principal, className, false)
 	if err != nil {
 		return nil, err
 	}

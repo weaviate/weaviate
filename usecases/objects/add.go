@@ -29,7 +29,7 @@ type schemaManager interface {
 	AddTenants(ctx context.Context, principal *models.Principal,
 		class string, tenants []*models.Tenant) (err error)
 	GetClass(ctx context.Context, principal *models.Principal,
-		name string,
+		name string, consistency bool,
 	) (*models.Class, error)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
@@ -120,7 +120,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+	class, err := m.schemaManager.GetClass(ctx, principal, object.Class, false)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	class, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
+	class, err := m.schemaManager.GetClass(ctx, principal, obj.Class, false)
 	if err != nil {
 		return nil, err
 	}

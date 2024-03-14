@@ -72,7 +72,7 @@ func (f *fakeSchemaManager) TenantShard(class, tenant string) string        { re
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
-	name string,
+	name string, consistency bool,
 ) (*models.Class, error) {
 	if f.GetSchemaResponse.Objects == nil {
 		return nil, f.GetschemaErr
@@ -86,7 +86,7 @@ func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
-	c, err := f.GetClass(context.TODO(), nil, name)
+	c, err := f.GetClass(context.TODO(), nil, name, false)
 	if err != nil {
 		return nil
 	}
