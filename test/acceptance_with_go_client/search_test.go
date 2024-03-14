@@ -289,7 +289,7 @@ func TestHybridWithOnlyVectorSearch(t *testing.T) {
 	require.Len(t, result, 1)
 }
 
-func TestHybridWithVectorSubsearch	(t *testing.T) {
+func TestHybridWithVectorSubsearch(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
 	c.Schema().AllDeleter().Do(ctx)
