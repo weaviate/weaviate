@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
@@ -28,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -430,7 +430,7 @@ func eventualReplicaCRUD(t *testing.T) {
 func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	// since node1 is the gossip "leader", node 2 must be stopped and restarted
 	// after node1 to re-facilitate internode communication
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(&logrus.Logger{})
 	eg.Go(func() error {
 		require.Nil(t, compose.StartAt(ctx, 1))
 		return nil
