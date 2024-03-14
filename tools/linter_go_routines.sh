@@ -24,11 +24,6 @@ for file in $files; do
         continue
     fi
 
-    # too many callers from too many different places
-    if [ "$file" == "adapters/repos/db/vector/compressionhelpers/utils.go" ]; then
-        continue
-    fi
-
     # race happens when replacing the direct goroutine with a wrapper. Not important enough to investigate as nobody is
     # using classification.
     if [ "$file" == "usecases/classification/classifier_run.go" ]; then
