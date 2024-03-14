@@ -32,9 +32,8 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-var logger, _ = test.NewNullLogger()
-
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	efConstruction := 64
 	ef := 32
 	maxNeighbors := 32
@@ -102,7 +101,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 	dimensions := 20
 	vectors_size := 10_000
 	queries_size := 10
-
+	logger, _ := test.NewNullLogger()
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 
 	// set some vectors to nil

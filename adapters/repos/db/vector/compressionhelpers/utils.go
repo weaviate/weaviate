@@ -51,7 +51,10 @@ func ConcurrentlyWithError(log logrus.FieldLogger, n uint64, action func(taskInd
 		workerID := worker
 		eg.Go(func() error {
 			for i := workerID * split; i < uint64(math.Min(float64((workerID+1)*split), n64)); i++ {
-				return action(i)
+				err := action(i)
+				if err != nil {
+					return err
+				}
 			}
 			return nil
 		})
