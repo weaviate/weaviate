@@ -20,7 +20,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema/config"
-	uConfig "github.com/weaviate/weaviate/usecases/config"
 
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
