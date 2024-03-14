@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -62,6 +64,7 @@ func BenchmarkHnswNeurips23(b *testing.B) {
 		dataset string
 		points  int
 	}
+	logger, _ := test.NewNullLogger()
 
 	readDatasets := make(map[datasetPoints][][]float32)
 
@@ -102,12 +105,12 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 						for _, op := range step.Operations {
 							switch op.Operation {
 							case "insert":
-								compressionhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
+								compressionhelpers.Concurrently(logger, uint64(op.End-op.Start), func(i uint64) {
 									err := index.Add(uint64(op.Start+int(i)), vectors[op.Start+int(i)])
 									require.NoError(b, err)
 								})
 							case "delete":
-								compressionhelpers.Concurrently(uint64(op.End-op.Start), func(i uint64) {
+								compressionhelpers.Concurrently(logger, uint64(op.End-op.Start), func(i uint64) {
 									err := index.Delete(uint64(op.Start + int(i)))
 									require.NoError(b, err)
 								})
@@ -121,7 +124,7 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 									queryVectors = readBigAnnDataset(b, file, 0)
 								}
 
-								compressionhelpers.Concurrently(uint64(len(queryVectors)), func(i uint64) {
+								compressionhelpers.Concurrently(logger, uint64(len(queryVectors)), func(i uint64) {
 									_, _, err := index.SearchByVector(queryVectors[i], 0, nil)
 									require.NoError(b, err)
 								})
