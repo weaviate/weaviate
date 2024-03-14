@@ -378,6 +378,11 @@ func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
+	args := f.Called(class, shardingState)
+	return args.Error(0)
+}
+
 type fakeNodes struct {
 	nodes []string
 }

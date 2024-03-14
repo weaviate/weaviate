@@ -11,6 +11,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/weaviate/weaviate v1.24.1
 	github.com/weaviate/weaviate-go-client/v4 v4.13.1
+	golang.org/x/sync v0.6.0
 )
 
 require (
@@ -122,7 +123,6 @@ require (
 	golang.org/x/mod v0.16.0 // indirect
 	golang.org/x/net v0.21.0 // indirect
 	golang.org/x/oauth2 v0.17.0 // indirect
-	golang.org/x/sync v0.6.0 // indirect
 	golang.org/x/sys v0.17.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
