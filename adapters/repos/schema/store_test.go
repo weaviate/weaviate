@@ -142,7 +142,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	// save and load non empty schema
 	schema := ucs.NewState(3)
 	cls, ss := addClass(&schema, "C1", 0, 1, 0)
-	payload, err := ucs.CreateClassPayload(cls, ss)
+	payload, err := createClassPayload(cls, ss)
 	assert.Nil(t, err)
 	if err := repo.NewClass(ctx, payload); err != nil {
 		t.Fatalf("create new class: %v", err)
@@ -156,7 +156,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	deleteClass(&schema, "C1")
 	cls, ss = addClass(&schema, "C1", 0, 2, 1)
 
-	payload, err = ucs.CreateClassPayload(cls, ss)
+	payload, err = createClassPayload(cls, ss)
 	assert.Nil(t, err)
 	payload.Name = "C3"
 	if err := repo.UpdateClass(ctx, payload); err == nil {
@@ -171,7 +171,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 	// overwrite class
 	deleteClass(&schema, "C1")
 	cls, ss = addClass(&schema, "C1", 2, 2, 3)
-	payload, err = ucs.CreateClassPayload(cls, ss)
+	payload, err = createClassPayload(cls, ss)
 	assert.Nil(t, err)
 	payload.ReplaceShards = true
 	if err := repo.UpdateClass(ctx, payload); err != nil {
@@ -201,7 +201,7 @@ func TestRepositoryUpdateShards(t *testing.T) {
 
 	schema := ucs.NewState(2)
 	cls, ss := addClass(&schema, "C1", 0, 2, 1)
-	payload, err := ucs.CreateClassPayload(cls, ss)
+	payload, err := createClassPayload(cls, ss)
 	assert.Nil(t, err)
 	if err := repo.NewClass(ctx, payload); err != nil {
 		t.Errorf("update class: %v", err)
