@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"os"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -111,7 +113,7 @@ func (db *DB) init(ctx context.Context) error {
 	// See also https://github.com/weaviate/weaviate/issues/4396
 	if db.promMetrics != nil && db.promMetrics.Group {
 		db.metricsObserver = newNodeWideMetricsObserver(db)
-		go db.metricsObserver.Start()
+		enterrors.GoWrapper(func() { db.metricsObserver.Start() }, db.logger)
 	}
 
 	return nil
