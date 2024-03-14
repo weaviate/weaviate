@@ -18,6 +18,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -30,6 +32,7 @@ import (
 
 func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
 
 	efConstruction := 64
 	ef := 32
