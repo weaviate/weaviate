@@ -9,40 +9,36 @@
 
 ## Overview
 
-Weaviate is an **open source vector database** that is robust, scalable, cloud-native, and fast.
+Weaviate is cloud-native, **open source vector database** that is robust, fast, and scalable.
 
-If you just want to get started, great! Try:
+To get started quickly, have a look at one of these pages:
 
-- the [quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) if you are looking to use Weaviate, or
-- the [contributor guide](https://weaviate.io/developers/contributor-guide) if you are looking to contribute to the project.
+- To see Weaviate in action, [Quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart).
+- To contribute to the project, [Contributor guide](https://weaviate.io/developers/contributor-guide).
 
-And you can find our [documentation here](https://weaviate.io/developers/weaviate/).
-
-If you have a bit more time, stick around and check out our summary below 😉
+For more details, read through the summary on this page or see the system [documentation](https://weaviate.io/developers/weaviate/).
 
 ---
 
 ## Why Weaviate?
 
-With Weaviate, you can turn your text, images and more into a searchable vector database using state-of-the-art ML models.
+Weaviate uses state-of-the-art ML models to turn your text, images and more into a searchable vector database.
 
-Some of its highlights are:
+Here are some highlights.
 
 ### Speed
 
-Weaviate typically performs a 10-NN neighbor search out of millions of objects in single-digit milliseconds. See [benchmarks](https://weaviate.io/developers/weaviate/benchmarks).
+Weaviate is fast. The core engine can run a 10-NN nearest neighbor search on millions of objects in single-digit milliseconds. See [benchmarks](https://weaviate.io/developers/weaviate/benchmarks).
 
 ### Flexibility
 
-You can use Weaviate to conveniently **vectorize your data at import time**, or alternatively you can **upload your own vectors**.
+Weaviate can **vectorize your data at import time**. Or, if you have already vectorized your data, you can **upload your own vectors** instead.
 
-These vectorization options are enabled by Weaviate modules. Modules enable use of popular services and model hubs such as [OpenAI](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-openai), [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere), [VoyageAI](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-voyageai) or [HuggingFace](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface) and much more, including use of local and custom models.
+Modules give you the flexibility to tune Weaviate for your needs. More than two dozen modules connect you to popular services and model hubs such as [OpenAI](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-openai), [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere), [VoyageAI](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-voyageai) and [HuggingFace](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface). Use custom modules to work with your own models or third party services.
 
 ### Production-readiness
 
-Weaviate is designed to take you from **rapid prototyping** all the way to **production at scale**.
-
-To this end, Weaviate is built with [scaling](https://weaviate.io/developers/weaviate/concepts/cluster), [replication](https://weaviate.io/developers/weaviate/concepts/replication-architecture), and [security](https://weaviate.io/developers/weaviate/configuration/authentication) in mind, among others.
+Weaviate is built with [scaling](https://weaviate.io/developers/weaviate/concepts/cluster), [replication](https://weaviate.io/developers/weaviate/concepts/replication-architecture), and [security](https://weaviate.io/developers/weaviate/configuration/authentication) in mind so you can go smoothly from **rapid prototyping** to **production at scale**.
 
 ### Beyond search
 
