@@ -71,7 +71,7 @@ func (m *GenerativeMistralModule) initAdditional(ctx context.Context, timeout ti
 
 	m.generative = client
 
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
 
 	return nil
 }
