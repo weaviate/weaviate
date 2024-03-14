@@ -635,7 +635,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.Hostname = v
 	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
-	cfg.Localhost = Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
+	cfg.Localhost = configbase.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 

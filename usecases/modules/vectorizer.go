@@ -18,7 +18,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
