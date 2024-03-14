@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -117,15 +116,8 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 		vecErrorsList := make([]map[int]error, len(modConfigs))
 		errorList := make([]error, len(modConfigs))
 		counter := 0
-		wg := sync.WaitGroup{}
-
-		fun := func(name string, modConfig map[string]interface{}, counter int) {
-			vecErrors, err := p.batchUpdateVector(ctx, objects, class, findObjectFn, name, modConfig)
-			errorList[counter] = err
-			vecErrorsList[counter] = vecErrors
-			wg.Done()
-		}
-
+		eg := enterrors.NewErrorGroupWrapper(logger)
+		eg.SetLimit(_NUMCPU)
 		for targetVector, modConfig := range modConfigs {
 			shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
 			if err != nil {
@@ -133,13 +125,24 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 				continue
 			}
 			if shouldVectorizeClass {
-				wg.Add(1)
-				go fun(targetVector, modConfig, counter)
+				targetVector := targetVector
+				modConfig := modConfig
+				counter := counter
+
+				fun := func() error {
+					vecErrors, err := p.batchUpdateVector(ctx, objects, class, findObjectFn, targetVector, modConfig)
+					errorList[counter] = err
+					vecErrorsList[counter] = vecErrors
+					return nil // to use error group
+				}
+				eg.Go(fun)
 			}
 
 			counter += 1
 		}
-		wg.Wait()
+		if err := eg.Wait(); err != nil {
+			return nil, err
+		}
 
 		// combine errors from different runs
 		combinedErrors := make(map[int]error, 0)
