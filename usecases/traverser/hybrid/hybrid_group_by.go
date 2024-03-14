@@ -24,9 +24,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/search"
 )
 
-func (s *Shard) groupResults(ctx context.Context, ids []uint64,
+func GroupResults(ctx context.Context, sr []search.Results,
 	dists []float32, groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
@@ -44,10 +45,10 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 			err, groupBy.Property)
 	}
 
-	return newGrouper(ids, dists, groupBy, objsBucket, dt, additional).Do(ctx)
+	return Group(ctx, sr, groupBy, dt, additional)
 }
 
-func Group(ctx context.Context,sr []search.Results, groupBy *searchparams.GroupBy, objBucket *lsmkv.Bucket, propertyDataType schema.PropertyDataType, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func Group(ctx context.Context,sr []search.Results, groupBy *searchparams.GroupBy, propertyDataType schema.PropertyDataType, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	docIDBytes := make([]byte, 8)
 
 	groupsOrdered := []string{}
@@ -56,15 +57,8 @@ func Group(ctx context.Context,sr []search.Results, groupBy *searchparams.GroupB
 	docIDDistance := map[uint64]float32{}
 
 DOCS_LOOP:
-	for i, docID := range g.ids {
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		objData, err := g.objBucket.GetBySecondary(0, docIDBytes)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: could not get obj by doc id %d", err, docID)
-		}
-		if objData == nil {
-			continue
-		}
+	for i, result := range sr {
+
 		value, ok, _ := storobj.ParseAndExtractProperty(objData, g.groupBy.Property)
 		if !ok {
 			continue
