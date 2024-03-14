@@ -70,7 +70,7 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 		return uc, err
 	}
 
-	if err := common.OptionalIntFromMap(asMap, "vectorCacheMaxObjects", func(v int) {
+	if err := common.OptionalIntFromMap(asMap, "threshold", func(v int) {
 		uc.Threeshold = uint64(v)
 	}); err != nil {
 		return uc, err
