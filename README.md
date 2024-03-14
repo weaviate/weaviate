@@ -9,12 +9,12 @@
 
 ## Overview
 
-Weaviate is cloud-native, **open source vector database** that is robust, fast, and scalable.
+Weaviate is a cloud-native, **open source vector database** that is robust, fast, and scalable.
 
 To get started quickly, have a look at one of these pages:
 
-- To see Weaviate in action, [Quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart).
-- To contribute to the project, [Contributor guide](https://weaviate.io/developers/contributor-guide).
+- [Quickstart tutorial](https://weaviate.io/developers/weaviate/quickstart) To see Weaviate in action
+- [Contributor guide](https://weaviate.io/developers/contributor-guide) To contribute to this project
 
 For more details, read through the summary on this page or see the system [documentation](https://weaviate.io/developers/weaviate/).
 
@@ -22,7 +22,7 @@ For more details, read through the summary on this page or see the system [docum
 
 ## Why Weaviate?
 
-Weaviate uses state-of-the-art ML models to turn your text, images and more into a searchable vector database.
+Weaviate uses state-of-the-art machine learning (ML) models to turn your data - text, images, and more - into a searchable vector database.
 
 Here are some highlights.
 
