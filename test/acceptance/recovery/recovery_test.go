@@ -16,9 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/test/docker"
-	"golang.org/x/sync/errgroup"
 )
 
 // TODO-RAFT current tests doesn't force containers to change their IPs
@@ -48,7 +49,7 @@ func TestRecovery(t *testing.T) {
 
 	<-time.After(3 * time.Second) // wait for memberlist
 
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(&logrus.Logger{})
 	for idx := 1; idx <= 3; idx++ {
 		require.Nil(t, compose.StopAt(ctx, idx, nil))
 		i := idx // catch idx for eg
