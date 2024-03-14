@@ -15,6 +15,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
 func (m *Module) initNearImage() error {
@@ -29,12 +30,21 @@ func (m *Module) initNearText() error {
 	return nil
 }
 
+func (m *Module) initNearVideo() error {
+	m.nearVideoSearcher = nearVideo.NewSearcher(m.videoVectorizer)
+	m.nearVideoGraphqlProvider = nearVideo.New()
+	return nil
+}
+
 func (m *Module) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
 	for name, arg := range m.nearImageGraphqlProvider.Arguments() {
 		arguments[name] = arg
 	}
 	for name, arg := range m.nearTextGraphqlProvider.Arguments() {
+		arguments[name] = arg
+	}
+	for name, arg := range m.nearVideoGraphqlProvider.Arguments() {
 		arguments[name] = arg
 	}
 	return arguments
@@ -46,6 +56,9 @@ func (m *Module) VectorSearches() map[string]modulecapabilities.VectorForParams 
 		vectorSearches[name] = arg
 	}
 	for name, arg := range m.nearTextSearcher.VectorSearches() {
+		vectorSearches[name] = arg
+	}
+	for name, arg := range m.nearVideoSearcher.VectorSearches() {
 		vectorSearches[name] = arg
 	}
 	return vectorSearches

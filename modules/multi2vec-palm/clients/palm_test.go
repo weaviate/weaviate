@@ -46,7 +46,7 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil,
+		res, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil,
 			ent.VectorizationConfig{
 				Location:  "location",
 				ProjectID: "project",
@@ -74,7 +74,7 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			ImageVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		res, err := c.Vectorize(context.Background(), nil, []string{"base64 encoded image"},
+		res, err := c.Vectorize(context.Background(), nil, []string{"base64 encoded image"}, nil,
 			ent.VectorizationConfig{
 				Location:  "location",
 				ProjectID: "project",
@@ -99,7 +99,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -119,7 +119,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil,
+		_, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil,
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
@@ -143,7 +143,7 @@ func TestClient(t *testing.T) {
 		expected := &ent.VectorizationResult{
 			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, ent.VectorizationConfig{})
+		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -163,7 +163,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctx, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
@@ -183,7 +183,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Palm-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, ent.VectorizationConfig{})
+		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, nil, nil, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+

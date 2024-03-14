@@ -12,8 +12,9 @@
 package ent
 
 type VectorizationConfig struct {
-	Location   string
-	ProjectID  string
-	Model      string
-	Dimensions int64
+	Location             string
+	ProjectID            string
+	Model                string
+	Dimensions           int64
+	VideoIntervalSeconds int64
 }
