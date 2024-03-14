@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/proto/cluster"
@@ -264,4 +265,11 @@ func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal,
 		}
 	}
 	return ErrNotFound
+}
+
+// IsLocalActiveTenant determines whether a given physical partition
+// represents a tenant that is expected to be active
+func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
+	return slices.Contains(phys.BelongsToNodes, localNode) &&
+		phys.Status == models.TenantActivityStatusHOT
 }
