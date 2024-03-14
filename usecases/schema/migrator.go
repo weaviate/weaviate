@@ -43,6 +43,7 @@ type Migrator interface {
 		prop *models.Property) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
+	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error)
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error)
