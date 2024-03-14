@@ -28,7 +28,7 @@ Here are some highlights.
 
 ### Speed
 
-Weaviate is fast. The core engine can run a 10-NN nearest neighbor search on millions of objects in single-digit milliseconds. See [benchmarks](https://weaviate.io/developers/weaviate/benchmarks).
+Weaviate is fast. The core engine can run a 10-NN nearest neighbor search on millions of objects in milliseconds. See [benchmarks](https://weaviate.io/developers/weaviate/benchmarks).
 
 ### Flexibility
 
@@ -48,11 +48,11 @@ Weaviate doesn't just power lightning-fast vector searches. Other superpowers in
 
 - **Software Engineers**
 
-  - An ML-first database engine
+  - Weaviate is an ML-first database engine
   - Out-of-the-box modules for AI-powered searches, automatic classification, and LLM integration
-   - Full CRUD support that you expect
-   - Cloud-native, distributed system runs well on Kubernetes
-   - Scales with your workloads.
+   - Full CRUD support
+   - Cloud-native, distributed system that runs well on Kubernetes
+   - Scales with your workloads
 
 - **Data Engineers**
 
@@ -113,7 +113,7 @@ There are also [community supported libraries](https://weaviate.io/developers/we
 
 ## Where can You learn more?
 
-Free, self-paced courses in Weaviate Academy](https://weaviate.io/developers/academy) teach you how to use Weaviate. The [Tutorials repo](https://github.com/weaviate-tutorials) has code for example projects. The [Recipes repo](https://github.com/weaviate/recipes) has even more project code to get you started.
+Free, self-paced courses in [Weaviate Academy](https://weaviate.io/developers/academy) teach you how to use Weaviate. The [Tutorials repo](https://github.com/weaviate-tutorials) has code for example projects. The [Recipes repo](https://github.com/weaviate/recipes) has even more project code to get you started.
 
 The [Weaviate blog](https://weaviate.io/blog) and [podcast](https://weaviate.io/podcast) regularly post stories on Weaviate and AI.
 
@@ -151,7 +151,7 @@ Here are some popular posts:
 
 ## Join our community!
 
-At Weaviate, we love to connect with our community. We love helping amazing people build cool things with Weaviate. We love getting to know you. We love to talk with you about you passions.
+At Weaviate, we love to connect with our community. We love helping amazing people build cool things. And, we love to talk with you about you passion for vector databases and AI.
 
 Please reach out, and join our community:
 
@@ -160,4 +160,4 @@ Please reach out, and join our community:
 - [Slack](https://weaviate.io/slack)
 - [X (Twitter)](https://twitter.com/weaviate_io)
 
-Keep up to date with new releases, meetup news, and more when you subscribe to our [newsletter](https://newsletter.weaviate.io/) 
+To keep up to date with new releases, meetup news, and more, subscribe to our [newsletter](https://newsletter.weaviate.io/) 
