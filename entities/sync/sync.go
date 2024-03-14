@@ -13,8 +13,6 @@ package sync
 
 import (
 	"sync"
-
-	"github.com/sirupsen/logrus"
 )
 
 // KeyLocker it is a thread safe wrapper of sync.Map
@@ -23,15 +21,13 @@ import (
 // locker.Lock(id)
 // defer locker.Unlock(id)
 type KeyLocker struct {
-	m      sync.Map
-	logger logrus.FieldLogger
+	m sync.Map
 }
 
 // New creates Keylocker
-func New(l logrus.FieldLogger) *KeyLocker {
+func New() *KeyLocker {
 	return &KeyLocker{
-		m:      sync.Map{},
-		logger: l,
+		m: sync.Map{},
 	}
 }
 
@@ -42,30 +38,15 @@ func New(l logrus.FieldLogger) *KeyLocker {
 func (s *KeyLocker) Lock(ID string) {
 	iLock := &sync.Mutex{}
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
-	var ok bool
-	iLock, ok = iLocks.(*sync.Mutex)
-	if !ok {
-		// shouldn't happen
-		s.logger.Error("lock of non existing lock for item with ID=%s", ID)
-		return
-	}
 
+	iLock = iLocks.(*sync.Mutex)
 	iLock.Lock()
 }
 
 // Unlock it unlocks a specific item by it's ID
 // and it will delete it from the shared locks map
 func (s *KeyLocker) Unlock(ID string) {
-	iLocks, ok := s.m.Load(ID)
-	if !ok {
-		s.logger.Error("unlock of non existing lock for item with ID=%s", ID)
-		return
-	}
-	iLock, ok := iLocks.(*sync.Mutex)
-	if !ok {
-		// shouldn't happen
-		s.logger.Error("lock of non existing lock for item with ID=%s", ID)
-		return
-	}
+	iLocks, _ := s.m.Load(ID)
+	iLock := iLocks.(*sync.Mutex)
 	iLock.Unlock()
 }
