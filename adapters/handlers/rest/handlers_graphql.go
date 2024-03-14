@@ -175,6 +175,7 @@ func setupGraphQLHandlers(
 
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
+			requestIndex, unbatchedRequest := requestIndex, unbatchedRequest
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
 				handleUnbatchedGraphQLRequest(ctx, wg, graphQL, unbatchedRequest, requestIndex, &requestResults, metricRequestsTotal)
