@@ -28,11 +28,13 @@ var schemaTests = []struct {
 	fn   func(*testing.T, *Handler, *fakeMetaHandler)
 }{
 	{name: "AddObjectClass", fn: testAddObjectClass},
+	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
 	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
 	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
 	{name: "AddObjectClassWithWrongIndexType", fn: testAddObjectClassWrongIndexType},
 	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
+	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
@@ -42,7 +44,6 @@ var schemaTests = []struct {
 func testAddObjectClass(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
 	t.Parallel()
 
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 	class := &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{{
@@ -58,10 +59,27 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeMetaHandler *fakeMet
 	assert.Nil(t, err)
 }
 
+func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
+	t.Parallel()
+
+	class := &models.Class{
+		Vectorizer:      config.VectorizerModuleText2VecContextionary,
+		VectorIndexType: "hnsw",
+		Class:           "Car",
+		Properties: []*models.Property{{
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:         "dummy",
+		}},
+	}
+	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
+	err := handler.AddClass(context.Background(), nil, class)
+	assert.Nil(t, err)
+}
+
 func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
 	t.Parallel()
 	handler.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 	class := &models.Class{
 		Class: "Car",
 		Properties: []*models.Property{{
@@ -80,8 +98,6 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeMe
 func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
 	t.Parallel()
 
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
-
 	class := &models.Class{
 		Class:      "Car",
 		Vectorizer: "vectorizer-5000000",
@@ -98,8 +114,6 @@ func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeMetaH
 
 func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
 	t.Parallel()
-
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 
 	class := &models.Class{
 		Class:           "Car",
@@ -118,8 +132,6 @@ func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeMetaHa
 
 func testRemoveObjectClass(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
 	t.Parallel()
-
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 
 	class := &models.Class{
 		Class:      "Car",
@@ -171,10 +183,37 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeMetaHandler *
 		},
 	}
 	fakeMetaHandler.ExpectedCalls = fakeMetaHandler.ExpectedCalls[:0]
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{Classes: []*models.Class{class}})
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(ErrNotFound)
 
 	// Add it again
+	err = handler.AddClass(context.Background(), nil, class)
+	assert.NotNil(t, err)
+}
+
+func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaHandler) {
+	t.Parallel()
+	ctx := context.Background()
+	class := &models.Class{
+		Class:      "Car",
+		Vectorizer: "text2vec-contextionary",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": true,
+			},
+		},
+	}
+	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
+	err := handler.AddClass(ctx, nil, class)
+	assert.Nil(t, err)
+
+	class.ModuleConfig = map[string]interface{}{
+		"my-module1": map[string]interface{}{
+			"my-setting": "some-value",
+		},
+	}
+
+	// Add it again, but with a different kind.
+	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 	err = handler.AddClass(context.Background(), nil, class)
 	assert.NotNil(t, err)
 }
@@ -264,7 +303,6 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeMetaHandl
 		},
 	}
 
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 	class := &models.Class{
 		Class:      "Car",
 		Properties: properties,
@@ -281,7 +319,6 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeMe
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 	err := handler.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
@@ -296,7 +333,6 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler
 		{Name: "color", DataType: []string{""}},
 	}
 
-	fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
 	err := handler.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
@@ -337,6 +373,7 @@ func TestSchema(t *testing.T) {
 			// Run each test independently with their own handler
 			t.Run(testCase.name, func(t *testing.T) {
 				handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+				defer fakeMetaHandler.AssertExpectations(t)
 				testCase.fn(t, handler, fakeMetaHandler)
 			})
 		}

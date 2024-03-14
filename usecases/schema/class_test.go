@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -335,6 +336,56 @@ func Test_AddClass(t *testing.T) {
 
 			runTestCases(t, testCases)
 		})
+	})
+
+	t.Run("with invalid settings", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+
+		// Vectorizer while VectorConfig exists
+		err := handler.AddClass(ctx, nil, &models.Class{
+			Class:      "NewClass",
+			Vectorizer: "some",
+			VectorConfig: map[string]models.VectorConfig{"custom": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			}},
+		})
+		assert.EqualError(t, err, "class.vectorizer \"some\" can not be set if class.vectorConfig is configured")
+
+		// VectorIndexType while VectorConfig exists
+		err = handler.AddClass(ctx, nil, &models.Class{
+			Class:           "NewClass",
+			VectorIndexType: "some",
+			VectorConfig: map[string]models.VectorConfig{"custom": {
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			}},
+		})
+		assert.EqualError(t, err, "class.vectorIndexType \"some\" can not be set if class.vectorConfig is configured")
+
+		// VectorConfig is invalid VectorIndexType
+		err = handler.AddClass(ctx, nil, &models.Class{
+			Class: "NewClass",
+			VectorConfig: map[string]models.VectorConfig{"custom": {
+				VectorIndexType:   "invalid",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			}},
+		})
+		assert.EqualError(t, err, "target vector \"custom\": unrecognized or unsupported vectorIndexType \"invalid\"")
+
+		// VectorConfig is invalid Vectorizer
+		err = handler.AddClass(ctx, nil, &models.Class{
+			Class: "NewClass",
+			VectorConfig: map[string]models.VectorConfig{"custom": {
+				VectorIndexType:   "flat",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        map[string]interface{}{"invalid": nil},
+			}},
+		})
+		assert.EqualError(t, err, "target vector \"custom\": vectorizer: invalid vectorizer \"invalid\"")
 	})
 }
 
@@ -990,15 +1041,13 @@ func Test_UpdateClass(t *testing.T) {
 		fakeMetaHandler.AssertExpectations(t)
 	})
 
-	t.Run("Fields", func(t *testing.T) {
-		type test struct {
+	t.Run("Fields validation", func(t *testing.T) {
+		tests := []struct {
 			name          string
 			initial       *models.Class
 			update        *models.Class
 			expectedError error
-		}
-
-		tests := []test{
+		}{
 			{
 				name:    "ChangeName",
 				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
@@ -1343,4 +1392,73 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{"node1": "new-node1"})
 		assert.NoError(t, err)
 	}
+}
+
+func Test_DeleteClass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name          string
+		classToDelete string
+		expErr        bool
+		expErrMsg     string
+		existing      []*models.Class
+		expected      []*models.Class
+	}{
+		{
+			name:          "class exists",
+			classToDelete: "C1",
+			existing: []*models.Class{
+				{Class: "C1", VectorIndexType: "hnsw"},
+				{Class: "OtherClass", VectorIndexType: "hnsw"},
+			},
+			expected: []*models.Class{
+				classWithDefaultsSet(t, "OtherClass"),
+			},
+			expErr: false,
+		},
+		{
+			name:          "class does not exist",
+			classToDelete: "C1",
+			existing: []*models.Class{
+				{Class: "OtherClass", VectorIndexType: "hnsw"},
+			},
+			expected: []*models.Class{
+				classWithDefaultsSet(t, "OtherClass"),
+			},
+			expErr: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+
+			fakeMetaHandler.On("DeleteClass", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+			err := handler.DeleteClass(ctx, nil, test.classToDelete)
+			if test.expErr {
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), test.expErrMsg)
+			} else {
+				require.Nil(t, err)
+			}
+			fakeMetaHandler.AssertExpectations(t)
+		})
+	}
+}
+
+func classWithDefaultsSet(t *testing.T, name string) *models.Class {
+	class := &models.Class{Class: name, VectorIndexType: "hnsw"}
+
+	sc, err := shardingConfig.ParseConfig(map[string]interface{}{}, 1)
+	require.Nil(t, err)
+
+	class.ShardingConfig = sc
+
+	class.VectorIndexConfig = fakeVectorConfig{}
+	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+
+	return class
 }

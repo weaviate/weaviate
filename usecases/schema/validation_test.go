@@ -21,6 +21,7 @@ import (
 )
 
 func Test_Validation_NestedProperties(t *testing.T) {
+	t.Parallel()
 	vFalse := false
 	vTrue := true
 
