@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,7 +37,10 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/composer"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	bolt "go.etcd.io/bbolt"
 )
+
+var composerBucket = []byte("composer")
 
 type VectorIndex interface {
 	Dump(labels ...string)
@@ -87,6 +92,7 @@ type composer struct {
 	shardCompactionCallbacks cyclemanager.CycleCallbackGroup
 	shardFlushCallbacks      cyclemanager.CycleCallbackGroup
 	hnswUC                   hnswent.UserConfig
+	db                       *bolt.DB
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
@@ -107,10 +113,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
 	}
-	flat, err := flat.New(flatConfig, uc.FlatUC, store)
-	if err != nil {
-		return nil, err
-	}
 
 	index := &composer{
 		id:                       cfg.ID,
@@ -125,12 +127,73 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		distanceProvider:         cfg.DistanceProvider,
 		makeCommitLoggerThunk:    cfg.MakeCommitLoggerThunk,
 		store:                    store,
-		index:                    flat,
 		threshold:                uc.Threeshold,
 		tombstoneCallbacks:       cfg.TombstoneCallbacks,
 		shardCompactionCallbacks: cfg.ShardCompactionCallbacks,
 		shardFlushCallbacks:      cfg.ShardFlushCallbacks,
 		hnswUC:                   uc.HnswUC,
+	}
+
+	path := filepath.Join(cfg.RootPath, "index.db")
+
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "open %q", path)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(composerBucket)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	upgraded := false
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(composerBucket)
+		v := b.Get([]byte{0})
+		if v == nil {
+			return nil
+		}
+
+		upgraded = v[0] != 0
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "get composer state")
+	}
+
+	index.db = db
+	if upgraded {
+		index.upgraded.Store(true)
+		hnsw, err := hnsw.New(
+			hnsw.Config{
+				Logger:                index.logger,
+				RootPath:              index.rootPath,
+				ID:                    index.id,
+				ShardName:             index.shardName,
+				ClassName:             index.className,
+				PrometheusMetrics:     index.prometheusMetrics,
+				VectorForIDThunk:      index.vectorForIDThunk,
+				TempVectorForIDThunk:  index.tempVectorForIDThunk,
+				DistanceProvider:      index.distanceProvider,
+				MakeCommitLoggerThunk: index.makeCommitLoggerThunk},
+			index.hnswUC,
+			index.tombstoneCallbacks,
+			index.shardCompactionCallbacks,
+			index.shardFlushCallbacks,
+			index.store,
+		)
+		if err != nil {
+			return nil, err
+		}
+		index.index = hnsw
+	} else {
+		flat, err := flat.New(flatConfig, uc.FlatUC, store)
+		if err != nil {
+			return nil, err
+		}
+		index.index = flat
 	}
 
 	return index, nil
@@ -194,6 +257,10 @@ func (composer *composer) UpdateUserConfig(updated schema.VectorIndexConfig, cal
 func (composer *composer) Drop(ctx context.Context) error {
 	composer.RLock()
 	defer composer.RUnlock()
+	if err := composer.db.Close(); err != nil {
+		return err
+	}
+	os.Remove(filepath.Join(composer.rootPath, "index.db"))
 	return composer.index.Drop(ctx)
 }
 
@@ -206,6 +273,9 @@ func (composer *composer) Flush() error {
 func (composer *composer) Shutdown(ctx context.Context) error {
 	composer.RLock()
 	defer composer.RUnlock()
+	if err := composer.db.Close(); err != nil {
+		return err
+	}
 	return composer.index.Shutdown(ctx)
 }
 
@@ -228,8 +298,8 @@ func (composer *composer) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (composer *composer) PostStartup() {
-	composer.RLock()
-	defer composer.RUnlock()
+	composer.Lock()
+	defer composer.Unlock()
 	composer.index.PostStartup()
 }
 
@@ -320,7 +390,8 @@ func (composer *composer) Upgrade(callback func()) error {
 			VectorForIDThunk:      composer.vectorForIDThunk,
 			TempVectorForIDThunk:  composer.tempVectorForIDThunk,
 			DistanceProvider:      composer.distanceProvider,
-			MakeCommitLoggerThunk: composer.makeCommitLoggerThunk},
+			MakeCommitLoggerThunk: composer.makeCommitLoggerThunk,
+		},
 		composer.hnswUC,
 		composer.tombstoneCallbacks,
 		composer.shardCompactionCallbacks,
@@ -335,6 +406,17 @@ func (composer *composer) Upgrade(callback func()) error {
 	compressionhelpers.Concurrently(uint64(count), func(i uint64) {
 		index.Add(ids[i], vectors[i])
 	})
+
+	buf := make([]byte, 1)
+	buf[0] = 1
+
+	err = composer.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(composerBucket)
+		return b.Put([]byte{0}, buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "update composer")
+	}
 
 	composer.index = index
 	composer.upgraded.Store(true)

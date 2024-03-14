@@ -446,12 +446,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		// here we label the main vector index as such.
 		vecIdxID := s.vectorIndexID(targetVector)
 
+		s.index.logger.Error(s.path(), vecIdxID, s.index.Config.ClassName.String())
+
 		vi, err := composer.New(composer.Config{
 			ID:                   vecIdxID,
 			TargetVector:         targetVector,
 			Logger:               s.index.logger,
 			DistanceProvider:     distProv,
-			RootPath:             s.index.path(),
+			RootPath:             s.path(),
 			ShardName:            s.name,
 			ClassName:            s.index.Config.ClassName.String(),
 			PrometheusMetrics:    s.promMetrics,
