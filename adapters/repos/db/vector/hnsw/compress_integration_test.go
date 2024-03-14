@@ -81,9 +81,9 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
-		index.Add(uint64(id), vectors[id])
-	})
+	require.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+		return index.Add(uint64(id), vectors[id])
+	}))
 	uc.PQ = ent.PQConfig{
 		Enabled: true,
 		Encoder: ent.PQEncoder{

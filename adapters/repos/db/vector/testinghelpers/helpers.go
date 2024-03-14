@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -156,7 +158,7 @@ func ReadQueries(queriesSize int) [][]float32 {
 	return queries
 }
 
-func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFunction) ([]uint64, []float32) {
+func BruteForce(logger logrus.FieldLogger, vectors [][]float32, query []float32, k int, distance DistanceFunction) ([]uint64, []float32) {
 	type distanceAndIndex struct {
 		distance float32
 		index    uint64
@@ -164,7 +166,7 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 
 	distances := make([]distanceAndIndex, len(vectors))
 
-	compressionhelpers.Concurrently(uint64(len(vectors)), func(i uint64) {
+	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
 		dist := distance(query, vectors[i])
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
@@ -190,7 +192,7 @@ func BruteForce(vectors [][]float32, query []float32, k int, distance DistanceFu
 	return out, dists
 }
 
-func BuildTruths(queriesSize int, vectorsSize int, queries [][]float32, vectors [][]float32, k int, distance DistanceFunction, path ...string) [][]uint64 {
+func BuildTruths(logger logrus.FieldLogger, queriesSize int, vectorsSize int, queries [][]float32, vectors [][]float32, k int, distance DistanceFunction, path ...string) [][]uint64 {
 	uri := "sift/sift_truths%d.%d.gob"
 	if len(path) > 0 {
 		uri = fmt.Sprintf("%s/%s", path[0], uri)
@@ -202,8 +204,8 @@ func BuildTruths(queriesSize int, vectorsSize int, queries [][]float32, vectors 
 		return loadTruths(fileName, queriesSize, k)
 	}
 
-	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-		truths[i], _ = BruteForce(vectors, queries[i], k, distance)
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = BruteForce(logger, vectors, queries[i], k, distance)
 	})
 
 	f, err := os.Create(fileName)
