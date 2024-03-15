@@ -27,7 +27,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2vec-openai"
+const (
+	Name          = "text2vec-openai"
+	OpenAITimeout = 40 * time.Second
+)
 
 func New() *OpenAIModule {
 	return &OpenAIModule{}
@@ -106,7 +109,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, OpenAITimeout)
 	m.metaProvider = client
 
 	return nil
