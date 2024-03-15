@@ -33,6 +33,10 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		Properties: params.HybridSearch.Properties,
 	}
 
+	params.Group = nil
+	params.GroupBy = nil
+
+
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
 	}
@@ -70,6 +74,8 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 	if params.Pagination.Limit < hybrid.DefaultLimit {
 		params.Pagination.Limit = hybrid.DefaultLimit
 	}
+	params.Group = nil
+	params.GroupBy = nil
 
 	// TODO confirm that targetVectos is being passed through as part of the params
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
@@ -136,6 +142,8 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	}
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 	subsearchWrap.HybridSearch = nil
+	subsearchWrap.Group = nil
+	subsearchWrap.GroupBy = nil
 	partial_results, vector, err := e.getClassVectorSearch(ctx, subsearchWrap)
 	if err != nil {
 		return nil, "", err
@@ -283,10 +291,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, err
 	}
 
-		sch := s.index.getSchema.GetSchemaSkipAuth()
-	prop, err := sch.GetProperty(className, schema.PropertyName(groupBy.Property))
-	Group(ctx ,sr , groupBy *searchparams.GroupBy,  propertyDataType schema.PropertyDataType, additional additional.Properties) ([]*storobj.Object, []float32, error
-
 	var pointerResultList hybrid.Results
 
 	if origParams.Pagination.Limit <= 0 {
@@ -310,6 +314,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	out := make([]search.Result, 0, len(pointerResultList))
 	for _, pointerResult := range pointerResultList {
 		out = append(out, *pointerResult)
+	}
+
+	if origParams.GroupBy != nil {
+		groupedResults, err := e.GroupSearchResults(ctx, out, origParams.GroupBy)
+		if err != nil {
+			return nil, err
+		}
+		return groupedResults, nil
 	}
 
 	return out, nil
