@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -190,6 +191,7 @@ type Index struct {
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady atomic.Bool
+	memMonitor     *memwatch.Monitor
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -226,6 +228,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
+	memMonitor *memwatch.Monitor,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -256,6 +259,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		partitioningEnabled: shardState.PartitioningEnabled,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:    indexCheckpoints,
+		memMonitor:          memMonitor,
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
