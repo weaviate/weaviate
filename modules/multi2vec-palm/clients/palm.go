@@ -66,62 +66,99 @@ func (v *palm) VectorizeQuery(ctx context.Context, input []string,
 func (v *palm) vectorize(ctx context.Context,
 	texts, images, videos []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
+	var textEmbeddings [][]float32
+	var imageEmbeddings [][]float32
+	var videoEmbeddings [][]float32
 	endpointURL := v.getURL(config)
-	payload := v.getPayload(texts, images, videos, config)
+	maxCount := max(len(texts), len(images), len(videos))
+	for i := 0; i < maxCount; i++ {
+		text := v.safelyGet(texts, i)
+		image := v.safelyGet(images, i)
+		video := v.safelyGet(videos, i)
+		payload := v.getPayload(text, image, video, config)
+		statusCode, res, err := v.sendRequest(ctx, endpointURL, payload)
+		if err != nil {
+			return nil, err
+		}
+		textVectors, imageVectors, videoVectors, err := v.getEmbeddingsFromResponse(statusCode, res)
+		if err != nil {
+			return nil, err
+		}
+		textEmbeddings = append(textEmbeddings, textVectors...)
+		imageEmbeddings = append(imageEmbeddings, imageVectors...)
+		videoEmbeddings = append(videoEmbeddings, videoVectors...)
+	}
+
+	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings)
+}
+
+func (v *palm) safelyGet(input []string, i int) string {
+	if i < len(input) {
+		return input[i]
+	}
+	return ""
+}
+
+func (v *palm) sendRequest(ctx context.Context,
+	endpointURL string, payload embeddingsRequest,
+) (int, embeddingsResponse, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
+		return 0, embeddingsResponse{}, errors.Wrapf(err, "marshal body")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL,
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return 0, embeddingsResponse{}, errors.Wrap(err, "create POST request")
 	}
 
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Palm API Key")
+		return 0, embeddingsResponse{}, errors.Wrapf(err, "Palm API Key")
 	}
 	req.Header.Add("Content-Type", "application/json; charset=utf-8")
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return 0, embeddingsResponse{}, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return 0, embeddingsResponse{}, errors.Wrap(err, "read response body")
 	}
 
-	return v.parseEmbeddingsResponse(res.StatusCode, bodyBytes)
+	var resBody embeddingsResponse
+	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
+		return 0, embeddingsResponse{}, errors.Wrap(err, "unmarshal response body")
+	}
+
+	return res.StatusCode, resBody, nil
 }
 
 func (v *palm) getURL(config ent.VectorizationConfig) string {
 	return v.urlBuilderFn(config.Location, config.ProjectID, config.Model)
 }
 
-func (v *palm) getPayload(texts, images, videos []string, config ent.VectorizationConfig) embeddingsRequest {
-	instances := make([]instance, 0)
-	for _, text := range texts {
-		instances = append(instances, instance{Text: &text})
+func (v *palm) getPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
+	inst := instance{}
+	if text != "" {
+		inst.Text = &text
 	}
-	for _, img := range images {
-		instances = append(instances, instance{Image: &image{BytesBase64Encoded: img}})
+	if img != "" {
+		inst.Image = &image{BytesBase64Encoded: img}
 	}
-	for _, vid := range videos {
-		instances = append(instances, instance{
-			Video: &video{
-				BytesBase64Encoded: vid,
-				VideoSegmentConfig: videoSegmentConfig{IntervalSec: &config.VideoIntervalSeconds},
-			},
-		})
+	if vid != "" {
+		inst.Video = &video{
+			BytesBase64Encoded: vid,
+			VideoSegmentConfig: videoSegmentConfig{IntervalSec: &config.VideoIntervalSeconds},
+		}
 	}
 	return embeddingsRequest{
-		Instances:  instances,
+		Instances:  []instance{inst},
 		Parameters: parameters{Dimension: config.Dimensions},
 	}
 }
@@ -162,24 +199,21 @@ func (v *palm) getValueFromContext(ctx context.Context, key string) string {
 	return ""
 }
 
-func (v *palm) parseEmbeddingsResponse(statusCode int,
-	bodyBytes []byte,
-) (*ent.VectorizationResult, error) {
-	var resBody embeddingsResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
-	}
-
-	if err := v.checkResponse(statusCode, resBody.Error); err != nil {
-		return nil, err
+func (v *palm) getEmbeddingsFromResponse(statusCode int, resBody embeddingsResponse) (
+	textEmbeddings [][]float32,
+	imageEmbeddings [][]float32,
+	videoEmbeddings [][]float32,
+	err error,
+) {
+	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
+		err = respErr
+		return
 	}
 
 	if len(resBody.Predictions) == 0 {
-		return nil, errors.Errorf("empty embeddings response")
+		err = errors.Errorf("empty embeddings response")
+		return
 	}
-	var textEmbeddings [][]float32
-	var imageEmbeddings [][]float32
-	var videoEmbeddings [][]float32
 
 	for _, p := range resBody.Predictions {
 		if len(p.TextEmbedding) > 0 {
@@ -200,7 +234,7 @@ func (v *palm) parseEmbeddingsResponse(statusCode int,
 			videoEmbeddings = append(videoEmbeddings, embedding)
 		}
 	}
-	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings)
+	return
 }
 
 func (v *palm) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {
