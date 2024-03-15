@@ -133,6 +133,15 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
 	params := batch.NewBatchObjectsDeleteParams().WithBody(body)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
