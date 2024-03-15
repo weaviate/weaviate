@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -100,6 +101,20 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
+	useWandDisk := os.Getenv("USE_WAND_DISK") == "true"
+	validateWandDisk := os.Getenv("USE_WAND_DISK") == "validate"
+	if useWandDisk {
+		return b.wandDisk(ctx, filterDocIds, class, params, limit)
+	} else if validateWandDisk {
+		return b.validateWand(ctx, filterDocIds, class, params, limit)
+	} else {
+		return b.wandMem(ctx, filterDocIds, class, params, limit)
+	}
+}
+
+func (b *BM25Searcher) validateWand(
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
+) ([]*storobj.Object, []float32, error) {
 	objsD, scoresD, errD := b.wandDisk(ctx, filterDocIds, class, params, limit)
 	objsM, scoresM, errM := b.wandMem(ctx, filterDocIds, class, params, limit)
 	if errD != nil {
@@ -177,6 +192,7 @@ func (b *BM25Searcher) wandMem(
 			return nil, nil, err
 		}
 	}
+	// stopWordDetector, _ = stopwords.NewDetectorFromPreset(stopwords.MsMarcoPreset)
 
 	wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
 	wandTimesId++

@@ -16,7 +16,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"sort"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -26,14 +28,42 @@ import (
 )
 
 var (
-	TOMBSTONE_PATTERN     = []byte{0x01, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	BAD_TOMBSTONE_PATTERN = []byte{0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	NON_TOMBSTONE_PATTERN = []byte{0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	BUFFER_SIZE           = 1024
+	TOMBSTONE_PATTERN                = []byte{0x01, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	BAD_TOMBSTONE_PATTERN            = []byte{0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	NON_TOMBSTONE_PATTERN            = []byte{0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	BUFFER_SIZE                      = 1024
+	FORWARD_JUMP_BUCKET_MINIMUM_SIZE uint64
+	FORWARD_JUMP_THRESHOLD           uint64
+	FORWARD_JUMP_THRESHOLD_INTERNAL  uint64
+	FORWARD_JUMP_UNDERESTIMATE       float64
+	FORWARD_JUMP_ENABLED             bool
 )
 
+func init() {
+	var err error
+	FORWARD_JUMP_BUCKET_MINIMUM_SIZE, err = strconv.ParseUint(os.Getenv("FORWARD_JUMP_BUCKET_MINIMUM_SIZE"), 10, 64)
+	if err != nil {
+		FORWARD_JUMP_BUCKET_MINIMUM_SIZE = 100000
+	}
+
+	FORWARD_JUMP_THRESHOLD, err = strconv.ParseUint(os.Getenv("FORWARD_JUMP_THRESHOLD"), 10, 64)
+	if err != nil {
+		FORWARD_JUMP_THRESHOLD = 1000
+	}
+
+	FORWARD_JUMP_THRESHOLD_INTERNAL, err = strconv.ParseUint(os.Getenv("FORWARD_JUMP_THRESHOLD_INTERNAL"), 10, 64)
+	if err != nil {
+		FORWARD_JUMP_THRESHOLD_INTERNAL = 100
+	}
+
+	FORWARD_JUMP_UNDERESTIMATE, err = strconv.ParseFloat(os.Getenv("FORWARD_JUMP_UNDERESTIMATE"), 64)
+	if err != nil {
+		FORWARD_JUMP_UNDERESTIMATE = 1.0
+	}
+	FORWARD_JUMP_ENABLED = os.Getenv("FORWARD_JUMP_ENABLED") == "true"
+}
+
 type docPointerWithScore struct {
-	id         uint64
 	frequency  float32
 	propLength float32
 }
@@ -58,6 +88,7 @@ type Term struct {
 	QueryTerm     string
 	PropertyBoost float64
 	values        []value
+	EstColSize    uint64
 }
 
 func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64) error {
@@ -83,6 +114,8 @@ func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node
 		}
 		t.DocCount = uint64(len(t.values))
 	}
+
+	t.EstColSize = t.DocCount
 
 	n := float64(t.DocCount)
 	t.Idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * duplicateTextBoost
@@ -188,7 +221,17 @@ func (t *Term) advanceAtLeast(minID uint64) {
 	minIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(minIDBytes, minID)
 	for bytes.Compare(t.IdBytes, minIDBytes) < 0 {
-		t.advanceIdOnly()
+		diffVal := minID - t.IdPointer
+		if FORWARD_JUMP_ENABLED && minID > t.IdPointer && diffVal > FORWARD_JUMP_THRESHOLD && t.DocCount > FORWARD_JUMP_BUCKET_MINIMUM_SIZE {
+			// jump to the right
+			// fmt.Println("jumping", t.IdPointer, minID, diffVal, expectedJump, actualJump)
+			// expectedJump := uint64(float64(diffVal) * (float64(t.EstColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
+			t.jumpAproximate(minIDBytes, t.offsetPointer, t.actualEnd)
+			// t.EstColSize = uint64(float64(t.EstColSize)*0.5 + float64(t.EstColSize)*(float64(actualJump)/float64(expectedJump))*0.5)
+		} else {
+			// actualJump++
+			t.advanceIdOnly()
+		}
 		if t.Exhausted {
 			return
 		}
@@ -202,6 +245,141 @@ func (t *Term) advanceAtLeast(minID uint64) {
 			t.jumpAtLeastAligned(minID, t.offsetPointer, t.actualEnd)
 		}
 	*/
+}
+
+func (t *Term) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {
+	offsetLen := end - start
+
+	if start == t.actualEnd {
+		t.Exhausted = true
+		return 0
+	}
+
+	if start > end {
+		return 0
+	}
+
+	halfOffsetLen := offsetLen / 2
+	// halfOffsetLen should be a multiple of 29
+	if halfOffsetLen%29 != 0 {
+		halfOffsetLen = halfOffsetLen - (halfOffsetLen % 29)
+	}
+	// seek to position of docId
+	// read docId at halfOffsetLen
+	docIdOffsetStart := halfOffsetLen + 11
+	// read docId at halfOffsetLen
+	pointerIncremet := halfOffsetLen / 29
+	posPointer := (start + halfOffsetLen - t.actualStart) / 29
+
+	// minId := binary.BigEndian.Uint64(minIDBytes)
+	// fmt.Println("jumped to", posPointer, "f", t.IdPointer, "e", minId, "d", t.IdPointer-minId, "pointerIncremet", pointerIncremet)
+
+	if pointerIncremet < FORWARD_JUMP_THRESHOLD_INTERNAL {
+		for bytes.Compare(t.IdBytes, minIDBytes) < 0 {
+			t.advanceIdOnly()
+			if t.Exhausted {
+				return 0
+			}
+		}
+		return 0
+	}
+
+	var docIdFoundBytes []byte
+	if t.segment.mmapContents {
+		// read docId at halfOffsetLen
+		docIdFoundBytes = t.segment.contents[start+docIdOffsetStart : start+docIdOffsetStart+8]
+	} else {
+		docIdFoundBytes = t.values[posPointer].value[2:10]
+	}
+	// fmt.Println("jumped to", posPointer, "f", binary.BigEndian.Uint64(docIdFoundBytes), "e", binary.BigEndian.Uint64(minIDBytes), "d", binary.BigEndian.Uint64(docIdFoundBytes)-binary.BigEndian.Uint64(minIDBytes))
+
+	t.IdBytes = docIdFoundBytes
+	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+	t.PosPointer = posPointer
+	t.offsetPointer = start + halfOffsetLen
+
+	compare := bytes.Compare(docIdFoundBytes, minIDBytes)
+	if compare < 0 {
+		start += halfOffsetLen + 29
+		return t.jumpAproximate(minIDBytes, start, end)
+	}
+	// if docIdFound is bigger than docId, jump to the left
+	if compare > 0 {
+		end -= halfOffsetLen + 29
+		return t.jumpAproximate(minIDBytes, start, end)
+	}
+	// if docIdFound is equal to docId, return offset
+
+	return 0
+}
+
+func (t *Term) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint64 {
+	if start == t.actualEnd {
+		t.Exhausted = true
+		return 0
+	}
+
+	if start > end {
+		return 0
+	}
+	diffVal := binary.BigEndian.Uint64(minIDBytes) - t.IdPointer
+	expectedJump := uint64(float64(diffVal) * (float64(t.EstColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
+
+	if expectedJump > t.DocCount {
+		expectedJump = t.DocCount
+	}
+	halfOffsetLen := expectedJump * 29
+	// halfOffsetLen should be a multiple of 29
+	if halfOffsetLen%29 != 0 {
+		halfOffsetLen = halfOffsetLen - (halfOffsetLen % 29)
+	}
+	// seek to position of docId
+	// read docId at halfOffsetLen
+	docIdOffsetStart := halfOffsetLen + 11
+	// read docId at halfOffsetLen
+	pointerIncremet := halfOffsetLen / 29
+	posPointer := (start + halfOffsetLen - t.actualStart) / 29
+
+	// minId := binary.BigEndian.Uint64(minIDBytes)
+	// fmt.Println("jumped to", posPointer, "f", t.IdPointer, "e", minId, "d", t.IdPointer-minId, "pointerIncremet", pointerIncremet)
+
+	if pointerIncremet < FORWARD_JUMP_THRESHOLD_INTERNAL {
+		for bytes.Compare(t.IdBytes, minIDBytes) < 0 {
+			t.advanceIdOnly()
+			if t.Exhausted {
+				return 0
+			}
+		}
+		return 0
+	}
+
+	var docIdFoundBytes []byte
+	if t.segment.mmapContents {
+		// read docId at halfOffsetLen
+		docIdFoundBytes = t.segment.contents[start+docIdOffsetStart : start+docIdOffsetStart+8]
+	} else {
+		docIdFoundBytes = t.values[posPointer].value[2:10]
+	}
+	// fmt.Println("jumped to", posPointer, "f", binary.BigEndian.Uint64(docIdFoundBytes), "e", binary.BigEndian.Uint64(minIDBytes), "d", binary.BigEndian.Uint64(docIdFoundBytes)-binary.BigEndian.Uint64(minIDBytes))
+
+	t.IdBytes = docIdFoundBytes
+	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+	t.PosPointer = posPointer
+	t.offsetPointer = start + halfOffsetLen
+
+	compare := bytes.Compare(docIdFoundBytes, minIDBytes)
+	if compare < 0 {
+		start += halfOffsetLen + 29
+		return t.jumpAproximate(minIDBytes, start, end)
+	}
+	// if docIdFound is bigger than docId, jump to the left
+	if compare > 0 {
+		end -= halfOffsetLen + 29
+		return t.jumpAproximate(minIDBytes, start, end)
+	}
+	// if docIdFound is equal to docId, return offset
+
+	return 0
 }
 
 func (t *Term) jumpAtLeastAligned(minID uint64, start uint64, end uint64) uint64 {
