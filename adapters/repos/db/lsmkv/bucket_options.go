@@ -92,6 +92,21 @@ func WithDynamicMemtableSizing(
 	}
 }
 
+func WithMemMonitor(mm MemMonitor) BucketOption {
+	return func(b *Bucket) error {
+		b.memMonitor = mm
+		return nil
+	}
+}
+
+// A MemMonitor is an optionally supplied monitor that has
+// information about the system monitor. It can be used as a
+// guardrail before engaging in any memory intensive-operation,
+// such as compactions.
+type MemMonitor interface {
+	CheckAlloc(size int64) error
+}
+
 type secondaryIndexKeys [][]byte
 
 type SecondaryKeyOption func(s secondaryIndexKeys) error
