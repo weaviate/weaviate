@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/tiktoken-go"
 
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
@@ -211,7 +213,7 @@ func (v *Vectorizer) batchWorker() {
 			}
 
 			start := time.Now()
-			rateLimitNew, err := v.makeRequest(job, texts, conf, origIndex)
+			rateLimitNew, _ := v.makeRequest(job, texts, conf, origIndex)
 			batchTookInS = time.Since(start).Seconds()
 			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
 			if rateLimitNew != nil {
@@ -219,12 +221,12 @@ func (v *Vectorizer) batchWorker() {
 			}
 			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
 			// tier only the RPD limits are shown but not RPM
-			if rateLimit.RemainingRequests == 0 {
+			if rateLimit.RemainingRequests == 0 && rateLimit.ResetRequests > 0 {
 				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
 				if time.Since(job.startTime)+time.Duration(rateLimit.ResetRequests)*time.Second > v.maxBatchTime {
 					for j := origIndex[0]; j < len(job.texts); j++ {
 						if !job.skipObject[j] {
-							job.errs[j] = err
+							job.errs[j] = errors.New("request rate limit exceeded and will not refresh in time")
 						}
 					}
 					break
