@@ -187,6 +187,57 @@ func Test_classSettings_Validate(t *testing.T) {
 					build(),
 			},
 		},
+		{
+			name: "should not pass with wrong dimensions setting in videoFields",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "location").
+					addSetting("projectId", "projectId").
+					addSetting("videoFields", []interface{}{"video1"}).
+					addSetting("dimensions", 256).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should not pass with wrong dimensions setting in videoFields together with image fields",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "location").
+					addSetting("projectId", "projectId").
+					addSetting("videoFields", []interface{}{"video1"}).
+					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("dimensions", 512).
+					build(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "should pass with proper dimensions setting in videoFields together with image fields",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "location").
+					addSetting("projectId", "projectId").
+					addSetting("videoFields", []interface{}{"video1"}).
+					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("dimensions", defaultDimensions1408).
+					build(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "should not pass with wrong videoIntervalSeconds setting in videoFields together with image fields",
+			fields: fields{
+				cfg: newConfigBuilder().
+					addSetting("location", "location").
+					addSetting("projectId", "projectId").
+					addSetting("videoFields", []interface{}{"video1"}).
+					addSetting("imageFields", []interface{}{"image1"}).
+					addSetting("videoIntervalSeconds", 7).
+					build(),
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
