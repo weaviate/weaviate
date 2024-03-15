@@ -48,7 +48,7 @@ const (
 	// This is used to reduce disk I/O for the recently committed entries.
 	logCacheCapacity = 512
 
-	nRetainedSnapShots = 1
+	nRetainedSnapShots = 3
 )
 
 var (
@@ -131,10 +131,11 @@ type Store struct {
 	log      *slog.Logger
 	logLevel string
 
-	bootstrapped atomic.Bool
-	logStore     *raftbolt.BoltStore
-	addResolver  *addrResolver
-	transport    *raft.NetworkTransport
+	bootstrapped  atomic.Bool
+	logStore      *raftbolt.BoltStore
+	addResolver   *addrResolver
+	transport     *raft.NetworkTransport
+	snapshotStore *raft.FileSnapshotStore
 
 	mutex      sync.Mutex
 	candidates map[string]string
@@ -195,7 +196,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 
 	// file snapshot store
-	snapshotStore, err := raft.NewFileSnapshotStore(st.raftDir, nRetainedSnapShots, os.Stdout)
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.raftDir, nRetainedSnapShots, os.Stdout)
 	if err != nil {
 		return fmt.Errorf("raft: file snapshot store: %w", err)
 	}
@@ -219,27 +220,29 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
-
-	if st.initialLastAppliedIndex == snapshotIndex(snapshotStore) {
+	lastSnapshotIndex := snapshotIndex(st.snapshotStore)
+	if st.initialLastAppliedIndex == 0 { // empty node
 		st.loadDatabase(ctx)
 	}
 
-	// raft node
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, snapshotStore, st.transport)
+	st.log.Info("construct a new raft node")
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", address, err)
 	}
 
-	st.log.Info("starting raft", "applied_index", st.raft.AppliedIndex(), "last_index",
-		st.raft.LastIndex(), "last_log_index", st.initialLastAppliedIndex)
+	st.log.Info("raft node",
+		"raft_applied_index", st.raft.AppliedIndex(),
+		"raft_last_index", st.raft.LastIndex(),
+		"last_log_applied_index", st.initialLastAppliedIndex,
+		"last_snapshot_index", lastSnapshotIndex)
 
 	go func() {
 		lastLeader := "Unknown"
-		t := time.NewTicker(time.Second * 30)
+		t := time.NewTicker(time.Second * 60)
 		defer t.Stop()
 		for range t.C {
-			leader := st.Leader()
-			if leader != lastLeader {
+			if leader := st.Leader(); leader != "" && leader != lastLeader {
 				lastLeader = leader
 				st.log.Info("current Leader", "address", lastLeader)
 			}
@@ -372,7 +375,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
-		if l.Index >= st.initialLastAppliedIndex {
+		// If the local db has not been loaded, wait until we reach the state
+		// from the local raft log before loading the db.
+		// This is necessary because the database operations are not idempotent
+		if !st.dbLoaded.Load() && l.Index >= st.initialLastAppliedIndex {
 			st.loadDatabase(context.Background())
 		}
 		if ret.Error != nil {
@@ -432,7 +438,7 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 // concurrently with any other command. The FSM must discard all previous
 // state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
-	st.log.Info("restoring snapshot")
+	st.log.Info("restoring schema from snapshot")
 	defer func() {
 		if err := rc.Close(); err != nil {
 			st.log.Error("restore snapshot: close reader: " + err.Error())
@@ -440,14 +446,15 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	}()
 
 	if err := st.db.Schema.Restore(rc, st.db.parser); err != nil {
-		return fmt.Errorf("restore snapshot: %w", err)
+		st.log.Error("restoring schema from snapshot: " + err.Error())
+		return fmt.Errorf("restore schema from snapshot: %w", err)
+	}
+	st.log.Info("successfully restored schema from snapshot")
+
+	if st.reloadDB() {
+		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.Len())
 	}
 
-	// TODO-RAFT START
-	// In some cases, when the follower state is too far behind the leader's log, the leader might decide to send a snapshot.
-	// Consequently, the follower needs to update its state accordingly.
-	// Task: https://semi-technology.atlassian.net/browse/WVT-42
-	//
 	return nil
 }
 
@@ -548,6 +555,7 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.snapshotThreshold > 0 {
 		cfg.SnapshotThreshold = st.snapshotThreshold
 	}
+
 	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.LogLevel = st.logLevel
 	return cfg
@@ -557,13 +565,54 @@ func (st *Store) loadDatabase(ctx context.Context) {
 	if st.dbLoaded.Load() {
 		return
 	}
+
+	st.log.Info("loading local db")
 	if err := st.db.Load(ctx, st.nodeID); err != nil {
 		st.log.Error("cannot restore database: " + err.Error())
 		panic("error restoring database")
 	}
 
 	st.dbLoaded.Store(true)
-	st.log.Info("database has been successfully loaded")
+	st.log.Info("database has been successfully loaded", "n", st.db.Schema.Len())
+}
+
+// reloadDB reloads the node's local db. If the db is already loaded, it will be reloaded.
+// If a snapshot exists and its is up to date with the log, it will be loaded.
+// Otherwise, the database will be loaded when the node synchronizes its state with the leader.
+// For more details, see apply() -> loadDatabase().
+//
+// In specific scenarios where the follower's state is too far behind the leader's log,
+// the leader may decide to send a snapshot. Consequently, the follower muss update its state accordingly.
+func (st *Store) reloadDB() bool {
+	ctx := context.Background()
+
+	if !st.dbLoaded.CompareAndSwap(true, false) {
+		// the snapshot already includes the state from the raft log
+		snapIndex := snapshotIndex(st.snapshotStore)
+		st.log.Info("load local db from snapshot", "last_log_applied_index",
+			st.initialLastAppliedIndex, "last_snapshot_index", snapIndex)
+		if st.initialLastAppliedIndex <= snapIndex {
+			st.loadDatabase(ctx)
+			return true
+		}
+		return false
+	}
+
+	st.log.Info("reload local db: closing db ...")
+	if err := st.db.Close(ctx); err != nil {
+		st.log.Error("reload db: close db " + err.Error())
+		panic(fmt.Sprintf("reload db from snapshot: close db: %v", err))
+	}
+
+	st.log.Info("reload local db: loading indexes ...")
+	if err := st.db.Load(ctx, st.nodeID); err != nil {
+		st.log.Error("cannot reload database: " + err.Error())
+		panic(fmt.Sprintf("cannot reload database: %v", err))
+	}
+
+	st.dbLoaded.Store(true)
+	st.initialLastAppliedIndex = 0
+	return true
 }
 
 type Response struct {
