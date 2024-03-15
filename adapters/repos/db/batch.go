@@ -35,6 +35,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	indexByClass := make(map[string]*Index)
 
 	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
 		return nil, fmt.Errorf("cannot process batch: %w", err)
 	}
 
