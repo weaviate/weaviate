@@ -38,7 +38,7 @@ func New(client Client) *Vectorizer {
 
 type Client interface {
 	Vectorize(ctx context.Context,
-		texts, images []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		texts, images, videos []string, config ent.VectorizationConfig) (*ent.VectorizationResult, error)
 }
 
 type ClassSettings interface {
@@ -46,6 +46,8 @@ type ClassSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
+	VideoField(property string) bool
+	VideoFieldsWeights() ([]float32, error)
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
@@ -56,7 +58,7 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 }
 
 func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, []string{}, []string{image}, v.getVectorizationConfig(cfg))
+	res, err := v.client.Vectorize(ctx, nil, []string{image}, nil, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +67,20 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 	}
 
 	return res.ImageVectors[0], nil
+}
+
+func (v *Vectorizer) VectorizeVideo(ctx context.Context,
+	video string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	res, err := v.client.Vectorize(ctx, nil, nil, []string{video}, v.getVectorizationConfig(cfg))
+	if err != nil {
+		return nil, err
+	}
+	if len(res.VideoVectors) != 1 {
+		return nil, errors.New("empty vector")
+	}
+
+	return res.VideoVectors[0], nil
 }
 
 func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
@@ -81,6 +97,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
+	videos := []string{}
 
 	it := comp.PropsIterator()
 	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
@@ -94,6 +111,10 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 				vectorize = vectorize || comp.IsChanged(propName)
 				texts = append(texts, typed)
 			}
+			if ichek.VideoField(propName) {
+				vectorize = vectorize || comp.IsChanged(propName)
+				videos = append(videos, typed)
+			}
 
 		case []string:
 			if ichek.TextField(propName) {
@@ -102,7 +123,7 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 			}
 
 		case nil:
-			if ichek.ImageField(propName) || ichek.TextField(propName) {
+			if ichek.ImageField(propName) || ichek.TextField(propName) || ichek.VideoField(propName) {
 				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
@@ -114,13 +135,14 @@ func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
 	}
 
 	vectors := [][]float32{}
-	if len(texts) > 0 || len(images) > 0 {
-		res, err := v.client.Vectorize(ctx, texts, images, v.getVectorizationConfig(cfg))
+	if len(texts) > 0 || len(images) > 0 || len(videos) > 0 {
+		res, err := v.client.Vectorize(ctx, texts, images, videos, v.getVectorizationConfig(cfg))
 		if err != nil {
 			return nil, err
 		}
 		vectors = append(vectors, res.TextVectors...)
 		vectors = append(vectors, res.ImageVectors...)
+		vectors = append(vectors, res.VideoVectors...)
 	}
 	weights, err := v.getWeights(ichek)
 	if err != nil {
@@ -140,9 +162,14 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
+	videoFieldsWeights, err := ichek.VideoFieldsWeights()
+	if err != nil {
+		return nil, err
+	}
 
 	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, imageFieldsWeights...)
+	weights = append(weights, videoFieldsWeights...)
 
 	normalizedWeights := v.normalizeWeights(weights)
 
@@ -168,9 +195,10 @@ func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
 func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		Location:   settings.Location(),
-		ProjectID:  settings.ProjectID(),
-		Model:      settings.ModelID(),
-		Dimensions: settings.Dimensions(),
+		Location:             settings.Location(),
+		ProjectID:            settings.ProjectID(),
+		Model:                settings.ModelID(),
+		Dimensions:           settings.Dimensions(),
+		VideoIntervalSeconds: settings.VideoIntervalSeconds(),
 	}
 }

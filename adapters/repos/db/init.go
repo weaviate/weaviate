@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/replica"
-	migrate "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
+	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 )
 
 // init gets the current schema and creates one index object per class.
@@ -142,7 +142,7 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 func (db *DB) migrateToHierarchicalFS() error {
 	before := time.Now()
 
-	if err := migrate.MigrateToHierarchicalFS(db.config.RootPath, db.schemaGetter); err != nil {
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaGetter); err != nil {
 		return err
 	}
 	db.logger.WithField("action", "hierarchical_fs_migration").

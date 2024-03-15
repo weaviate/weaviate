@@ -22,7 +22,7 @@ import (
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	res, err := v.client.Vectorize(ctx, inputs, []string{}, v.getVectorizationConfig(cfg))
+	res, err := v.client.Vectorize(ctx, inputs, nil, nil, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}

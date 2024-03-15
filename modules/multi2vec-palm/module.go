@@ -39,6 +39,9 @@ type Module struct {
 	textVectorizer           textVectorizer
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
 	nearTextSearcher         modulecapabilities.Searcher
+	nearVideoGraphqlProvider modulecapabilities.GraphQLArguments
+	videoVectorizer          videoVectorizer
+	nearVideoSearcher        modulecapabilities.Searcher
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
 }
@@ -58,6 +61,11 @@ type textVectorizer interface {
 		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
+type videoVectorizer interface {
+	VectorizeVideo(ctx context.Context,
+		video string, cfg moduletools.ClassConfig) ([]float32, error)
+}
+
 func (m *Module) Name() string {
 	return Name
 }
@@ -74,7 +82,11 @@ func (m *Module) Init(ctx context.Context,
 	}
 
 	if err := m.initNearImage(); err != nil {
-		return errors.Wrap(err, "init near text")
+		return errors.Wrap(err, "init near image")
+	}
+
+	if err := m.initNearVideo(); err != nil {
+		return errors.Wrap(err, "init near video")
 	}
 
 	return nil
@@ -107,6 +119,7 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 
 	m.imageVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)
+	m.videoVectorizer = vectorizer.New(client)
 	m.metaClient = client
 
 	return nil

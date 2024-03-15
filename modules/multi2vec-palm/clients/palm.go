@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/multi2vec-palm/ent"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func buildURL(location, projectID, model string) string {
@@ -51,22 +52,22 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *palm 
 }
 
 func (v *palm) Vectorize(ctx context.Context,
-	texts, images []string, config ent.VectorizationConfig,
+	texts, images, videos []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, texts, images, config)
+	return v.vectorize(ctx, texts, images, videos, config)
 }
 
 func (v *palm) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, nil, config)
+	return v.vectorize(ctx, input, nil, nil, config)
 }
 
 func (v *palm) vectorize(ctx context.Context,
-	texts, images []string, config ent.VectorizationConfig,
+	texts, images, videos []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	endpointURL := v.getURL(config)
-	payload := v.getPayload(texts, images, config.Dimensions)
+	payload := v.getPayload(texts, images, videos, config)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, errors.Wrapf(err, "marshal body")
@@ -103,7 +104,7 @@ func (v *palm) getURL(config ent.VectorizationConfig) string {
 	return v.urlBuilderFn(config.Location, config.ProjectID, config.Model)
 }
 
-func (v *palm) getPayload(texts, images []string, dimensions int64) embeddingsRequest {
+func (v *palm) getPayload(texts, images, videos []string, config ent.VectorizationConfig) embeddingsRequest {
 	instances := make([]instance, 0)
 	for _, text := range texts {
 		instances = append(instances, instance{Text: &text})
@@ -111,9 +112,17 @@ func (v *palm) getPayload(texts, images []string, dimensions int64) embeddingsRe
 	for _, img := range images {
 		instances = append(instances, instance{Image: &image{BytesBase64Encoded: img}})
 	}
+	for _, vid := range videos {
+		instances = append(instances, instance{
+			Video: &video{
+				BytesBase64Encoded: vid,
+				VideoSegmentConfig: videoSegmentConfig{IntervalSec: &config.VideoIntervalSeconds},
+			},
+		})
+	}
 	return embeddingsRequest{
 		Instances:  instances,
-		Parameters: parameters{Dimension: dimensions},
+		Parameters: parameters{Dimension: config.Dimensions},
 	}
 }
 
@@ -170,6 +179,7 @@ func (v *palm) parseEmbeddingsResponse(statusCode int,
 	}
 	var textEmbeddings [][]float32
 	var imageEmbeddings [][]float32
+	var videoEmbeddings [][]float32
 
 	for _, p := range resBody.Predictions {
 		if len(p.TextEmbedding) > 0 {
@@ -178,14 +188,26 @@ func (v *palm) parseEmbeddingsResponse(statusCode int,
 		if len(p.ImageEmbedding) > 0 {
 			imageEmbeddings = append(imageEmbeddings, p.ImageEmbedding)
 		}
+		if len(p.VideoEmbeddings) > 0 {
+			var embeddings [][]float32
+			for _, videoEmbedding := range p.VideoEmbeddings {
+				embeddings = append(embeddings, videoEmbedding.Embedding)
+			}
+			embedding := embeddings[0]
+			if len(embeddings) > 1 {
+				embedding = libvectorizer.CombineVectors(embeddings)
+			}
+			videoEmbeddings = append(videoEmbeddings, embedding)
+		}
 	}
-	return v.getResponse(textEmbeddings, imageEmbeddings)
+	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings)
 }
 
-func (v *palm) getResponse(textVectors, imageVectors [][]float32) (*ent.VectorizationResult, error) {
+func (v *palm) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {
 	return &ent.VectorizationResult{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
+		VideoVectors: videoVectors,
 	}, nil
 }
 
@@ -201,10 +223,22 @@ type parameters struct {
 type instance struct {
 	Text  *string `json:"text,omitempty"`
 	Image *image  `json:"image,omitempty"`
+	Video *video  `json:"video,omitempty"`
 }
 
 type image struct {
 	BytesBase64Encoded string `json:"bytesBase64Encoded"`
+}
+
+type video struct {
+	BytesBase64Encoded string             `json:"bytesBase64Encoded"`
+	VideoSegmentConfig videoSegmentConfig `json:"videoSegmentConfig"`
+}
+
+type videoSegmentConfig struct {
+	StartOffsetSec *int64 `json:"startOffsetSec,omitempty"`
+	EndOffsetSec   *int64 `json:"endOffsetSec,omitempty"`
+	IntervalSec    *int64 `json:"intervalSec,omitempty"`
 }
 
 type embeddingsResponse struct {
@@ -214,8 +248,15 @@ type embeddingsResponse struct {
 }
 
 type prediction struct {
-	TextEmbedding  []float32 `json:"textEmbedding,omitempty"`
-	ImageEmbedding []float32 `json:"imageEmbedding,omitempty"`
+	TextEmbedding   []float32        `json:"textEmbedding,omitempty"`
+	ImageEmbedding  []float32        `json:"imageEmbedding,omitempty"`
+	VideoEmbeddings []videoEmbedding `json:"videoEmbeddings,omitempty"`
+}
+
+type videoEmbedding struct {
+	StartOffsetSec *int64    `json:"startOffsetSec,omitempty"`
+	EndOffsetSec   *int64    `json:"endOffsetSec,omitempty"`
+	Embedding      []float32 `json:"embedding,omitempty"`
 }
 
 type palmApiError struct {

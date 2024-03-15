@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	locationProperty   = "location"
-	projectIDProperty  = "projectId"
-	modelIDProperty    = "modelId"
-	dimensionsProperty = "dimensions"
+	locationProperty             = "location"
+	projectIDProperty            = "projectId"
+	modelIDProperty              = "modelId"
+	dimensionsProperty           = "dimensions"
+	videoIntervalSecondsProperty = "videoIntervalSeconds"
 )
 
 const (
@@ -39,8 +40,10 @@ const (
 )
 
 var (
-	defaultDimensions1408 = int64(1408)
-	availableDimensions   = []int64{128, 256, 512, defaultDimensions1408}
+	defaultDimensions1408         = int64(1408)
+	availableDimensions           = []int64{128, 256, 512, defaultDimensions1408}
+	defaultVideoIntervalSeconds   = int64(120)
+	availableVideoIntervalSeconds = []int64{4, 8, 15, defaultVideoIntervalSeconds}
 )
 
 type classSettings struct {
@@ -68,6 +71,10 @@ func (ic *classSettings) Dimensions() int64 {
 	return ic.getInt64Property(dimensionsProperty, defaultDimensions1408)
 }
 
+func (ic *classSettings) VideoIntervalSeconds() int64 {
+	return ic.getInt64Property(videoIntervalSecondsProperty, defaultVideoIntervalSeconds)
+}
+
 // CLIP module specific settings
 func (ic *classSettings) ImageField(property string) bool {
 	return ic.field("imageFields", property)
@@ -83,6 +90,14 @@ func (ic *classSettings) TextField(property string) bool {
 
 func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
 	return ic.getFieldsWeights("text")
+}
+
+func (ic *classSettings) VideoField(property string) bool {
+	return ic.field("videoFields", property)
+}
+
+func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
+	return ic.getFieldsWeights("video")
 }
 
 func (ic *classSettings) field(name, property string) bool {
@@ -183,10 +198,20 @@ func (ic *classSettings) Validate() error {
 		return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
 	}
 
+	videoIntervalSeconds := ic.VideoIntervalSeconds()
+	if !validateSetting[int64](videoIntervalSeconds, availableVideoIntervalSeconds) {
+		return errors.Errorf("wrong videoIntervalSeconds setting for %s model, available videoIntervalSeconds are: %v", model, availableVideoIntervalSeconds)
+	}
+
 	imageFields, imageFieldsOk := ic.cfg.Class()["imageFields"]
 	textFields, textFieldsOk := ic.cfg.Class()["textFields"]
-	if !imageFieldsOk && !textFieldsOk {
-		errorMessages = append(errorMessages, "textFields or imageFields setting needs to be present")
+	videoFields, videoFieldsOk := ic.cfg.Class()["videoFields"]
+	if !imageFieldsOk && !textFieldsOk && !videoFieldsOk {
+		errorMessages = append(errorMessages, "textFields or imageFields or videoFields setting needs to be present")
+	}
+
+	if videoFieldsOk && dimensions != defaultDimensions1408 {
+		errorMessages = append(errorMessages, fmt.Sprintf("videoFields support only %d dimensions setting", defaultDimensions1408))
 	}
 
 	if imageFieldsOk {
@@ -206,6 +231,17 @@ func (ic *classSettings) Validate() error {
 			errorMessages = append(errorMessages, err.Error())
 		}
 		err = ic.validateWeights("text", textFieldsCount)
+		if err != nil {
+			errorMessages = append(errorMessages, err.Error())
+		}
+	}
+
+	if videoFieldsOk {
+		videoFieldsCount, err := ic.validateFields("video", videoFields)
+		if err != nil {
+			errorMessages = append(errorMessages, err.Error())
+		}
+		err = ic.validateWeights("video", videoFieldsCount)
 		if err != nil {
 			errorMessages = append(errorMessages, err.Error())
 		}
