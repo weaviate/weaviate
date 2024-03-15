@@ -317,7 +317,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	if origParams.GroupBy != nil {
-		groupedResults, err := e.GroupSearchResults(ctx, out, origParams.GroupBy)
+		groupedResults, err := e.groupSearchResults(ctx, out, origParams.GroupBy)
 		if err != nil {
 			return nil, err
 		}
