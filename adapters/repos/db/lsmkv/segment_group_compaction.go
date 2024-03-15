@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,6 +122,10 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		// nothing to do
 		return false, nil
 	}
+
+	compID := rand.Intn(10000)
+	sg.logger.WithField("action", "lsm_compaction").WithField("compaction", compID).Infof("start lsm compaction")
+	defer sg.logger.WithField("action", "lsm_compaction_finished").WithField("compaction", compID).Infof("start lsm compaction")
 
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
