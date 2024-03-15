@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -64,10 +65,10 @@ type ModulesProvider interface {
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{}, searchVector []float32,
-		argumentModuleParams map[string]interface{}) ([]search.Result, error)
+		argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error)
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
-		argumentModuleParams map[string]interface{}) ([]search.Result, error)
+		argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error)
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
 }
 
@@ -197,7 +198,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
+			params.AdditionalProperties.ModuleParams, nil, params.ModuleParams, e.GetClassByName(params.ClassName))
 		if err != nil {
 			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
@@ -255,7 +256,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
+			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams, e.GetClassByName(params.ClassName))
 		if err != nil {
 			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
@@ -348,8 +349,9 @@ func (e *Explorer) getClassList(ctx context.Context,
 	}
 
 	if e.modulesProvider != nil {
+
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, params.ModuleParams)
+			params.AdditionalProperties.ModuleParams, params.ModuleParams, e.GetClassByName(params.ClassName))
 		if err != nil {
 			return nil, errors.Errorf("explorer: list class: extend: %v", err)
 		}
@@ -368,16 +370,21 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	if err != nil {
 		return nil, err
 	}
-	for _, result := range results {
-		output = append(output, result.Schema)
+	if params.GroupBy != nil {
+		for _, result := range results {
+			wrapper := map[string]interface{}{}
+			wrapper["_additional"] = result.AdditionalProperties
+			output = append(output, wrapper)
+		}
+	} else {
+		for _, result := range results {
+			output = append(output, result.Schema)
+		}
 	}
 	return output, nil
 }
 
-func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context,
-	input []search.Result,
-	searchVector []float32, params dto.GetParams,
-) ([]search.Result, error) {
+func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]search.Result, error) {
 	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {
@@ -682,6 +689,15 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 		return vector, targetVector, nil
 	}
 	return nil, "", errors.New("no modules defined")
+}
+
+func (e *Explorer) GetSchema() schema.Schema {
+	return e.schemaGetter.GetSchemaSkipAuth()
+}
+
+func (e *Explorer) GetClassByName(className string) *models.Class {
+	s := e.GetSchema()
+	return s.GetClass(schema.ClassName(className))
 }
 
 func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {

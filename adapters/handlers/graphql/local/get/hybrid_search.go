@@ -92,6 +92,8 @@ func hybridOperands(classObject *graphql.Object,
 				},
 			),
 		},
+
+
 	}
 
 	if os.Getenv("ENABLE_EXPERIMENTAL_HYBRID_OPERANDS") != "" {

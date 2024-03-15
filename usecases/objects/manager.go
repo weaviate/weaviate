@@ -112,9 +112,9 @@ type VectorRepo interface {
 
 type ModulesProvider interface {
 	GetObjectAdditionalExtend(ctx context.Context, in *search.Result,
-		moduleParams map[string]interface{}) (*search.Result, error)
+		moduleParams map[string]interface{}, class *models.Class) (*search.Result, error)
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
-		moduleParams map[string]interface{}) (search.Results, error)
+		moduleParams map[string]interface{}, class *models.Class) (search.Results, error)
 	UsingRef2Vec(className string) bool
 	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, repo modulecapabilities.FindObjectFn,
 		logger logrus.FieldLogger) error

@@ -222,7 +222,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 
 func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
+	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig, class *models.Class,
 ) ([]search.Result, error) {
 	return fmp.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, nil)
 }

@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
@@ -177,7 +177,66 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 			Fields: additionalProperties,
 		}),
 	}
+
+		classProperties["groupedBy"] = &graphql.Field{
+			Description: descriptions.AggregateGroupedBy,
+			Type:        groupedByProperty(class),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				switch typed := p.Source.(type) {
+				case aggregation.Group:
+					return typed.GroupedBy, nil
+				case map[string]interface{}:
+					return typed["groupedBy"], nil
+				default:
+					return nil, fmt.Errorf("groupedBy: unsupported type %T", p.Source)
+				}
+			},
+		}
 }
+
+
+func groupedByProperty(class *models.Class) *graphql.Object {
+	classProperties := graphql.Fields{
+		"path": &graphql.Field{
+			Description: descriptions.AggregateGroupedByGroupedByPath,
+			Type:        graphql.NewList(graphql.String),
+			Resolve:     groupedByResolver(func(g *GroupedBy) interface{} { return g.Path }),
+		},
+		"value": &graphql.Field{
+			Description: descriptions.AggregateGroupedByGroupedByValue,
+			Type:        graphql.String,
+			Resolve:     groupedByResolver(func(g *GroupedBy) interface{} { return g.Value }),
+		},
+	}
+
+	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("Get%sGroupedByObj", class.Class),
+		Fields:      classProperties,
+		Description: descriptions.AggregateGroupedByObj,
+	})
+
+	return classPropertiesObj
+}
+
+type groupedByExtractorFunc func(*GroupedBy) interface{}
+
+func groupedByResolver(extractor groupedByExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		groupedBy, ok := p.Source.(*GroupedBy)
+		if !ok {
+			return nil, fmt.Errorf("groupedBy: %s: expected aggregation.GroupedBy, but got %T",
+				p.Info.FieldName, p.Source)
+		}
+
+		return extractor(groupedBy), nil
+	}
+}
+
+type GroupedBy struct {
+	Value interface{} `json:"value"`
+	Path  []string    `json:"path"`
+}
+
 
 func (b *classBuilder) additionalIDField() *graphql.Field {
 	return &graphql.Field{
