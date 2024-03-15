@@ -61,11 +61,11 @@ func TestBatch(t *testing.T) {
 		{name: "token too long", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "rate 5"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "does not matter"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
 		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization")}},
 		{name: "token too long, last item in batch", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "rate 5"}}, // set limit
-			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
 		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization")}},
 		{name: "skip last item", objects: []*models.Object{
@@ -84,7 +84,7 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := New(client, 40*time.Second)
+			v := New(client, 1*time.Second) // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
