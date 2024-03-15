@@ -31,6 +31,9 @@ import (
 const (
 	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
 	BatchChannelSize   = 100
+	// time per token goes down up to a certain batch size and then flattens - however the times vary a lot so we
+	// don't want to get too close to the maximum of 50s
+	OpenAiMaxTimePerBatch = float64(10)
 )
 
 type batchJob struct {
@@ -181,7 +184,7 @@ func (v *Vectorizer) batchWorker() {
 
 			// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
 			text := job.texts[objCounter]
-			if float32(tokensInCurrentBatch+job.tokens[objCounter]) < 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < v.maxBatchTime.Seconds()/4) && len(texts) < MaxObjectsPerBatch {
+			if float32(tokensInCurrentBatch+job.tokens[objCounter]) < 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < OpenAiMaxTimePerBatch) && len(texts) < MaxObjectsPerBatch {
 				tokensInCurrentBatch += job.tokens[objCounter]
 				texts = append(texts, text)
 				origIndex = append(origIndex, objCounter)
