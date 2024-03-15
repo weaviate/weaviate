@@ -123,6 +123,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Request-Source", "unspecified:weaviate")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
