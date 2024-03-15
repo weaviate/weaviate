@@ -47,7 +47,7 @@ func (m *Monitor) Refresh() {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	fmt.Printf(`{"action":"update_memory_monitor","level":"debug","usage":%d,"limit":"%d"}\n`, m.used, m.limit)
+	fmt.Printf(`{"action":"update_memory_monitor","level":"debug","usage":%d,"limit":"%d"}`+"\n", m.used, m.limit)
 }
 
 // we have no intentions of ever modifying the limit, but SetMemoryLimit with a
