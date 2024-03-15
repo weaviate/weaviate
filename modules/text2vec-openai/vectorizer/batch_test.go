@@ -90,7 +90,7 @@ func TestBatch(t *testing.T) {
 				deadline = time.Now().Add(tt.deadline)
 			}
 
-			ctx, _ := context.WithDeadline(context.Background(), deadline)
+			ctx, cancl := context.WithDeadline(context.Background(), deadline)
 			vecs, errs := v.ObjectBatch(
 				ctx, tt.objects, tt.skip, cfg,
 			)
@@ -107,6 +107,7 @@ func TestBatch(t *testing.T) {
 					require.NotNil(t, vecs[i])
 				}
 			}
+			cancl()
 		})
 	}
 }
