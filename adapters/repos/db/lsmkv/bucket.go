@@ -104,6 +104,10 @@ type Bucket struct {
 	calcCountNetAdditions bool
 
 	forceCompaction bool
+
+	// optionally supplied to prevent starting memory-intensive
+	// processes when memory pressure is high
+	memMonitor MemMonitor
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -162,7 +166,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 			forceCompaction:       b.forceCompaction,
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
-		})
+		}, b.memMonitor)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
