@@ -144,7 +144,10 @@ func (s *segment) precomputeBloomFilter() error {
 	}
 
 	if ok {
-		return fmt.Errorf("a bloom filter already exists with path %s", path)
+		err := os.Remove(path)
+		if err != nil {
+			return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
+		}
 	}
 
 	if err := s.computeAndStoreBloomFilter(path); err != nil {

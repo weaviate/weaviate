@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -73,15 +75,18 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 
 	wg := &sync.WaitGroup{}
 	for j, docID := range batch {
+		index := j
+		docID := docID
 		wg.Add(1)
-		go func(index int, uuid strfmt.UUID, dryRun bool) {
+		f := func() {
 			defer wg.Done()
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
-		}(j, docID, dryRun)
+		}
+		enterrors.GoWrapper(f, b.shard.Index().logger)
 	}
 	wg.Wait()
 

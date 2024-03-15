@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -79,7 +81,7 @@ func (r *restorer) restore(ctx context.Context,
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
-	go func() {
+	f := func() {
 		var err error
 		status := Status{
 			Path:      destPath,
@@ -106,10 +108,14 @@ func (r *restorer) restore(ctx context.Context,
 		}
 
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, req.NodeMapping)
+		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
-			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
+			r.logger.WithFields(logFields).Error(err)
+		} else {
+			r.logger.WithFields(logFields).Info("backup restored successfully")
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, r.logger)
 
 	return ret, nil
 }
@@ -143,7 +149,11 @@ func (r *restorer) restoreOne(ctx context.Context,
 	backupID string, desc *backup.ClassDescriptor,
 	compressed bool, cpuPercentage int, store nodeStore, nodeMapping map[string]string,
 ) (err error) {
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), desc.Name)
+	classLabel := desc.Name
+	if monitoring.GetMetrics().Group {
+		classLabel = "n/a"
+	}
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), classLabel)
 	if err != nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -152,7 +162,7 @@ func (r *restorer) restoreOne(ctx context.Context,
 	if r.sourcer.ClassExists(desc.Name) {
 		return fmt.Errorf("already exists")
 	}
-	fw := newFileWriter(r.sourcer, store, backupID, compressed).
+	fw := newFileWriter(r.sourcer, store, backupID, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
 	rollback, err := fw.Write(ctx, desc)

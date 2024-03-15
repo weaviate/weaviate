@@ -17,6 +17,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 type IdealClusterState struct {
@@ -25,9 +28,9 @@ type IdealClusterState struct {
 	lock         sync.Mutex
 }
 
-func NewIdealClusterState(s MemberLister) *IdealClusterState {
+func NewIdealClusterState(s MemberLister, logger logrus.FieldLogger) *IdealClusterState {
 	ics := &IdealClusterState{currentState: s}
-	go ics.startPolling()
+	enterrors.GoWrapper(func() { ics.startPolling() }, logger)
 	return ics
 }
 

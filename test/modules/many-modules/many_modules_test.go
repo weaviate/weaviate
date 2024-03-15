@@ -63,6 +63,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecTransformers().
 		WithText2VecOpenAI().
 		WithText2VecCohere().
+		WithText2VecVoyageAI().
 		WithText2VecPaLM().
 		WithText2VecHuggingFace().
 		WithText2VecAWS().
