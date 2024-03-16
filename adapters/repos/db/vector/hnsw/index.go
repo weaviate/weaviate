@@ -167,6 +167,8 @@ type hnsw struct {
 	VectorForIDThunk   common.VectorForID[float32]
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
+
+	memMonitor MemMonitor
 }
 
 type CommitLogger interface {
@@ -273,6 +275,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
+		memMonitor:               cfg.MemMonitor,
 	}
 
 	if uc.BQ.Enabled {
