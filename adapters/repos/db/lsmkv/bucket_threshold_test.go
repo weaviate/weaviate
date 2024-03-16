@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package lsmkv
 
@@ -22,10 +21,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
+
+var logger, _ = test.NewNullLogger()
 
 // This test ensures that the WAL threshold is being adhered to, and that a
 // flush to segment followed by a switch to a new WAL is being performed
@@ -41,7 +44,7 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	tolerance := 4.
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
+	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -143,7 +146,7 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	tolerance := 4.
 
 	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
+	flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 	flushCycle.Start()
 
 	bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -236,7 +239,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
+		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 		flushCycle.Start()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -280,7 +283,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
+		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 		flushCycle.Start()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,
@@ -328,7 +331,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback)
+		flushCycle := cyclemanager.NewManager(cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
 		flushCycle.Start()
 
 		bucket, err := NewBucket(testCtx(), dirName, "", nullLogger(), nil,

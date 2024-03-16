@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
@@ -42,12 +44,13 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	var wg sync.WaitGroup
 	ch := make(chan nameMetaErr, len(endpoints))
 	for serviceName, endpoint := range endpoints {
+		serviceName, endpoint := serviceName, endpoint
 		wg.Add(1)
-		go func(serviceName string, endpoint string) {
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			meta, err := v.metaInfo(endpoint)
 			ch <- nameMetaErr{serviceName, meta, err}
-		}(serviceName, endpoint)
+		}, v.logger)
 	}
 	wg.Wait()
 	close(ch)
