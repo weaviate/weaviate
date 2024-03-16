@@ -35,7 +35,7 @@ type Config struct {
 	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
-	AdvertiseAddr			string     `json:"AdvertiseAddr" yaml:"AdvertiseAddr"`
+	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 }
 
 type AuthConfig struct {
