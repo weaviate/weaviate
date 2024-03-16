@@ -398,6 +398,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 						hnsw.WithMemMonitor(s.index.memMonitor))
 				},
+				MemMonitor: s.index.memMonitor,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {
