@@ -521,7 +521,7 @@ func parseClusterConfig() (cluster.Config, error) {
 	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
-	advertiseAddr, advertiseAddrSet := os.LookupEnv("ADVERTISE_ADDR")
+	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 
