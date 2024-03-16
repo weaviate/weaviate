@@ -26,3 +26,10 @@ func WithCommitlogThresholdForCombining(size int64) CommitlogOption {
 		return nil
 	}
 }
+
+func WithMemMonitor(mm MemMonitor) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.memMonitor = mm
+		return nil
+	}
+}
