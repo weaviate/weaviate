@@ -262,21 +262,25 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		expectedErr    error
 	}{
 		{
-			name: "valid cluster config - both ports provided",
+			name: "valid cluster config - both ports and advertiseaddr " + 
+					"provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7101",
+				"CLUSTER_ADVERTISE_ADDR":   "193.0.0.1",
 			},
 			expectedResult: cluster.Config{
 				GossipBindPort: 7100,
 				DataBindPort:   7101,
+				AdvertiseAddr:  "193.0.0.1",
 			},
 		},
 		{
-			name: "valid cluster config - no ports provided",
+			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
 				GossipBindPort: DefaultGossipBindPort,
 				DataBindPort:   DefaultGossipBindPort + 1,
+				AdvertiseAddr: "",
 			},
 		},
 		{
