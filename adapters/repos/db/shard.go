@@ -395,7 +395,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				DistanceProvider:     distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						hnsw.WithMemMonitor(s.index.memMonitor))
 				},
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)

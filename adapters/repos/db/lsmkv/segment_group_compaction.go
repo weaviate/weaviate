@@ -124,19 +124,24 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, nil
 	}
 
-	if err := sg.memMonitor.CheckAlloc(100 * 1024 * 1024); err != nil {
-		// if we don't have at least 100MB to spare, don't start a compaction. A
-		// compaction does not actually need a 100MB, but it will create garbage
-		// that needs to be cleaned up. If we're so close to the memory limit, we
-		// can increase stability by preventing anything that's not strictly
-		// necessary. Compactions can simply resume when the cluster has been
-		// scaled.
-		sg.logger.WithFields(logrus.Fields{
-			"action": "lsm_compaction",
-			"event":  "compaction_skipped_oom",
-			"path":   sg.dir,
-		}).WithError(err).
-			Warnf("skipping compaction due to memory pressure")
+	if sg.memMonitor != nil {
+		// memMonitor is optional
+		if err := sg.memMonitor.CheckAlloc(100 * 1024 * 1024); err != nil {
+			// if we don't have at least 100MB to spare, don't start a compaction. A
+			// compaction does not actually need a 100MB, but it will create garbage
+			// that needs to be cleaned up. If we're so close to the memory limit, we
+			// can increase stability by preventing anything that's not strictly
+			// necessary. Compactions can simply resume when the cluster has been
+			// scaled.
+			sg.logger.WithFields(logrus.Fields{
+				"action": "lsm_compaction",
+				"event":  "compaction_skipped_oom",
+				"path":   sg.dir,
+			}).WithError(err).
+				Warnf("skipping compaction due to memory pressure")
+
+			return false, nil
+		}
 	}
 
 	// TODO: remove debug logging
