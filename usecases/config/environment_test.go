@@ -267,7 +267,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7101",
 				"CLUSTER_ADVERTISE_ADDR":   "193.0.0.1",
-				"CLUSTER_ADVERTISE_PORT":   9999,
+				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
 				GossipBindPort: 7100,
@@ -293,6 +293,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 			expectedResult: cluster.Config{
 				GossipBindPort: 7777,
 				DataBindPort:   7778,
+				AdvertisePort:  7946,
 			},
 		},
 		{
@@ -321,6 +322,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				GossipBindPort:          7946,
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
+				AdvertisePort:           7946,
 			},
 		},
 	}
