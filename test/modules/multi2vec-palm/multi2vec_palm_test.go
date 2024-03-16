@@ -1,14 +1,14 @@
-//	_       _
-//
+//                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//	\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//	 \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//	  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
-//	 Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  CONTACT: hello@weaviate.io
 //
-//	 CONTACT: hello@weaviate.io
+
 package multi2vec_palm_tests
 
 import (
@@ -30,7 +30,7 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-func testMulti2VecPaLM(host string) func(t *testing.T) {
+func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Helper methods
@@ -143,8 +143,8 @@ func testMulti2VecPaLM(host string) func(t *testing.T) {
 						"multi2vec-palm": map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
 							"vectorizeClassName": false,
-							"location":           "us-central1",
-							"projectId":          "semi-random-dev",
+							"location":           location,
+							"projectId":          gcpProject,
 						},
 					},
 					VectorIndexType: "flat",
@@ -154,8 +154,8 @@ func testMulti2VecPaLM(host string) func(t *testing.T) {
 						"multi2vec-palm": map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
 							"vectorizeClassName": false,
-							"location":           "us-central1",
-							"projectId":          "semi-random-dev",
+							"location":           location,
+							"projectId":          gcpProject,
 							"dimensions":         128,
 						},
 					},
@@ -166,8 +166,8 @@ func testMulti2VecPaLM(host string) func(t *testing.T) {
 						"multi2vec-palm": map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
 							"vectorizeClassName": false,
-							"location":           "us-central1",
-							"projectId":          "semi-random-dev",
+							"location":           location,
+							"projectId":          gcpProject,
 							"dimensions":         256,
 						},
 					},
@@ -178,8 +178,8 @@ func testMulti2VecPaLM(host string) func(t *testing.T) {
 						"multi2vec-palm": map[string]interface{}{
 							"videoFields":        []interface{}{"video"},
 							"vectorizeClassName": false,
-							"location":           "us-central1",
-							"projectId":          "semi-random-dev",
+							"location":           location,
+							"projectId":          gcpProject,
 						},
 					},
 					VectorIndexType: "flat",
@@ -194,8 +194,8 @@ func testMulti2VecPaLM(host string) func(t *testing.T) {
 								"imageFields": []interface{}{0.9},
 							},
 							"vectorizeClassName": false,
-							"location":           "us-central1",
-							"projectId":          "semi-random-dev",
+							"location":           location,
+							"projectId":          gcpProject,
 							"dimensions":         512,
 						},
 					},
