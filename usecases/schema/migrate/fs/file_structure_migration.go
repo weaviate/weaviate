@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package fs
 
 import (
 	"fmt"
@@ -17,41 +17,21 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const vectorIndexCommitLog = `hnsw.commitlog.d`
 
-func (db *DB) migrateFileStructureIfNecessary() error {
-	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
-	exists, err := fileExists(fsMigrationPath)
+func MigrateToHierarchicalFS(rootPath string, s schemaGetter) error {
+	root, err := os.ReadDir(rootPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("read source path %q: %w", rootPath, err)
 	}
-	if !exists {
-		if err = db.migrateToHierarchicalFS(); err != nil {
-			return fmt.Errorf("migrate to hierarchical fs: %w", err)
-		}
-		if _, err = os.Create(fsMigrationPath); err != nil {
-			return fmt.Errorf("create hierarchical fs indicator: %w", err)
-		}
-	}
-	return nil
-}
-
-func (db *DB) migrateToHierarchicalFS() error {
-	before := time.Now()
-
-	root, err := os.ReadDir(db.config.RootPath)
-	if err != nil {
-		return fmt.Errorf("read db root: %w", err)
-	}
-
-	plan, err := db.assembleFSMigrationPlan(root)
+	fm := newFileMatcher(s, rootPath)
+	plan, err := assembleFSMigrationPlan(root, rootPath, fm)
 	if err != nil {
 		return err
 	}
@@ -68,9 +48,6 @@ func (db *DB) migrateToHierarchicalFS() error {
 			}
 		}
 	}
-
-	db.logger.WithField("action", "hierarchical_fs_migration").
-		Debugf("fs migration took %s\n", time.Since(before))
 
 	return nil
 }
@@ -107,9 +84,8 @@ func (p *migrationPlan) prepend(class, shard, oldRootRelPath, newShardRelPath st
 	}}, p.partsByShard[shardRoot]...)
 }
 
-func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (*migrationPlan, error) {
-	fm := newFileMatcher(db.schemaGetter, db.config.RootPath)
-	plan := newMigrationPlan(db.config.RootPath)
+func assembleFSMigrationPlan(entries []os.DirEntry, rootPath string, fm *fileMatcher) (*migrationPlan, error) {
+	plan := newMigrationPlan(rootPath)
 
 	for _, entry := range entries {
 		if ok, cs := fm.isShardLsmDir(entry); ok {
@@ -139,8 +115,8 @@ func (db *DB) assembleFSMigrationPlan(entries []os.DirEntry) (*migrationPlan, er
 
 			// explicitly rename Class directory starting with uppercase to lowercase
 			// as MkdirAll will not create lowercased dir if uppercased one exists
-			oldClassRoot := path.Join(db.config.RootPath, entry.Name())
-			newClassRoot := path.Join(db.config.RootPath, strings.ToLower(entry.Name()))
+			oldClassRoot := path.Join(rootPath, entry.Name())
+			newClassRoot := path.Join(rootPath, strings.ToLower(entry.Name()))
 			if err := os.Rename(oldClassRoot, newClassRoot); err != nil {
 				return nil, fmt.Errorf(
 					"rename pq index dir to avoid collision, old: %q, new: %q, err: %w",
@@ -170,7 +146,12 @@ type fileMatcher struct {
 	classes             map[string][]*classShard
 }
 
-func newFileMatcher(schemaGetter schema.SchemaGetter, rootPath string) *fileMatcher {
+type schemaGetter interface {
+	CopyShardingState(class string) *sharding.State
+	GetSchemaSkipAuth() entschema.Schema
+}
+
+func newFileMatcher(schemaGetter schemaGetter, rootPath string) *fileMatcher {
 	shardLsmDirs := make(map[string]*classShard)
 	shardFilePrefixes := make(map[string]*classShard)
 	shardGeoDirPrefixes := make(map[string]*classShardGeoProp)
@@ -296,15 +277,4 @@ func (fm *fileMatcher) isPqDir(entry os.DirEntry) (bool, []*classShard) {
 		return true, resultcss
 	}
 	return false, nil
-}
-
-func fileExists(file string) (bool, error) {
-	_, err := os.Stat(file)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
