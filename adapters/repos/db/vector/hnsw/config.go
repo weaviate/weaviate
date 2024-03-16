@@ -32,6 +32,7 @@ type Config struct {
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics
+	MemMonitor            MemMonitor
 
 	// metadata for monitoring
 	ShardName string
