@@ -462,11 +462,13 @@ const (
 
 const VectorizerModuleNone = "none"
 
-// DefaultGossipBindPort and DefaultGossipAdvertisePort uses the 
-// hashicorp/memberlist default port value assigned with the use of 
+// DefaultGossipBindPort and DefaultGossipAdvertisePort uses the
+// hashicorp/memberlist default port value assigned with the use of
 // DefaultLocalConfig
-const DefaultGossipBindPort = 7946
-const DefaultAdvertisePort = 7946
+const (
+	DefaultGossipBindPort = 7946
+	DefaultAdvertisePort  = 7946
+)
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"

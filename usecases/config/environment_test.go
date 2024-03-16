@@ -281,7 +281,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 			expectedResult: cluster.Config{
 				GossipBindPort: DefaultGossipBindPort,
 				DataBindPort:   DefaultGossipBindPort + 1,
-				AdvertiseAddr: "",
+				AdvertiseAddr:  "",
 				AdvertisePort:  7946,
 			},
 		},
