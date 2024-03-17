@@ -147,7 +147,7 @@ func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
 				"event":  "vector_load_skipped_oom",
 				"doc_id": id,
 			}).WithError(err).
-				Warnf("skipping hnsw condensing due to memory pressure")
+				Warnf("cannot load vector into cache due to memory pressure")
 			return nil, err
 		}
 	}
