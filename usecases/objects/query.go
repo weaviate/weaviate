@@ -89,7 +89,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 
 	if m.modulesProvider != nil {
-		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, q.Additional.ModuleParams, m.GetClassByName(q.Class))
+		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, q.Additional.ModuleParams, m.getClassByName(q.Class))
 		if err != nil {
 			return nil, &Error{"extend results", StatusInternalServerError, err}
 		}
