@@ -322,7 +322,7 @@ type fakeModulesProvider struct {
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
 	in *search.Result, moduleParams map[string]interface{}, class *models.Class,
 ) (*search.Result, error) {
-	res, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, "ObjectGet", class)
+	res, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, "ObjectGet")
 	if err != nil {
 		return nil, err
 	}
