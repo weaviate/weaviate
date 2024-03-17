@@ -52,12 +52,10 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 	}
 
 	out := make(search.Results, 0, len(sr))
-	objIDs := search.Results{}
 	for i, groupValue := range groupsOrdered {
 		groupMembers := groups[groupValue]
 		first := groupMembers[0]
 
-		objIDs = append(objIDs, first)
 		hits := make([]map[string]interface{}, len(groupMembers))
 
 		for j, groupMember := range groupMembers {
