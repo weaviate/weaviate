@@ -166,6 +166,48 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 		truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
 	}
 
+	t.Run("cached is not slower than non-cached", func(t *testing.T) {
+		recall1, latency1, err := run(dirName, logger, compressionBQ, false, vectors, queries, k, truths, nil, nil, distancer)
+		assert.Nil(t, err)
+		recall2, latency2, err := run(dirName, logger, compressionBQ, true, vectors, queries, k, truths, nil, nil, distancer)
+		assert.Nil(t, err)
+		assert.True(t, recall2-recall1 < 0.1)
+		assert.LessOrEqual(t, latency2, latency1)
+	})
+
+	t.Run("adds and deletes are not affected by queries", func(t *testing.T) {
+		runId := uuid.New().String()
+
+		store, err := lsmkv.New(dirName, dirName, logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		assert.Nil(t, err)
+
+		bq := flatent.CompressionUserConfig{
+			Enabled:      true,
+			RescoreLimit: 100,
+			Cache:        true,
+		}
+		index, err := New(Config{
+			ID:               runId,
+			DistanceProvider: distancer,
+		}, flatent.UserConfig{
+			BQ: bq,
+		}, store)
+		assert.Nil(t, err)
+
+		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+			index.Add(id, vectors[id])
+		})
+		seachVec := vectors[0]
+		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+			vec := vectors[id]
+			id = uint64(vectors_size) + id
+			index.Add(id, vec)
+			index.Delete(id)
+			index.SearchByVector(seachVec, 10, nil)
+		})
+	})
+
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
 	for _, compression := range []string{compressionNone, compressionBQ} {
 		t.Run("compression: "+compression, func(t *testing.T) {

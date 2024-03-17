@@ -83,8 +83,16 @@ type fakeCache struct {
 	store map[uint64]struct{}
 }
 
+func (f *fakeCache) RLock() {}
+
+func (f *fakeCache) RUnlock() {}
+
 func (f *fakeCache) MultiGet(ctx context.Context, id []uint64) ([][]float32, []error) {
 	panic("not implemented")
+}
+
+func (f *fakeCache) GetNoLock(ctx context.Context, id uint64) ([]float32, error) {
+	return f.Get(ctx, id)
 }
 
 func (f *fakeCache) Get(ctx context.Context, id uint64) ([]float32, error) {
