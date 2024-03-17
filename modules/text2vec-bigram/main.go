@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -60,6 +61,19 @@ func (m *BigramModule) Type() modulecapabilities.ModuleType {
 
 func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.logger = params.GetLogger()
+
+	bigramConfig := os.Getenv("BIGRAM")
+	switch bigramConfig {
+	case "alphabet":
+		activeVectoriser = "alphabet"
+	case "trigram":
+		activeVectoriser = "trigram"
+	case "bytepairs":
+		activeVectoriser = "bytepairs"
+	default:
+		activeVectoriser = "alphabet"
+	}
+	
 	return nil
 }
 
