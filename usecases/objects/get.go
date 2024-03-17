@@ -121,7 +121,7 @@ func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.
 	return s.GetClass(schema.ClassName(className)), nil
 }
 
-func (m *Manager) GetClassByName(className string) *models.Class {
+func (m *Manager) getClassByName(className string) *models.Class {
 	class, err := m.GetObjectClassFromName(context.Background(), nil, className)
 	if err != nil {
 		return nil
@@ -151,7 +151,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	}
 
 	if m.modulesProvider != nil {
-		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams, m.GetClassByName(res.ClassName))
+		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams, m.getClassByName(res.ClassName))
 		if err != nil {
 			return nil, fmt.Errorf("get extend: %v", err)
 		}
@@ -178,7 +178,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	}
 
 	if m.modulesProvider != nil {
-		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams, m.GetClassByName(res[0].ClassName))
+		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams, m.getClassByName(res[0].ClassName))
 		if err != nil {
 			return nil, NewErrInternal("list extend: %v", err)
 		}
