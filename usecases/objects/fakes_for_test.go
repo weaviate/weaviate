@@ -330,7 +330,7 @@ func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{},
+	in search.Results, moduleParams map[string]interface{}, *models.Class,
 ) (search.Results, error) {
 	return p.additionalExtend(ctx, in, moduleParams, "ObjectList")
 }
