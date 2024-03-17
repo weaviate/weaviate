@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -232,7 +233,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, ef *searchparams.EF, additional additional.Properties) ([]*storobj.Object, []float32, error) {
 	var (
 		ids       []uint64
 		dists     []float32
@@ -258,12 +259,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	beforeVector := time.Now()
 	if limit < 0 {
 		ids, dists, err = queue.SearchByVectorDistance(
-			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList, ef)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search by distance")
 		}
 	} else {
-		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList)
+		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList, ef)
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "vector search")
 		}

@@ -29,6 +29,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -1350,12 +1352,12 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 
 func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
 	targetVector string, dist float32, limit int, filters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, ef *searchparams.EF, additional additional.Properties,
 	shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	shard := i.localShard(shardName)
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
+		ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, ef, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1383,7 +1385,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	targetVector string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
-	groupBy *searchparams.GroupBy, additional additional.Properties,
+	groupBy *searchparams.GroupBy, ef *searchparams.EF, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
@@ -1397,7 +1399,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if len(shardNames) == 1 {
 		if i.localShard(shardNames[0]) != nil {
 			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, targetVector, dist, limit, filters,
-				sort, groupBy, additional, shardNames[0])
+				sort, groupBy, ef, additional, shardNames[0])
 		}
 	}
 
@@ -1429,7 +1431,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if shard := i.localShard(shardName); shard != nil {
 				nodeName = i.getSchema.NodeName()
 				res, resDists, err = shard.ObjectVectorSearch(
-					ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
+					ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, ef, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -1513,7 +1515,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, targetVector, distance, limit, filters, sort, groupBy, additional)
+		ctx, searchVector, targetVector, distance, limit, filters, sort, groupBy, nil, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

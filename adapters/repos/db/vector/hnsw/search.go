@@ -18,14 +18,30 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
+
+func (h *hnsw) autoEfFromOption(k int, options *common.SearchWithEFOptions) int {
+	ef := k * options.DynamicFactor
+	if ef > options.DynamicMax {
+		ef = options.DynamicMax
+	} else if ef < options.DynamicMin {
+		ef = options.DynamicMin
+	}
+	if k > ef {
+		ef = k // otherwise results will get cut off early
+	}
+
+	return ef
+}
 
 func (h *hnsw) searchTimeEF(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
@@ -61,7 +77,7 @@ func (h *hnsw) autoEfFromK(k int) int {
 	return ef
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error) {
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
@@ -70,7 +86,20 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(vector, k, allowList)
 	}
-	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
+
+	searchOpts := &common.SearchWithEFOptions{}
+	for _, opt := range opts {
+		opt(searchOpts)
+	}
+
+	var ef int
+	if searchOpts.DynamicFactor != 0 {
+		ef = h.autoEfFromOption(k, searchOpts)
+	} else {
+		ef = h.searchTimeEF(k)
+	}
+
+	return h.knnSearchByVector(vector, k, ef, allowList)
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -83,8 +112,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 // needs ids for sake of something like aggregation, a maxLimit of -1 can be
 // passed in to truly obtain all results from the vector index.
 func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
-	allowList helpers.AllowList,
-) ([]uint64, []float32, error) {
+	allowList helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error) {
 	var (
 		searchParams = newSearchByDistParams(maxLimit)
 
@@ -95,7 +123,7 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 	recursiveSearch := func() (bool, error) {
 		shouldContinue := false
 
-		ids, dist, err := h.SearchByVector(vector, searchParams.totalLimit, allowList)
+		ids, dist, err := h.SearchByVector(vector, searchParams.totalLimit, allowList, opts...)
 		if err != nil {
 			return false, errors.Wrap(err, "vector search")
 		}

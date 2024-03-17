@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -508,7 +509,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
 				found, _, err := shard.ObjectVectorSearch(ctx, vectorToBeFound, targetVector,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
+					vectorSearchDist, vectorSearchLimit, nil, nil, nil, nil, additional.Properties{})
 				require.NoError(t, err)
 				require.Len(t, found, 1)
 				require.Equal(t, uuid_, found[0].Object.ID)
@@ -516,7 +517,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 			t.Run("not to be found", func(t *testing.T) {
 				found, _, err := shard.ObjectVectorSearch(ctx, vectorNotToBeFound, targetVector,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
+					vectorSearchDist, vectorSearchLimit, nil, nil, nil, nil, additional.Properties{})
 				require.NoError(t, err)
 				require.Len(t, found, 0)
 			})

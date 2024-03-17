@@ -30,7 +30,7 @@ func (a *Aggregator) vectorSearch(allow helpers.AllowList, vec []float32) ([]uin
 }
 
 func (a *Aggregator) searchByVector(searchVector []float32, limit *int, ids helpers.AllowList) ([]uint64, []float32, error) {
-	idsFound, dists, err := a.vectorIndex.SearchByVector(searchVector, *limit, ids)
+	idsFound, dists, err := a.vectorIndex.SearchByVector(searchVector, *limit, ids, nil)
 	if err != nil {
 		return idsFound, nil, err
 	}
@@ -58,7 +58,7 @@ func (a *Aggregator) searchByVectorDistance(searchVector []float32, ids helpers.
 	}
 
 	targetDist := float32(1-a.params.Certainty) * 2
-	idsFound, dists, err := a.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids)
+	idsFound, dists, err := a.vectorIndex.SearchByVectorDistance(searchVector, targetDist, -1, ids, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("aggregate search by vector: %w", err)
 	}

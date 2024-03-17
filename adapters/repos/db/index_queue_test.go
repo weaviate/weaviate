@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -243,7 +244,7 @@ func TestIndexQueue(t *testing.T) {
 		<-called
 
 		time.Sleep(500 * time.Millisecond)
-		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
+		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{1, 4}, res)
 	})
@@ -261,7 +262,7 @@ func TestIndexQueue(t *testing.T) {
 			pushVector(t, ctx, q, uint64(i+1), []float32{float32(i) + 1, float32(i) + 2, float32(i) + 3})
 		}
 
-		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil)
+		res, _, err := q.SearchByVector([]float32{1, 2, 3}, 2, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []uint64{1, 2}, res)
 	})
@@ -371,7 +372,7 @@ func TestIndexQueue(t *testing.T) {
 		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
 		pushVector(t, ctx, q, 4, []float32{1, 2, 3})
 
-		res, _, err := q.SearchByVector([]float32{7, 8, 9}, 2, nil)
+		res, _, err := q.SearchByVector([]float32{7, 8, 9}, 2, nil, nil)
 		require.NoError(t, err)
 		// despite having 4 vectors in the queue
 		// only the first two are used for brute force search
@@ -544,7 +545,7 @@ func TestIndexQueue(t *testing.T) {
 
 		q.pushToWorkers(-1, false)
 
-		_, distances, err := q.SearchByVector(randVector(1536), 10, nil)
+		_, distances, err := q.SearchByVector(randVector(1536), 10, nil, nil)
 		require.NoError(t, err)
 
 		// all distances should be between 0 and 1
@@ -820,7 +821,7 @@ func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector []
 	return
 }
 
-func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -867,7 +868,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 	return ids, distances, nil
 }
 
-func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance float32, maxLimit int64, allowList helpers.AllowList, opts ...common.SearchWithEFOption) ([]uint64, []float32, error) {
 	m.Lock()
 	defer m.Unlock()
 

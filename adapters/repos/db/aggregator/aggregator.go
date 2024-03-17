@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -24,13 +25,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type vectorIndex interface {
 	SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64,
-		allowList helpers.AllowList) ([]uint64, []float32, error)
-	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
+		allowList helpers.AllowList, ef *searchparams.EF) ([]uint64, []float32, error)
+	SearchByVector(vector []float32, k int, allowList helpers.AllowList, ef *searchparams.EF) ([]uint64, []float32, error)
 }
 
 type Aggregator struct {

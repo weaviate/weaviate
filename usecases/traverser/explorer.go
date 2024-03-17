@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -81,7 +82,7 @@ type objectsSearcher interface {
 
 	// GraphQL Explore{} queries
 	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
-		filters *filters.LocalFilter) ([]search.Result, error)
+		filters *filters.LocalFilter, ef *searchparams.EF) ([]search.Result, error)
 
 	// Near-params searcher
 	Object(ctx context.Context, className string, id strfmt.UUID,
@@ -93,7 +94,7 @@ type objectsSearcher interface {
 type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
 	DenseObjectSearch(context.Context, string, []float32, string, int, int,
-		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
+		*filters.LocalFilter, additional.Properties, *searchparams.EF, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 }
@@ -133,6 +134,10 @@ func (e *Explorer) GetClass(ctx context.Context,
 
 	if err := e.validateSort(params.ClassName, params.Sort); err != nil {
 		return nil, errors.Wrap(err, "invalid 'sort' parameter")
+	}
+
+	if err := e.validateEF(params.EF); err != nil {
+		return nil, errors.Wrap(err, "invalid 'ef' parameter")
 	}
 
 	if err := e.validateCursor(params); err != nil {
@@ -335,7 +340,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
 			params.ClassName, vec, targetVec, 0, hybridSearchLimit, params.Filters,
-			params.AdditionalProperties, params.Tenant)
+			params.AdditionalProperties, params.EF, params.Tenant)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -669,7 +674,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
+	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil, params.EF)
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}

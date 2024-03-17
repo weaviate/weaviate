@@ -64,6 +64,13 @@ type ExploreMove struct {
 	Objects []ObjectMove
 }
 
+type EF struct {
+	Enable        bool
+	DynamicMin    int
+	DynamicMax    int
+	DynamicFactor int
+}
+
 type NearTextParams struct {
 	Values       []string
 	Limit        int

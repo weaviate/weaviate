@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -423,7 +424,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, "", 0, 10, nil)
+		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, "", 0, 10, nil, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
