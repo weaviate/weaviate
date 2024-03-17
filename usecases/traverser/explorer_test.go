@@ -2795,7 +2795,7 @@ func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in
 	moduleParams map[string]interface{}, searchVector []float32,
 	argumentModuleParams map[string]interface{}, class *models.Class,
 ) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", class)
 }
 
 func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,

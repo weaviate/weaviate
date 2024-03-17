@@ -330,9 +330,9 @@ func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}, *models.Class,
+	in search.Results, moduleParams map[string]interface{}, class *models.Class,
 ) (search.Results, error) {
-	return p.additionalExtend(ctx, in, moduleParams, "ObjectList")
+	return p.additionalExtend(ctx, in, moduleParams, "ObjectList", class)
 }
 
 func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
