@@ -187,21 +187,19 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
-	if params.Group != nil {
-		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
-		if err != nil {
-			return nil, errors.Errorf("grouper: %v", err)
-		}
-
-		res = grouped
-	}
-
 	if e.modulesProvider != nil {
-		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, nil, params.ModuleParams, e.GetClassByName(params.ClassName))
+		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams, e.GetClassByName(params.ClassName))
 		if err != nil {
 			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
+	}
+
+	if params.GroupBy != nil {
+		groupedResults, err := e.groupSearchResults(ctx, res, params.GroupBy)
+		if err != nil {
+			return nil, err
+		}
+		return groupedResults, nil
 	}
 
 	return res, nil
