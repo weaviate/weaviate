@@ -230,6 +230,7 @@ func NewHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	memMonitor cache.MemMonitor,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions)
 	if err != nil {
@@ -242,7 +243,9 @@ func NewHNSWPQCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
-	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, memMonitor)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
 	err = quantizer.Fit(data)
 	if err != nil {
@@ -259,6 +262,7 @@ func RestoreHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
+	memMonitor cache.MemMonitor,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders)
 	if err != nil {
@@ -271,7 +275,9 @@ func RestoreHNSWPQCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
-	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		memMonitor)
 	return pqVectorsCompressor, nil
 }
 
@@ -280,6 +286,7 @@ func NewBQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
+	memMonitor cache.MemMonitor,
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
@@ -289,7 +296,9 @@ func NewBQCompressor(
 		loadId:          binary.BigEndian.Uint64,
 	}
 	bqVectorsCompressor.initCompressedStore()
-	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		memMonitor)
 	return bqVectorsCompressor, nil
 }
 

@@ -224,7 +224,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 	}
 
 	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
+		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.MemMonitor)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
@@ -280,7 +280,9 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store)
+		index.compressor, err = compressionhelpers.NewBQCompressor(
+			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+			cfg.MemMonitor)
 		if err != nil {
 			return nil, err
 		}

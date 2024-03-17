@@ -13,6 +13,7 @@ package flat
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -22,6 +23,7 @@ type Config struct {
 	TargetVector     string
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
+	MemMonitor       cache.MemMonitor
 }
 
 func (c Config) Validate() error {
