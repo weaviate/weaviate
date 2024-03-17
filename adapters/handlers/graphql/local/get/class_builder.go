@@ -14,12 +14,12 @@ package get
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -178,22 +178,21 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 		}),
 	}
 
-		classProperties["groupedBy"] = &graphql.Field{
-			Description: descriptions.AggregateGroupedBy,
-			Type:        groupedByProperty(class),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				switch typed := p.Source.(type) {
-				case aggregation.Group:
-					return typed.GroupedBy, nil
-				case map[string]interface{}:
-					return typed["groupedBy"], nil
-				default:
-					return nil, fmt.Errorf("groupedBy: unsupported type %T", p.Source)
-				}
-			},
-		}
+	classProperties["groupedBy"] = &graphql.Field{
+		Description: descriptions.AggregateGroupedBy,
+		Type:        groupedByProperty(class),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			switch typed := p.Source.(type) {
+			case aggregation.Group:
+				return typed.GroupedBy, nil
+			case map[string]interface{}:
+				return typed["groupedBy"], nil
+			default:
+				return nil, fmt.Errorf("groupedBy: unsupported type %T", p.Source)
+			}
+		},
+	}
 }
-
 
 func groupedByProperty(class *models.Class) *graphql.Object {
 	classProperties := graphql.Fields{
@@ -236,7 +235,6 @@ type GroupedBy struct {
 	Value interface{} `json:"value"`
 	Path  []string    `json:"path"`
 }
-
 
 func (b *classBuilder) additionalIDField() *graphql.Field {
 	return &graphql.Field{

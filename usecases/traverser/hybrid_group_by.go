@@ -21,7 +21,6 @@ import (
 )
 
 func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, groupBy *searchparams.GroupBy) (search.Results, error) {
-
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 

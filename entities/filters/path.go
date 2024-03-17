@@ -53,7 +53,6 @@ func (p *Path) SliceInterface() []interface{} {
 	return out
 }
 
-
 func appendNestedPath(p *Path, omitClass bool) []string {
 	result := []string{}
 	if !omitClass {

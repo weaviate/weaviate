@@ -368,7 +368,6 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 		}
 	}
 
-
 	return arguments
 }
 
@@ -534,7 +533,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 func (p *Provider) GetObjectAdditionalExtend(ctx context.Context,
 	in *search.Result, moduleParams map[string]interface{}, class *models.Class,
 ) (*search.Result, error) {
-	resArray, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil,class)
+	resArray, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil, class)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +544,7 @@ func (p *Provider) GetObjectAdditionalExtend(ctx context.Context,
 func (p *Provider) ListObjectsAdditionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{}, class *models.Class,
 ) (search.Results, error) {
-	return p.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil,class)
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil, class)
 }
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties

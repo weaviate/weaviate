@@ -36,7 +36,6 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	params.Group = nil
 	params.GroupBy = nil
 
-
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
 	}
