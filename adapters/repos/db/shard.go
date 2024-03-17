@@ -426,6 +426,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TargetVector:     targetVector,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
+			MemMonitor:       s.index.memMonitor,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
