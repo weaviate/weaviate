@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -26,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
+
+var activeVectoriser = "alphabet"
 
 const Name = "text2vec-bigram"
 
@@ -82,7 +86,7 @@ func (m *BigramModule) RootHandler() http.Handler {
 func (m *BigramModule) VectorizeObject(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error) {
 	var text string
 	for _, prop := range obj.Properties.(map[string]interface{}) {
-		text += prop.(string)
+		text += fmt.Sprintf("%v", prop)
 	}
 	vector, error := m.VectorizeInput(ctx, text, cfg)
 	return vector, nil, error
@@ -96,17 +100,70 @@ func (m *BigramModule) AdditionalProperties() map[string]modulecapabilities.Addi
 	return additional.NewText2VecProvider().AdditionalProperties()
 }
 
-func text2vector(input string) ([]float32, error) {
-	bigramcount := map[string]int{}
+func letter2Ordinal(letter rune) int {
+	return int(letter - 'a')
+}
+
+func stripNonAlphabets(input string) string {
+	reg, err := regexp.Compile("[^a-zA-Z]+")
+	if err != nil {
+		fmt.Println("Error compiling regex:", err)
+	}
+	return reg.ReplaceAllString(input, "")
+}
+
+func alphabet2Vector(input string) ([]float32, error) {
+	// Strip everything out of the input that is not a letter
+	// and convert to lower case
+	input = stripNonAlphabets(input)
+	input = strings.ToLower(input)
+	vector := make([]float32, 26*26)
 	for i := 0; i < len(input)-1; i++ {
-		bigram := input[i : i+2]
-		bigramcount[bigram]++
+		first := letter2Ordinal(rune(input[i]))
+		second := letter2Ordinal(rune(input[i+1]))
+		index := first*26 + second
+		vector[index] = vector[index] + 1
+	}
+	var sum float32
+	for _, v := range vector {
+		sum += v
 	}
 
+	for i, v := range vector {
+		vector[i] = v / sum
+	}
+	return vector, nil
+}
+
+func trigramVector(input string) ([]float32, error) {
+	input = stripNonAlphabets(input)
+	input = strings.ToLower(input)
+	vector := make([]float32, 26*26*26)
+	for i := 0; i < len(input)-2; i++ {
+		first := letter2Ordinal(rune(input[i]))
+		second := letter2Ordinal(rune(input[i+1]))
+		third := letter2Ordinal(rune(input[i+2]))
+		index := first*26*26 + second*26 + third
+		vector[index] = vector[index] + 1
+	}
+	var sum float32
+	for _, v := range vector {
+		sum += v
+	}
+
+	for i, v := range vector {
+		vector[i] = v / sum
+	}
+	return vector, nil
+}
+
+func bytePairs2Vector(input string) ([]float32, error) {
 	vector := make([]float32, 256*256)
-	for bigram, count := range bigramcount {
+	for i := 0; i < len(input)-1; i++ {
+		bigram := input[i : i+2]
+
 		index := int(bigram[0]) * int(bigram[1])
-		vector[index] = float32(count)
+		vector[index] = vector[index] + 1
 	}
 	var sum float32
 	for _, v := range vector {
@@ -119,8 +176,21 @@ func text2vector(input string) ([]float32, error) {
 	return vector[1:], nil
 }
 
+func text2vec(input string) ([]float32, error) {
+	switch activeVectoriser {
+	case "alphabet":
+		return alphabet2Vector(input)
+	case "trigram":
+		return trigramVector(input)
+	case "bytepairs":
+		return bytePairs2Vector(input)
+	default:
+		return nil, fmt.Errorf("unsupported vectoriser: %s", activeVectoriser)
+	}
+}
+
 func (m *BigramModule) VectorizeInput(ctx context.Context, input string, cfg moduletools.ClassConfig) ([]float32, error) {
-	vector, err := text2vector(input)
+	vector, err := text2vec(input)
 	return vector, err
 }
 
@@ -151,7 +221,7 @@ func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForP
 func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletools.ClassConfig) ([]float32, error) {
 	var vectors [][]float32
 	for _, input := range inputs {
-		vector, err := text2vector(input)
+		vector, err := text2vec(input)
 		if err != nil {
 			return nil, err
 		}
