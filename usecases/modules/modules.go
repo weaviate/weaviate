@@ -602,13 +602,6 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 	return toBeExtended, nil
 }
 
-func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
-	if len(in) > 0 {
-		return p.getClass(in[0].ClassName)
-	}
-	return nil, errors.Errorf("unknown class")
-}
-
 func (p *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,
 	moduleParams map[string]interface{}, capability string,
 ) error {
