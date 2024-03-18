@@ -462,8 +462,8 @@ const (
 
 const VectorizerModuleNone = "none"
 
-// DefaultGossipBindPort uses the hashicorp/memberlist default port value
-// assigned with the use of DefaultLocalConfig
+// DefaultGossipBindPort uses the hashicorp/memberlist default
+// port value assigned with the use of DefaultLocalConfig
 const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
