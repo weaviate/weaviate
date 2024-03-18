@@ -198,7 +198,7 @@ func TestSearchOnSomeProperties(t *testing.T) {
 			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s:{query:\"hello\", properties: [\"%s\"] %s} ){_additional{id score}}}}", className, tt.queryType, tt.property, alpha)).Do(ctx)
 			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 			require.Len(t, result, tt.results)
-			if len(result)>0 &&  fmt.Sprintf("%v", result[0].(map[string]interface{})["score"]) == "0" {
+			if len(result) > 0 && fmt.Sprintf("%v", result[0].(map[string]interface{})["score"]) == "0" {
 				t.Fail()
 			}
 		})
