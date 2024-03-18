@@ -27,6 +27,10 @@ import (
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+	if params.HybridSearch.Query == "" {
+		return nil, "", fmt.Errorf("invalid params, query is empty")
+	}
+	
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
 		Type:       "bm25",
@@ -60,7 +64,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		out[i] = &sr
 	}
 
-	return out, "keyword,dunno", nil
+	return out, "keyword,bm25", nil
 }
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
