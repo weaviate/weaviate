@@ -109,7 +109,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, OpenAITimeout)
+	m.vectorizer = vectorizer.New(client, OpenAITimeout, m.logger)
 	m.metaProvider = client
 
 	return nil

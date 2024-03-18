@@ -44,6 +44,7 @@ type Module struct {
 	nearVideoSearcher        modulecapabilities.Searcher
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
+	logger                   logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -77,6 +78,7 @@ func (m *Module) Type() modulecapabilities.ModuleType {
 func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -134,6 +136,10 @@ func (m *Module) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.imageVectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *Module) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.imageVectorizer.Object)
 }
 
 func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {

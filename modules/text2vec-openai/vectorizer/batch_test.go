@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -25,7 +27,7 @@ import (
 func TestBatch(t *testing.T) {
 	client := &fakeBatchClient{}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
-
+	logger, _ := test.NewNullLogger()
 	cases := []struct {
 		name       string
 		objects    []*models.Object
@@ -84,7 +86,7 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := New(client, 1*time.Second) // avoid waiting for rate limit
+			v := New(client, 1*time.Second, logger) // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -115,7 +117,9 @@ func TestBatch(t *testing.T) {
 func TestBatchMultiple(t *testing.T) {
 	client := &fakeBatchClient{}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
-	v := New(client, 40*time.Second)
+	logger, _ := test.NewNullLogger()
+
+	v := New(client, 40*time.Second, logger)
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -149,6 +153,7 @@ func TestBatchMultiple(t *testing.T) {
 func TestBatchTimeouts(t *testing.T) {
 	client := &fakeBatchClient{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	logger, _ := test.NewNullLogger()
 
 	cases := []struct {
 		batchTime      time.Duration
@@ -159,7 +164,7 @@ func TestBatchTimeouts(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
-			v := New(client, tt.batchTime)
+			v := New(client, tt.batchTime, logger)
 
 			_, errs := v.ObjectBatch(context.Background(), []*models.Object{
 				{Class: "Car", Properties: map[string]interface{}{"test": "tokens 13"}}, // first request, set rate down so the next two items can be sent
@@ -177,6 +182,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	client := &fakeBatchClient{defaultResetRate: 1}
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	thirtyTokens := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
+	logger, _ := test.NewNullLogger()
 
 	cases := []struct {
 		batchTime      time.Duration
@@ -187,7 +193,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
-			v := New(client, tt.batchTime)
+			v := New(client, tt.batchTime, logger)
 
 			_, errs := v.ObjectBatch(context.Background(), []*models.Object{
 				{Class: "Car", Properties: map[string]interface{}{"test": "requests 0"}},                               // wait for the rate limit to reset
