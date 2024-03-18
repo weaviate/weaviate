@@ -40,12 +40,11 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
-      "url": "https://github.com/weaviate",
-      "email": "hello@weaviate.io"
+      "url": "https://weaviate.io"
     },
     "version": "1.24.4"
   },
@@ -53,11 +52,11 @@ func init() {
   "paths": {
     "/": {
       "get": {
-        "description": "Links to other endpoints to help users discover the REST API",
+        "description": "Get links to other endpoints to help discover the REST API",
         "tags": [
           "root"
         ],
-        "summary": "Root endpoint with links.",
+        "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -5154,12 +5153,11 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
-      "url": "https://github.com/weaviate",
-      "email": "hello@weaviate.io"
+      "url": "https://weaviate.io"
     },
     "version": "1.24.4"
   },
@@ -5167,11 +5165,11 @@ func init() {
   "paths": {
     "/": {
       "get": {
-        "description": "Links to other endpoints to help users discover the REST API",
+        "description": "Get links to other endpoints to help discover the REST API",
         "tags": [
           "root"
         ],
-        "summary": "Root endpoint with links.",
+        "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
