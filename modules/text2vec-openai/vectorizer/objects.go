@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/tiktoken-go"
@@ -57,7 +60,7 @@ type Vectorizer struct {
 	maxBatchTime     time.Duration
 }
 
-func New(client Client, maxBatchTime time.Duration) *Vectorizer {
+func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *Vectorizer {
 	vec := &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
@@ -65,7 +68,7 @@ func New(client Client, maxBatchTime time.Duration) *Vectorizer {
 		maxBatchTime:     maxBatchTime,
 	}
 
-	go vec.batchWorker()
+	enterrors.GoWrapper(func() { vec.batchWorker() }, logger)
 	return vec
 }
 
