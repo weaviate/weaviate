@@ -117,7 +117,6 @@ message Hybrid {
   repeated string target_vectors = 7;
   NearTextSearch near_text = 8;
   NearVector near_vector = 9;
-  GroupBy group_by = 10;
 }
 
 message NearTextSearch {
@@ -181,7 +180,6 @@ message NearIMUSearch {
 message BM25 {
   string query = 1;
   repeated string properties = 2;
-  GroupBy group_by = 3;
 }
 
 message RefPropertiesRequest {
