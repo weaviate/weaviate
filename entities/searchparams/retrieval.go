@@ -43,6 +43,7 @@ type HybridSearch struct {
 	FusionAlgorithm  int         `json:"fusionalgorithm"`
 	NearTextParams   *NearTextParams
 	NearVectorParams *NearVector
+
 }
 
 type NearObject struct {
