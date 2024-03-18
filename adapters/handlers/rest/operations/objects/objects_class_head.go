@@ -45,9 +45,9 @@ func NewObjectsClassHead(ctx *middleware.Context, handler ObjectsClassHeadHandle
 /*
 	ObjectsClassHead swagger:route HEAD /objects/{className}/{id} objects objectsClassHead
 
-Checks object's existence based on its class and uuid.
+Checks if object exists.
 
-Checks if a data object exists without retrieving it.
+Checks if a data object exists based on its collection and uuid without retrieving it.
 */
 type ObjectsClassHead struct {
 	Context *middleware.Context

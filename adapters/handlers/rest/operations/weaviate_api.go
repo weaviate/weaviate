@@ -26,7 +26,6 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/runtime/security"
-	"github.com/go-openapi/runtime/yamlpc"
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
@@ -38,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/root"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
@@ -62,7 +62,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BearerAuthenticator: security.BearerAuth,
 
 		JSONConsumer: runtime.JSONConsumer(),
-		YamlConsumer: yamlpc.YAMLConsumer(),
 
 		JSONProducer: runtime.JSONProducer(),
 
@@ -210,8 +209,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
-		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
+		RootWeaviateRootHandler: root.WeaviateRootHandlerFunc(func(params root.WeaviateRootParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation root.WeaviateRoot has not yet been implemented")
 		}),
 		WellKnownWeaviateWellknownLivenessHandler: well_known.WeaviateWellknownLivenessHandlerFunc(func(params well_known.WeaviateWellknownLivenessParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.WeaviateWellknownLiveness has not yet been implemented")
@@ -260,9 +259,6 @@ type WeaviateAPI struct {
 	// JSONConsumer registers a consumer for the following mime types:
 	//   - application/json
 	JSONConsumer runtime.Consumer
-	// YamlConsumer registers a consumer for the following mime types:
-	//   - application/yaml
-	YamlConsumer runtime.Consumer
 
 	// JSONProducer registers a producer for the following mime types:
 	//   - application/json
@@ -371,8 +367,8 @@ type WeaviateAPI struct {
 	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
-	// WeaviateRootHandler sets the operation handler for the weaviate root operation
-	WeaviateRootHandler WeaviateRootHandler
+	// RootWeaviateRootHandler sets the operation handler for the weaviate root operation
+	RootWeaviateRootHandler root.WeaviateRootHandler
 	// WellKnownWeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
 	WellKnownWeaviateWellknownLivenessHandler well_known.WeaviateWellknownLivenessHandler
 	// WellKnownWeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
@@ -448,9 +444,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.JSONConsumer == nil {
 		unregistered = append(unregistered, "JSONConsumer")
-	}
-	if o.YamlConsumer == nil {
-		unregistered = append(unregistered, "YamlConsumer")
 	}
 
 	if o.JSONProducer == nil {
@@ -605,8 +598,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
 	}
-	if o.WeaviateRootHandler == nil {
-		unregistered = append(unregistered, "WeaviateRootHandler")
+	if o.RootWeaviateRootHandler == nil {
+		unregistered = append(unregistered, "root.WeaviateRootHandler")
 	}
 	if o.WellKnownWeaviateWellknownLivenessHandler == nil {
 		unregistered = append(unregistered, "well_known.WeaviateWellknownLivenessHandler")
@@ -655,8 +648,6 @@ func (o *WeaviateAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consu
 		switch mt {
 		case "application/json":
 			result["application/json"] = o.JSONConsumer
-		case "application/yaml":
-			result["application/yaml"] = o.YamlConsumer
 		}
 
 		if c, ok := o.customConsumers[mt]; ok {
@@ -909,7 +900,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"][""] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
+	o.handlers["GET"][""] = root.NewWeaviateRoot(o.context, o.RootWeaviateRootHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

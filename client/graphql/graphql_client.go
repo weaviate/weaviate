@@ -49,9 +49,9 @@ type ClientService interface {
 }
 
 /*
-GraphqlBatch gets a response based on graph q l
+GraphqlBatch performs batched graph q l queries
 
-Perform a batched GraphQL query
+Perform batched GraphQL query
 */
 func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
@@ -63,7 +63,7 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 		Method:             "POST",
 		PathPattern:        "/graphql/batch",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GraphqlBatchReader{formats: a.formats},
@@ -90,9 +90,9 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 }
 
 /*
-GraphqlPost gets a response based on graph q l
+GraphqlPost performs a graph q l query
 
-Get an object based on GraphQL
+Get a response based on a GraphQL query
 */
 func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending
@@ -104,7 +104,7 @@ func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientA
 		Method:             "POST",
 		PathPattern:        "/graphql",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GraphqlPostReader{formats: a.formats},

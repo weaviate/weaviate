@@ -51,7 +51,7 @@ type ClientService interface {
 }
 
 /*
-BatchObjectsCreate creates new objects based on a object template as a batch
+BatchObjectsCreate batches create new objects
 
 Register new Objects in bulk. Provided meta-data and schema values are validated.
 */
@@ -65,7 +65,7 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 		Method:             "POST",
 		PathPattern:        "/batch/objects",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BatchObjectsCreateReader{formats: a.formats},
@@ -92,9 +92,9 @@ func (a *Client) BatchObjectsCreate(params *BatchObjectsCreateParams, authInfo r
 }
 
 /*
-BatchObjectsDelete deletes objects based on a match filter as a batch
+BatchObjectsDelete batches delete objects
 
-Delete Objects in bulk that match a certain filter.
+Batch delete objects in bulk based on a certain filter.
 */
 func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -106,7 +106,7 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 		Method:             "DELETE",
 		PathPattern:        "/batch/objects",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BatchObjectsDeleteReader{formats: a.formats},
@@ -133,9 +133,9 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 }
 
 /*
-BatchReferencesCreate creates new cross references between arbitrary classes in bulk
+BatchReferencesCreate batches create cross references
 
-Register cross-references between any class items (objects or objects) in bulk.
+Batch create cross-references between collections items (objects or objects) in bulk.
 */
 func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -147,7 +147,7 @@ func (a *Client) BatchReferencesCreate(params *BatchReferencesCreateParams, auth
 		Method:             "POST",
 		PathPattern:        "/batch/references",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BatchReferencesCreateReader{formats: a.formats},

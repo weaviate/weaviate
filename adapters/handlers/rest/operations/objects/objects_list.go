@@ -45,9 +45,9 @@ func NewObjectsList(ctx *middleware.Context, handler ObjectsListHandler) *Object
 /*
 	ObjectsList swagger:route GET /objects objects objectsList
 
-Get a list of Objects.
+Get a list of objects.
 
-Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
+Lists all objects in reverse order of creation, owned by the user that belongs to the used token.
 */
 type ObjectsList struct {
 	Context *middleware.Context

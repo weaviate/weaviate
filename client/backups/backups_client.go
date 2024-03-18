@@ -53,7 +53,9 @@ type ClientService interface {
 }
 
 /*
-BackupsCreate Starts a process of creating a backup for a set of classes
+BackupsCreate starts a backup process
+
+Start creating a backup for a set of collections
 */
 func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -65,7 +67,7 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/backups/{backend}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsCreateReader{formats: a.formats},
@@ -92,7 +94,9 @@ func (a *Client) BackupsCreate(params *BackupsCreateParams, authInfo runtime.Cli
 }
 
 /*
-BackupsCreateStatus Returns status of backup creation attempt for a set of classes
+BackupsCreateStatus gets backup process status
+
+Returns status of backup creation attempt for a set of collections
 */
 func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsCreateStatusOK, error) {
 	// TODO: Validate the params before sending
@@ -104,7 +108,7 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsCreateStatusReader{formats: a.formats},
@@ -131,7 +135,9 @@ func (a *Client) BackupsCreateStatus(params *BackupsCreateStatusParams, authInfo
 }
 
 /*
-BackupsRestore Starts a process of restoring a backup for a set of classes
+BackupsRestore starts a restoration process
+
+Starts a process of restoring a backup for a set of collections
 */
 func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreOK, error) {
 	// TODO: Validate the params before sending
@@ -143,7 +149,7 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 		Method:             "POST",
 		PathPattern:        "/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsRestoreReader{formats: a.formats},
@@ -170,7 +176,9 @@ func (a *Client) BackupsRestore(params *BackupsRestoreParams, authInfo runtime.C
 }
 
 /*
-BackupsRestoreStatus Returns status of a backup restoration attempt for a set of classes
+BackupsRestoreStatus gets restore process status
+
+Returns status of a backup restoration attempt for a set of classes
 */
 func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BackupsRestoreStatusOK, error) {
 	// TODO: Validate the params before sending
@@ -182,7 +190,7 @@ func (a *Client) BackupsRestoreStatus(params *BackupsRestoreStatusParams, authIn
 		Method:             "GET",
 		PathPattern:        "/backups/{backend}/{id}/restore",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &BackupsRestoreStatusReader{formats: a.formats},

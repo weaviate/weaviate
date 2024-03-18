@@ -45,9 +45,9 @@ func NewObjectsCreate(ctx *middleware.Context, handler ObjectsCreateHandler) *Ob
 /*
 	ObjectsCreate swagger:route POST /objects objects objectsCreate
 
-Create Objects between two Objects (object and subject).
+Create a new object.
 
-Registers a new Object. Provided meta-data and schema values are validated.
+Creates a new Object. Provided meta-data and schema values are validated.
 */
 type ObjectsCreate struct {
 	Context *middleware.Context

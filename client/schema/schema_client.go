@@ -73,7 +73,7 @@ type ClientService interface {
 }
 
 /*
-SchemaClusterStatus schema cluster status API
+SchemaClusterStatus gets schema synchronization status
 */
 func (a *Client) SchemaClusterStatus(params *SchemaClusterStatusParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaClusterStatusOK, error) {
 	// TODO: Validate the params before sending
@@ -85,7 +85,7 @@ func (a *Client) SchemaClusterStatus(params *SchemaClusterStatusParams, authInfo
 		Method:             "GET",
 		PathPattern:        "/schema/cluster-status",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaClusterStatusReader{formats: a.formats},
@@ -112,7 +112,7 @@ func (a *Client) SchemaClusterStatus(params *SchemaClusterStatusParams, authInfo
 }
 
 /*
-SchemaDump dumps the current the database schema
+SchemaDump gets the entire schema
 */
 func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaDumpOK, error) {
 	// TODO: Validate the params before sending
@@ -124,7 +124,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/schema",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaDumpReader{formats: a.formats},
@@ -151,7 +151,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-SchemaObjectsCreate creates a new object class in the schema
+SchemaObjectsCreate creates a new collection
 */
 func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -163,7 +163,7 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 		Method:             "POST",
 		PathPattern:        "/schema",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsCreateReader{formats: a.formats},
@@ -190,7 +190,9 @@ func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo
 }
 
 /*
-SchemaObjectsDelete removes an object class and all data in the instances from the schema
+SchemaObjectsDelete removes a collection and its data
+
+Remove a collection from the schema. This will also delete all the objects in the collection.
 */
 func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -202,7 +204,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 		Method:             "DELETE",
 		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsDeleteReader{formats: a.formats},
@@ -229,7 +231,7 @@ func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo
 }
 
 /*
-SchemaObjectsGet gets a single class from the schema
+SchemaObjectsGet gets a single collection schema
 */
 func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -241,7 +243,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 		Method:             "GET",
 		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsGetReader{formats: a.formats},
@@ -268,7 +270,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 }
 
 /*
-SchemaObjectsPropertiesAdd adds a property to an object class
+SchemaObjectsPropertiesAdd adds a property
 */
 func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -280,7 +282,7 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 		Method:             "POST",
 		PathPattern:        "/schema/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsPropertiesAddReader{formats: a.formats},
@@ -307,7 +309,9 @@ func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddPa
 }
 
 /*
-SchemaObjectsShardsGet gets the shards status of an object class
+SchemaObjectsShardsGet gets the shard status
+
+Get the shard status of a collection
 */
 func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -319,7 +323,7 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 		Method:             "GET",
 		PathPattern:        "/schema/{className}/shards",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsShardsGetReader{formats: a.formats},
@@ -346,7 +350,9 @@ func (a *Client) SchemaObjectsShardsGet(params *SchemaObjectsShardsGetParams, au
 }
 
 /*
-SchemaObjectsShardsUpdate Update shard status of an Object Class
+SchemaObjectsShardsUpdate updates a shard status
+
+Update a shard status for a collection.
 */
 func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsShardsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -358,7 +364,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 		Method:             "PUT",
 		PathPattern:        "/schema/{className}/shards/{shardName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsShardsUpdateReader{formats: a.formats},
@@ -385,7 +391,7 @@ func (a *Client) SchemaObjectsShardsUpdate(params *SchemaObjectsShardsUpdatePara
 }
 
 /*
-SchemaObjectsUpdate updates settings of an existing schema class
+SchemaObjectsUpdate updates an existing collection
 
 Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.
 */
@@ -399,7 +405,7 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 		Method:             "PUT",
 		PathPattern:        "/schema/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &SchemaObjectsUpdateReader{formats: a.formats},
@@ -426,7 +432,9 @@ func (a *Client) SchemaObjectsUpdate(params *SchemaObjectsUpdateParams, authInfo
 }
 
 /*
-TenantExists Check if a tenant exists for a specific class
+TenantExists checks if a tenant exists
+
+Check if a tenant exists in a collection
 */
 func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantExistsOK, error) {
 	// TODO: Validate the params before sending
@@ -438,7 +446,7 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 		Method:             "HEAD",
 		PathPattern:        "/schema/{className}/tenants/{tenantName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantExistsReader{formats: a.formats},
@@ -465,7 +473,9 @@ func (a *Client) TenantExists(params *TenantExistsParams, authInfo runtime.Clien
 }
 
 /*
-TenantsCreate Create a new tenant for a specific class
+TenantsCreate creates a new tenant
+
+Create a new tenant for a specific class
 */
 func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -477,7 +487,7 @@ func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsCreateReader{formats: a.formats},
@@ -504,7 +514,9 @@ func (a *Client) TenantsCreate(params *TenantsCreateParams, authInfo runtime.Cli
 }
 
 /*
-TenantsDelete delete tenants from a specific class
+TenantsDelete deletes tenant s
+
+Delete tenants from a collection
 */
 func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -516,7 +528,7 @@ func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.Cli
 		Method:             "DELETE",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsDeleteReader{formats: a.formats},
@@ -543,7 +555,9 @@ func (a *Client) TenantsDelete(params *TenantsDeleteParams, authInfo runtime.Cli
 }
 
 /*
-TenantsGet get all tenants from a specific class
+TenantsGet gets the list of tenants
+
+Get all tenants from a collection.
 */
 func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -555,7 +569,7 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsGetReader{formats: a.formats},
@@ -582,7 +596,9 @@ func (a *Client) TenantsGet(params *TenantsGetParams, authInfo runtime.ClientAut
 }
 
 /*
-TenantsUpdate Update tenant of a specific class
+TenantsUpdate updates a tenant
+
+Update a tenant for a collection
 */
 func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -594,7 +610,7 @@ func (a *Client) TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.Cli
 		Method:             "PUT",
 		PathPattern:        "/schema/{className}/tenants",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &TenantsUpdateReader{formats: a.formats},

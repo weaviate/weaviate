@@ -43,11 +43,11 @@ func NewObjectsClassReferencesPut(ctx *middleware.Context, handler ObjectsClassR
 }
 
 /*
-	ObjectsClassReferencesPut swagger:route PUT /objects/{className}/{id}/references/{propertyName} objects objectsClassReferencesPut
+	ObjectsClassReferencesPut swagger:route PUT /objects/{className}/{id}/references/{propertyName} objects references objectsClassReferencesPut
 
-Replace all references to a class-property.
+Replace cross-references.
 
-Update all references of a property of a data object.
+Replace all references in cross-reference property of an object.
 */
 type ObjectsClassReferencesPut struct {
 	Context *middleware.Context

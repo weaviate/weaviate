@@ -45,7 +45,9 @@ func NewBackupsCreateStatus(ctx *middleware.Context, handler BackupsCreateStatus
 /*
 	BackupsCreateStatus swagger:route GET /backups/{backend}/{id} backups backupsCreateStatus
 
-Returns status of backup creation attempt for a set of classes
+# Get backup process status
+
+Returns status of backup creation attempt for a set of collections
 */
 type BackupsCreateStatus struct {
 	Context *middleware.Context

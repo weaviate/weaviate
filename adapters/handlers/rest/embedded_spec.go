@@ -30,7 +30,6 @@ var (
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/yaml",
     "application/json"
   ],
   "produces": [
@@ -55,6 +54,9 @@ func init() {
     "/": {
       "get": {
         "description": "Links to other endpoints to help users discover the REST API",
+        "tags": [
+          "root"
+        ],
         "summary": "Root endpoint with links.",
         "operationId": "weaviate.root",
         "responses": {
@@ -81,6 +83,7 @@ func init() {
         "tags": [
           "well-known"
         ],
+        "summary": "Get application liveness.",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -93,11 +96,9 @@ func init() {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
+          "well-known"
         ],
-        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "summary": "OIDC discovery information (if OIDC auth is enabled)",
         "responses": {
           "200": {
             "description": "Successful response, inspect body",
@@ -143,6 +144,7 @@ func init() {
         "tags": [
           "well-known"
         ],
+        "summary": "Get application readiness.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -156,10 +158,11 @@ func init() {
     },
     "/backups/{backend}": {
       "post": {
-        "description": "Starts a process of creating a backup for a set of classes",
+        "description": "Start creating a backup for a set of collections",
         "tags": [
           "backups"
         ],
+        "summary": "Start a backup process",
         "operationId": "backups.create",
         "parameters": [
           {
@@ -214,10 +217,11 @@ func init() {
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "description": "Returns status of backup creation attempt for a set of classes",
+        "description": "Returns status of backup creation attempt for a set of collections",
         "tags": [
           "backups"
         ],
+        "summary": "Get backup process status",
         "operationId": "backups.create.status",
         "parameters": [
           {
@@ -281,6 +285,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Get restore process status",
         "operationId": "backups.restore.status",
         "parameters": [
           {
@@ -332,10 +337,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Starts a process of restoring a backup for a set of classes",
+        "description": "Starts a process of restoring a backup for a set of collections",
         "tags": [
           "backups"
         ],
+        "summary": "Start a restoration process",
         "operationId": "backups.restore",
         "parameters": [
           {
@@ -408,7 +414,7 @@ func init() {
           "batch",
           "objects"
         ],
-        "summary": "Creates new Objects based on a Object template as a batch.",
+        "summary": "Batch create new objects.",
         "operationId": "batch.objects.create",
         "parameters": [
           {
@@ -491,12 +497,12 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete Objects in bulk that match a certain filter.",
+        "description": "Batch delete objects in bulk based on a certain filter.",
         "tags": [
           "batch",
           "objects"
         ],
-        "summary": "Deletes Objects based on a match filter as a batch.",
+        "summary": "Batch delete objects.",
         "operationId": "batch.objects.delete",
         "parameters": [
           {
@@ -558,12 +564,12 @@ func init() {
     },
     "/batch/references": {
       "post": {
-        "description": "Register cross-references between any class items (objects or objects) in bulk.",
+        "description": "Batch create cross-references between collections items (objects or objects) in bulk.",
         "tags": [
           "batch",
           "references"
         ],
-        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "summary": "Batch create cross-references.",
         "operationId": "batch.references.create",
         "parameters": [
           {
@@ -730,11 +736,11 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get an object based on GraphQL",
+        "description": "Get a response based on a GraphQL query",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL",
+        "summary": "Perform a GraphQL query.",
         "operationId": "graphql.post",
         "parameters": [
           {
@@ -788,11 +794,11 @@ func init() {
     },
     "/graphql/batch": {
       "post": {
-        "description": "Perform a batched GraphQL query",
+        "description": "Perform batched GraphQL query",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL.",
+        "summary": "Perform batched GraphQL queries.",
         "operationId": "graphql.batch",
         "parameters": [
           {
@@ -846,11 +852,11 @@ func init() {
     },
     "/meta": {
       "get": {
-        "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "description": "Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "tags": [
           "meta"
         ],
-        "summary": "Returns meta information of the current Weaviate instance.",
+        "summary": "Get instance metadata.",
         "operationId": "meta.get",
         "responses": {
           "200": {
@@ -884,10 +890,11 @@ func init() {
     },
     "/nodes": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
+        "description": "Returns node information for the entire database.",
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for the database.",
         "operationId": "nodes.get",
         "parameters": [
           {
@@ -936,10 +943,11 @@ func init() {
     },
     "/nodes/{className}": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
+        "description": "Returns node information for the nodes relevant to the collection.",
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for a collection.",
         "operationId": "nodes.get.class",
         "parameters": [
           {
@@ -994,11 +1002,11 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all objects in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a list of Objects.",
+        "summary": "Get a list of objects.",
         "operationId": "objects.list",
         "parameters": [
           {
@@ -1071,11 +1079,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Registers a new Object. Provided meta-data and schema values are validated.",
+        "description": "Creates a new Object. Provided meta-data and schema values are validated.",
         "tags": [
           "objects"
         ],
-        "summary": "Create Objects between two Objects (object and subject).",
+        "summary": "Create a new object.",
         "operationId": "objects.create",
         "parameters": [
           {
@@ -1138,7 +1146,7 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Validate an Object based on a schema.",
+        "summary": "Validate an object.",
         "operationId": "objects.validate",
         "parameters": [
           {
@@ -1185,11 +1193,11 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a single data object",
+        "description": "Get a data object based on its collection and UUID. Also available as Websocket bus.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "summary": "Get an object",
         "operationId": "objects.class.get",
         "parameters": [
           {
@@ -1264,11 +1272,11 @@ func init() {
         ]
       },
       "put": {
-        "description": "Update an individual data object based on its class and uuid.",
+        "description": "Update an object based on its uuid and collection.",
         "tags": [
           "objects"
         ],
-        "summary": "Update a class object based on its uuid",
+        "summary": "Update an object.",
         "operationId": "objects.class.put",
         "parameters": [
           {
@@ -1336,11 +1344,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete a single data object.",
+        "description": "Delete an object based on its collection and UUID.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete object based on its class and UUID.",
+        "summary": "Delete an object.",
         "operationId": "objects.class.delete",
         "parameters": [
           {
@@ -1406,11 +1414,11 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if a data object exists without retrieving it.",
+        "description": "Checks if a data object exists based on its collection and uuid without retrieving it.",
         "tags": [
           "objects"
         ],
-        "summary": "Checks object's existence based on its class and uuid.",
+        "summary": "Checks if object exists.",
         "operationId": "objects.class.head",
         "parameters": [
           {
@@ -1471,11 +1479,11 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an individual data object based on its collection and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Update an object (patch).",
         "operationId": "objects.class.patch",
         "parameters": [
           {
@@ -1549,11 +1557,12 @@ func init() {
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "put": {
-        "description": "Update all references of a property of a data object.",
+        "description": "Replace all references in cross-reference property of an object.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace cross-references.",
         "operationId": "objects.class.references.put",
         "parameters": [
           {
@@ -1635,11 +1644,12 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a single reference to an object.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a cross-reference.",
         "operationId": "objects.class.references.create",
         "parameters": [
           {
@@ -1721,11 +1731,12 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property of a data object has",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a cross-reference.",
         "operationId": "objects.class.references.delete",
         "parameters": [
           {
@@ -1812,11 +1823,11 @@ func init() {
     },
     "/objects/{id}": {
       "get": {
-        "description": "Lists Objects.",
+        "description": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "summary": "List objects.",
         "operationId": "objects.get",
         "deprecated": true,
         "parameters": [
@@ -1871,11 +1882,11 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Object's data based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID.",
+        "summary": "Update an object.",
         "operationId": "objects.update",
         "deprecated": true,
         "parameters": [
@@ -1938,11 +1949,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes an Object from the system.",
+        "description": "Deletes an Object from the database based on its UUID.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete an Object based on its UUID.",
+        "summary": "Delete an object.",
         "operationId": "objects.delete",
         "deprecated": true,
         "parameters": [
@@ -1991,11 +2002,11 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if an Object exists in the system.",
+        "description": "Checks if an Object exists in the system based on its UUID.",
         "tags": [
           "objects"
         ],
-        "summary": "Checks Object's existence based on its UUID.",
+        "summary": "Check if object exists.",
         "operationId": "objects.head",
         "deprecated": true,
         "parameters": [
@@ -2038,11 +2049,11 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an Object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Update an Object (patch).",
         "operationId": "objects.patch",
         "deprecated": true,
         "parameters": [
@@ -2107,11 +2118,12 @@ func init() {
     },
     "/objects/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replace all references to a class-property.",
+        "description": "Replace all references in cross-reference property of an object.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace cross-references.",
         "operationId": "objects.references.update",
         "deprecated": true,
         "parameters": [
@@ -2175,11 +2187,12 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a cross-reference.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a cross-reference.",
         "operationId": "objects.references.create",
         "deprecated": true,
         "parameters": [
@@ -2245,9 +2258,10 @@ func init() {
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a cross-reference.",
         "operationId": "objects.references.delete",
         "deprecated": true,
         "parameters": [
@@ -2316,7 +2330,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Dump the current the database schema.",
+        "summary": "Get the entire schema.",
         "operationId": "schema.dump",
         "responses": {
           "200": {
@@ -2349,7 +2363,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Object class in the schema.",
+        "summary": "Create a new collection.",
         "operationId": "schema.objects.create",
         "parameters": [
           {
@@ -2400,6 +2414,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Get schema synchronization status.",
         "operationId": "schema.cluster.status",
         "responses": {
           "200": {
@@ -2422,7 +2437,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Get a single class from the schema",
+        "summary": "Get a single collection schema.",
         "operationId": "schema.objects.get",
         "parameters": [
           {
@@ -2467,7 +2482,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Update settings of an existing schema class",
+        "summary": "Update an existing collection.",
         "operationId": "schema.objects.update",
         "parameters": [
           {
@@ -2525,10 +2540,11 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Remove a collection from the schema. This will also delete all the objects in the collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Object class (and all data in the instances) from the schema.",
+        "summary": "Remove a collection (and its data).",
         "operationId": "schema.objects.delete",
         "parameters": [
           {
@@ -2574,7 +2590,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to an Object class.",
+        "summary": "Add a property.",
         "operationId": "schema.objects.properties.add",
         "parameters": [
           {
@@ -2628,10 +2644,11 @@ func init() {
     },
     "/schema/{className}/shards": {
       "get": {
+        "description": "Get the shard status of a collection",
         "tags": [
           "schema"
         ],
-        "summary": "Get the shards status of an Object class",
+        "summary": "Get the shard status",
         "operationId": "schema.objects.shards.get",
         "parameters": [
           {
@@ -2682,10 +2699,11 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Update shard status of an Object Class",
+        "description": "Update a shard status for a collection.",
         "tags": [
           "schema"
         ],
+        "summary": "Update a shard status.",
         "operationId": "schema.objects.shards.update",
         "parameters": [
           {
@@ -2751,10 +2769,11 @@ func init() {
     },
     "/schema/{className}/tenants": {
       "get": {
-        "description": "get all tenants from a specific class",
+        "description": "Get all tenants from a collection.",
         "tags": [
           "schema"
         ],
+        "summary": "Get the list of tenants.",
         "operationId": "tenants.get",
         "parameters": [
           {
@@ -2798,10 +2817,11 @@ func init() {
         }
       },
       "put": {
-        "description": "Update tenant of a specific class",
+        "description": "Update a tenant for a collection",
         "tags": [
           "schema"
         ],
+        "summary": "Update a tenant",
         "operationId": "tenants.update",
         "parameters": [
           {
@@ -2860,6 +2880,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Create a new tenant",
         "operationId": "tenants.create",
         "parameters": [
           {
@@ -2914,10 +2935,11 @@ func init() {
         }
       },
       "delete": {
-        "description": "delete tenants from a specific class",
+        "description": "Delete tenants from a collection",
         "tags": [
           "schema"
         ],
+        "summary": "Delete tenant(s)",
         "operationId": "tenants.delete",
         "parameters": [
           {
@@ -2968,10 +2990,11 @@ func init() {
     },
     "/schema/{className}/tenants/{tenantName}": {
       "head": {
-        "description": "Check if a tenant exists for a specific class",
+        "description": "Check if a tenant exists in a collection",
         "tags": [
           "schema"
         ],
+        "summary": "Check if a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
@@ -5067,8 +5090,8 @@ func init() {
   ],
   "tags": [
     {
-      "description": "Root. \u003cbr/\u003e\u003cbr/\u003eNote the base path of the Weaviate server is ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. For example, the ` + "`" + `schema` + "`" + ` endpoint is accessible at ` + "`" + `https://your-weaviate-host:rest_port/v1/schema` + "`" + `.",
-      "name": "/"
+      "description": "Root Endpoint: Provides access to the core functionalities of the Weaviate server. This serves as the entry point for the API and routes to various other endpoints based on the request path and method. \u003cbr/\u003e\u003cbr/\u003e**Base Path**: The base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively.",
+      "name": "root"
     },
     {
       "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
@@ -5079,7 +5102,7 @@ func init() {
       "name": "objects"
     },
     {
-      "description": "Create, update and delete references.",
+      "description": "Create, update and delete references. Note that this repeats endpoints from the 'objects' and 'batch' tags, but is included for convenience.",
       "name": "references"
     },
     {
@@ -5099,7 +5122,7 @@ func init() {
       "name": "nodes"
     },
     {
-      "description": "` + "`" + `well-known` + "`" + ` endpoints",
+      "description": ".well-known endpoints",
       "name": "well-known"
     },
     {
@@ -5121,8 +5144,7 @@ func init() {
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/json",
-    "application/yaml"
+    "application/json"
   ],
   "produces": [
     "application/json"
@@ -5146,6 +5168,9 @@ func init() {
     "/": {
       "get": {
         "description": "Links to other endpoints to help users discover the REST API",
+        "tags": [
+          "root"
+        ],
         "summary": "Root endpoint with links.",
         "operationId": "weaviate.root",
         "responses": {
@@ -5172,6 +5197,7 @@ func init() {
         "tags": [
           "well-known"
         ],
+        "summary": "Get application liveness.",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -5184,11 +5210,9 @@ func init() {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
+          "well-known"
         ],
-        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "summary": "OIDC discovery information (if OIDC auth is enabled)",
         "responses": {
           "200": {
             "description": "Successful response, inspect body",
@@ -5234,6 +5258,7 @@ func init() {
         "tags": [
           "well-known"
         ],
+        "summary": "Get application readiness.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -5247,10 +5272,11 @@ func init() {
     },
     "/backups/{backend}": {
       "post": {
-        "description": "Starts a process of creating a backup for a set of classes",
+        "description": "Start creating a backup for a set of collections",
         "tags": [
           "backups"
         ],
+        "summary": "Start a backup process",
         "operationId": "backups.create",
         "parameters": [
           {
@@ -5305,10 +5331,11 @@ func init() {
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "description": "Returns status of backup creation attempt for a set of classes",
+        "description": "Returns status of backup creation attempt for a set of collections",
         "tags": [
           "backups"
         ],
+        "summary": "Get backup process status",
         "operationId": "backups.create.status",
         "parameters": [
           {
@@ -5372,6 +5399,7 @@ func init() {
         "tags": [
           "backups"
         ],
+        "summary": "Get restore process status",
         "operationId": "backups.restore.status",
         "parameters": [
           {
@@ -5423,10 +5451,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Starts a process of restoring a backup for a set of classes",
+        "description": "Starts a process of restoring a backup for a set of collections",
         "tags": [
           "backups"
         ],
+        "summary": "Start a restoration process",
         "operationId": "backups.restore",
         "parameters": [
           {
@@ -5499,7 +5528,7 @@ func init() {
           "batch",
           "objects"
         ],
-        "summary": "Creates new Objects based on a Object template as a batch.",
+        "summary": "Batch create new objects.",
         "operationId": "batch.objects.create",
         "parameters": [
           {
@@ -5585,12 +5614,12 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete Objects in bulk that match a certain filter.",
+        "description": "Batch delete objects in bulk based on a certain filter.",
         "tags": [
           "batch",
           "objects"
         ],
-        "summary": "Deletes Objects based on a match filter as a batch.",
+        "summary": "Batch delete objects.",
         "operationId": "batch.objects.delete",
         "parameters": [
           {
@@ -5658,12 +5687,12 @@ func init() {
     },
     "/batch/references": {
       "post": {
-        "description": "Register cross-references between any class items (objects or objects) in bulk.",
+        "description": "Batch create cross-references between collections items (objects or objects) in bulk.",
         "tags": [
           "batch",
           "references"
         ],
-        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "summary": "Batch create cross-references.",
         "operationId": "batch.references.create",
         "parameters": [
           {
@@ -5833,11 +5862,11 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get an object based on GraphQL",
+        "description": "Get a response based on a GraphQL query",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL",
+        "summary": "Perform a GraphQL query.",
         "operationId": "graphql.post",
         "parameters": [
           {
@@ -5891,11 +5920,11 @@ func init() {
     },
     "/graphql/batch": {
       "post": {
-        "description": "Perform a batched GraphQL query",
+        "description": "Perform batched GraphQL query",
         "tags": [
           "graphql"
         ],
-        "summary": "Get a response based on GraphQL.",
+        "summary": "Perform batched GraphQL queries.",
         "operationId": "graphql.batch",
         "parameters": [
           {
@@ -5949,11 +5978,11 @@ func init() {
     },
     "/meta": {
       "get": {
-        "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "description": "Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "tags": [
           "meta"
         ],
-        "summary": "Returns meta information of the current Weaviate instance.",
+        "summary": "Get instance metadata.",
         "operationId": "meta.get",
         "responses": {
           "200": {
@@ -5987,10 +6016,11 @@ func init() {
     },
     "/nodes": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
+        "description": "Returns node information for the entire database.",
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for the database.",
         "operationId": "nodes.get",
         "parameters": [
           {
@@ -6043,10 +6073,11 @@ func init() {
     },
     "/nodes/{className}": {
       "get": {
-        "description": "Returns status of Weaviate DB.",
+        "description": "Returns node information for the nodes relevant to the collection.",
         "tags": [
           "nodes"
         ],
+        "summary": "Node information for a collection.",
         "operationId": "nodes.get.class",
         "parameters": [
           {
@@ -6105,11 +6136,11 @@ func init() {
     },
     "/objects": {
       "get": {
-        "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all objects in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a list of Objects.",
+        "summary": "Get a list of objects.",
         "operationId": "objects.list",
         "parameters": [
           {
@@ -6209,11 +6240,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Registers a new Object. Provided meta-data and schema values are validated.",
+        "description": "Creates a new Object. Provided meta-data and schema values are validated.",
         "tags": [
           "objects"
         ],
-        "summary": "Create Objects between two Objects (object and subject).",
+        "summary": "Create a new object.",
         "operationId": "objects.create",
         "parameters": [
           {
@@ -6279,7 +6310,7 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Validate an Object based on a schema.",
+        "summary": "Validate an object.",
         "operationId": "objects.validate",
         "parameters": [
           {
@@ -6326,11 +6357,11 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a single data object",
+        "description": "Get a data object based on its collection and UUID. Also available as Websocket bus.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
+        "summary": "Get an object",
         "operationId": "objects.class.get",
         "parameters": [
           {
@@ -6417,11 +6448,11 @@ func init() {
         ]
       },
       "put": {
-        "description": "Update an individual data object based on its class and uuid.",
+        "description": "Update an object based on its uuid and collection.",
         "tags": [
           "objects"
         ],
-        "summary": "Update a class object based on its uuid",
+        "summary": "Update an object.",
         "operationId": "objects.class.put",
         "parameters": [
           {
@@ -6492,11 +6523,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete a single data object.",
+        "description": "Delete an object based on its collection and UUID.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete object based on its class and UUID.",
+        "summary": "Delete an object.",
         "operationId": "objects.class.delete",
         "parameters": [
           {
@@ -6568,11 +6599,11 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if a data object exists without retrieving it.",
+        "description": "Checks if a data object exists based on its collection and uuid without retrieving it.",
         "tags": [
           "objects"
         ],
-        "summary": "Checks object's existence based on its class and uuid.",
+        "summary": "Checks if object exists.",
         "operationId": "objects.class.head",
         "parameters": [
           {
@@ -6639,11 +6670,11 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an individual data object based on its collection and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Update an object (patch).",
         "operationId": "objects.class.patch",
         "parameters": [
           {
@@ -6720,11 +6751,12 @@ func init() {
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "put": {
-        "description": "Update all references of a property of a data object.",
+        "description": "Replace all references in cross-reference property of an object.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace cross-references.",
         "operationId": "objects.class.references.put",
         "parameters": [
           {
@@ -6812,11 +6844,12 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a single reference to an object.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a cross-reference.",
         "operationId": "objects.class.references.create",
         "parameters": [
           {
@@ -6904,11 +6937,12 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property of a data object has",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a cross-reference.",
         "operationId": "objects.class.references.delete",
         "parameters": [
           {
@@ -7001,11 +7035,11 @@ func init() {
     },
     "/objects/{id}": {
       "get": {
-        "description": "Lists Objects.",
+        "description": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "summary": "List objects.",
         "operationId": "objects.get",
         "deprecated": true,
         "parameters": [
@@ -7063,11 +7097,11 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Object's data based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID.",
+        "summary": "Update an object.",
         "operationId": "objects.update",
         "deprecated": true,
         "parameters": [
@@ -7133,11 +7167,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes an Object from the system.",
+        "description": "Deletes an Object from the database based on its UUID.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete an Object based on its UUID.",
+        "summary": "Delete an object.",
         "operationId": "objects.delete",
         "deprecated": true,
         "parameters": [
@@ -7192,11 +7226,11 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if an Object exists in the system.",
+        "description": "Checks if an Object exists in the system based on its UUID.",
         "tags": [
           "objects"
         ],
-        "summary": "Checks Object's existence based on its UUID.",
+        "summary": "Check if object exists.",
         "operationId": "objects.head",
         "deprecated": true,
         "parameters": [
@@ -7239,11 +7273,11 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an Object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "objects"
         ],
-        "summary": "Update an Object based on its UUID (using patch semantics).",
+        "summary": "Update an Object (patch).",
         "operationId": "objects.patch",
         "deprecated": true,
         "parameters": [
@@ -7311,11 +7345,12 @@ func init() {
     },
     "/objects/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replace all references to a class-property.",
+        "description": "Replace all references in cross-reference property of an object.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Replace all references to a class-property.",
+        "summary": "Replace cross-references.",
         "operationId": "objects.references.update",
         "deprecated": true,
         "parameters": [
@@ -7382,11 +7417,12 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a cross-reference.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a cross-reference.",
         "operationId": "objects.references.create",
         "deprecated": true,
         "parameters": [
@@ -7455,9 +7491,10 @@ func init() {
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects"
+          "objects",
+          "references"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a cross-reference.",
         "operationId": "objects.references.delete",
         "deprecated": true,
         "parameters": [
@@ -7529,7 +7566,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Dump the current the database schema.",
+        "summary": "Get the entire schema.",
         "operationId": "schema.dump",
         "responses": {
           "200": {
@@ -7562,7 +7599,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Object class in the schema.",
+        "summary": "Create a new collection.",
         "operationId": "schema.objects.create",
         "parameters": [
           {
@@ -7613,6 +7650,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Get schema synchronization status.",
         "operationId": "schema.cluster.status",
         "responses": {
           "200": {
@@ -7635,7 +7673,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Get a single class from the schema",
+        "summary": "Get a single collection schema.",
         "operationId": "schema.objects.get",
         "parameters": [
           {
@@ -7680,7 +7718,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Update settings of an existing schema class",
+        "summary": "Update an existing collection.",
         "operationId": "schema.objects.update",
         "parameters": [
           {
@@ -7738,10 +7776,11 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Remove a collection from the schema. This will also delete all the objects in the collection.",
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Object class (and all data in the instances) from the schema.",
+        "summary": "Remove a collection (and its data).",
         "operationId": "schema.objects.delete",
         "parameters": [
           {
@@ -7787,7 +7826,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to an Object class.",
+        "summary": "Add a property.",
         "operationId": "schema.objects.properties.add",
         "parameters": [
           {
@@ -7841,10 +7880,11 @@ func init() {
     },
     "/schema/{className}/shards": {
       "get": {
+        "description": "Get the shard status of a collection",
         "tags": [
           "schema"
         ],
-        "summary": "Get the shards status of an Object class",
+        "summary": "Get the shard status",
         "operationId": "schema.objects.shards.get",
         "parameters": [
           {
@@ -7895,10 +7935,11 @@ func init() {
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "description": "Update shard status of an Object Class",
+        "description": "Update a shard status for a collection.",
         "tags": [
           "schema"
         ],
+        "summary": "Update a shard status.",
         "operationId": "schema.objects.shards.update",
         "parameters": [
           {
@@ -7964,10 +8005,11 @@ func init() {
     },
     "/schema/{className}/tenants": {
       "get": {
-        "description": "get all tenants from a specific class",
+        "description": "Get all tenants from a collection.",
         "tags": [
           "schema"
         ],
+        "summary": "Get the list of tenants.",
         "operationId": "tenants.get",
         "parameters": [
           {
@@ -8011,10 +8053,11 @@ func init() {
         }
       },
       "put": {
-        "description": "Update tenant of a specific class",
+        "description": "Update a tenant for a collection",
         "tags": [
           "schema"
         ],
+        "summary": "Update a tenant",
         "operationId": "tenants.update",
         "parameters": [
           {
@@ -8073,6 +8116,7 @@ func init() {
         "tags": [
           "schema"
         ],
+        "summary": "Create a new tenant",
         "operationId": "tenants.create",
         "parameters": [
           {
@@ -8127,10 +8171,11 @@ func init() {
         }
       },
       "delete": {
-        "description": "delete tenants from a specific class",
+        "description": "Delete tenants from a collection",
         "tags": [
           "schema"
         ],
+        "summary": "Delete tenant(s)",
         "operationId": "tenants.delete",
         "parameters": [
           {
@@ -8181,10 +8226,11 @@ func init() {
     },
     "/schema/{className}/tenants/{tenantName}": {
       "head": {
-        "description": "Check if a tenant exists for a specific class",
+        "description": "Check if a tenant exists in a collection",
         "tags": [
           "schema"
         ],
+        "summary": "Check if a tenant exists",
         "operationId": "tenant.exists",
         "parameters": [
           {
@@ -10466,8 +10512,8 @@ func init() {
   ],
   "tags": [
     {
-      "description": "Root. \u003cbr/\u003e\u003cbr/\u003eNote the base path of the Weaviate server is ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. For example, the ` + "`" + `schema` + "`" + ` endpoint is accessible at ` + "`" + `https://your-weaviate-host:rest_port/v1/schema` + "`" + `.",
-      "name": "/"
+      "description": "Root Endpoint: Provides access to the core functionalities of the Weaviate server. This serves as the entry point for the API and routes to various other endpoints based on the request path and method. \u003cbr/\u003e\u003cbr/\u003e**Base Path**: The base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively.",
+      "name": "root"
     },
     {
       "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
@@ -10478,7 +10524,7 @@ func init() {
       "name": "objects"
     },
     {
-      "description": "Create, update and delete references.",
+      "description": "Create, update and delete references. Note that this repeats endpoints from the 'objects' and 'batch' tags, but is included for convenience.",
       "name": "references"
     },
     {
@@ -10498,7 +10544,7 @@ func init() {
       "name": "nodes"
     },
     {
-      "description": "` + "`" + `well-known` + "`" + ` endpoints",
+      "description": ".well-known endpoints",
       "name": "well-known"
     },
     {

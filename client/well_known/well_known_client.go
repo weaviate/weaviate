@@ -65,7 +65,7 @@ func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfi
 		Method:             "GET",
 		PathPattern:        "/.well-known/openid-configuration",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &GetWellKnownOpenidConfigurationReader{formats: a.formats},
@@ -92,7 +92,9 @@ func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfi
 }
 
 /*
-WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
+WeaviateWellknownLiveness gets application liveness
+
+Determines whether the application is alive. Can be used for kubernetes liveness probe
 */
 func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownLivenessOK, error) {
 	// TODO: Validate the params before sending
@@ -104,7 +106,7 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 		Method:             "GET",
 		PathPattern:        "/.well-known/live",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateWellknownLivenessReader{formats: a.formats},
@@ -131,7 +133,9 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 }
 
 /*
-WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
+WeaviateWellknownReadiness gets application readiness
+
+Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
 */
 func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*WeaviateWellknownReadinessOK, error) {
 	// TODO: Validate the params before sending
@@ -143,7 +147,7 @@ func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessPa
 		Method:             "GET",
 		PathPattern:        "/.well-known/ready",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateWellknownReadinessReader{formats: a.formats},

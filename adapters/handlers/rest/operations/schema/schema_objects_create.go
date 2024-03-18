@@ -45,7 +45,7 @@ func NewSchemaObjectsCreate(ctx *middleware.Context, handler SchemaObjectsCreate
 /*
 	SchemaObjectsCreate swagger:route POST /schema schema schemaObjectsCreate
 
-Create a new Object class in the schema.
+Create a new collection.
 */
 type SchemaObjectsCreate struct {
 	Context *middleware.Context

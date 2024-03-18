@@ -45,9 +45,9 @@ func NewBatchObjectsDelete(ctx *middleware.Context, handler BatchObjectsDeleteHa
 /*
 	BatchObjectsDelete swagger:route DELETE /batch/objects batch objects batchObjectsDelete
 
-Deletes Objects based on a match filter as a batch.
+Batch delete objects.
 
-Delete Objects in bulk that match a certain filter.
+Batch delete objects in bulk based on a certain filter.
 */
 type BatchObjectsDelete struct {
 	Context *middleware.Context

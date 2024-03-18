@@ -45,9 +45,9 @@ func NewGraphqlPost(ctx *middleware.Context, handler GraphqlPostHandler) *Graphq
 /*
 	GraphqlPost swagger:route POST /graphql graphql graphqlPost
 
-# Get a response based on GraphQL
+Perform a GraphQL query.
 
-Get an object based on GraphQL
+Get a response based on a GraphQL query
 */
 type GraphqlPost struct {
 	Context *middleware.Context

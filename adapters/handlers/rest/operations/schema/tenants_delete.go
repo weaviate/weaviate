@@ -45,7 +45,9 @@ func NewTenantsDelete(ctx *middleware.Context, handler TenantsDeleteHandler) *Te
 /*
 	TenantsDelete swagger:route DELETE /schema/{className}/tenants schema tenantsDelete
 
-delete tenants from a specific class
+Delete tenant(s)
+
+Delete tenants from a collection
 */
 type TenantsDelete struct {
 	Context *middleware.Context

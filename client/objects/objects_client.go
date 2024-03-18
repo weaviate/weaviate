@@ -83,9 +83,9 @@ type ClientService interface {
 }
 
 /*
-ObjectsClassDelete deletes object based on its class and UUID
+ObjectsClassDelete deletes an object
 
-Delete a single data object.
+Delete an object based on its collection and UUID.
 */
 func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -97,7 +97,7 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 		Method:             "DELETE",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassDeleteReader{formats: a.formats},
@@ -124,9 +124,9 @@ func (a *Client) ObjectsClassDelete(params *ObjectsClassDeleteParams, authInfo r
 }
 
 /*
-ObjectsClassGet gets a specific object based on its class and UUID also available as websocket bus
+ObjectsClassGet gets an object
 
-Get a single data object
+Get a data object based on its collection and UUID. Also available as Websocket bus.
 */
 func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassGetOK, error) {
 	// TODO: Validate the params before sending
@@ -138,7 +138,7 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 		Method:             "GET",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassGetReader{formats: a.formats},
@@ -165,9 +165,9 @@ func (a *Client) ObjectsClassGet(params *ObjectsClassGetParams, authInfo runtime
 }
 
 /*
-ObjectsClassHead checks object s existence based on its class and uuid
+ObjectsClassHead checks if object exists
 
-Checks if a data object exists without retrieving it.
+Checks if a data object exists based on its collection and uuid without retrieving it.
 */
 func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassHeadNoContent, error) {
 	// TODO: Validate the params before sending
@@ -179,7 +179,7 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 		Method:             "HEAD",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassHeadReader{formats: a.formats},
@@ -206,9 +206,9 @@ func (a *Client) ObjectsClassHead(params *ObjectsClassHeadParams, authInfo runti
 }
 
 /*
-ObjectsClassPatch updates an object based on its UUID using patch semantics
+ObjectsClassPatch updates an object patch
 
-Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Update an individual data object based on its collection and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -220,7 +220,7 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 		Method:             "PATCH",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassPatchReader{formats: a.formats},
@@ -247,9 +247,9 @@ func (a *Client) ObjectsClassPatch(params *ObjectsClassPatchParams, authInfo run
 }
 
 /*
-ObjectsClassPut updates a class object based on its uuid
+ObjectsClassPut updates an object
 
-Update an individual data object based on its class and uuid.
+Update an object based on its uuid and collection.
 */
 func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassPutOK, error) {
 	// TODO: Validate the params before sending
@@ -261,7 +261,7 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 		Method:             "PUT",
 		PathPattern:        "/objects/{className}/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassPutReader{formats: a.formats},
@@ -288,9 +288,9 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 }
 
 /*
-ObjectsClassReferencesCreate adds a single reference to a class property
+ObjectsClassReferencesCreate adds a cross reference
 
-Add a single reference to a class-property.
+Add a single reference to an object.
 */
 func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -302,7 +302,7 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 		Method:             "POST",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassReferencesCreateReader{formats: a.formats},
@@ -329,9 +329,9 @@ func (a *Client) ObjectsClassReferencesCreate(params *ObjectsClassReferencesCrea
 }
 
 /*
-ObjectsClassReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+ObjectsClassReferencesDelete deletes a cross reference
 
-Delete the single reference that is given in the body from the list of references that this property of a data object has
+Delete the single reference that is given in the body from the list of references that this property has.
 */
 func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -343,7 +343,7 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 		Method:             "DELETE",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassReferencesDeleteReader{formats: a.formats},
@@ -370,9 +370,9 @@ func (a *Client) ObjectsClassReferencesDelete(params *ObjectsClassReferencesDele
 }
 
 /*
-ObjectsClassReferencesPut replaces all references to a class property
+ObjectsClassReferencesPut replaces cross references
 
-Update all references of a property of a data object.
+Replace all references in cross-reference property of an object.
 */
 func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsClassReferencesPutOK, error) {
 	// TODO: Validate the params before sending
@@ -384,7 +384,7 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 		Method:             "PUT",
 		PathPattern:        "/objects/{className}/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsClassReferencesPutReader{formats: a.formats},
@@ -411,9 +411,9 @@ func (a *Client) ObjectsClassReferencesPut(params *ObjectsClassReferencesPutPara
 }
 
 /*
-ObjectsCreate creates objects between two objects object and subject
+ObjectsCreate creates a new object
 
-Registers a new Object. Provided meta-data and schema values are validated.
+Creates a new Object. Provided meta-data and schema values are validated.
 */
 func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -425,7 +425,7 @@ func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.Cli
 		Method:             "POST",
 		PathPattern:        "/objects",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsCreateReader{formats: a.formats},
@@ -452,9 +452,9 @@ func (a *Client) ObjectsCreate(params *ObjectsCreateParams, authInfo runtime.Cli
 }
 
 /*
-ObjectsDelete deletes an object based on its UUID
+ObjectsDelete deletes an object
 
-Deletes an Object from the system.
+Deletes an Object from the database based on its UUID.
 */
 func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -466,7 +466,7 @@ func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.Cli
 		Method:             "DELETE",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsDeleteReader{formats: a.formats},
@@ -493,9 +493,9 @@ func (a *Client) ObjectsDelete(params *ObjectsDeleteParams, authInfo runtime.Cli
 }
 
 /*
-ObjectsGet gets a specific object based on its UUID and a object UUID also available as websocket bus
+ObjectsGet lists objects
 
-Lists Objects.
+Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.
 */
 func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -507,7 +507,7 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 		Method:             "GET",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsGetReader{formats: a.formats},
@@ -534,9 +534,9 @@ func (a *Client) ObjectsGet(params *ObjectsGetParams, authInfo runtime.ClientAut
 }
 
 /*
-ObjectsHead checks object s existence based on its UUID
+ObjectsHead checks if object exists
 
-Checks if an Object exists in the system.
+Checks if an Object exists in the system based on its UUID.
 */
 func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsHeadNoContent, error) {
 	// TODO: Validate the params before sending
@@ -548,7 +548,7 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 		Method:             "HEAD",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsHeadReader{formats: a.formats},
@@ -577,7 +577,7 @@ func (a *Client) ObjectsHead(params *ObjectsHeadParams, authInfo runtime.ClientA
 /*
 ObjectsList gets a list of objects
 
-Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.
+Lists all objects in reverse order of creation, owned by the user that belongs to the used token.
 */
 func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsListOK, error) {
 	// TODO: Validate the params before sending
@@ -589,7 +589,7 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 		Method:             "GET",
 		PathPattern:        "/objects",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsListReader{formats: a.formats},
@@ -616,9 +616,9 @@ func (a *Client) ObjectsList(params *ObjectsListParams, authInfo runtime.ClientA
 }
 
 /*
-ObjectsPatch updates an object based on its UUID using patch semantics
+ObjectsPatch updates an object patch
 
-Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Update an Object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -630,7 +630,7 @@ func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.Clien
 		Method:             "PATCH",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsPatchReader{formats: a.formats},
@@ -657,9 +657,9 @@ func (a *Client) ObjectsPatch(params *ObjectsPatchParams, authInfo runtime.Clien
 }
 
 /*
-ObjectsReferencesCreate adds a single reference to a class property
+ObjectsReferencesCreate adds a cross reference
 
-Add a single reference to a class-property.
+Add a cross-reference.
 */
 func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -671,7 +671,7 @@ func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, 
 		Method:             "POST",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsReferencesCreateReader{formats: a.formats},
@@ -698,7 +698,7 @@ func (a *Client) ObjectsReferencesCreate(params *ObjectsReferencesCreateParams, 
 }
 
 /*
-ObjectsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+ObjectsReferencesDelete deletes a cross reference
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */
@@ -712,7 +712,7 @@ func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, 
 		Method:             "DELETE",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsReferencesDeleteReader{formats: a.formats},
@@ -739,9 +739,9 @@ func (a *Client) ObjectsReferencesDelete(params *ObjectsReferencesDeleteParams, 
 }
 
 /*
-ObjectsReferencesUpdate replaces all references to a class property
+ObjectsReferencesUpdate replaces cross references
 
-Replace all references to a class-property.
+Replace all references in cross-reference property of an object.
 */
 func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -753,7 +753,7 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 		Method:             "PUT",
 		PathPattern:        "/objects/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsReferencesUpdateReader{formats: a.formats},
@@ -780,9 +780,9 @@ func (a *Client) ObjectsReferencesUpdate(params *ObjectsReferencesUpdateParams, 
 }
 
 /*
-ObjectsUpdate updates an object based on its UUID
+ObjectsUpdate updates an object
 
-Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an Object's data based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ObjectsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -794,7 +794,7 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 		Method:             "PUT",
 		PathPattern:        "/objects/{id}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsUpdateReader{formats: a.formats},
@@ -821,7 +821,7 @@ func (a *Client) ObjectsUpdate(params *ObjectsUpdateParams, authInfo runtime.Cli
 }
 
 /*
-ObjectsValidate validates an object based on a schema
+ObjectsValidate validates an object
 
 Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.
 */
@@ -835,7 +835,7 @@ func (a *Client) ObjectsValidate(params *ObjectsValidateParams, authInfo runtime
 		Method:             "POST",
 		PathPattern:        "/objects/validate",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &ObjectsValidateReader{formats: a.formats},

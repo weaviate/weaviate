@@ -49,7 +49,9 @@ type ClientService interface {
 }
 
 /*
-NodesGet Returns status of Weaviate DB.
+NodesGet nodes information for the database
+
+Returns node information for the entire database.
 */
 func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -61,7 +63,7 @@ func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInf
 		Method:             "GET",
 		PathPattern:        "/nodes",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &NodesGetReader{formats: a.formats},
@@ -88,7 +90,9 @@ func (a *Client) NodesGet(params *NodesGetParams, authInfo runtime.ClientAuthInf
 }
 
 /*
-NodesGetClass Returns status of Weaviate DB.
+NodesGetClass nodes information for a collection
+
+Returns node information for the nodes relevant to the collection.
 */
 func (a *Client) NodesGetClass(params *NodesGetClassParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*NodesGetClassOK, error) {
 	// TODO: Validate the params before sending
@@ -100,7 +104,7 @@ func (a *Client) NodesGetClass(params *NodesGetClassParams, authInfo runtime.Cli
 		Method:             "GET",
 		PathPattern:        "/nodes/{className}",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &NodesGetClassReader{formats: a.formats},

@@ -45,7 +45,9 @@ func NewTenantsGet(ctx *middleware.Context, handler TenantsGetHandler) *TenantsG
 /*
 	TenantsGet swagger:route GET /schema/{className}/tenants schema tenantsGet
 
-get all tenants from a specific class
+Get the list of tenants.
+
+Get all tenants from a collection.
 */
 type TenantsGet struct {
 	Context *middleware.Context

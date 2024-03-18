@@ -52,7 +52,7 @@ func NewBatchObjectsCreate(ctx *middleware.Context, handler BatchObjectsCreateHa
 /*
 	BatchObjectsCreate swagger:route POST /batch/objects batch objects batchObjectsCreate
 
-Creates new Objects based on a Object template as a batch.
+Batch create new objects.
 
 Register new Objects in bulk. Provided meta-data and schema values are validated.
 */
