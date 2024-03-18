@@ -13,7 +13,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -274,7 +273,6 @@ func (s *shardedLockCache[T]) watchForDeletion() {
 
 func (s *shardedLockCache[T]) replaceIfFull() {
 	if atomic.LoadInt64(&s.count) >= atomic.LoadInt64(&s.maxSize) {
-		panic(fmt.Sprintf("%d %d", s.count, s.maxSize))
 		s.deleteAllVectors()
 	}
 }

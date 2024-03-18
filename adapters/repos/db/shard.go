@@ -470,7 +470,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
 			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeCOMPOSER)
 	}
 	defer vectorIndex.PostStartup()
