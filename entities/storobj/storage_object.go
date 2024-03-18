@@ -467,7 +467,7 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 	return out
 }
 
-func SearchResultsWithScore(in []*Object, scores []float32,  additional additional.Properties, tenant string) search.Results {
+func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, tenant string) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {

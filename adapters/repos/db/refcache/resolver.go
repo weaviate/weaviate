@@ -58,11 +58,11 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 	return r.parseObjects(objects, properties, additional)
 }
 
-func (r *Resolver) parseObjects(objects []search.Result,  properties search.SelectProperties,
+func (r *Resolver) parseObjects(objects []search.Result, properties search.SelectProperties,
 	additional additional.Properties,
 ) ([]search.Result, error) {
 	for i, obj := range objects {
-		parsed, err := r.parseObject(obj,  properties, additional)
+		parsed, err := r.parseObject(obj, properties, additional)
 		if err != nil {
 			return nil, errors.Wrapf(err, "parse at position %d", i)
 		}
@@ -73,7 +73,7 @@ func (r *Resolver) parseObjects(objects []search.Result,  properties search.Sele
 	return objects, nil
 }
 
-func (r *Resolver) parseObject(object search.Result,  properties search.SelectProperties,
+func (r *Resolver) parseObject(object search.Result, properties search.SelectProperties,
 	additional additional.Properties,
 ) (search.Result, error) {
 	if object.Schema == nil {
