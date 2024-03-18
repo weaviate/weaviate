@@ -30,7 +30,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	if params.HybridSearch.Query == "" {
 		return nil, "", fmt.Errorf("invalid params, query is empty")
 	}
-	
+
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
 		Type:       "bm25",
@@ -165,6 +165,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var weights []float64
 	var names []string
 	var targetVector string
+
+	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.NearVectorParams != nil {
+		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
+	}
 
 	if len(params.HybridSearch.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.TargetVectors[0]
