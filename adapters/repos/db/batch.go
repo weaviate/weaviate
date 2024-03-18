@@ -214,7 +214,7 @@ func estimateBatchMemory(objs objects.BatchObjects) int64 {
 		// However, in the meantime this should be a fairly reasonable estimate, as
 		// it's not meant to fail exactly on the last available byte, but rather
 		// prevent OOM crashes. Given the fuzziness and async style of the
-		// memtrackinga somewhat decent estimate should be go good enough.
+		// memtrackinga somewhat decent estimate should be good enough.
 		sum += int64(len(item.Object.Vector)*4 + 30)
 	}
 

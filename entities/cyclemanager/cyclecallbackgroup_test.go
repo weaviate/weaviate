@@ -238,7 +238,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		// should be called with 60, 60, ... intervals
 		callbacks.Register("c3", callback3, WithIntervals(intervals3))
 
-		cm := NewManager(ticker, callbacks.CycleCallback)
+		cm := NewManager(ticker, callbacks.CycleCallback, logger)
 		cm.Start()
 		time.Sleep(400 * time.Millisecond)
 		cm.StopAndWait(context.Background())
@@ -1233,7 +1233,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		// should be called with 60, 60, ... intervals
 		callbacks.Register("c3", callback3, WithIntervals(intervals3))
 
-		cm := NewManager(ticker, callbacks.CycleCallback)
+		cm := NewManager(ticker, callbacks.CycleCallback, logger)
 		cm.Start()
 		time.Sleep(400 * time.Millisecond)
 		cm.StopAndWait(context.Background())

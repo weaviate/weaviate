@@ -259,7 +259,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	}
 	defer func() {
 		// backups need to be released anyway
-		go u.sourcer.ReleaseBackup(context.Background(), id, desc.Name)
+		enterrors.GoWrapper(func() { u.sourcer.ReleaseBackup(context.Background(), id, desc.Name) }, u.log)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
@@ -401,11 +401,12 @@ type fileWriter struct {
 	movedFiles []string // files successfully moved to destination folder
 	compressed bool
 	GoPoolSize int
+	migrator   func(classPath string) error
 	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	backupID string, compressed bool, logger logrus.FieldLogger,
+	compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -425,6 +426,8 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	return fw
 }
 
+func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
+
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (rollback func() error, err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
@@ -433,7 +436,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 	defer func() {
 		if err != nil {
-			if rerr := fw.rollBack(classTempDir); rerr != nil {
+			if rerr := fw.rollBack(); rerr != nil {
 				err = fmt.Errorf("%w: %v", err, rerr)
 			}
 		}
@@ -443,10 +446,18 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 	if err := fw.writeTempFiles(ctx, classTempDir, desc); err != nil {
 		return nil, fmt.Errorf("get files: %w", err)
 	}
+
+	if fw.migrator != nil {
+		if err := fw.migrator(classTempDir); err != nil {
+			return nil, fmt.Errorf("migrate from pre 1.23: %w", err)
+		}
+	}
+
 	if err := fw.moveAll(classTempDir); err != nil {
 		return nil, fmt.Errorf("move files to destination: %w", err)
 	}
-	return func() error { return fw.rollBack(classTempDir) }, nil
+
+	return func() error { return fw.rollBack() }, nil
 }
 
 // writeTempFiles writes class files into a temporary directory
@@ -480,9 +491,9 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
 			uz, w := NewUnzip(classTempDir)
-			go func() {
+			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, w)
-			}()
+			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err
 		})
@@ -536,7 +547,7 @@ func (fw *fileWriter) moveAll(classTempDir string) (err error) {
 }
 
 // rollBack successfully written files
-func (fw *fileWriter) rollBack(classTempDir string) (err error) {
+func (fw *fileWriter) rollBack() (err error) {
 	// rollback successfully moved files
 	for _, fpath := range fw.movedFiles {
 		if rerr := os.RemoveAll(fpath); rerr != nil && err == nil {

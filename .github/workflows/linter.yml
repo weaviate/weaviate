@@ -42,3 +42,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Error groups checks
         run: ./tools/linter_error_groups.sh
+      - name: goroutine checks
+        run: ./tools/linter_go_routines.sh
