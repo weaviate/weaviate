@@ -3,6 +3,16 @@
   "consumes": [
     "application/json"
   ],
+  "info": {
+    "contact": {
+      "email": "hello@weaviate.io",
+      "name": "Weaviate",
+      "url": "https://github.com/weaviate"
+    },
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n\nThis API is documented in **OpenAPI format**",
+    "title": "Weaviate",
+    "version": "1.24.4"
+  },
   "definitions": {
     "Link": {
       "type": "object",
@@ -1966,16 +1976,6 @@
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
   },
-  "info": {
-    "contact": {
-      "email": "hello@weaviate.io",
-      "name": "Weaviate",
-      "url": "https://github.com/weaviate"
-    },
-    "description": "Cloud-native, modular vector database",
-    "title": "Weaviate",
-    "version": "1.24.4"
-  },
   "parameters": {
     "CommonAfterParameterQuery": {
       "description": "The starting ID of the result window.",
@@ -2062,7 +2062,8 @@
   "paths": {
     "/": {
       "get": {
-        "description": "Home. Discover the REST API",
+        "description": "Links to other endpoints to help users discover the REST API",
+        "summary": "Root endpoint with links.",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -2150,8 +2151,7 @@
         },
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "tags": [
-          ".well-known",
-          "oidc"
+          ".well-known"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3697,8 +3697,7 @@
         },
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
         "tags": [
-          "batch",
-          "references"
+          "batch"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -5048,42 +5047,47 @@
   "tags": [
     {
       "name": "/",
-      "description": "Home."
+      "description": "Home. Discover available endpoints."
     },
     {
       "name": "schema",
-      "description": "These operations enable manipulation of the database schema in Weaviate. Note an 'Object class' in Weaviate is being renamed to a 'collection'. See <a href='https://weaviate.io/developers/weaviate/manage-data/collections'>this page</a> for client code examples."
+      "description": "Operate on the database schema. <br/><br/>Note an 'Object class' in Weaviate is being renamed to a 'collection'. <br/><br/>See <a href='https://weaviate.io/developers/weaviate/manage-data/collections'>this page</a> for client code examples."
     },
     {
-      "name": "objects"
+      "name": "objects",
+      "description": "Create, update and delete objects and references."
     },
     {
       "name": "batch",
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets."
+      "description": "Create, update and delete multiple objects and references at once."
     },
     {
-      "name": "backups"
+      "name": "backups",
+      "description": "Create, restore and check the status of backups."
     },
     {
-      "name": "classifications"
+      "name": "meta",
+      "description": "Retrieve information about the server such as the hostname, location, versions and modules."
     },
     {
-      "name": "meta"
+      "name": "nodes",
+      "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection."
     },
     {
-      "name": "nodes"
+      "name": ".well-known",
+      "description": "OIDC .well-known endpoints"
     },
     {
-      "name": ".well-known"
+      "name": "graphql",
+      "description": "Query data using the GraphQL query language."
     },
     {
-      "name": "modules"
+      "name": "modules",
+      "description": "For working with modules connected to your Weaviate instance. See the <a href='https://weaviate.io/developers/weaviate/modules'>modules pages</a> for more information."
     },
     {
-      "name": "graphql"
-    },
-    {
-      "name": "deprecated"
+      "name": "classifications",
+      "description": "Perform classification operations"
     }
   ]
 }
