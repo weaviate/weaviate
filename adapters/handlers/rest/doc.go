@@ -15,6 +15,8 @@
 //
 //	# Introduction
 //	 Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.
+//	 ### Base Path
+//	The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively.
 //	 ### Questions?
 //	If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
 //	### Issues?

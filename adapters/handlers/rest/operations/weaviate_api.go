@@ -37,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/root"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
@@ -209,8 +208,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaTenantsUpdateHandler: schema.TenantsUpdateHandlerFunc(func(params schema.TenantsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantsUpdate has not yet been implemented")
 		}),
-		RootWeaviateRootHandler: root.WeaviateRootHandlerFunc(func(params root.WeaviateRootParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation root.WeaviateRoot has not yet been implemented")
+		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
 		}),
 		WellKnownWeaviateWellknownLivenessHandler: well_known.WeaviateWellknownLivenessHandlerFunc(func(params well_known.WeaviateWellknownLivenessParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.WeaviateWellknownLiveness has not yet been implemented")
@@ -231,6 +230,10 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 WeaviateAPI # Introduction
 
 	Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.
+	### Base Path
+
+The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively.
+
 	### Questions?
 
 If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/).
@@ -374,8 +377,8 @@ type WeaviateAPI struct {
 	SchemaTenantsGetHandler schema.TenantsGetHandler
 	// SchemaTenantsUpdateHandler sets the operation handler for the tenants update operation
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
-	// RootWeaviateRootHandler sets the operation handler for the weaviate root operation
-	RootWeaviateRootHandler root.WeaviateRootHandler
+	// WeaviateRootHandler sets the operation handler for the weaviate root operation
+	WeaviateRootHandler WeaviateRootHandler
 	// WellKnownWeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
 	WellKnownWeaviateWellknownLivenessHandler well_known.WeaviateWellknownLivenessHandler
 	// WellKnownWeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
@@ -605,8 +608,8 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaTenantsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.TenantsUpdateHandler")
 	}
-	if o.RootWeaviateRootHandler == nil {
-		unregistered = append(unregistered, "root.WeaviateRootHandler")
+	if o.WeaviateRootHandler == nil {
+		unregistered = append(unregistered, "WeaviateRootHandler")
 	}
 	if o.WellKnownWeaviateWellknownLivenessHandler == nil {
 		unregistered = append(unregistered, "well_known.WeaviateWellknownLivenessHandler")
@@ -907,7 +910,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"][""] = root.NewWeaviateRoot(o.context, o.RootWeaviateRootHandler)
+	o.handlers["GET"][""] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

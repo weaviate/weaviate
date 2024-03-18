@@ -40,7 +40,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
@@ -53,9 +53,6 @@ func init() {
     "/": {
       "get": {
         "description": "Get links to other endpoints to help discover the REST API",
-        "tags": [
-          "root"
-        ],
         "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
@@ -5089,10 +5086,6 @@ func init() {
   ],
   "tags": [
     {
-      "description": "Root Endpoint: Provides access to the core functionalities of the Weaviate server. This serves as the entry point for the API and routes to various other endpoints based on the request path and method. \u003cbr/\u003e\u003cbr/\u003e**Base Path**: The base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively.",
-      "name": "root"
-    },
-    {
       "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
       "name": "schema"
     },
@@ -5153,7 +5146,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
@@ -5166,9 +5159,6 @@ func init() {
     "/": {
       "get": {
         "description": "Get links to other endpoints to help discover the REST API",
-        "tags": [
-          "root"
-        ],
         "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
@@ -10509,10 +10499,6 @@ func init() {
     }
   ],
   "tags": [
-    {
-      "description": "Root Endpoint: Provides access to the core functionalities of the Weaviate server. This serves as the entry point for the API and routes to various other endpoints based on the request path and method. \u003cbr/\u003e\u003cbr/\u003e**Base Path**: The base path for the Weaviate server is structured as ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. As an example, if you wish to access the ` + "`" + `schema` + "`" + ` endpoint on a local instance, you would navigate to ` + "`" + `http://localhost:8080/v1/schema` + "`" + `. Ensure you replace ` + "`" + `[YOUR-WEAVIATE-HOST]` + "`" + ` and ` + "`" + `[PORT]` + "`" + ` with your actual server host and port number respectively.",
-      "name": "root"
-    },
     {
       "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
       "name": "schema"
