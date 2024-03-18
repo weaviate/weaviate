@@ -5071,7 +5071,7 @@
   "tags": [
     {
       "name": "/",
-      "description": "Home. Discover available endpoints."
+      "description": "Root. <br/><br/>Note the base path of the Weaviate server is `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. For example, the `schema` endpoint is accessible at `https://your-weaviate-host:rest_port/v1/schema`."
     },
     {
       "name": "schema",
