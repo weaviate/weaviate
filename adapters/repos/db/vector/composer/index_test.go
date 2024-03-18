@@ -104,15 +104,19 @@ func TestComposer(t *testing.T) {
 
 func recallAndLatency(queries [][]float32, k int, index composer.VectorIndex, truths [][]uint64) (float32, float32) {
 	var relevant uint64
-	var retrieved int
+	retrieved := k * len(queries)
 
 	var querying time.Duration = 0
+	mutex := &sync.Mutex{}
 	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
 		before := time.Now()
 		results, _, _ := index.SearchByVector(queries[i], k, nil)
-		querying += time.Since(before)
-		retrieved += k
-		relevant += testinghelpers.MatchesInLists(truths[i], results)
+		ellapsed := time.Since(before)
+		hits := testinghelpers.MatchesInLists(truths[i], results)
+		mutex.Lock()
+		querying += ellapsed
+		relevant += hits
+		mutex.Unlock()
 	})
 
 	recall := float32(relevant) / float32(retrieved)
