@@ -41,7 +41,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Cloud-native, modular vector database",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
@@ -54,7 +54,8 @@ func init() {
   "paths": {
     "/": {
       "get": {
-        "description": "Home. Discover the REST API",
+        "description": "Links to other endpoints to help users discover the REST API",
+        "summary": "Root endpoint with links.",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -77,6 +78,9 @@ func init() {
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -136,6 +140,9 @@ func init() {
     "/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -5060,28 +5067,52 @@ func init() {
   ],
   "tags": [
     {
+      "description": "Root. \u003cbr/\u003e\u003cbr/\u003eNote the base path of the Weaviate server is ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. For example, the ` + "`" + `schema` + "`" + ` endpoint is accessible at ` + "`" + `https://your-weaviate-host:rest_port/v1/schema` + "`" + `.",
+      "name": "/"
+    },
+    {
+      "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
+      "name": "schema"
+    },
+    {
+      "description": "Create, update and delete objects and cross-references.",
       "name": "objects"
     },
     {
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
+      "description": "Create, update and delete references.",
+      "name": "references"
+    },
+    {
+      "description": "Create, update and delete multiple objects and references at once.",
       "name": "batch"
     },
     {
-      "name": "graphql"
+      "description": "Create, restore and check the status of backups.",
+      "name": "backups"
     },
     {
+      "description": "Retrieve information about the server such as the hostname, location, versions and modules.",
       "name": "meta"
     },
     {
-      "name": "P2P"
+      "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection.",
+      "name": "nodes"
     },
     {
-      "description": "All functions related to the Contextionary.",
-      "name": "contextionary-API"
+      "description": "` + "`" + `well-known` + "`" + ` endpoints",
+      "name": "well-known"
     },
     {
-      "description": "These operations enable manipulation of the schema in Weaviate schema.",
-      "name": "schema"
+      "description": "Query data using the GraphQL query language.",
+      "name": "graphql"
+    },
+    {
+      "description": "For working with modules connected to your Weaviate instance. See the \u003ca href='https://weaviate.io/developers/weaviate/modules'\u003emodules pages\u003c/a\u003e for more information.",
+      "name": "modules"
+    },
+    {
+      "description": "Perform classification operations",
+      "name": "classifications"
     }
   ],
   "externalDocs": {
@@ -5101,7 +5132,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Cloud-native, modular vector database",
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
@@ -5114,7 +5145,8 @@ func init() {
   "paths": {
     "/": {
       "get": {
-        "description": "Home. Discover the REST API",
+        "description": "Links to other endpoints to help users discover the REST API",
+        "summary": "Root endpoint with links.",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
@@ -5137,6 +5169,9 @@ func init() {
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
@@ -5196,6 +5231,9 @@ func init() {
     "/.well-known/ready": {
       "get": {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "tags": [
+          "well-known"
+        ],
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
@@ -10428,28 +10466,52 @@ func init() {
   ],
   "tags": [
     {
+      "description": "Root. \u003cbr/\u003e\u003cbr/\u003eNote the base path of the Weaviate server is ` + "`" + `[YOUR-WEAVIATE-HOST]:[PORT]/v1` + "`" + `. For example, the ` + "`" + `schema` + "`" + ` endpoint is accessible at ` + "`" + `https://your-weaviate-host:rest_port/v1/schema` + "`" + `.",
+      "name": "/"
+    },
+    {
+      "description": "Operate on the database schema. \u003cbr/\u003e\u003cbr/\u003eNote an 'Object class' in Weaviate is being renamed to a 'collection'. \u003cbr/\u003e\u003cbr/\u003eSee \u003ca href='https://weaviate.io/developers/weaviate/manage-data/collections'\u003ethis page\u003c/a\u003e for client code examples.",
+      "name": "schema"
+    },
+    {
+      "description": "Create, update and delete objects and cross-references.",
       "name": "objects"
     },
     {
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets.",
+      "description": "Create, update and delete references.",
+      "name": "references"
+    },
+    {
+      "description": "Create, update and delete multiple objects and references at once.",
       "name": "batch"
     },
     {
-      "name": "graphql"
+      "description": "Create, restore and check the status of backups.",
+      "name": "backups"
     },
     {
+      "description": "Retrieve information about the server such as the hostname, location, versions and modules.",
       "name": "meta"
     },
     {
-      "name": "P2P"
+      "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection.",
+      "name": "nodes"
     },
     {
-      "description": "All functions related to the Contextionary.",
-      "name": "contextionary-API"
+      "description": "` + "`" + `well-known` + "`" + ` endpoints",
+      "name": "well-known"
     },
     {
-      "description": "These operations enable manipulation of the schema in Weaviate schema.",
-      "name": "schema"
+      "description": "Query data using the GraphQL query language.",
+      "name": "graphql"
+    },
+    {
+      "description": "For working with modules connected to your Weaviate instance. See the \u003ca href='https://weaviate.io/developers/weaviate/modules'\u003emodules pages\u003c/a\u003e for more information.",
+      "name": "modules"
+    },
+    {
+      "description": "Perform classification operations",
+      "name": "classifications"
     }
   ],
   "externalDocs": {

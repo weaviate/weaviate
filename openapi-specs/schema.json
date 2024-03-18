@@ -1,18 +1,9 @@
 {
   "basePath": "/v1",
   "consumes": [
+    "application/yaml",
     "application/json"
   ],
-  "info": {
-    "contact": {
-      "email": "hello@weaviate.io",
-      "name": "Weaviate",
-      "url": "https://github.com/weaviate"
-    },
-    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/><br/>This API is documented in **OpenAPI format**",
-    "title": "Weaviate",
-    "version": "1.24.4"
-  },
   "definitions": {
     "Link": {
       "type": "object",
@@ -1976,6 +1967,16 @@
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
   },
+  "info": {
+    "contact": {
+      "email": "hello@weaviate.io",
+      "name": "Weaviate",
+      "url": "https://github.com/weaviate"
+    },
+    "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.",
+    "title": "Weaviate",
+    "version": "1.24.4"
+  },
   "parameters": {
     "CommonAfterParameterQuery": {
       "description": "The starting ID of the result window.",
@@ -2080,13 +2081,11 @@
               }
             }
           }
-        },
-        "tags": ["/"]
+        }
       }
     },
     "/.well-known/live": {
       "get": {
-        "summary": "Get application liveness.",
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
@@ -2094,12 +2093,11 @@
             "description": "The application is able to respond to HTTP requests"
           }
         },
-        "tags": [".well-known"]
+        "tags": ["well-known"]
       }
     },
     "/.well-known/ready": {
       "get": {
-        "summary": "Get application readiness.",
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
@@ -2110,12 +2108,11 @@
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
         },
-        "tags": [".well-known"]
+        "tags": ["well-known"]
       }
     },
     "/.well-known/openid-configuration": {
       "get": {
-        "summary": "OIDC discovery information (if OIDC auth is enabled)",
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "responses": {
           "200": {
@@ -2152,8 +2149,11 @@
             }
           }
         },
+        "summary": "OIDC discovery information if OIDC auth is enabled",
         "tags": [
-          ".well-known"
+          "well-known",
+          "oidc",
+          "discovery"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -2161,8 +2161,7 @@
     },
     "/objects": {
       "get": {
-        "summary": "Get a list of objects.",
-        "description": "Lists all objects in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all Objects in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "objects.list",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -2231,6 +2230,7 @@
             }
           }
         },
+        "summary": "Get a list of Objects.",
         "tags": [
           "objects"
         ],
@@ -2238,8 +2238,7 @@
         "x-available-in-websocket": false
       },
       "post": {
-        "summary": "Create a new object.",
-        "description": "Creates a new Object. Provided meta-data and schema values are validated.",
+        "description": "Registers a new Object. Provided meta-data and schema values are validated.",
         "operationId": "objects.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -2292,6 +2291,7 @@
             }
           }
         },
+        "summary": "Create Objects between two Objects (object and subject).",
         "tags": [
           "objects"
         ],
@@ -2301,8 +2301,7 @@
     },
     "/objects/{id}": {
       "delete": {
-        "summary": "Delete an object.",
-        "description": "Deletes an Object from the database based on its UUID.",
+        "description": "Deletes an Object from the system.",
         "operationId": "objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2346,6 +2345,7 @@
             }
           }
         },
+        "summary": "Delete an Object based on its UUID.",
         "tags": [
           "objects"
         ],
@@ -2354,8 +2354,7 @@
         "deprecated": true
       },
       "get": {
-        "description": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
-        "summary": "List objects.",
+        "description": "Lists Objects.",
         "operationId": "objects.get",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -2405,6 +2404,7 @@
             }
           }
         },
+        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "tags": [
           "objects"
         ],
@@ -2413,8 +2413,7 @@
         "deprecated": true
       },
       "patch": {
-        "summary": "Update an Object (patch).",
-        "description": "Update an Object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Object. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "objects.patch",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2473,6 +2472,7 @@
             }
           }
         },
+        "summary": "Update an Object based on its UUID (using patch semantics).",
         "tags": [
           "objects"
         ],
@@ -2481,8 +2481,7 @@
         "deprecated": true
       },
       "put": {
-        "summary": "Update an object.",
-        "description": "Updates an Object's data based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Object's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "objects.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2540,6 +2539,7 @@
             }
           }
         },
+        "summary": "Update an Object based on its UUID.",
         "tags": [
           "objects"
         ],
@@ -2548,8 +2548,7 @@
         "deprecated": true
       },
       "head": {
-        "summary": "Check if object exists.",
-        "description": "Checks if an Object exists in the system based on its UUID.",
+        "description": "Checks if an Object exists in the system.",
         "operationId": "objects.head",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2587,6 +2586,7 @@
             }
           }
         },
+        "summary": "Checks Object's existence based on its UUID.",
         "tags": [
           "objects"
         ],
@@ -2597,8 +2597,7 @@
     },
     "/objects/{className}/{id}": {
       "get": {
-        "summary": "Get an object",
-        "description": "Get a data object based on its collection and UUID. Also available as Websocket bus.",
+        "description": "Get a single data object",
         "operationId": "objects.class.get",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -2669,6 +2668,7 @@
             }
           }
         },
+        "summary": "Get a specific Object based on its class and UUID. Also available as Websocket bus.",
         "tags": [
           "objects"
         ],
@@ -2676,8 +2676,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "summary": "Delete an object.",
-        "description": "Delete an object based on its collection and UUID.",
+        "description": "Delete a single data object.",
         "operationId": "objects.class.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2739,6 +2738,7 @@
             }
           }
         },
+        "summary": "Delete object based on its class and UUID.",
         "tags": [
           "objects"
         ],
@@ -2746,8 +2746,7 @@
         "x-available-in-websocket": true
       },
       "put": {
-        "summary": "Update an object.",
-        "description": "Update an object based on its uuid and collection.",
+        "description": "Update an individual data object based on its class and uuid.",
         "operationId": "objects.class.put",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2811,6 +2810,7 @@
             }
           }
         },
+        "summary": "Update a class object based on its uuid",
         "tags": [
           "objects"
         ],
@@ -2818,8 +2818,7 @@
         "x-available-in-websocket": false
       },
       "patch": {
-        "summary": "Update an object (patch).",
-        "description": "Update an individual data object based on its collection and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an individual data object based on its class and uuid. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "objects.class.patch",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2888,6 +2887,7 @@
             }
           }
         },
+        "summary": "Update an Object based on its UUID (using patch semantics).",
         "tags": [
           "objects"
         ],
@@ -2895,8 +2895,7 @@
         "x-available-in-websocket": false
       },
       "head": {
-        "summary": "Checks if object exists.",
-        "description": "Checks if a data object exists based on its collection and uuid without retrieving it.",
+        "description": "Checks if a data object exists without retrieving it.",
         "operationId": "objects.class.head",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -2953,6 +2952,7 @@
             }
           }
         },
+        "summary": "Checks object's existence based on its class and uuid.",
         "tags": [
           "objects"
         ],
@@ -2960,61 +2960,9 @@
         "x-available-in-websocket": true
       }
     },
-    "/objects/validate": {
-      "post": {
-        "summary": "Validate an object.",
-        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
-        "operationId": "objects.validate",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Object"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully validated."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "tags": [
-          "objects"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
     "/objects/{id}/references/{propertyName}": {
       "post": {
-        "summary": "Add a cross-reference.",
-        "description": "Add a cross-reference.",
+        "description": "Add a single reference to a class-property.",
         "operationId": "objects.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -3073,17 +3021,16 @@
             }
           }
         },
+        "summary": "Add a single reference to a class-property.",
         "tags": [
-          "objects",
-          "references"
+          "objects"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "deprecated": true
       },
       "put": {
-        "summary": "Replace cross-references.",
-        "description": "Replace all references in cross-reference property of an object.",
+        "description": "Replace all references to a class-property.",
         "operationId": "objects.references.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -3142,16 +3089,15 @@
             }
           }
         },
+        "summary": "Replace all references to a class-property.",
         "tags": [
-          "objects",
-          "references"
+          "objects"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "deprecated": true
       },
       "delete": {
-        "summary": "Delete a cross-reference.",
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "objects.references.delete",
         "x-serviceIds": [
@@ -3211,9 +3157,9 @@
             }
           }
         },
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects",
-          "references"
+          "objects"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -3222,8 +3168,7 @@
     },
     "/objects/{className}/{id}/references/{propertyName}": {
       "post": {
-        "summary": "Add a cross-reference.",
-        "description": "Add a single reference to an object.",
+        "description": "Add a single reference to a class-property.",
         "operationId": "objects.class.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -3301,16 +3246,15 @@
             }
           }
         },
+        "summary": "Add a single reference to a class-property.",
         "tags": [
-          "objects",
-          "references"
+          "objects"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
-        "summary": "Replace cross-references.",
-        "description": "Replace all references in cross-reference property of an object.",
+        "description": "Update all references of a property of a data object.",
         "operationId": "objects.class.references.put",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -3388,16 +3332,15 @@
             }
           }
         },
+        "summary": "Replace all references to a class-property.",
         "tags": [
-          "objects",
-          "references"
+          "objects"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
-        "summary": "Delete a cross-reference.",
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property of a data object has",
         "operationId": "objects.class.references.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -3478,9 +3421,60 @@
             }
           }
         },
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects",
-          "references"
+          "objects"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/objects/validate": {
+      "post": {
+        "description": "Validate an Object's schema and meta-data. It has to be based on a schema, which is related to the given Object to be accepted by this validation.",
+        "operationId": "objects.validate",
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Object"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully validated."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Validate an Object based on a schema.",
+        "tags": [
+          "objects"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3488,7 +3482,6 @@
     },
     "/batch/objects": {
       "post": {
-        "summary": "Batch create new objects.",
         "description": "Register new Objects in bulk. Provided meta-data and schema values are validated.",
         "operationId": "batch.objects.create",
         "x-serviceIds": [
@@ -3568,6 +3561,7 @@
             }
           }
         },
+        "summary": "Creates new Objects based on a Object template as a batch.",
         "tags": [
           "batch",
           "objects"
@@ -3576,8 +3570,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "summary": "Batch delete objects.",
-        "description": "Batch delete objects in bulk based on a certain filter.",
+        "description": "Delete Objects in bulk that match a certain filter.",
         "operationId": "batch.objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -3633,6 +3626,7 @@
             }
           }
         },
+        "summary": "Deletes Objects based on a match filter as a batch.",
         "tags": [
           "batch",
           "objects"
@@ -3643,8 +3637,7 @@
     },
     "/batch/references": {
       "post": {
-        "summary": "Batch create cross-references.",
-        "description": "Batch create cross-references between collections items (objects or objects) in bulk.",
+        "description": "Register cross-references between any class items (objects or objects) in bulk.",
         "operationId": "batch.references.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -3704,6 +3697,7 @@
             }
           }
         },
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
         "tags": [
           "batch",
           "references"
@@ -3714,8 +3708,7 @@
     },
     "/graphql": {
       "post": {
-        "summary": "Perform a GraphQL query.",
-        "description": "Get a response based on a GraphQL query",
+        "description": "Get an object based on GraphQL",
         "operationId": "graphql.post",
         "x-serviceIds": [
           "weaviate.local.query",
@@ -3763,6 +3756,7 @@
             }
           }
         },
+        "summary": "Get a response based on GraphQL",
         "tags": [
           "graphql"
         ],
@@ -3772,8 +3766,7 @@
     },
     "/graphql/batch": {
       "post": {
-        "summary": "Perform batched GraphQL queries.",
-        "description": "Perform batched GraphQL query",
+        "description": "Perform a batched GraphQL query",
         "operationId": "graphql.batch",
         "x-serviceIds": [
           "weaviate.local.query",
@@ -3821,6 +3814,7 @@
             }
           }
         },
+        "summary": "Get a response based on GraphQL.",
         "tags": [
           "graphql"
         ],
@@ -3830,8 +3824,7 @@
     },
     "/meta": {
       "get": {
-        "summary": "Get instance metadata.",
-        "description": "Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "operationId": "meta.get",
         "x-serviceIds": [
           "weaviate.local.query.meta"
@@ -3859,6 +3852,7 @@
             }
           }
         },
+        "summary": "Returns meta information of the current Weaviate instance.",
         "tags": [
           "meta"
         ],
@@ -3866,9 +3860,31 @@
         "x-available-in-websocket": false
       }
     },
+    "/schema/cluster-status": {
+      "get": {
+        "operationId": "schema.cluster.status",
+        "tags": [
+          "schema"
+        ],
+        "responses": {
+          "200": {
+            "description": "The schema in the cluster is in sync.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          },
+          "500": {
+            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
+            "schema": {
+              "$ref": "#/definitions/SchemaClusterStatus"
+            }
+          }
+        }
+      }
+    },
     "/schema": {
       "get": {
-        "summary": "Get the entire schema.",
+        "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
         "x-serviceIds": [
           "weaviate.local.query.meta"
@@ -3901,7 +3917,7 @@
         }
       },
       "post": {
-        "summary": "Create a new collection.",
+        "summary": "Create a new Object class in the schema.",
         "operationId": "schema.objects.create",
         "x-serviceIds": [
           "weaviate.local.add.meta"
@@ -3950,32 +3966,9 @@
         }
       }
     },
-    "/schema/cluster-status": {
-      "get": {
-        "summary": "Get schema synchronization status.",
-        "operationId": "schema.cluster.status",
-        "tags": [
-          "schema"
-        ],
-        "responses": {
-          "200": {
-            "description": "The schema in the cluster is in sync.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          },
-          "500": {
-            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          }
-        }
-      }
-    },
     "/schema/{className}": {
       "get": {
-        "summary": "Get a single collection schema.",
+        "summary": "Get a single class from the schema",
         "operationId": "schema.objects.get",
         "x-serviceIds": [
           "weaviate.local.get.meta"
@@ -4019,8 +4012,7 @@
         }
       },
       "delete": {
-        "summary": "Remove a collection (and its data).",
-        "description": "Remove a collection from the schema. This will also delete all the objects in the collection.",
+        "summary": "Remove an Object class (and all data in the instances) from the schema.",
         "operationId": "schema.objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -4064,7 +4056,7 @@
         }
       },
       "put": {
-        "summary": "Update an existing collection.",
+        "summary": "Update settings of an existing schema class",
         "description": "Use this endpoint to alter an existing class in the schema. Note that not all settings are mutable. If an error about immutable fields is returned and you still need to update this particular setting, you will have to delete the class (and the underlying data) and recreate. This endpoint cannot be used to modify properties. Instead use POST /v1/schema/{className}/properties. A typical use case for this endpoint is to update configuration, such as the vectorIndexConfig. Note that even in mutable sections, such as vectorIndexConfig, some fields may be immutable.",
         "operationId": "schema.objects.update",
         "x-serviceIds": [
@@ -4128,7 +4120,7 @@
     },
     "/schema/{className}/properties": {
       "post": {
-        "summary": "Add a property.",
+        "summary": "Add a property to an Object class.",
         "operationId": "schema.objects.properties.add",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -4185,8 +4177,7 @@
     },
     "/schema/{className}/shards": {
       "get": {
-        "summary": "Get the shard status",
-        "description": "Get the shard status of a collection",
+        "summary": "Get the shards status of an Object class",
         "operationId": "schema.objects.shards.get",
         "x-serviceIds": [
           "weaviate.local.get.meta"
@@ -4240,8 +4231,7 @@
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "summary": "Update a shard status.",
-        "description": "Update a shard status for a collection.",
+        "description": "Update shard status of an Object Class",
         "operationId": "schema.objects.shards.update",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -4310,7 +4300,6 @@
     },
     "/schema/{className}/tenants": {
       "post": {
-        "summary": "Create a new tenant",
         "description": "Create a new tenant for a specific class",
         "operationId": "tenants.create",
         "tags": [
@@ -4369,8 +4358,7 @@
         }
       },
       "put": {
-        "summary": "Update a tenant",
-        "description": "Update a tenant for a collection",
+        "description": "Update tenant of a specific class",
         "operationId": "tenants.update",
         "tags": [
           "schema"
@@ -4428,8 +4416,7 @@
         }
       },
       "delete": {
-        "summary": "Delete tenant(s)",
-        "description": "Delete tenants from a collection",
+        "description": "delete tenants from a specific class",
         "operationId": "tenants.delete",
         "tags": [
           "schema"
@@ -4481,8 +4468,7 @@
         }
       },
       "get": {
-        "summary": "Get the list of tenants.",
-        "description": "Get all tenants from a collection.",
+        "description": "get all tenants from a specific class",
         "operationId": "tenants.get",
         "tags": [
           "schema"
@@ -4531,8 +4517,7 @@
     },
     "/schema/{className}/tenants/{tenantName}": {
       "head": {
-        "summary": "Check if a tenant exists",
-        "description": "Check if a tenant exists in a collection",
+        "description": "Check if a tenant exists for a specific class",
         "operationId": "tenant.exists",
         "tags": [
           "schema"
@@ -4584,8 +4569,7 @@
     },
     "/backups/{backend}": {
       "post": {
-        "summary": "Start a backup process",
-        "description": "Start creating a backup for a set of collections",
+        "description": "Starts a process of creating a backup for a set of classes",
         "operationId": "backups.create",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -4643,8 +4627,7 @@
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "summary": "Get backup process status",
-        "description": "Returns status of backup creation attempt for a set of collections",
+        "description": "Returns status of backup creation attempt for a set of classes",
         "operationId": "backups.create.status",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -4707,8 +4690,7 @@
     },
     "/backups/{backend}/{id}/restore": {
       "post": {
-        "summary": "Start a restoration process",
-        "description": "Starts a process of restoring a backup for a set of collections",
+        "description": "Starts a process of restoring a backup for a set of classes",
         "operationId": "backups.restore",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -4777,7 +4759,6 @@
         }
       },
       "get": {
-        "summary": "Get restore process status",
         "description": "Returns status of a backup restoration attempt for a set of classes",
         "operationId": "backups.restore.status",
         "x-serviceIds": [
@@ -4835,8 +4816,7 @@
     },
     "/nodes": {
       "get": {
-        "summary": "Node information for the database.",
-        "description": "Returns node information for the entire database.",
+        "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get",
         "x-serviceIds": [
           "weaviate.nodes.status.get"
@@ -4888,8 +4868,7 @@
     },
     "/nodes/{className}": {
       "get": {
-        "summary": "Node information for a collection.",
-        "description": "Returns node information for the nodes relevant to the collection.",
+        "description": "Returns status of Weaviate DB.",
         "operationId": "nodes.get.class",
         "x-serviceIds": [
           "weaviate.nodes.status.get.class"
@@ -5102,8 +5081,8 @@
       "description": "Retrieve information about relevant nodes in the cluster. The query can be for the entire cluster, or for a particular collection."
     },
     {
-      "name": ".well-known",
-      "description": ".well-known endpoints"
+      "name": "well-known",
+      "description": "`well-known` endpoints"
     },
     {
       "name": "graphql",

@@ -13,7 +13,8 @@
 
 // Package rest Weaviate
 //
-//	Cloud-native, modular vector database
+//	# Introduction
+//	 Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications.
 //	Schemes:
 //	  https
 //	Host: localhost
