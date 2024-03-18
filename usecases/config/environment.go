@@ -462,13 +462,9 @@ const (
 
 const VectorizerModuleNone = "none"
 
-// DefaultGossipBindPort and DefaultGossipAdvertisePort uses the
-// hashicorp/memberlist default port value assigned with the use of
-// DefaultLocalConfig
-const (
-	DefaultGossipBindPort = 7946
-	DefaultAdvertisePort  = 7946
-)
+// DefaultGossipBindPort uses the hashicorp/memberlist default port value
+// assigned with the use of DefaultLocalConfig
+const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
@@ -541,8 +537,6 @@ func parseClusterConfig() (cluster.Config, error) {
 			return cfg, fmt.Errorf("parse CLUSTER_ADVERTISE_PORT as int: %w", err)
 		}
 		cfg.AdvertisePort = asInt
-	} else {
-		cfg.AdvertisePort = DefaultAdvertisePort
 	}
 
 	if gossipBindSet {
