@@ -2091,7 +2091,8 @@
           "200": {
             "description": "The application is able to respond to HTTP requests"
           }
-        }
+        },
+        "tags": [".well-known"]
       }
     },
     "/.well-known/ready": {
@@ -2105,7 +2106,8 @@
           "503": {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
           }
-        }
+        },
+        "tags": [".well-known"]
       }
     },
     "/.well-known/openid-configuration": {
@@ -2148,9 +2150,8 @@
         },
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "tags": [
-          "well-known",
-          "oidc",
-          "discovery"
+          ".well-known",
+          "oidc"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
