@@ -51,6 +51,7 @@ type BindModule struct {
 	nearTextSearcher           modulecapabilities.Searcher
 	nearTextTransformer        modulecapabilities.TextTransform
 	metaClient                 metaClient
+	logger                     logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -83,6 +84,7 @@ func (m *BindModule) Type() modulecapabilities.ModuleType {
 func (m *BindModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -176,19 +178,7 @@ func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 }
 
 func (m *BindModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	errs := make(map[int]error, 0)
-	vecs := make([][]float32, len(objs))
-	for i, obj := range objs {
-		if skipObject[i] {
-			continue
-		}
-		vec, _, err := m.bindVectorizer.Object(ctx, obj, cfg)
-		if err != nil {
-			errs[i] = err
-		}
-		vecs[i] = vec
-	}
-	return vecs, nil, errs
+	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.bindVectorizer.Object)
 }
 
 func (m *BindModule) VectorizeInput(ctx context.Context,

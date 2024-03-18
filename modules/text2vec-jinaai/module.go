@@ -130,19 +130,7 @@ func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 }
 
 func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	errs := make(map[int]error, 0)
-	vecs := make([][]float32, len(objs))
-	for i, obj := range objs {
-		if skipObject[i] {
-			continue
-		}
-		vec, _, err := m.vectorizer.Object(ctx, obj, cfg)
-		if err != nil {
-			errs[i] = err
-		}
-		vecs[i] = vec
-	}
-	return vecs, nil, errs
+	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
