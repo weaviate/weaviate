@@ -29,6 +29,9 @@ const serviceConfig = `
 			"name": [
 				{
 					"service": "weaviate.cloud.internal.cluster.ClusterService", "method": "Apply"
+				},
+				{
+					"service": "weaviate.cloud.internal.cluster.ClusterService", "method": "Query"
 				}
 			],
 			"retryPolicy": {
@@ -121,13 +124,33 @@ func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyRes
 	conn, err := grpc.Dial(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(serviceConfig))
+		grpc.WithDefaultServiceConfig(serviceConfig),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
 	return c.Apply(ctx, req)
+}
+
+func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	addr, err := cl.rpc.Address(leaderAddress)
+	if err != nil {
+		return nil, fmt.Errorf("resolve address: %w", err)
+	}
+
+	conn, err := grpc.Dial(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(serviceConfig),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	defer conn.Close()
+	c := cmd.NewClusterServiceClient(conn)
+	return c.Query(ctx, req)
 }
 
 func NewRPCResolver(isLocalHost bool, rpcPort int) rpcAddressResolver {
