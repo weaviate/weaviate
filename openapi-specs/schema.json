@@ -1,7 +1,6 @@
 {
   "basePath": "/v1",
   "consumes": [
-    "application/yaml",
     "application/json"
   ],
   "definitions": {
@@ -906,7 +905,7 @@
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -939,7 +938,7 @@
     },
     "RestoreConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -948,7 +947,7 @@
           "minimum": 1,
           "maximum": 80,
           "x-nullable": false
-        }       
+        }
       }
     },
     "BackupCreateRequest": {
@@ -2080,7 +2079,8 @@
               }
             }
           }
-        }
+        },
+        "tags": ["/"]
       }
     },
     "/.well-known/live": {
@@ -4563,7 +4563,7 @@
           }
         }
       }
-    },    
+    },
     "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
@@ -5046,6 +5046,14 @@
   "swagger": "2.0",
   "tags": [
     {
+      "name": "/",
+      "description": "Home."
+    },
+    {
+      "name": "schema",
+      "description": "These operations enable manipulation of the database schema in Weaviate. Note an 'Object class' in Weaviate is being renamed to a 'collection'. See <a href='https://weaviate.io/developers/weaviate/manage-data/collections'>this page</a> for client code examples."
+    },
+    {
       "name": "objects"
     },
     {
@@ -5053,21 +5061,28 @@
       "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets."
     },
     {
-      "name": "graphql"
+      "name": "backups"
+    },
+    {
+      "name": "classifications"
     },
     {
       "name": "meta"
     },
     {
-      "name": "P2P"
+      "name": "nodes"
     },
     {
-      "name": "contextionary-API",
-      "description": "All functions related to the Contextionary."
+      "name": ".well-known"
     },
     {
-      "name": "schema",
-      "description": "These operations enable manipulation of the schema in Weaviate schema."
+      "name": "modules"
+    },
+    {
+      "name": "graphql"
+    },
+    {
+      "name": "deprecated"
     }
   ]
 }
