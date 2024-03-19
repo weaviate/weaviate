@@ -758,7 +758,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 	// sync hashtree with current object states
 
-	go func() {
+	enterrors.GoWrapper(func() {
 		prevContextEvaluation := time.Now()
 
 		objCount := 0
@@ -811,7 +811,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			Info("hashtree successfully initialized")
 
 		s.initHashBeater()
-	}()
+	}, s.index.logger)
 
 	return nil
 }
