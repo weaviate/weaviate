@@ -528,6 +528,16 @@ type fakeNodeResolver struct {
 	hosts map[string]string
 }
 
+func (r *fakeNodeResolver) AllHostnames() []string {
+	hosts := make([]string, len(r.hosts))
+	count := 0
+	for _, host := range r.hosts {
+		hosts[count] = host
+		count++
+	}
+	return hosts[:count]
+}
+
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	return r.hosts[nodeName], true
 }

@@ -93,6 +93,10 @@ type fakeNodeResolver struct {
 	hosts map[string]string
 }
 
+func (r *fakeNodeResolver) AllHostnames() []string {
+	return r.HostNames()
+}
+
 func (r *fakeNodeResolver) NodeHostName(nodeName string) (string, bool) {
 	if host, ok := r.hosts[nodeName]; ok {
 		return host, true
@@ -107,7 +111,7 @@ func (r *fakeNodeResolver) HostNames() []string {
 		hosts[count] = host
 		count++
 	}
-	return hosts
+	return hosts[:count]
 }
 
 func newFakeCoordinator(resolver *fakeNodeResolver) *fakeCoordinator {

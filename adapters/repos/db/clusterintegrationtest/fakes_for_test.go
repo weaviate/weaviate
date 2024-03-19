@@ -199,6 +199,10 @@ type nodeResolver struct {
 	local string
 }
 
+func (r nodeResolver) AllHostnames() []string {
+	panic("node resolving not implemented yet")
+}
+
 func (r nodeResolver) AllNames() []string {
 	xs := []string{}
 	for _, n := range *r.nodes {

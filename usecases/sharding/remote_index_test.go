@@ -96,6 +96,16 @@ type fakeNodeResolver struct {
 	rTable map[string]string
 }
 
+func (r *fakeNodeResolver) AllHostnames() []string {
+	hosts := make([]string, 0, len(r.rTable))
+
+	for _, h := range r.rTable {
+		hosts = append(hosts, h)
+	}
+
+	return hosts
+}
+
 func (f *fakeNodeResolver) NodeHostname(name string) (string, bool) {
 	host, ok := f.rTable[name]
 	return host, ok
