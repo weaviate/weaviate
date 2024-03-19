@@ -240,7 +240,7 @@ If you have any comments or questions, please feel free to reach out to us at th
 ### Issues?
 If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate).
 ### Want more documentation?
-For more information, please visit our [documentation](https://www.weaviate.io/documentation/weaviate/).
+For a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).
 */
 type WeaviateAPI struct {
 	spec            *loads.Document
