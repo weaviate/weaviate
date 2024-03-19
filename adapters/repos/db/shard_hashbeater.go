@@ -25,10 +25,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (s *Shard) initHashBeater() {
-	go func() {
+	enterrors.GoWrapper(func() {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -148,9 +150,9 @@ func (s *Shard) initHashBeater() {
 				}
 			}
 		}
-	}()
+	}, s.index.logger)
 
-	go func() {
+	enterrors.GoWrapper(func() {
 		t := time.NewTicker(100 * time.Millisecond)
 
 		for {
@@ -169,7 +171,7 @@ func (s *Shard) initHashBeater() {
 				}
 			}
 		}
-	}()
+	}, s.index.logger)
 }
 
 func (s *Shard) setLastComparedNodes(hosts []string) {
