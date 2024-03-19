@@ -69,8 +69,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
-			WithWeaviate().
-			WithWeaviateClusterSize(2).
+			WithWeaviateCluster(2).
 			Start(ctx)
 		require.Nil(t, err)
 

@@ -55,8 +55,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
-			WithWeaviate().
-			WithWeaviateClusterSize(2).
+			WithWeaviateCluster(2).
 			Start(ctx)
 		require.Nil(t, err)
 

@@ -356,11 +356,8 @@ func (d *Compose) WithSecondWeaviate() *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateCluster() *Compose {
-	return d.With2NodeCluster()
-}
-
-func (d *Compose) WithWeaviateClusterSize(size int) *Compose {
+func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = size
 	return d
 }

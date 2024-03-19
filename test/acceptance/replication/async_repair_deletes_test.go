@@ -34,8 +34,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 	clusterSize := 3
 
 	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateClusterSize(clusterSize).
+		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
