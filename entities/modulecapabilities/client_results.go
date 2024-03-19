@@ -9,11 +9,19 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package modulecapabilities
 
-func (v *client) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
-		"name":              "OpenAI Module",
-		"documentationHref": "https://platform.openai.com/docs/guides/embeddings/what-are-embeddings",
-	}, nil
+type RateLimits struct {
+	LimitRequests     int
+	LimitTokens       int
+	RemainingRequests int
+	RemainingTokens   int
+	ResetRequests     int
+	ResetTokens       int
+}
+type VectorizationResult struct {
+	Text       []string
+	Dimensions int
+	Vector     [][]float32
+	Errors     []error
 }

@@ -26,7 +26,7 @@ import (
 
 func TestBatch(t *testing.T) {
 	client := &fakeBatchClient{}
-	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 	cases := []struct {
 		name       string
@@ -116,7 +116,7 @@ func TestBatch(t *testing.T) {
 
 func TestBatchMultiple(t *testing.T) {
 	client := &fakeBatchClient{}
-	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
 	v := New(client, 40*time.Second, logger)
@@ -152,7 +152,7 @@ func TestBatchMultiple(t *testing.T) {
 
 func TestBatchTimeouts(t *testing.T) {
 	client := &fakeBatchClient{defaultResetRate: 1}
-	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
 	cases := []struct {
@@ -180,7 +180,7 @@ func TestBatchTimeouts(t *testing.T) {
 
 func TestBatchRequestLimit(t *testing.T) {
 	client := &fakeBatchClient{defaultResetRate: 1}
-	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	thirtyTokens := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
 	logger, _ := test.NewNullLogger()
 

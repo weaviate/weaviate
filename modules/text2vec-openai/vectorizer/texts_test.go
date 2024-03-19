@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
@@ -143,7 +145,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client, 40*time.Second, logger)
 
-			cfg := &fakeClassConfig{
+			cfg := &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"type":         test.openAIType,
 					"model":        test.openAIModel,
@@ -155,9 +157,10 @@ func TestVectorizingTexts(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
-			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
-			assert.Equal(t, client.lastConfig.ModelVersion, test.expectedModelVersion)
+			conf := ent.NewClassSettings(client.lastConfig)
+			assert.Equal(t, conf.Type, test.expectedOpenAIType)
+			assert.Equal(t, conf.Model, test.expectedOpenAIModel)
+			assert.Equal(t, conf.ModelVersion, test.expectedModelVersion)
 		})
 	}
 }

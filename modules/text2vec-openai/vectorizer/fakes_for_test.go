@@ -18,18 +18,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 type fakeBatchClient struct {
 	lastInput        []string
-	lastConfig       ent.VectorizationConfig
+	lastConfig       moduletools.ClassConfig
 	defaultResetRate int
 }
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, *ent.RateLimits, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
 
@@ -39,7 +40,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
-	rateLimit := &ent.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
+	rateLimit := &modulecapabilities.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
 			errors[i] = fmt.Errorf(text[i][6:])
@@ -67,7 +68,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		vectors[i] = []float32{0, 1, 2, 3}
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecapabilities.VectorizationResult{
 		Vector:     vectors,
 		Dimensions: 4,
 		Text:       text,
@@ -76,11 +77,11 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 }
 
 func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
+	return &modulecapabilities.VectorizationResult{
 		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
@@ -89,15 +90,15 @@ func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 
 type fakeClient struct {
 	lastInput  []string
-	lastConfig ent.VectorizationConfig
+	lastConfig moduletools.ClassConfig
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, *ent.RateLimits, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
+	return &modulecapabilities.VectorizationResult{
 		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
 		Text:       text,
@@ -105,33 +106,33 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
+	return &modulecapabilities.VectorizationResult{
 		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
 	}, nil
 }
 
-type fakeClassConfig struct {
+type FakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
 }
 
-func (f fakeClassConfig) Class() map[string]interface{} {
+func (f FakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	return f.classConfig
 }
 
-func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+func (f FakeClassConfig) Property(propName string) map[string]interface{} {
 	if propName == f.skippedProperty {
 		return map[string]interface{}{
 			"skip": true,
@@ -150,10 +151,10 @@ func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
 }
 
-func (f fakeClassConfig) Tenant() string {
+func (f FakeClassConfig) Tenant() string {
 	return ""
 }
 
-func (f fakeClassConfig) TargetVector() string {
+func (f FakeClassConfig) TargetVector() string {
 	return ""
 }

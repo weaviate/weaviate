@@ -13,8 +13,13 @@ package modulecapabilities
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
+	"time"
+
+	"github.com/pkg/errors"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -23,6 +28,214 @@ import (
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
+
+const BatchChannelSize = 100
+
+type BatchJob struct {
+	texts      []string
+	tokens     []int
+	ctx        context.Context
+	wg         *sync.WaitGroup
+	errs       map[int]error
+	cfg        moduletools.ClassConfig
+	vecs       [][]float32
+	skipObject []bool
+	startTime  time.Time
+}
+
+type BatchClient interface {
+	Vectorize(ctx context.Context, input []string,
+		config moduletools.ClassConfig) (*VectorizationResult, *RateLimits, error)
+}
+
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, logger logrus.FieldLogger) *Batch {
+	batch := Batch{
+		client:                    client,
+		objectVectorizer:          objectsvectorizer.New(),
+		jobQueueCh:                make(chan BatchJob, BatchChannelSize),
+		maxBatchTime:              maxBatchTime,
+		maxObjectsPerBatch:        maxObjectsPerBatch,
+		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
+	}
+	enterrors.GoWrapper(func() { batch.batchWorker() }, logger)
+	return &batch
+}
+
+type Batch struct {
+	client                    BatchClient
+	objectVectorizer          *objectsvectorizer.ObjectVectorizer
+	jobQueueCh                chan BatchJob
+	maxBatchTime              time.Duration
+	maxObjectsPerBatch        int
+	maxTimePerVectorizerBatch float64
+}
+
+// batchWorker is a go routine that handles the communication with the vectorizer
+//
+// On the high level it has the following steps:
+//  1. It receives a batch job
+//  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
+//     batches are not mixed with each other to simplify returning the vectors.
+//  3. It sends the smaller batches to the vectorizer
+func (b *Batch) batchWorker() {
+	rateLimit := &RateLimits{}
+	texts := make([]string, 0, 100)
+	origIndex := make([]int, 0, 100)
+	firstRequest := true
+	timePerToken := 0.0
+	batchTookInS := float64(0)
+
+	for job := range b.jobQueueCh {
+		// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
+
+		objCounter := 0
+		tokensInCurrentBatch := 0
+		texts = texts[:0]
+		origIndex = origIndex[:0]
+
+		// we don't know the current rate limits without a request => send a small one
+		for objCounter < len(job.texts) && firstRequest {
+			var err error
+			if !job.skipObject[objCounter] {
+				rateLimit, err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter})
+				if err != nil {
+					job.errs[objCounter] = err
+					continue
+				}
+				firstRequest = false
+			}
+			objCounter++
+		}
+
+		for objCounter < len(job.texts) {
+			if job.ctx.Err() != nil {
+				for j := objCounter; j < len(job.texts); j++ {
+					if !job.skipObject[j] {
+						job.errs[j] = fmt.Errorf("context deadline exceeded or cancelled")
+					}
+				}
+				break
+			}
+
+			if job.skipObject[objCounter] {
+				objCounter++
+				continue
+			}
+
+			if job.tokens[objCounter] > rateLimit.LimitTokens {
+				job.errs[objCounter] = fmt.Errorf("text too long for vectorization")
+				objCounter++
+				continue
+			}
+
+			// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
+			text := job.texts[objCounter]
+			if float32(tokensInCurrentBatch+job.tokens[objCounter]) < 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < b.maxTimePerVectorizerBatch) && len(texts) < b.maxObjectsPerBatch {
+				tokensInCurrentBatch += job.tokens[objCounter]
+				texts = append(texts, text)
+				origIndex = append(origIndex, objCounter)
+				objCounter++
+				if objCounter < len(job.texts) {
+					continue
+				}
+			}
+
+			// if a single object is larger than the current token limit we need to wait until the token limit refreshes
+			// enough to be able to handle the object. This assumes that the tokenLimit refreshes linearly which is true
+			// for openAI, but needs to be checked for other providers
+			if len(texts) == 0 && rateLimit.ResetTokens > 0 {
+				fractionOfTotalLimit := float32(job.tokens[objCounter]) / float32(rateLimit.LimitTokens)
+				sleepTime := time.Duration(float32(rateLimit.ResetTokens)*fractionOfTotalLimit+1) * time.Second
+				if time.Since(job.startTime)+sleepTime < b.maxBatchTime {
+					time.Sleep(sleepTime)
+					rateLimit.RemainingTokens += int(float32(rateLimit.LimitTokens) * fractionOfTotalLimit)
+				} else {
+					job.errs[objCounter] = fmt.Errorf("text too long for vectorization. Cannot wait for token refresh due to time limit")
+					objCounter++
+				}
+				continue // try again or next item
+			}
+
+			start := time.Now()
+			rateLimitNew, _ := b.makeRequest(job, texts, job.cfg, origIndex)
+			batchTookInS = time.Since(start).Seconds()
+			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
+			if rateLimitNew != nil {
+				rateLimit = rateLimitNew
+			}
+			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
+			// tier only the RPD limits are shown but not RPM
+			if rateLimit.RemainingRequests == 0 && rateLimit.ResetRequests > 0 {
+				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
+				if time.Since(job.startTime)+time.Duration(rateLimit.ResetRequests)*time.Second > b.maxBatchTime {
+					for j := origIndex[0]; j < len(job.texts); j++ {
+						if !job.skipObject[j] {
+							job.errs[j] = errors.New("request rate limit exceeded and will not refresh in time")
+						}
+					}
+					break
+				}
+				time.Sleep(time.Duration(rateLimit.ResetRequests) * time.Second)
+			}
+
+			// reset for next vectorizer-batch
+			tokensInCurrentBatch = 0
+			texts = texts[:0]
+			origIndex = origIndex[:0]
+		}
+
+		// in case we exit the loop without sending the last batch. This can happen when the last object is a skip or
+		// is too long
+		if len(texts) > 0 && objCounter == len(job.texts) {
+			rateLimitNew, _ := b.makeRequest(job, texts, job.cfg, origIndex)
+			if rateLimitNew != nil {
+				rateLimit = rateLimitNew
+			}
+		}
+
+		job.wg.Done()
+
+	}
+}
+
+func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int,
+) (*RateLimits, error) {
+	res, rateLimit, err := b.client.Vectorize(job.ctx, texts, cfg)
+	if err != nil {
+		for j := 0; j < len(texts); j++ {
+			job.errs[origIndex[j]] = err
+		}
+	} else {
+		for j := 0; j < len(texts); j++ {
+			if res.Errors[j] != nil {
+				job.errs[origIndex[j]] = res.Errors[j]
+			} else {
+				job.vecs[origIndex[j]] = res.Vector[j]
+			}
+		}
+	}
+
+	return rateLimit, err
+}
+
+func (b *Batch) SubmitBatchAndWait(ctx context.Context, errs map[int]error, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string, vecs [][]float32) {
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	b.jobQueueCh <- BatchJob{
+		ctx:        ctx,
+		wg:         &wg,
+		errs:       errs,
+		cfg:        cfg,
+		texts:      texts,
+		tokens:     tokenCounts,
+		vecs:       vecs,
+		skipObject: skipObject,
+		startTime:  time.Now(),
+	}
+
+	wg.Wait()
+}
 
 type objectVectorizer func(context.Context, *models.Object, moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 

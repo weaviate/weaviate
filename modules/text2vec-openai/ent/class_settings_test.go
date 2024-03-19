@@ -9,9 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -21,6 +22,48 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
+
+type FakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+}
+
+func (f FakeClassConfig) Class() map[string]interface{} {
+	return f.classConfig
+}
+
+func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.classConfig
+}
+
+func (f FakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
+}
+
+func (f FakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (f FakeClassConfig) TargetVector() string {
+	return ""
+}
 
 func Test_classSettings_Validate(t *testing.T) {
 	class := &models.Class{
@@ -39,7 +82,7 @@ func Test_classSettings_Validate(t *testing.T) {
 	}{
 		{
 			name: "text-embedding-3-small",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "text-embedding-3-small",
 				},
@@ -47,7 +90,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-small, 512 dimensions",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-small",
 					"dimensions": 512,
@@ -56,7 +99,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-small, wrong dimensions",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-small",
 					"dimensions": 1,
@@ -66,7 +109,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-large",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "text-embedding-3-large",
 				},
@@ -74,7 +117,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-large, 512 dimensions",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"dimensions": 1024,
@@ -83,7 +126,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-large, wrong dimensions",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"dimensions": 512,
@@ -93,7 +136,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-ada-002",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":        "ada",
 					"modelVersion": "002",
@@ -102,7 +145,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-ada-002 - dimensions error",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "ada",
 					"dimensions": 512,
@@ -112,7 +155,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-ada-002 - wrong model version",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":        "ada",
 					"modelVersion": "003",
@@ -122,7 +165,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "wrong model name",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "unknown-model",
 				},
@@ -131,7 +174,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "wrong properties",
-			cfg: &fakeClassConfig{
+			cfg: &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"properties": "wrong-properties",
@@ -195,4 +238,57 @@ func Test_classSettings(t *testing.T) {
 		assert.False(t, ic.VectorizePropertyName("otherProp"))
 		assert.False(t, ic.VectorizeClassName())
 	})
+}
+
+func TestValidateModelVersion(t *testing.T) {
+	type test struct {
+		model    string
+		docType  string
+		version  string
+		possible bool
+	}
+
+	tests := []test{
+		// 001 models
+		{"ada", "text", "001", true},
+		{"ada", "code", "001", true},
+		{"babbage", "text", "001", true},
+		{"babbage", "code", "001", true},
+		{"curie", "text", "001", true},
+		{"curie", "code", "001", true},
+		{"davinci", "text", "001", true},
+		{"davinci", "code", "001", true},
+
+		// 002 models
+		{"ada", "text", "002", true},
+		{"davinci", "text", "002", true},
+		{"ada", "code", "002", false},
+		{"babbage", "text", "002", false},
+		{"babbage", "code", "002", false},
+		{"curie", "text", "002", false},
+		{"curie", "code", "002", false},
+		{"davinci", "code", "002", false},
+
+		// 003
+		{"davinci", "text", "003", true},
+		{"ada", "text", "003", false},
+		{"babbage", "text", "003", false},
+
+		// 004
+		{"davinci", "text", "004", false},
+		{"ada", "text", "004", false},
+		{"babbage", "text", "004", false},
+	}
+
+	for _, test := range tests {
+		name := fmt.Sprintf("model=%s docType=%s version=%s", test.model, test.docType, test.version)
+		t.Run(name, func(t *testing.T) {
+			err := (&classSettings{}).validateModelVersion(test.version, test.model, test.docType)
+			if test.possible {
+				assert.Nil(t, err, "this combination should be possible")
+			} else {
+				assert.NotNil(t, err, "this combination should not be possible")
+			}
+		})
+	}
 }
