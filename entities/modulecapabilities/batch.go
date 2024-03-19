@@ -33,6 +33,7 @@ func VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []boo
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for i, obj := range objs {
+		i := i
 		if skipObject[i] {
 			continue
 		}
