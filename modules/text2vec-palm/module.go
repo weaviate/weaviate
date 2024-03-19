@@ -124,6 +124,10 @@ func (m *PalmModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
+func (m *PalmModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+}
+
 func (m *PalmModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }

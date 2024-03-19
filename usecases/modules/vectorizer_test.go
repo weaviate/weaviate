@@ -222,7 +222,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		obj := &models.Object{Class: "Other Class", ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, class, repo.Object, logger)
-		expectedErr := fmt.Sprintf("class %v not present", obj.Class)
+		expectedErr := fmt.Sprintf("no moduleconfig for class %v present", class.Class)
 		assert.EqualError(t, err, expectedErr)
 	})
 

@@ -215,6 +215,28 @@ func (m *ContextionaryModule) VectorizeObject(ctx context.Context,
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
+// VectorizeBatch is _slower_ if many requests are done in parallel. So do all objects sequentially
+func (m *ContextionaryModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs := make([][]float32, len(objs))
+	addProps := make([]models.AdditionalProperties, len(objs))
+	// error should be the exception so dont preallocate
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		if skipObject[i] {
+			continue
+		}
+		vec, addProp, err := m.vectorizer.Object(ctx, obj, cfg)
+		if err != nil {
+			errs[i] = err
+			continue
+		}
+		addProps[i] = addProp
+		vecs[i] = vec
+	}
+
+	return vecs, addProps, errs
+}
+
 func (m *ContextionaryModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
