@@ -199,8 +199,8 @@ func TestSearchOnSomeProperties(t *testing.T) {
 			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 			require.Len(t, result, tt.results)
 
-			if len(result) > 0  && result[0].(map[string]interface{})["score"] != nil{
-				val, err :=  result[0].(map[string]interface{})["score"].(float64)
+			if len(result) > 0 && result[0].(map[string]interface{})["score"] != nil {
+				val, err := result[0].(map[string]interface{})["score"].(float64)
 				require.Nil(t, err)
 				require.Greater(t, val, 0.0)
 			}
