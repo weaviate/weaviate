@@ -87,8 +87,8 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 		return 0, 0, err
 	}
 
-	compressionhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
-		index.Add(id, vectors[id])
+	compressionhelpers.ConcurrentlyWithError(logger, uint64(vectors_size), func(id uint64) error {
+		return index.Add(id, vectors[id])
 	})
 
 	for i := range extraVectorsForDelete {
@@ -114,7 +114,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 		allowList = helpers.NewAllowList(allowIds...)
 	}
 	err = nil
-	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
 		results, _, _ := index.SearchByVector(queries[i], k, allowList)
 
@@ -163,7 +163,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 
 	truths := make([][]uint64, queries_size)
 	for i := range queries {
-		truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
 	}
 
 	extraVectorsForDelete, _ := testinghelpers.RandomVecs(5_000, 0, dimensions)
@@ -206,7 +206,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					from := 0
 					to := 3_000
 					for i := range queries {
-						truths[i], _ = testinghelpers.BruteForce(vectors[from:to], queries[i], k, distanceWrapper(distancer))
+						truths[i], _ = testinghelpers.BruteForce(logger, vectors[from:to], queries[i], k, distanceWrapper(distancer))
 					}
 
 					allowIds := make([]uint64, 0, to-from)

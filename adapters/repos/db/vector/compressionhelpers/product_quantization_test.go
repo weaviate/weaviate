@@ -55,6 +55,7 @@ func Test_NoRacePQSettings(t *testing.T) {
 		cfg,
 		distanceProvider,
 		128,
+		logger,
 	)
 	assert.NotNil(t, err)
 }
@@ -80,6 +81,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 		cfg,
 		distanceProvider,
 		dimensions,
+		logger,
 	)
 	pq.Fit(vectors)
 	encoded := make([][]byte, vectors_size)
@@ -90,7 +92,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 	var relevant uint64
 	queries_size = 100
 	for _, query := range queries {
-		truth, _ := testinghelpers.BruteForce(vectors, query, k, distance(distanceProvider))
+		truth, _ := testinghelpers.BruteForce(logger, vectors, query, k, distance(distanceProvider))
 		distances := make([]IndexAndDistance, len(vectors))
 
 		distancer := pq.NewDistancer(query)
@@ -145,6 +147,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			cfg,
 			nil,
 			amount,
+			logger,
 		)
 		assert.ErrorContains(t, err, "invalid encoder type")
 		cfg = ent.PQConfig{
@@ -161,6 +164,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			cfg,
 			nil,
 			amount,
+			logger,
 		)
 		assert.ErrorContains(t, err, "invalid encoder distribution")
 		cfg = ent.PQConfig{
@@ -177,6 +181,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			cfg,
 			nil,
 			amount,
+			logger,
 		)
 		assert.ErrorContains(t, err, "segments cannot be 0 nor negative")
 		cfg = ent.PQConfig{
@@ -193,6 +198,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			cfg,
 			nil,
 			4,
+			logger,
 		)
 		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
 	})
@@ -217,6 +223,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			cfg,
 			distanceProvider,
 			amount,
+			logger,
 		)
 		assert.NoError(t, err)
 		pq.Fit(vectors)
