@@ -16,6 +16,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -32,7 +33,7 @@ type Config struct {
 	Logger                logrus.FieldLogger
 	DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics
-	MemMonitor            MemMonitor
+	AllocChecker          memwatch.AllocChecker
 
 	// metadata for monitoring
 	ShardName string

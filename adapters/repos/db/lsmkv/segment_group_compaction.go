@@ -124,9 +124,9 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		return false, nil
 	}
 
-	if sg.memMonitor != nil {
-		// memMonitor is optional
-		if err := sg.memMonitor.CheckAlloc(100 * 1024 * 1024); err != nil {
+	if sg.allocChecker != nil {
+		// allocChecker is optional
+		if err := sg.allocChecker.CheckAlloc(100 * 1024 * 1024); err != nil {
 			// if we don't have at least 100MB to spare, don't start a compaction. A
 			// compaction does not actually need a 100MB, but it will create garbage
 			// that needs to be cleaned up. If we're so close to the memory limit, we

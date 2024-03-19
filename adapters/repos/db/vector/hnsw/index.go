@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type hnsw struct {
@@ -168,7 +169,7 @@ type hnsw struct {
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
-	memMonitor MemMonitor
+	allocChecker memwatch.AllocChecker
 }
 
 type CommitLogger interface {
@@ -224,7 +225,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 	}
 
 	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.MemMonitor)
+		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
@@ -275,14 +276,14 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
-		memMonitor:               cfg.MemMonitor,
+		allocChecker:             cfg.AllocChecker,
 	}
 
 	if uc.BQ.Enabled {
 		var err error
 		index.compressor, err = compressionhelpers.NewBQCompressor(
 			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.MemMonitor)
+			cfg.AllocChecker)
 		if err != nil {
 			return nil, err
 		}

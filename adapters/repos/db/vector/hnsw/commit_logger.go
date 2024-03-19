@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024
@@ -258,11 +259,7 @@ type hnswCommitLogger struct {
 	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
 	condenseLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
 
-	memMonitor MemMonitor
-}
-
-type MemMonitor interface {
-	CheckAlloc(size int64) error
+	allocChecker memwatch.AllocChecker
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -519,8 +516,8 @@ func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 			continue
 		}
 
-		if l.memMonitor != nil {
-			// memMonitor is optional, so we can only check this if it's actually set
+		if l.allocChecker != nil {
+			// allocChecker is optional, so we can only check this if it's actually set
 			s, err := os.Stat(candidate)
 			if err != nil {
 				return false, fmt.Errorf("stat candidate file %q: %w", candidate, err)
@@ -529,7 +526,7 @@ func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 			// We're estimating here that the in-mem condensor needs about 1B of
 			// memory for every byte of data in the log file. This estimate can
 			// probably be refined.
-			if err := l.memMonitor.CheckAlloc(s.Size()); err != nil {
+			if err := l.allocChecker.CheckAlloc(s.Size()); err != nil {
 				l.logger.WithFields(logrus.Fields{
 					"action": "hnsw_commit_log_condensing",
 					"event":  "condensing_skipped_oom",

@@ -396,9 +396,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithMemMonitor(s.index.memMonitor))
+						hnsw.WithAllocChecker(s.index.allocChecker))
 				},
-				MemMonitor: s.index.memMonitor,
+				AllocChecker: s.index.allocChecker,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {
@@ -426,7 +426,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TargetVector:     targetVector,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
-			MemMonitor:       s.index.memMonitor,
+			AllocChecker:     s.index.allocChecker,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -525,7 +525,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
@@ -651,7 +651,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 }
 
@@ -666,7 +666,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		helpers.DimensionsBucketLSM,
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 	if err != nil {
 		return err
@@ -696,7 +696,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 }
 
@@ -706,7 +706,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 }
 
@@ -765,7 +765,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.memtableDirtyConfig(),
 		s.dynamicMemtableSizing(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -825,7 +825,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		helpers.BucketFromPropNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 }
 
@@ -838,7 +838,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		helpers.BucketFromPropNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithMemMonitor(s.index.memMonitor),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 }
 

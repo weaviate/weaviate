@@ -191,7 +191,7 @@ type Index struct {
 	// always true if lazy shard loading is off, in the case of lazy shard
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady atomic.Bool
-	memMonitor     *memwatch.Monitor
+	allocChecker   memwatch.AllocChecker
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -228,7 +228,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-	memMonitor *memwatch.Monitor,
+	allocChecker memwatch.AllocChecker,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -259,7 +259,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		partitioningEnabled: shardState.PartitioningEnabled,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:    indexCheckpoints,
-		memMonitor:          memMonitor,
+		allocChecker:        allocChecker,
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 

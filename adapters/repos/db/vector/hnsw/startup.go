@@ -149,7 +149,7 @@ func (h *hnsw) restoreFromDisk() error {
 				h.logger,
 				state.PQData.Encoders,
 				h.store,
-				h.memMonitor,
+				h.allocChecker,
 			)
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
@@ -177,8 +177,8 @@ func (h *hnsw) restoreFromDisk() error {
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	if h.memMonitor != nil {
-		// memMonitor is optional, we can only check if it was actually set
+	if h.allocChecker != nil {
+		// allocChecker is optional, we can only check if it was actually set
 
 		// It's hard to estimate how much memory we'd need to do a successful
 		// hnsw delete cleanup. The value below is probalby vastly overstated.
@@ -190,7 +190,7 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 		// memory.
 		memoryNeeded := int64(100 * 1024 * 1024)
 
-		if err := h.memMonitor.CheckAlloc(memoryNeeded); err != nil {
+		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "hnsw_tombstone_cleanup",
 				"event":  "cleanup_skipped_oom",
