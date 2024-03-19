@@ -27,9 +27,6 @@ import (
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
-	if params.HybridSearch.Query == "" {
-		return nil, "", fmt.Errorf("invalid params, query is empty")
-	}
 
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
@@ -212,9 +209,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			if class == nil {
 				return nil, fmt.Errorf("class %q not found", params.ClassName)
 			}
-
-			vectoriser := class.Vectorizer
-			if vectoriser != "none" {
 				if len(params.HybridSearch.Vector) == 0 {
 					var err error
 					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
@@ -240,7 +234,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					results = append(results, res)
 					names = append(names, name)
 				}
-			}
+
 		}
 	}
 
