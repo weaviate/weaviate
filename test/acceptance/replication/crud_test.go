@@ -63,8 +63,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateClusterSize(2).
+		WithWeaviateCluster(2).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -277,8 +276,7 @@ func eventualReplicaCRUD(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateClusterSize(2).
+		WithWeaviateCluster(2).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)

@@ -288,7 +288,8 @@ func (d *Compose) WithSecondWeaviate() *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateClusterSize(size int) *Compose {
+func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	d.withWeaviate = true
 	d.withWeaviateClusterSize = size
 	return d
 }

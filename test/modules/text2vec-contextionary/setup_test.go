@@ -28,7 +28,7 @@ const (
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviate().WithWeaviateClusterSize(2).WithText2VecContextionary().
+		WithWeaviateCluster(2).WithText2VecContextionary().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
