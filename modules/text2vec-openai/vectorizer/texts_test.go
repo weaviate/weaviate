@@ -14,6 +14,9 @@ package vectorizer
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,6 +34,7 @@ func TestVectorizingTexts(t *testing.T) {
 		modelVersion         string
 		expectedModelVersion string
 	}
+	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -137,7 +141,7 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, 40*time.Second, logger)
 
 			cfg := &fakeClassConfig{
 				classConfig: map[string]interface{}{
