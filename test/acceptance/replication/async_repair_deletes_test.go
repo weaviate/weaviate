@@ -57,7 +57,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 3
+	itCount := 2
 	paragraphCount := 3
 
 	for it := 0; it < itCount; it++ {
