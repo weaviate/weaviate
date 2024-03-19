@@ -254,6 +254,10 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 
 type fakeNodeResolver struct{}
 
+func (f *fakeNodeResolver) AllHostnames() []string {
+	return nil
+}
+
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 	return "", false
 }
