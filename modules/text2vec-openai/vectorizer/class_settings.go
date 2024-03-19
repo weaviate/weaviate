@@ -12,10 +12,7 @@
 package vectorizer
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -194,48 +191,11 @@ func (cs *classSettings) validateModelVersion(version, model, docType string) er
 }
 
 func (cs *classSettings) getProperty(name, defaultValue string) string {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := cs.cfg.Class()[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return strings.ToLower(asString)
-		}
-	}
-
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cs *classSettings) getPropertyAsInt(name string, defaultValue *int64) *int64 {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := cs.cfg.Class()[name]
-	if ok {
-		asNumber, ok := value.(json.Number)
-		if ok {
-			if asInt64, err := asNumber.Int64(); err == nil {
-				return &asInt64
-			}
-		}
-		asInt, ok := value.(int)
-		if ok {
-			asInt64 := int64(asInt)
-			return &asInt64
-		}
-		asString := cs.getProperty(name, "")
-		if asInt, err := strconv.Atoi(asString); err == nil {
-			asInt64 := int64(asInt)
-			return &asInt64
-		}
-	}
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsInt64(name, defaultValue)
 }
 
 func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

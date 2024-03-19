@@ -12,21 +12,21 @@
 package vectorizer
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg  moduletools.ClassConfig
+	base *basesettings.BaseClassSettings
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg)}
 }
 
 func (ic *classSettings) ImageField(property string) bool {
@@ -263,26 +263,5 @@ func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
 }
 
 func (ic *classSettings) getNumber(in interface{}) (float32, error) {
-	switch i := in.(type) {
-	case float64:
-		return float32(i), nil
-	case float32:
-		return i, nil
-	case int:
-		return float32(i), nil
-	case string:
-		num, err := strconv.ParseFloat(i, 64)
-		if err != nil {
-			return 0, err
-		}
-		return float32(num), err
-	case json.Number:
-		num, err := i.Float64()
-		if err != nil {
-			return 0, err
-		}
-		return float32(num), err
-	default:
-		return 0.0, errors.Errorf("Unrecognized weight entry type: %T", i)
-	}
+	return ic.base.GetNumber(in)
 }
