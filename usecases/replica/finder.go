@@ -24,8 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-
-	"github.com/weaviate/weaviate/usecases/replication/hashtree"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 var (
