@@ -158,9 +158,9 @@ func TestVectorizingTexts(t *testing.T) {
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
 			conf := ent.NewClassSettings(client.lastConfig)
-			assert.Equal(t, conf.Type, test.expectedOpenAIType)
-			assert.Equal(t, conf.Model, test.expectedOpenAIModel)
-			assert.Equal(t, conf.ModelVersion, test.expectedModelVersion)
+			assert.Equal(t, conf.Type(), test.expectedOpenAIType)
+			assert.Equal(t, conf.Model(), test.expectedOpenAIModel)
+			assert.Equal(t, conf.ModelVersion(), test.expectedModelVersion)
 		})
 	}
 }
