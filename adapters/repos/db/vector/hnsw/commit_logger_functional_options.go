@@ -11,6 +11,8 @@
 
 package hnsw
 
+import "github.com/weaviate/weaviate/usecases/memwatch"
+
 type CommitlogOption func(l *hnswCommitLogger) error
 
 func WithCommitlogThreshold(size int64) CommitlogOption {
@@ -27,9 +29,9 @@ func WithCommitlogThresholdForCombining(size int64) CommitlogOption {
 	}
 }
 
-func WithMemMonitor(mm MemMonitor) CommitlogOption {
+func WithAllocChecker(mm memwatch.AllocChecker) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
-		l.memMonitor = mm
+		l.allocChecker = mm
 		return nil
 	}
 }
