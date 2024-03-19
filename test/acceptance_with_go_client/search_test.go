@@ -198,8 +198,11 @@ func TestSearchOnSomeProperties(t *testing.T) {
 			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s:{query:\"hello\", properties: [\"%s\"] %s} ){_additional{id score}}}}", className, tt.queryType, tt.property, alpha)).Do(ctx)
 			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 			require.Len(t, result, tt.results)
-			if len(result) > 0 && fmt.Sprintf("%v", result[0].(map[string]interface{})["score"]) == "0" {
-				t.Fail()
+
+			if len(result) > 0  && result[0].(map[string]interface{})["score"] != nil{
+				val, err :=  result[0].(map[string]interface{})["score"].(float64)
+				require.Nil(t, err)
+				require.Greater(t, val, 0.0)
 			}
 		})
 	}
