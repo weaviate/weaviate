@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type SegmentGroup struct {
@@ -61,7 +62,7 @@ type SegmentGroup struct {
 	calcCountNetAdditions   bool // see bucket for more datails
 	compactLeftOverSegments bool // see bucket for more datails
 
-	memMonitor MemMonitor
+	allocChecker memwatch.AllocChecker
 }
 
 type sgConfig struct {
@@ -78,7 +79,7 @@ type sgConfig struct {
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
-	memMonitor MemMonitor,
+	allocChecker memwatch.AllocChecker,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
@@ -98,7 +99,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:          cfg.useBloomFilter,
 		calcCountNetAdditions:   cfg.calcCountNetAdditions,
 		compactLeftOverSegments: cfg.forceCompaction,
-		memMonitor:              memMonitor,
+		allocChecker:            allocChecker,
 	}
 
 	segmentIndex := 0

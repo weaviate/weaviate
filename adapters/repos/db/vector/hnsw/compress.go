@@ -82,7 +82,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		var err error
 		h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
 			cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-			h.memMonitor)
+			h.allocChecker)
 		if err != nil {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}
@@ -90,7 +90,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	} else {
 		var err error
 		h.compressor, err = compressionhelpers.NewBQCompressor(
-			h.distancerProvider, 1e12, h.logger, h.store, h.memMonitor)
+			h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
 		if err != nil {
 			return err
 		}
