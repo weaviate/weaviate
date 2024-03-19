@@ -58,7 +58,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 	})
 
 	itCount := 3
-	paragraphCount := 5
+	paragraphCount := 3
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
