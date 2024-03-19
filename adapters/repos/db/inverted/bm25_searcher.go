@@ -132,11 +132,13 @@ func (b *BM25Searcher) validateWand(
 		return nil, nil, fmt.Errorf("different number of scores: disk %d, mem %d", len(scoresD), len(scoresM))
 	}
 	for i := range objsM {
+
 		if objsD[i].ID() != objsM[i].ID() {
-			return nil, nil, fmt.Errorf("different object IDs at index %d: disk %d, mem %d", i, objsD[i].ID, objsM[i].ID)
+			fmt.Printf("different IDs at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
 		}
 		if scoresD[i] != scoresM[i] {
-			return nil, nil, fmt.Errorf("different scores at index %d: disk %f, mem %f", i, scoresD[i], scoresM[i])
+			err := fmt.Errorf("different scores at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+			return nil, nil, err
 		}
 	}
 
@@ -424,7 +426,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 
 func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64,
 ) *priorityqueue.Queue[any] {
-	topKHeap := priorityqueue.NewMin[any](limit)
+	topKHeap := priorityqueue.NewMinScoreAndId[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	for {

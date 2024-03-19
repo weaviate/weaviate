@@ -21,8 +21,10 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -64,8 +66,8 @@ func init() {
 }
 
 type docPointerWithScore struct {
-	frequency  float32
-	propLength float32
+	Frequency  float32
+	PropLength float32
 }
 
 type Term struct {
@@ -82,17 +84,18 @@ type Term struct {
 	actualStart   uint64
 	actualEnd     uint64
 	DocCount      uint64
+	FullTermCount uint64
 	HasTombstone  bool
 	Data          docPointerWithScore
 	Exhausted     bool
 	QueryTerm     string
 	PropertyBoost float64
 	values        []value
-	EstColSize    uint64
+	ColSize       uint64
 }
 
-func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64) error {
-	t.segment = segment
+func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount uint64) error {
+	t.segment = curSegment
 	t.node = node
 	t.QueryTerm = queryTerm
 	t.IdPointer = 0
@@ -115,9 +118,10 @@ func (t *Term) init(N float64, duplicateTextBoost float64, segment segment, node
 		t.DocCount = uint64(len(t.values))
 	}
 
-	t.EstColSize = t.DocCount
+	t.FullTermCount = fullTermDocCount
+	t.ColSize = uint64(N)
 
-	n := float64(t.DocCount)
+	n := float64(t.FullTermCount)
 	t.Idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * duplicateTextBoost
 	t.actualEnd = node.End - 4 - uint64(len(node.Key))
 
@@ -157,15 +161,15 @@ func (t *Term) decode() error {
 		freqOffsetStart := docIdOffsetStart + 10
 
 		// read two floats
-		t.Data.frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
+		t.Data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
 		propLengthOffsetStart := freqOffsetStart + 4
-		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
+		t.Data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
 
 	} else {
 		// read two floats
 		t.IdBytes = t.values[t.PosPointer].value[2:10]
-		t.Data.frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[12:16]))
-		t.Data.propLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[16:20]))
+		t.Data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[12:16]))
+		t.Data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[16:20]))
 	}
 	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
 	return nil
@@ -203,8 +207,8 @@ func (t *Term) advanceIdOnly() {
 func (t *Term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	id := t.IdPointer
 	pair := t.Data
-	freq := float64(pair.frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength)) * t.PropertyBoost
+	freq := float64(pair.Frequency)
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength)) * t.PropertyBoost
 
 	// advance
 	t.advance()
@@ -323,7 +327,7 @@ func (t *Term) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint
 		return 0
 	}
 	diffVal := binary.BigEndian.Uint64(minIDBytes) - t.IdPointer
-	expectedJump := uint64(float64(diffVal) * (float64(t.EstColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
+	expectedJump := uint64(float64(diffVal) * (float64(t.ColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
 
 	if expectedJump > t.DocCount {
 		expectedJump = t.DocCount
@@ -635,7 +639,7 @@ func compareByteArrays(a, b []byte) bool {
 	return true
 }
 
-func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64) (*Term, error) {
+func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen uint64) (*Term, error) {
 	term := Term{}
 
 	node, err := s.index.Get(key)
@@ -643,7 +647,7 @@ func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, pro
 		return nil, err
 	}
 
-	term.init(N, duplicateTextBoost, s, node, key, string(key), propertyBoost)
+	term.init(N, duplicateTextBoost, s, node, key, string(key), propertyBoost, fullPropertyLen)
 	return &term, nil
 }
 
@@ -829,11 +833,9 @@ func (s segment) jumpToDocIdUnaligned(node segmentindex.Node, key []byte, docId 
 	return &nodeOffset{offset.start + halfOffsetLen, offset.start + halfOffsetLen + 29}, jumps, nil
 }
 
-func GetTopKHeap(limit int, results Terms, averagePropLength float64,
-	bmconfig schema.BM25Config, allIds map[uint64]struct{},
-) (*priorityqueue.Queue[any], map[uint64]struct{}) {
+func GetTopKHeap(limit int, results Terms, averagePropLength float64, bmconfig schema.BM25Config) (*priorityqueue.Queue[any], map[uint64]struct{}) {
 	ids := make(map[uint64]struct{}, limit)
-	topKHeap := priorityqueue.NewMin[any](limit)
+	topKHeap := priorityqueue.NewMinScoreAndId[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	for {
@@ -857,20 +859,6 @@ func GetTopKHeap(limit int, results Terms, averagePropLength float64,
 			}
 		}
 	}
-}
-
-func (b *Bucket) GetTermsForWand(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64) (Terms, error) {
-	sg := b.disk
-
-	terms := make(Terms, 0, len(sg.segments))
-	for _, segment := range sg.segments {
-		term, err := segment.WandTerm(key, N, duplicateTextBoost, propertyBoost)
-		if err == nil {
-			terms = append(terms, term)
-		}
-	}
-
-	return terms, nil
 }
 
 // the results are needed in the original order to be able to locate frequency/property length for the top-results
@@ -929,4 +917,47 @@ func (b *Bucket) GetTopKObjects(topKHeap *priorityqueue.Queue[any],
 
 	}
 	return objects, scores, nil
+}
+
+func (b *Bucket) GetSegments() []*segment {
+	return b.disk.segments
+}
+
+func (s segment) GetTermSize(key []byte) uint64 {
+	if s.mmapContents {
+		node, err := s.index.Get(key)
+		if err != nil {
+			return 0
+		}
+		return binary.LittleEndian.Uint64(s.contents[node.Start : node.Start+8])
+	} else {
+		var err error
+		values, err := s.getCollection(key)
+		if err != nil {
+			return 0
+		}
+		return uint64(len(values))
+	}
+}
+
+func GetAllSegments(store *Store, propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[string]uint64, error) {
+	allSegments := make(map[*segment]string)
+	propertySizes := make(map[string]uint64)
+	for _, propNameTokens := range propNamesByTokenization {
+		for _, propName := range propNameTokens {
+			bucket := store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+			if bucket == nil {
+				return nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
+			}
+			segments := bucket.GetSegments()
+			for _, segment := range segments {
+				allSegments[segment] = propName
+				for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+					propertySizes[term] += segment.GetTermSize([]byte(term))
+				}
+			}
+
+		}
+	}
+	return allSegments, propertySizes, nil
 }
