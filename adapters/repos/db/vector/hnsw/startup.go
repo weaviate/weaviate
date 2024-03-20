@@ -159,7 +159,6 @@ func (h *hnsw) restoreFromDisk() error {
 		if h.entryPointID > uint64(len(h.nodes)) {
 			maxId := uint64(len(h.nodes))
 			id := uint64(0)
-			vec, _ := h.vectorForID(context.Background(), id)
 			for {
 				if id >= maxId {
 					break
@@ -168,17 +167,13 @@ func (h *hnsw) restoreFromDisk() error {
 					id++
 					continue
 				}
-				vec, _ = h.vectorForID(context.Background(), id)
+				vec, _ := h.vectorForID(context.Background(), id)
 				if vec != nil {
 					break
 				}
 			}
 
 			if id < maxId {
-				id, err := h.findBestEntrypointForNode(h.currentMaximumLayer, h.currentMaximumLayer, id, vec)
-				if err != nil {
-					return err
-				}
 				h.entryPointID = id
 			} else {
 				return errors.New("invalid entryPointID and currentMaximumLayer")
