@@ -12,19 +12,19 @@
 package hashtree
 
 type SegmentedHashTreeDiffReader struct {
-	ht         *SegmentedHashTree
-	diffReader AggregatedHashTreeDiffReader
+	ht          *SegmentedHashTree
+	rangeReader AggregatedHashTreeRangeReader
 }
 
-func (ht *SegmentedHashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
+func (ht *SegmentedHashTree) NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader {
 	return &SegmentedHashTreeDiffReader{
-		ht:         ht,
-		diffReader: ht.hashtree.NewDiffReader(discriminant),
+		ht:          ht,
+		rangeReader: ht.hashtree.NewRangeReader(discriminant),
 	}
 }
 
 func (r *SegmentedHashTreeDiffReader) Next() (uint64, uint64, error) {
-	mappedLeaf0, mappedLeaf1, err := r.diffReader.Next()
+	mappedLeaf0, mappedLeaf1, err := r.rangeReader.Next()
 	if err != nil {
 		return 0, 0, err
 	}
