@@ -2311,6 +2311,15 @@ func init() {
         ],
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -7505,6 +7514,15 @@ func init() {
         ],
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",

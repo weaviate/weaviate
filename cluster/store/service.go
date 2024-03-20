@@ -302,6 +302,26 @@ func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
 	return resp.Class, nil
 }
 
+// QueryGetSchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
+// with strong consistency
+func (s *Service) QueryGetSchema() (models.Schema, error) {
+	command := &cmd.QueryRequest{
+		Type: cmd.QueryRequest_TYPE_GET_SCHEMA,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return models.Schema{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryGetSchemaResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return models.Schema{}, fmt.Errorf("failed to nmarshal query result: %w", err)
+	}
+	return resp.Schema, nil
+}
+
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
 // If any error happens it returns it
 func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {

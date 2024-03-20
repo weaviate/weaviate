@@ -138,7 +138,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetSchema(principal)
+	dbSchema, err := s.manager.GetSchema(principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {

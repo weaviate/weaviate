@@ -3894,6 +3894,16 @@
         "tags": [
           "schema"
         ],
+        "parameters": [
+          {
+            "name": "consistency",
+            "in": "header",
+            "required": false,
+            "default": true,
+            "type": "boolean",
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
