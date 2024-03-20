@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package modulecapabilities
 
 import (
 	"context"
@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
@@ -28,14 +27,14 @@ type fakeBatchClient struct {
 
 func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+) (*VectorizationResult, *RateLimits, error) {
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
 
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
-	rateLimit := &modulecapabilities.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
+	rateLimit := &RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
 			errors[i] = fmt.Errorf(text[i][6:])
@@ -63,51 +62,12 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		vectors[i] = []float32{0, 1, 2, 3}
 	}
 
-	return &modulecapabilities.VectorizationResult{
+	return &VectorizationResult{
 		Vector:     vectors,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
 	}, rateLimit, nil
-}
-
-func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, error) {
-	return &modulecapabilities.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-type fakeClient struct {
-	lastInput  []string
-	lastConfig moduletools.ClassConfig
-}
-
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecapabilities.VectorizationResult{
-		Vector:     [][]float32{{0, 1, 2, 3}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil, nil
-}
-
-func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecapabilities.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
 }
 
 type FakeClassConfig struct {
