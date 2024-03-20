@@ -99,6 +99,7 @@ type Config struct {
 	ElectionTimeout   time.Duration
 	RecoveryTimeout   time.Duration
 	SnapshotInterval  time.Duration
+	BootstrapTimeout  time.Duration
 	SnapshotThreshold uint64
 
 	DB           Indexer
@@ -107,22 +108,29 @@ type Config struct {
 	Logger       *slog.Logger
 	LogLevel     string
 	Voter        bool
+
+	// LoadLegacySchema is responsible for loading old schema from boltDB
+	LoadLegacySchema LoadLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
 }
 
 type Store struct {
-	raft              *raft.Raft
-	open              atomic.Bool
-	raftDir           string
-	raftPort          int
-	voter             bool
-	bootstrapExpect   int
-	recoveryTimeout   time.Duration
-	heartbeatTimeout  time.Duration
-	electionTimeout   time.Duration
-	snapshotInterval  time.Duration
-	applyTimeout      time.Duration
+	raft             *raft.Raft
+	open             atomic.Bool
+	raftDir          string
+	raftPort         int
+	voter            bool
+	bootstrapExpect  int
+	recoveryTimeout  time.Duration
+	heartbeatTimeout time.Duration
+	electionTimeout  time.Duration
+	snapshotInterval time.Duration
+	applyTimeout     time.Duration
+
+	// migrationTimeout is the timeout for restoring the legacy schema
+	migrationTimeout time.Duration
+
 	snapshotThreshold uint64
 
 	nodeID   string
@@ -145,6 +153,9 @@ type Store struct {
 
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
+
+	// LoadLegacySchema is responsible for loading old schema from boltDB
+	loadLegacySchema LoadLegacySchema
 }
 
 func New(cfg Config) Store {
@@ -159,6 +170,7 @@ func New(cfg Config) Store {
 		electionTimeout:   cfg.ElectionTimeout,
 		snapshotInterval:  cfg.SnapshotInterval,
 		snapshotThreshold: cfg.SnapshotThreshold,
+		migrationTimeout:  cfg.BootstrapTimeout,
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
@@ -166,6 +178,9 @@ func New(cfg Config) Store {
 		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
+
+		// loadLegacySchema is responsible for loading old schema from boltDB
+		loadLegacySchema: cfg.LoadLegacySchema,
 	}
 }
 
@@ -237,19 +252,52 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"last_log_applied_index", st.initialLastAppliedIndex,
 		"last_snapshot_index", lastSnapshotIndex)
 
-	go func() {
-		lastLeader := "Unknown"
-		t := time.NewTicker(time.Second * 60)
-		defer t.Stop()
-		for range t.C {
-			if leader := st.Leader(); leader != "" && leader != lastLeader {
-				lastLeader = leader
-				st.log.Info("current Leader", "address", lastLeader)
-			}
-		}
-	}()
+	go st.onLeaderFound(st.migrationTimeout)
 
 	return nil
+}
+
+// onLeaderFound execute specific tasks when the leader is detected
+func (st *Store) onLeaderFound(timeout time.Duration) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	for range t.C {
+		if leader := st.Leader(); leader != "" {
+			st.log.Info("current Leader", "address", leader)
+		} else {
+			continue
+		}
+
+		// migrate from old non raft schema to the new schema
+		migrate := func() error {
+			legacySchema, err := st.loadLegacySchema()
+			if err != nil {
+				return fmt.Errorf("load schema: %w", err)
+			}
+			// serialize snapshot
+			b, c, err := LegacySnapshot(st.nodeID, legacySchema)
+			if err != nil {
+				return fmt.Errorf("create snapshot: %s" + err.Error())
+			}
+			b.Index = st.raft.LastIndex()
+			b.Term = 1
+			if err := st.raft.Restore(b, c, timeout); err != nil {
+				return fmt.Errorf("raft restore: %w" + err.Error())
+			}
+			return nil
+		}
+
+		// Only leader can restore the old schema
+		if st.IsLeader() && st.db.Schema.Len() == 0 && st.loadLegacySchema != nil {
+			st.log.Info("starting migration from old schema")
+			if err := migrate(); err != nil {
+				st.log.Error("migrate from old schema: %v" + err.Error())
+			} else {
+				st.log.Info("migration from the old schema has been successfully completed")
+			}
+		}
+		return
+	}
 }
 
 func (st *Store) Close(ctx context.Context) (err error) {
@@ -325,6 +373,8 @@ func (f *Store) SchemaReader() retrySchema {
 
 func (st *Store) Stats() map[string]string { return st.raft.Stats() }
 
+// Leader is used to return the current leader address.
+// It may return empty strings if there is no current leader or the leader is unknown.
 func (st *Store) Leader() string {
 	if st.raft == nil {
 		return ""
@@ -582,7 +632,7 @@ func (st *Store) loadDatabase(ctx context.Context) {
 // For more details, see apply() -> loadDatabase().
 //
 // In specific scenarios where the follower's state is too far behind the leader's log,
-// the leader may decide to send a snapshot. Consequently, the follower muss update its state accordingly.
+// the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
 func (st *Store) reloadDB() bool {
 	ctx := context.Background()
 

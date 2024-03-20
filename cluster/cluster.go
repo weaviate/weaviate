@@ -62,13 +62,22 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 
-	bs := store.NewBootstrapper(c.client, c.config.NodeID, c.raftAddr, c.config.AddrResolver)
-	bTimeout := time.Second * 60 // TODO make timeout configurable
-	bCtx, bCancel := context.WithTimeout(ctx, bTimeout)
+	bs := store.NewBootstrapper(
+		c.client,
+		c.config.NodeID,
+		c.raftAddr,
+		c.config.AddrResolver)
+
+	bCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
-	if err := bs.Do(bCtx, c.config.ServerName2PortMap, c.logger, c.config.Voter); err != nil {
+	if err := bs.Do(
+		bCtx,
+		c.config.ServerName2PortMap,
+		c.logger,
+		c.config.Voter); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
+
 	if err := c.WaitUntilDBRestored(ctx, 10*time.Second); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
