@@ -51,9 +51,9 @@ func (m *Monitor) Refresh() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.debugCounter%20 == 0 {
-		fmt.Printf(`{"action":"update_memory_monitor","level":"debug","usage":%d,"limit":%d}`+"\n", m.used, m.limit)
-	}
+	// if m.debugCounter%20 == 0 {
+	fmt.Printf(`{"action":"update_memory_monitor","level":"debug","usage":%d,"limit":%d}`+"\n", m.used, m.limit)
+	// }
 	m.debugCounter++
 }
 
