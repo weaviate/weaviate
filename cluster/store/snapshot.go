@@ -17,6 +17,8 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type snapshot struct {
@@ -51,7 +53,11 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 	defer s.Unlock()
 
 	defer sink.Close()
-	snap := snapshot{NodeID: s.nodeID, SnapshotID: sink.ID(), Classes: s.Classes}
+	snap := snapshot{
+		NodeID:     s.nodeID,
+		SnapshotID: sink.ID(),
+		Classes:    s.Classes,
+	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
 	}
@@ -69,3 +75,33 @@ func snapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 	}
 	return ls[0].Index
 }
+
+type ClassState struct {
+	Class  models.Class
+	Shards sharding.State
+}
+
+// LegacySnapshot returns a ready-to-use in-memory Raft snapshot based on the provided legacy schema
+func LegacySnapshot(nodeID string, m map[string]ClassState) (*raft.SnapshotMeta, io.ReadCloser, error) {
+	store := raft.NewInmemSnapshotStore()
+	sink, err := store.Create(raft.SnapshotVersionMax, 0, 0, raft.Configuration{}, 0, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer sink.Close()
+	snap := snapshot{
+		NodeID:     nodeID,
+		SnapshotID: sink.ID(),
+		Classes:    make(map[string]*metaClass, len(m)),
+	}
+	for k, v := range m {
+		snap.Classes[k] = &metaClass{Class: v.Class, Sharding: v.Shards}
+	}
+
+	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
+		return nil, nil, fmt.Errorf("encode: %w", err)
+	}
+	return store.Open(sink.ID())
+}
+
+type LoadLegacySchema func() (map[string]ClassState, error)
