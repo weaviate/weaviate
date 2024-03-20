@@ -214,7 +214,12 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 		}
 	}
 	if rateLimitNew != nil {
-		rateLimit = rateLimitNew
+		rateLimit.LimitRequests = rateLimitNew.LimitRequests
+		rateLimit.LimitTokens = rateLimitNew.LimitTokens
+		rateLimit.ResetRequests = rateLimitNew.ResetRequests
+		rateLimit.ResetTokens = rateLimitNew.ResetTokens
+		rateLimit.RemainingRequests = rateLimitNew.RemainingRequests
+		rateLimit.RemainingTokens = rateLimitNew.RemainingTokens
 	} else {
 		rateLimit.RemainingRequests -= 1
 	}
