@@ -46,3 +46,7 @@ type QueryReadOnlyClassResponse struct {
 	Class *models.Class
 	State *sharding.State
 }
+
+type QueryGetSchemaResponse struct {
+	Schema models.Schema
+}
