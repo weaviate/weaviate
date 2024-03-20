@@ -13,8 +13,10 @@ package schema
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // ManagerWithConsistency expose the same interface as Manager but with the consistency flag.
@@ -39,5 +41,24 @@ func (m *ManagerWithConsistency) GetClass(ctx context.Context, principal *models
 		return m.metaWriter.QueryReadOnlyClass(name)
 	} else {
 		return m.metaReader.ReadOnlyClass(name), nil
+	}
+}
+
+// GetSchema retrieves a locally cached copy of the schema
+func (m *ManagerWithConsistency) GetSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+		return schema.Schema{}, err
+	}
+
+	if !consistency {
+		return m.getSchema(), nil
+	}
+
+	if consistentSchema, err := m.metaWriter.QueryGetSchema(); err != nil {
+		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
+	} else {
+		return schema.Schema{
+			Objects: &consistentSchema,
+		}, nil
 	}
 }
