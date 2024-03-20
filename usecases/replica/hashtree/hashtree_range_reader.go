@@ -13,7 +13,7 @@ package hashtree
 
 import "errors"
 
-var ErrNoMoreDifferences = errors.New("no more differences")
+var ErrNoMoreRanges = errors.New("no more ranges")
 
 type HashTreeDiffReader struct {
 	discriminant *Bitset
@@ -21,7 +21,7 @@ type HashTreeDiffReader struct {
 	pos          int
 }
 
-func (ht *HashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
+func (ht *HashTree) NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader {
 	if discriminant == nil || discriminant.Size() != NodesCount(ht.Height()) {
 		panic("illegal discriminant")
 	}
@@ -40,7 +40,7 @@ func (r *HashTreeDiffReader) Next() (uint64, uint64, error) {
 	}
 
 	if r.pos == r.discriminant.Size() {
-		return 0, 0, ErrNoMoreDifferences
+		return 0, 0, ErrNoMoreRanges
 	}
 
 	pos0 := r.pos

@@ -25,12 +25,12 @@ type AggregatedHashTree interface {
 	Diff(ht AggregatedHashTree) (discriminant *Bitset, err error)
 	DiffUsing(ht AggregatedHashTree, discriminant *Bitset, digests1, digests2 []Digest) error
 
-	NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader
+	NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader
 
 	Serialize(w io.Writer) (n int64, err error)
 }
 
-type AggregatedHashTreeDiffReader interface {
+type AggregatedHashTreeRangeReader interface {
 	Next() (uint64, uint64, error)
 }
 

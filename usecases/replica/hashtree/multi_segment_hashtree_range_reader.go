@@ -12,19 +12,19 @@
 package hashtree
 
 type MultiSegmentHashTreeDiffReader struct {
-	ht         *MultiSegmentHashTree
-	diffReader AggregatedHashTreeDiffReader
+	ht          *MultiSegmentHashTree
+	rangeReader AggregatedHashTreeRangeReader
 }
 
-func (ht *MultiSegmentHashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
+func (ht *MultiSegmentHashTree) NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader {
 	return &MultiSegmentHashTreeDiffReader{
-		ht:         ht,
-		diffReader: ht.hashtree.NewDiffReader(discriminant),
+		ht:          ht,
+		rangeReader: ht.hashtree.NewRangeReader(discriminant),
 	}
 }
 
 func (r *MultiSegmentHashTreeDiffReader) Next() (uint64, uint64, error) {
-	mappedLeaf0, mappedLeaf1, err := r.diffReader.Next()
+	mappedLeaf0, mappedLeaf1, err := r.rangeReader.Next()
 	if err != nil {
 		return 0, 0, err
 	}

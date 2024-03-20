@@ -232,14 +232,14 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 
 	for r := range replyCh {
 		if r.Err != nil {
-			if !errors.Is(r.Err, hashtree.ErrNoMoreDifferences) && !diffCollectionDone {
+			if !errors.Is(r.Err, hashtree.ErrNoMoreRanges) && !diffCollectionDone {
 				diffCollectionErr = fmt.Errorf("collecting differences: %w", r.Err)
 			}
 			continue
 		}
 
 		shardDiffReader := r.Value
-		diffReader := shardDiffReader.DiffReader
+		rangeReader := shardDiffReader.RangeReader
 
 		objectProgationStart := time.Now()
 
@@ -254,8 +254,8 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 				return stats, s.hashBeaterCtx.Err()
 			}
 
-			initialToken, finalToken, err := diffReader.Next()
-			if errors.Is(err, hashtree.ErrNoMoreDifferences) {
+			initialToken, finalToken, err := rangeReader.Next()
+			if errors.Is(err, hashtree.ErrNoMoreRanges) {
 				break
 			}
 			if err != nil {

@@ -12,19 +12,19 @@
 package hashtree
 
 type CompactHashTreeDiffReader struct {
-	ht         *CompactHashTree
-	diffReader AggregatedHashTreeDiffReader
+	ht          *CompactHashTree
+	rangeReader AggregatedHashTreeRangeReader
 }
 
-func (ht *CompactHashTree) NewDiffReader(discriminant *Bitset) AggregatedHashTreeDiffReader {
+func (ht *CompactHashTree) NewRangeReader(discriminant *Bitset) AggregatedHashTreeRangeReader {
 	return &CompactHashTreeDiffReader{
-		ht:         ht,
-		diffReader: ht.hashtree.NewDiffReader(discriminant),
+		ht:          ht,
+		rangeReader: ht.hashtree.NewRangeReader(discriminant),
 	}
 }
 
 func (r *CompactHashTreeDiffReader) Next() (uint64, uint64, error) {
-	mappedLeaf0, mappedLeaf1, err := r.diffReader.Next()
+	mappedLeaf0, mappedLeaf1, err := r.rangeReader.Next()
 	if err != nil {
 		return 0, 0, err
 	}

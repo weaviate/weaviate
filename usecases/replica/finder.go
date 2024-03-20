@@ -229,8 +229,8 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 }
 
 type ShardDifferenceReader struct {
-	Host       string
-	DiffReader hashtree.AggregatedHashTreeDiffReader
+	Host        string
+	RangeReader hashtree.AggregatedHashTreeRangeReader
 }
 
 func (f *Finder) CollectShardDifferences(ctx context.Context,
@@ -245,7 +245,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {
 		if host == sourceHost {
-			return nil, hashtree.ErrNoMoreDifferences
+			return nil, hashtree.ErrNoMoreRanges
 		}
 
 		diff := hashtree.NewBitset(hashtree.NodesCount(ht.Height()))
@@ -271,13 +271,13 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				// no difference was found
 				// an error is returned to ensure some existent difference is found if another
 				// consistency level than All is used
-				return nil, hashtree.ErrNoMoreDifferences
+				return nil, hashtree.ErrNoMoreRanges
 			}
 		}
 
 		return &ShardDifferenceReader{
-			Host:       host,
-			DiffReader: ht.NewDiffReader(diff),
+			Host:        host,
+			RangeReader: ht.NewRangeReader(diff),
 		}, nil
 	}
 
