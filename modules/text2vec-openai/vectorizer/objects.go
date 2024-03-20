@@ -32,7 +32,6 @@ import (
 
 const (
 	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
-	BatchChannelSize   = 100
 	// time per token goes down up to a certain batch size and then flattens - however the times vary a lot so we
 	// don't want to get too close to the maximum of 50s
 	OpenAiMaxTimePerBatch = float64(10)

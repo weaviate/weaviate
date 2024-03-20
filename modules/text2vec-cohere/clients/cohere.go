@@ -20,6 +20,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
@@ -65,20 +68,33 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+	icheck := ent.NewClassSettings(cfg)
+	config := ent.VectorizationConfig{
+		Model:   icheck.Model(),
+		BaseURL: icheck.BaseURL(),
+	}
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	return res, nil, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+	icheck := ent.NewClassSettings(cfg)
+	config := ent.VectorizationConfig{
+		Model:    icheck.Model(),
+		BaseURL:  icheck.BaseURL(),
+		Truncate: icheck.Truncate(),
+	}
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	return res, nil, err
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, inputType inputType,
-) (*ent.VectorizationResult, error) {
+) (*modulecapabilities.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Texts:     input,
 		Model:     model,
@@ -129,10 +145,10 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecapabilities.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
-		Vectors:    resBody.Embeddings,
+		Vector:     resBody.Embeddings,
 	}, nil
 }
 

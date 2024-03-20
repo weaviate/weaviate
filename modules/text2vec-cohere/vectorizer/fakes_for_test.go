@@ -14,36 +14,37 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 type fakeClient struct {
 	lastInput  []string
-	lastConfig ent.VectorizationConfig
+	lastConfig moduletools.ClassConfig
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
-		Vectors:    [][]float32{{0, 1, 2, 3}},
+	return &modulecapabilities.VectorizationResult{
+		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
 		Text:       text,
-	}, nil
+	}, nil, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
-		Vectors:    [][]float32{{0.1, 1.1, 2.1, 3.1}},
+	return &modulecapabilities.VectorizationResult{
+		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
-	}, nil
+	}, nil, nil
 }
 
 type fakeClassConfig struct {

@@ -75,7 +75,7 @@ func TestBatch(t *testing.T) {
 		}, skip: []bool{false, false, true}},
 		{name: "deadline", deadline: 200 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 15"}}, // set limit so next two items are in a batch
-			{Class: "Car", Properties: map[string]interface{}{"test": "wait 200"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "wait 400"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
