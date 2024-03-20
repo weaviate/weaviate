@@ -156,6 +156,35 @@ func (h *hnsw) restoreFromDisk() error {
 		// make sure the cache fits the current size
 		h.cache.grow(uint64(len(h.nodes)))
 
+		if h.entryPointID > uint64(len(h.nodes)) {
+			maxId := uint64(len(h.nodes))
+			id := uint64(0)
+			vec, _ := h.vectorForID(context.Background(), id)
+			for {
+				if id >= maxId {
+					break
+				}
+				if h.nodes[id] == nil || h.nodes[id].level < h.currentMaximumLayer {
+					id++
+					continue
+				}
+				vec, _ = h.vectorForID(context.Background(), id)
+				if vec != nil {
+					break
+				}
+			}
+
+			if id < maxId {
+				id, err := h.findBestEntrypointForNode(h.currentMaximumLayer, h.currentMaximumLayer, id, vec)
+				if err != nil {
+					return err
+				}
+				h.entryPointID = id
+			} else {
+				return errors.New("invalid entryPointID and currentMaximumLayer")
+			}
+		}
+
 		if len(h.nodes) > 0 {
 			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
 				h.dims = int32(len(vec))
