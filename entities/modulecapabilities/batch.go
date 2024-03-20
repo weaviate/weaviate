@@ -48,7 +48,7 @@ type BatchClient interface {
 		config moduletools.ClassConfig) (*VectorizationResult, *RateLimits, error)
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, logger logrus.FieldLogger) *Batch {
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, ratelimitTimer func(limits *RateLimits), logger logrus.FieldLogger) *Batch {
 	batch := Batch{
 		client:                    client,
 		objectVectorizer:          objectsvectorizer.New(),
@@ -57,7 +57,7 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxObjectsPerBatch:        maxObjectsPerBatch,
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 	}
-	enterrors.GoWrapper(func() { batch.batchWorker() }, logger)
+	enterrors.GoWrapper(func() { batch.batchWorker(ratelimitTimer, logger) }, logger)
 	return &batch
 }
 
@@ -77,8 +77,12 @@ type Batch struct {
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
 //     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
-func (b *Batch) batchWorker() {
+func (b *Batch) batchWorker(ratelimitTimer func(limits *RateLimits), logger logrus.FieldLogger) {
 	rateLimit := &RateLimits{}
+	if ratelimitTimer != nil {
+		enterrors.GoWrapper(func() { ratelimitTimer(rateLimit) }, logger)
+	}
+
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
 	firstRequest := true
@@ -97,7 +101,7 @@ func (b *Batch) batchWorker() {
 		for objCounter < len(job.texts) && firstRequest {
 			var err error
 			if !job.skipObject[objCounter] {
-				rateLimit, err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter})
+				err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit)
 				if err != nil {
 					job.errs[objCounter] = err
 					continue
@@ -130,7 +134,7 @@ func (b *Batch) batchWorker() {
 
 			// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
 			text := job.texts[objCounter]
-			if float32(tokensInCurrentBatch+job.tokens[objCounter]) < 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < b.maxTimePerVectorizerBatch) && len(texts) < b.maxObjectsPerBatch {
+			if float32(tokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < b.maxTimePerVectorizerBatch) && len(texts) < b.maxObjectsPerBatch {
 				tokensInCurrentBatch += job.tokens[objCounter]
 				texts = append(texts, text)
 				origIndex = append(origIndex, objCounter)
@@ -157,12 +161,12 @@ func (b *Batch) batchWorker() {
 			}
 
 			start := time.Now()
-			rateLimitNew, _ := b.makeRequest(job, texts, job.cfg, origIndex)
+			_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit)
 			batchTookInS = time.Since(start).Seconds()
-			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
-			if rateLimitNew != nil {
-				rateLimit = rateLimitNew
+			if tokensInCurrentBatch > 0 {
+				timePerToken = batchTookInS / float64(tokensInCurrentBatch)
 			}
+
 			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
 			// tier only the RPD limits are shown but not RPM
 			if rateLimit.RemainingRequests == 0 && rateLimit.ResetRequests > 0 {
@@ -187,35 +191,35 @@ func (b *Batch) batchWorker() {
 		// in case we exit the loop without sending the last batch. This can happen when the last object is a skip or
 		// is too long
 		if len(texts) > 0 && objCounter == len(job.texts) {
-			rateLimitNew, _ := b.makeRequest(job, texts, job.cfg, origIndex)
-			if rateLimitNew != nil {
-				rateLimit = rateLimitNew
-			}
+			_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit)
 		}
-
 		job.wg.Done()
 
 	}
 }
 
-func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int,
-) (*RateLimits, error) {
-	res, rateLimit, err := b.client.Vectorize(job.ctx, texts, cfg)
+func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *RateLimits) error {
+	res, rateLimitNew, err := b.client.Vectorize(job.ctx, texts, cfg)
 	if err != nil {
 		for j := 0; j < len(texts); j++ {
 			job.errs[origIndex[j]] = err
 		}
 	} else {
 		for j := 0; j < len(texts); j++ {
-			if res.Errors[j] != nil {
+			if res.Errors != nil && res.Errors[j] != nil {
 				job.errs[origIndex[j]] = res.Errors[j]
 			} else {
 				job.vecs[origIndex[j]] = res.Vector[j]
 			}
 		}
 	}
+	if rateLimitNew != nil {
+		rateLimit = rateLimitNew
+	} else {
+		rateLimit.RemainingRequests -= 1
+	}
 
-	return rateLimit, err
+	return err
 }
 
 func (b *Batch) SubmitBatchAndWait(ctx context.Context, errs map[int]error, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string, vecs [][]float32) {

@@ -37,10 +37,30 @@ type Vectorizer struct {
 }
 
 func New(client Client, logger logrus.FieldLogger) *Vectorizer {
+	// cohere has only request limit and no token limit
+	refreshRateFunction := func(limits *modulecapabilities.RateLimits) {
+		// initial values
+		limits.RemainingRequests = 10000
+		limits.ResetTokens = 61
+		limits.LimitRequests = 10000
+
+		// high dummy values
+		limits.RemainingTokens = 10000000
+		limits.LimitTokens = 10000000
+		limits.ResetTokens = 1
+
+		ticker := time.NewTicker(61 * time.Second) // refresh is after 60 seconds but leave a bit of room for errors
+		for range ticker.C {
+			limits.RemainingRequests = 10000
+			limits.ResetTokens = 61
+			limits.LimitRequests = 10000
+		}
+	}
+
 	return &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, logger),
+		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, refreshRateFunction, logger),
 	}
 }
 

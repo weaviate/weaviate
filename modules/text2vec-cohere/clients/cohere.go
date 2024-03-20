@@ -37,9 +37,22 @@ type embeddingsRequest struct {
 	InputType inputType `json:"input_type,omitempty"`
 }
 
+type billedUnits struct {
+	InputTokens    int `json:"input_tokens,omitempty"`
+	OutputTokens   int `json:"output_tokens,omitempty"`
+	SearchUnits    int `json:"search_units,omitempty"`
+	Classificatons int `json:"classifications,omitempty"`
+}
+
+type meta struct {
+	BilledUnits billedUnits `json:"billed_units,omitempty"`
+	Warnings    []string    `json:"warnings,omitempty"`
+}
+
 type embeddingsResponse struct {
 	Embeddings [][]float32 `json:"embeddings,omitempty"`
 	Message    string      `json:"message,omitempty"`
+	Meta       meta        `json:"meta,omitempty"`
 }
 
 type vectorizer struct {
