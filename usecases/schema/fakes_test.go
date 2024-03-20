@@ -105,6 +105,11 @@ func (f *fakeMetaHandler) ClassInfo(class string) (ci store.ClassInfo) {
 	return args.Get(0).(store.ClassInfo)
 }
 
+func (f *fakeMetaHandler) QueryGetSchema() (models.Schema, error) {
+	args := f.Called()
+	return args.Get(0).(models.Schema), args.Error(1)
+}
+
 func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, error) {
 	args := f.Called(class)
 	model := args.Get(0)
