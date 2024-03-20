@@ -28,7 +28,7 @@ import (
 )
 
 func asyncRepairObjectDeleteScenario(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	clusterSize := 3
@@ -57,7 +57,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 2
+	itCount := 3
 	paragraphCount := 3
 
 	for it := 0; it < itCount; it++ {
