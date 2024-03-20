@@ -277,13 +277,15 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		ElectionTimeout:    appState.ServerConfig.Config.Raft.ElectionTimeout,
 		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		BootstrapTimeout:   time.Second * 90, // TODO-RAFT make parameter configurable
 
-		DB:           nil,
-		Parser:       schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
-		AddrResolver: appState.Cluster,
-		Logger:       sLogger(),
-		LogLevel:     logLevel(),
-		IsLocalHost:  appState.ServerConfig.Config.Cluster.Localhost,
+		DB:               nil,
+		Parser:           schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		AddrResolver:     appState.Cluster,
+		Logger:           sLogger(),
+		LogLevel:         logLevel(),
+		IsLocalHost:      appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema: nil, // TODO-RAFT add func for loading legacy schema from boltDB
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
