@@ -27,7 +27,6 @@ import (
 
 // Do a bm25 search.  The results will be used in the hybrid algorithm
 func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
-
 	params.KeywordRanking = &searchparams.KeywordRanking{
 		Query:      params.HybridSearch.Query,
 		Type:       "bm25",
@@ -209,31 +208,31 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			if class == nil {
 				return nil, fmt.Errorf("class %q not found", params.ClassName)
 			}
-				if len(params.HybridSearch.Vector) == 0 {
-					var err error
-					params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
-					if err != nil {
-						return nil, err
-					}
-				} else {
-					params.SearchVector = params.HybridSearch.Vector
-				}
-
-				// Build a new vearvec search
-				nearVecParams := &searchparams.NearVector{
-					Vector:        params.SearchVector,
-					TargetVectors: params.HybridSearch.TargetVectors,
-				}
-
-				res, name, err := denseSearch(ctx, nearVecParams, e, params, "hybridVector")
+			if len(params.HybridSearch.Vector) == 0 {
+				var err error
+				params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 				if err != nil {
-					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return nil, err
-				} else {
-					weights = append(weights, params.HybridSearch.Alpha)
-					results = append(results, res)
-					names = append(names, name)
 				}
+			} else {
+				params.SearchVector = params.HybridSearch.Vector
+			}
+
+			// Build a new vearvec search
+			nearVecParams := &searchparams.NearVector{
+				Vector:        params.SearchVector,
+				TargetVectors: params.HybridSearch.TargetVectors,
+			}
+
+			res, name, err := denseSearch(ctx, nearVecParams, e, params, "hybridVector")
+			if err != nil {
+				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
+				return nil, err
+			} else {
+				weights = append(weights, params.HybridSearch.Alpha)
+				results = append(results, res)
+				names = append(names, name)
+			}
 
 		}
 	}

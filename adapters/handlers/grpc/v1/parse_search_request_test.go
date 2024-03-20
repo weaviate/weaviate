@@ -175,17 +175,18 @@ func TestGRPCRequest(t *testing.T) {
 				},
 			},
 			out: dto.GetParams{
-				ClassName: classname,
+				ClassName:  classname,
 				Pagination: defaultPagination,
 				HybridSearch: &searchparams.HybridSearch{
-					Query: "query",
+					Query:           "query",
 					FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 					NearTextParams: &searchparams.NearTextParams{
-						Limit: 10, // default
-						Values:    []string{"first and", "second", "query"},
-						MoveTo:   searchparams.ExploreMove{Force: 0.5, Values: []string{"first", "and second"}},
-						MoveAwayFrom: searchparams.ExploreMove{Force: 0.3, Values: []string{"second to last", "really last"}}},
+						Limit:        10, // default
+						Values:       []string{"first and", "second", "query"},
+						MoveTo:       searchparams.ExploreMove{Force: 0.5, Values: []string{"first", "and second"}},
+						MoveAwayFrom: searchparams.ExploreMove{Force: 0.3, Values: []string{"second to last", "really last"}},
 					},
+				},
 
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
@@ -203,7 +204,7 @@ func TestGRPCRequest(t *testing.T) {
 					Alpha: 1.0,
 					Query: "nearvecquery",
 					NearVector: &pb.NearVector{
-						VectorBytes:  byteops.Float32ToByteVector([]float32{1,2,3}),
+						VectorBytes:   byteops.Float32ToByteVector([]float32{1, 2, 3}),
 						TargetVectors: []string{"custom"},
 						Certainty:     &one,
 						Distance:      &one,
