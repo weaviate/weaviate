@@ -43,6 +43,7 @@ type metaWriter interface {
 
 	// Strongly consistent schema read
 	QueryReadOnlyClass(name string) (*models.Class, error)
+	QueryGetSchema() (models.Schema, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error

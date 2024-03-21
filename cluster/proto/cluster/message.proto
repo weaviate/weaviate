@@ -64,6 +64,7 @@ message QueryRequest {
   enum Type {
     TYPE_UNSPECIFIED = 0;
     TYPE_GET_READONLY_CLASS = 1;
+    TYPE_GET_SCHEMA = 2;
   }
 
   Type type = 1;
