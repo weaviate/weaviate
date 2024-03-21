@@ -96,7 +96,7 @@ func TestGetAnswer(t *testing.T) {
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, "connection to Google PaLM failed with status: 500 error: some error from the server")
+		assert.EqualError(t, err, "connection to Google failed with status: 500 error: some error from the server")
 	})
 }
 
