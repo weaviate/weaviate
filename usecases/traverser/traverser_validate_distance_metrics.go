@@ -103,7 +103,7 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
 
-	targetVector := t.targetVectorParamHelper.getTargetVectorFromParams(params)
+	targetVector := t.targetVectorParamHelper.GetTargetVectorFromParams(params)
 	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err
