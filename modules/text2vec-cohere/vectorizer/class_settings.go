@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -101,24 +100,7 @@ func (cs *classSettings) validateCohereSetting(value string, availableValues []s
 }
 
 func (cs *classSettings) getProperty(name, defaultValue string) string {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	model, ok := cs.cfg.Class()[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			if name == "truncate" {
-				return asString
-			} else {
-				return strings.ToLower(asString)
-			}
-		}
-	}
-
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
