@@ -27,7 +27,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2vec-openai"
+const (
+	Name          = "text2vec-openai"
+	OpenAITimeout = 40 * time.Second
+)
 
 func New() *OpenAIModule {
 	return &OpenAIModule{}
@@ -48,6 +51,7 @@ type textVectorizer interface {
 		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
+	ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, map[int]error)
 }
 
 type metaProvider interface {
@@ -105,7 +109,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, OpenAITimeout, m.logger)
 	m.metaProvider = client
 
 	return nil
@@ -125,6 +129,12 @@ func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+
+	return vecs, nil, errs
 }
 
 func (m *OpenAIModule) MetaInfo() (map[string]interface{}, error) {

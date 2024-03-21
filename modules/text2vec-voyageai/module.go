@@ -124,6 +124,10 @@ func (m *VoyageAIModule) VectorizeObject(ctx context.Context, obj *models.Object
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
+func (m *VoyageAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+}
+
 func (m *VoyageAIModule) VectorizableProperties(cfg moduletools.ClassConfig,
 ) (bool, []string, error) {
 	return true, nil, nil

@@ -15,6 +15,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
+	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -23,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/replica"
+	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
 )
 
 // init gets the current schema and creates one index object per class.
@@ -111,8 +116,47 @@ func (db *DB) init(ctx context.Context) error {
 	// See also https://github.com/weaviate/weaviate/issues/4396
 	if db.promMetrics != nil && db.promMetrics.Group {
 		db.metricsObserver = newNodeWideMetricsObserver(db)
-		go db.metricsObserver.Start()
+		enterrors.GoWrapper(func() { db.metricsObserver.Start() }, db.logger)
 	}
 
 	return nil
+}
+
+func (db *DB) migrateFileStructureIfNecessary() error {
+	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
+	exists, err := fileExists(fsMigrationPath)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if err = db.migrateToHierarchicalFS(); err != nil {
+			return fmt.Errorf("migrate to hierarchical fs: %w", err)
+		}
+		if _, err = os.Create(fsMigrationPath); err != nil {
+			return fmt.Errorf("create hierarchical fs indicator: %w", err)
+		}
+	}
+	return nil
+}
+
+func (db *DB) migrateToHierarchicalFS() error {
+	before := time.Now()
+
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaGetter); err != nil {
+		return err
+	}
+	db.logger.WithField("action", "hierarchical_fs_migration").
+		Debugf("fs migration took %s\n", time.Since(before))
+	return nil
+}
+
+func fileExists(file string) (bool, error) {
+	_, err := os.Stat(file)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }

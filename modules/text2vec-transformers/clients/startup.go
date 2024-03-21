@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
@@ -36,13 +38,14 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 	ch := make(chan error, len(endpoints))
 	var wg sync.WaitGroup
 	for serviceName, endpoint := range endpoints {
+		serviceName, endpoint := serviceName, endpoint
 		wg.Add(1)
-		go func(serviceName string, endpoint string) {
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			if err := v.waitFor(initCtx, interval, endpoint, serviceName); err != nil {
 				ch <- err
 			}
-		}(serviceName, endpoint)
+		}, v.logger)
 	}
 	wg.Wait()
 	close(ch)
