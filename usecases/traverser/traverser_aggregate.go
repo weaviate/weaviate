@@ -55,7 +55,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 
-		targetVector, err = t.targetVectorParamHelper.getTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
 			className, targetVector)
 		if err != nil {
 			return nil, err
@@ -77,7 +77,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVector = params.Hybrid.TargetVectors[0]
 		}
-		targetVector, err = t.targetVectorParamHelper.getTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
 			params.ClassName.String(), targetVector)
 		if err != nil {
 			return nil, err
