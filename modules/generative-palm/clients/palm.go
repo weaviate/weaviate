@@ -163,7 +163,7 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "PaLM API Key")
+		return nil, errors.Wrapf(err, "Google API Key")
 	}
 	req.Header.Add("Content-Type", "application/json")
 	if useGenerativeAIEndpoint {
@@ -265,10 +265,10 @@ func (v *palm) getGenerateResponse(content string) (*generativemodels.GenerateRe
 func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
 	if statusCode != 200 || palmApiError != nil {
 		if palmApiError != nil {
-			return fmt.Errorf("connection to Google PaLM failed with status: %v error: %v",
+			return fmt.Errorf("connection to Google failed with status: %v error: %v",
 				statusCode, palmApiError.Message)
 		}
-		return fmt.Errorf("connection to Google PaLM failed with status: %d", statusCode)
+		return fmt.Errorf("connection to Google failed with status: %d", statusCode)
 	}
 	return nil
 }
@@ -378,6 +378,9 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
+	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Api-Key"); apiKeyValue != "" {
+		return apiKeyValue, nil
+	}
 	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -385,8 +388,8 @@ func (v *palm) getApiKey(ctx context.Context) (string, error) {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Palm-Api-Key " +
-		"nor in environment variable under PALM_APIKEY")
+		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key " +
+		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 }
 
 func (v *palm) getValueFromContext(ctx context.Context, key string) string {
