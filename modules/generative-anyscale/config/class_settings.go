@@ -12,11 +12,10 @@
 package config
 
 import (
-	"encoding/json"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -42,11 +41,12 @@ var (
 )
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-anyscale")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -63,54 +63,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("generative-anyscale")[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			return &asString
-		}
-		var empty string
-		return &empty
-	}
-	return &defaultValue
+	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
+	return &asString
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-anyscale")[name]
-	if ok {
-		asInt, ok := val.(int)
-		if ok {
-			return &asInt
-		}
-		asFloat, ok := val.(float64)
-		if ok {
-			asInt := int(asFloat)
-			return &asInt
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			asInt := int(asFloat)
-			return &asInt
-		}
-		var wrongVal int = -1
-		return &wrongVal
-	}
-
-	if defaultValue != nil {
-		return defaultValue
-	}
-	return nil
+	var wrongVal int = -1
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) validateModel(model string) bool {
