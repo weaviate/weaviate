@@ -19,13 +19,13 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-type targetVectorParamHelper struct{}
+type TargetVectorParamHelper struct{}
 
-func newTargetParamHelper() *targetVectorParamHelper {
-	return &targetVectorParamHelper{}
+func NewTargetParamHelper() *TargetVectorParamHelper {
+	return &TargetVectorParamHelper{}
 }
 
-func (t *targetVectorParamHelper) getTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
+func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
 	if targetVector == "" {
 		class := sch.FindClassByName(schema.ClassName(className))
 
@@ -42,7 +42,7 @@ func (t *targetVectorParamHelper) getTargetVectorOrDefault(sch schema.Schema, cl
 	return targetVector, nil
 }
 
-func (t *targetVectorParamHelper) getTargetVectorFromParams(params dto.GetParams) string {
+func (t *TargetVectorParamHelper) GetTargetVectorFromParams(params dto.GetParams) string {
 	if params.NearObject != nil && len(params.NearObject.TargetVectors) == 1 {
 		return params.NearObject.TargetVectors[0]
 	}
