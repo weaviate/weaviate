@@ -274,6 +274,13 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 			if err != nil {
 				return fmt.Errorf("load schema: %w", err)
 			}
+
+			// If the legacy schema is empty we can abort early
+			if len(legacySchema) == 0 {
+				st.log.Info("legacy schema is empty, nothing to migrate")
+				return nil
+			}
+
 			// serialize snapshot
 			b, c, err := LegacySnapshot(st.nodeID, legacySchema)
 			if err != nil {
@@ -288,7 +295,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		}
 
 		// Only leader can restore the old schema
-		if st.IsLeader() && st.db.Schema.Len() == 0 && st.loadLegacySchema != nil {
+		if st.IsLeader() && st.db.Schema.len() == 0 && st.loadLegacySchema != nil {
 			st.log.Info("starting migration from old schema")
 			if err := migrate(); err != nil {
 				st.log.Error("migrate from old schema: %v" + err.Error())
