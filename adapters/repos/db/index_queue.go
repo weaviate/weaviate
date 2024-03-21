@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -163,11 +165,12 @@ func NewIndexQueue(
 	}
 
 	q.wg.Add(1)
-	go func() {
+	f := func() {
 		defer q.wg.Done()
 
 		q.indexer()
-	}()
+	}
+	enterrors.GoWrapper(f, q.Logger)
 
 	return &q, nil
 }
@@ -277,11 +280,11 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	}
 
 	// load non-indexed vectors and add them to the queue
-	checkpoint, err := q.checkpoints.Get(q.shardID, q.targetVector)
+	checkpoint, exists, err := q.checkpoints.Get(q.shardID, q.targetVector)
 	if err != nil {
 		return errors.Wrap(err, "get last indexed id")
 	}
-	if checkpoint == 0 {
+	if !exists {
 		return nil
 	}
 

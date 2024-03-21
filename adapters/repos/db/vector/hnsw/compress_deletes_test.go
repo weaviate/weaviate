@@ -19,6 +19,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -31,6 +33,7 @@ import (
 )
 
 func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	efConstruction := 64
 	ef := 32
 	maxNeighbors := 32
@@ -72,9 +75,9 @@ func Test_NoRaceCompressDoesNotCrash(t *testing.T) {
 	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
-	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
-		index.Add(uint64(id), vectors[id])
-	})
+	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+		return index.Add(uint64(id), vectors[id])
+	}))
 	index.Delete(delete_indices...)
 
 	cfg := ent.PQConfig{
@@ -98,7 +101,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 	dimensions := 20
 	vectors_size := 10_000
 	queries_size := 10
-
+	logger, _ := test.NewNullLogger()
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 
 	// set some vectors to nil
@@ -144,7 +147,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 	require.NoError(t, err)
 
-	compressionhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+	compressionhelpers.Concurrently(logger, uint64(len(vectors)/2), func(id uint64) {
 		if vectors[id] == nil {
 			return
 		}
@@ -172,7 +175,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 	<-ch
 	start := uint64(len(vectors) / 2)
-	compressionhelpers.Concurrently(uint64(len(vectors)/2), func(id uint64) {
+	compressionhelpers.Concurrently(logger, uint64(len(vectors)/2), func(id uint64) {
 		if vectors[id+start] == nil {
 			return
 		}

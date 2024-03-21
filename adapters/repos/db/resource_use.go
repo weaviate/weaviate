@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -42,7 +44,7 @@ func (d diskUse) String() string {
 }
 
 func (d *DB) scanResourceUsage() {
-	go func() {
+	f := func() {
 		t := time.NewTicker(time.Millisecond * 500)
 		defer t.Stop()
 		for {
@@ -57,7 +59,8 @@ func (d *DB) scanResourceUsage() {
 				}
 			}
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, d.logger)
 }
 
 type resourceScanState struct {

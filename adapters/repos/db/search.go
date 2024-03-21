@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -183,7 +185,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 	db.indexLock.RLock()
 	for _, index := range db.indices {
 		wg.Add(1)
-		go func(index *Index, wg *sync.WaitGroup) {
+		index := index
+		f := func() {
 			defer wg.Done()
 
 			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
@@ -198,7 +201,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 			mutex.Lock()
 			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
 			mutex.Unlock()
-		}(index, wg)
+		}
+		enterrors.GoWrapper(f, index.logger)
 	}
 	db.indexLock.RUnlock()
 

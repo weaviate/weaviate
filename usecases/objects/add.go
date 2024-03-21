@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -122,10 +121,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if err != nil {
 		return nil, err
 	}
-	compFactory := func() (moduletools.VectorizablePropsComparator, error) {
-		return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
-	}
-	err = m.modulesProvider.UpdateVector(ctx, object, class, compFactory, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}

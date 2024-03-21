@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -117,9 +116,11 @@ type ModulesProvider interface {
 	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
 		moduleParams map[string]interface{}) (search.Results, error)
 	UsingRef2Vec(className string) bool
-	UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-		compFactory moduletools.PropsComparatorFactory, repo modulecapabilities.FindObjectFn,
+	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, repo modulecapabilities.FindObjectFn,
 		logger logrus.FieldLogger) error
+	BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+		findObjectFn modulecapabilities.FindObjectFn,
+		logger logrus.FieldLogger) (map[int]error, error)
 	VectorizerName(className string) (string, error)
 }
 

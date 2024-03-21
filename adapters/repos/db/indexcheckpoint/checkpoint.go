@@ -27,18 +27,21 @@ var checkpointBucket = []byte("checkpoint")
 // Checkpoints keeps track of the last indexed vector id for each shard.
 // It stores the ids in a BoltDB file.
 type Checkpoints struct {
-	db *bolt.DB
+	db   *bolt.DB
+	path string
 }
 
 func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 	path := filepath.Join(dir, "index.db")
+
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}
 
 	ic := Checkpoints{
-		db: db,
+		db:   db,
+		path: path,
 	}
 
 	err = ic.initDB()
@@ -70,9 +73,8 @@ func (c *Checkpoints) getID(shardID, targetVector string) string {
 	return shardID
 }
 
-func (c *Checkpoints) Get(shardID, targetVector string) (uint64, error) {
-	var count uint64
-	err := c.db.View(func(tx *bolt.Tx) error {
+func (c *Checkpoints) Get(shardID, targetVector string) (count uint64, exists bool, err error) {
+	err = c.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
 		v := b.Get([]byte(c.getID(shardID, targetVector)))
 		if v == nil {
@@ -80,14 +82,14 @@ func (c *Checkpoints) Get(shardID, targetVector string) (uint64, error) {
 		}
 
 		count = binary.LittleEndian.Uint64(v)
-
+		exists = true
 		return nil
 	})
 	if err != nil {
-		return 0, errors.Wrap(err, "get checkpoint")
+		return 0, false, errors.Wrap(err, "get checkpoint")
 	}
 
-	return count, nil
+	return
 }
 
 func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
@@ -123,5 +125,5 @@ func (c *Checkpoints) Drop() error {
 }
 
 func (c *Checkpoints) Filename() string {
-	return c.db.Path()
+	return c.path
 }

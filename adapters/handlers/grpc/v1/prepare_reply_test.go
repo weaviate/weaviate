@@ -1556,6 +1556,13 @@ func TestGRPCReply(t *testing.T) {
 				require.Nil(t, err)
 				for i := range tt.outSearch {
 					require.Equal(t, tt.outSearch[i].Properties.String(), out.Results[i].Properties.String())
+					// order of the vectors is not guaranteed, doesn't matter for results
+					vectorsOut := out.Results[i].Metadata.Vectors
+					vectorsExpected := tt.outSearch[i].Metadata.Vectors
+					require.ElementsMatch(t, vectorsOut, vectorsExpected)
+
+					out.Results[i].Metadata.Vectors = nil
+					tt.outSearch[i].Metadata.Vectors = nil
 					require.Equal(t, tt.outSearch[i].Metadata.String(), out.Results[i].Metadata.String())
 				}
 				require.Equal(t, tt.outGenerative, *out.GenerativeGroupedResult)

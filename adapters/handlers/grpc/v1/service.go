@@ -16,6 +16,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -34,11 +39,13 @@ type Service struct {
 	allowAnonymousAccess bool
 	schemaManager        *schemaManager.Manager
 	batchManager         *objects.BatchManager
+	config               *config.Config
+	logger               logrus.FieldLogger
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager,
+	batchManager *objects.BatchManager, config *config.Config, logger logrus.FieldLogger,
 ) *Service {
 	return &Service{
 		traverser:            traverser,
@@ -46,6 +53,8 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		allowAnonymousAccess: allowAnonymousAccess,
 		schemaManager:        schemaManager,
 		batchManager:         batchManager,
+		config:               config,
+		logger:               logger,
 	}
 }
 
@@ -134,7 +143,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 
 	c := make(chan reply, 1)
-	go func() {
+	f := func() {
 		defer func() {
 			if err := recover(); err != nil {
 				c <- reply{
@@ -144,7 +153,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}()
 
-		searchParams, err := searchParamsFromProto(req, scheme)
+		searchParams, err := searchParamsFromProto(req, scheme, s.config)
 		if err != nil {
 			c <- reply{
 				Result: nil,
@@ -172,7 +181,8 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			Result: proto,
 			Error:  err,
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, s.logger)
 	res := <-c
 	return res.Result, res.Error
 }

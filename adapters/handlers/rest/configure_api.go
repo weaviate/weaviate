@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	_ "net/http/pprof"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
@@ -53,11 +55,13 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
+	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
@@ -75,6 +79,7 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
+	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -124,15 +129,15 @@ func getCores() (int, error) {
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
-	setupGoProfiling(appState.ServerConfig.Config)
+	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		// only monitoring tool supported at the moment is prometheus
-		go func() {
+		enterrors.GoWrapper(func() {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
 			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
-		}()
+		}, appState.Logger)
 	}
 
 	limitResources(appState)
@@ -170,7 +175,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	repo, err := db.New(appState.Logger, db.Config{
 		ServerVersion:             config.ServerVersion,
 		GitHash:                   config.GitHash,
-		MemtablesFlushIdleAfter:   appState.ServerConfig.Config.Persistence.FlushIdleMemtablesAfter,
+		MemtablesFlushDirtyAfter:  appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
 		MemtablesInitialSizeMB:    10,
 		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
@@ -266,7 +271,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
-	go clusterapi.Serve(appState)
+	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
 	explorer.SetSchemaGetter(schemaManager)
@@ -327,12 +332,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if len(reindexTaskNames) > 0 {
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
-		go func() {
+		enterrors.GoWrapper(func() {
 			appState.Logger.
 				WithField("action", "startup").
 				Info("Reindexing inverted indexes")
 			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
-		}()
+		}, appState.Logger)
 	}
 
 	configureServer = makeConfigureServer(appState)
@@ -422,13 +427,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	telemeter := telemetry.New(appState.DB, appState.Modules, appState.Logger)
 	if telemetryEnabled(appState) {
-		go func() {
+		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
 				appState.Logger.
 					WithField("action", "startup").
 					Errorf("telemetry failed to start: %s", err.Error())
 			}
-		}()
+		}, appState.Logger)
 	}
 
 	api.ServerShutdown = func() {
@@ -559,6 +564,16 @@ func logger() *logrus.Logger {
 		logger.SetFormatter(&logrus.JSONFormatter{})
 	}
 	switch os.Getenv("LOG_LEVEL") {
+	case "panic":
+		logger.SetLevel(logrus.PanicLevel)
+	case "fatal":
+		logger.SetLevel(logrus.FatalLevel)
+	case "error":
+		logger.SetLevel(logrus.ErrorLevel)
+	case "warn":
+		logger.SetLevel(logrus.WarnLevel)
+	case "warning":
+		logger.SetLevel(logrus.WarnLevel)
 	case "debug":
 		logger.SetLevel(logrus.DebugLevel)
 	case "trace":
@@ -684,6 +699,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modmulti2vecpalm.Name]; ok {
+		appState.Modules.Register(modmulti2vecpalm.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecpalm.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules["text2vec-openai"]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
@@ -705,6 +728,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativecohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativemistral.Name]; ok {
+		appState.Modules.Register(modgenerativemistral.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativemistral.Name).
 			Debug("enabled module")
 	}
 
@@ -812,6 +843,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modvoyageai.Name]; ok {
+		appState.Modules.Register(modvoyageai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modvoyageai.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modbind.Name]; ok {
 		appState.Modules.Register(modbind.New())
 		appState.Logger.
@@ -890,10 +929,15 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	return &http.Client{Transport: t}
 }
 
-func setupGoProfiling(config config.Config) {
-	go func() {
-		fmt.Println(http.ListenAndServe(":6060", nil))
-	}()
+func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+	enterrors.GoWrapper(func() {
+		portNumber := config.Profiling.Port
+		if portNumber == 0 {
+			fmt.Println(http.ListenAndServe(":6060", nil))
+		} else {
+			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
+		}
+	}, logger)
 
 	if config.Profiling.BlockProfileRate > 0 {
 		goruntime.SetBlockProfileRate(config.Profiling.BlockProfileRate)
