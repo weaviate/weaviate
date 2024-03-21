@@ -19,7 +19,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -37,7 +39,6 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -556,7 +557,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	config1["CLUSTER_HOSTNAME"] = "node1"
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(&logrus.Logger{})
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort)

@@ -19,13 +19,14 @@ import (
 
 	"acceptance_tests_with_client/fixtures"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestActivationDeactivation(t *testing.T) {
@@ -186,7 +187,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
+				eg := enterrors.NewErrorGroupWrapper(&logrus.Logger{})
 				require.Nil(t, compose.Stop(ctx, container.Name(), nil))
 				eg.Go(func() error {
 					require.Nil(t, compose.Start(ctx, container.Name()))
@@ -223,7 +224,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
+				eg := enterrors.NewErrorGroupWrapper(&logrus.Logger{})
 				require.Nil(t, compose.StopAt(ctx, 0, nil))
 				eg.Go(func() error {
 					require.Nil(t, compose.StartAt(ctx, 0))
