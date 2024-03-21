@@ -27,6 +27,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
+	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -89,6 +90,8 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
+	withMulti2VecPaLM             bool
+	withPaLMApiKey                string
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
@@ -176,6 +179,13 @@ func (d *Compose) WithSUMTransformers() *Compose {
 func (d *Compose) WithMulti2VecCLIP() *Compose {
 	d.withCLIP = true
 	d.enableModules = append(d.enableModules, Multi2VecCLIP)
+	return d
+}
+
+func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
+	d.withMulti2VecPaLM = true
+	d.withPaLMApiKey = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
 	return d
 }
 
@@ -426,6 +436,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
+	}
+	if d.withMulti2VecPaLM {
+		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)

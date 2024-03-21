@@ -99,7 +99,10 @@ func (m *PalmModule) InitExtension(modules []modulecapabilities.Module) error {
 func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("PALM_APIKEY")
+	apiKey := os.Getenv("GOOGLE_APIKEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("PALM_APIKEY")
+	}
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)

@@ -36,22 +36,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) PoolingStrategy() string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultPoolingStrategy
-	}
-
-	vcn, ok := ic.cfg.Class()["poolingStrategy"]
-	if !ok {
-		return DefaultPoolingStrategy
-	}
-
-	asString, ok := vcn.(string)
-	if !ok {
-		return DefaultPoolingStrategy
-	}
-
-	return asString
+	return ic.BaseClassSettings.GetPropertyAsString("poolingStrategy", DefaultPoolingStrategy)
 }
 
 func (ic *classSettings) InferenceURL() string {
@@ -67,21 +52,7 @@ func (ic *classSettings) QueryInferenceURL() string {
 }
 
 func (ic *classSettings) getSetting(property string) string {
-	if ic.cfg == nil {
-		return ""
-	}
-
-	url, ok := ic.cfg.Class()[property]
-	if !ok {
-		return ""
-	}
-
-	asString, ok := url.(string)
-	if !ok {
-		return ""
-	}
-
-	return asString
+	return ic.BaseClassSettings.GetPropertyAsString(property, "")
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {

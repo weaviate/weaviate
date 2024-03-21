@@ -47,7 +47,7 @@ type Explorer struct {
 	modulesProvider   ModulesProvider
 	schemaGetter      uc.SchemaGetter
 	nearParamsVector  *nearParamsVector
-	targetParamHelper *targetVectorParamHelper
+	targetParamHelper *TargetVectorParamHelper
 	metrics           explorerMetrics
 	config            config.Config
 }
@@ -107,7 +107,7 @@ func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesPro
 		metrics:           metrics,
 		schemaGetter:      nil, // schemaGetter is set later
 		nearParamsVector:  newNearParamsVector(modulesProvider, searcher),
-		targetParamHelper: newTargetParamHelper(),
+		targetParamHelper: NewTargetParamHelper(),
 		config:            conf,
 	}
 }
@@ -203,7 +203,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	targetVector, err = e.targetParamHelper.getTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
 		params.ClassName, targetVector)
 	if err != nil {
 		return nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
@@ -328,13 +328,18 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		} else {
 			hybridSearchLimit = baseSearchLimit
 		}
-		targetVec := ""
+		targetVector := ""
 		if len(params.HybridSearch.TargetVectors) > 0 {
-			targetVec = params.HybridSearch.TargetVectors[0]
+			targetVector = params.HybridSearch.TargetVectors[0]
+		}
+		targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+			params.ClassName, targetVector)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		res, dists, err := e.searcher.DenseObjectSearch(ctx,
-			params.ClassName, vec, targetVec, 0, hybridSearchLimit, params.Filters,
+			params.ClassName, vec, targetVector, 0, hybridSearchLimit, params.Filters,
 			params.AdditionalProperties, params.Tenant)
 		if err != nil {
 			return nil, nil, err
@@ -370,7 +375,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Keyword:      params.KeywordRanking,
 		Class:        params.ClassName,
 		Autocut:      params.Pagination.Autocut,
-	}, e.logger, sparseSearch, denseSearch, postProcess, e.modulesProvider)
+	}, e.logger, sparseSearch, denseSearch, postProcess, e.modulesProvider, e.schemaGetter, e.targetParamHelper)
 	if err != nil {
 		return nil, err
 	}
