@@ -72,19 +72,18 @@ func hybridOperands(classObject *graphql.Object,
 			Type:        graphql.NewList(graphql.String),
 		},
 
-
 		"searches": &graphql.InputObjectFieldConfig{
 			Description: "Subsearch list",
 			Type: graphql.NewList(graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Description: "Subsearch list",
-					Name: fmt.Sprintf("%sSearchesInpObj", prefixName),
+					Name:        fmt.Sprintf("%sSearchesInpObj", prefixName),
 					Fields: (func() graphql.InputObjectConfigFieldMap {
 						subSearchFields := make(graphql.InputObjectConfigFieldMap)
 						fieldMap := graphql.InputObjectConfigFieldMap{
 							"nearText": &graphql.InputObjectFieldConfig{
 								Description: "nearText element",
-					
+
 								Type: graphql.NewInputObject(
 									graphql.InputObjectConfig{
 										Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
@@ -97,9 +96,9 @@ func hybridOperands(classObject *graphql.Object,
 								Description: "nearVector element",
 								Type: graphql.NewInputObject(
 									graphql.InputObjectConfig{
-										Name:   fmt.Sprintf("%sNearVectorInpObj", prefixName),
+										Name:        fmt.Sprintf("%sNearVectorInpObj", prefixName),
 										Description: "Near vector search",
-										Fields: common_filters.NearVectorFields(prefixName),
+										Fields:      common_filters.NearVectorFields(prefixName),
 									},
 								),
 							},

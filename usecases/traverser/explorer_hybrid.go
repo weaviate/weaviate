@@ -63,7 +63,6 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 	return out, "keyword,bm25", nil
 }
 
-
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e *Explorer, params dto.GetParams, searchname string) ([]*search.Result, string, error) {
 	params.NearVector = nearVecParams
@@ -144,23 +143,20 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 	subSearchParams.Network = params.HybridSearch.NearTextParams.Network
 
-
 	subSearchParams.WithDistance = params.HybridSearch.NearTextParams.WithDistance
-
-
 
 	targetVector := ""
 	if len(params.HybridSearch.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.TargetVectors[0]
 	}
-/*
-	//FIXME?
+	/*
+		//FIXME?
 
-	// Subsearch takes precedence over the top level
-	if len(subSearchParams.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
-	}
-*/
+		// Subsearch takes precedence over the top level
+		if len(subSearchParams.TargetVectors) > 0 {
+			targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
+		}
+	*/
 
 	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
 	if err != nil {
@@ -169,19 +165,12 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 	subSearchParams.TargetVectors = []string{targetVector}
 
-
-
-
 	subsearchWrap := params
 	if subsearchWrap.ModuleParams == nil {
 		subsearchWrap.ModuleParams = map[string]interface{}{}
 	}
 
-
-
-
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
-
 
 	subsearchWrap.HybridSearch = nil
 	partial_results, vector, err := e.getClassVectorSearch(ctx, subsearchWrap)

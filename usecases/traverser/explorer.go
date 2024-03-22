@@ -300,7 +300,6 @@ func (e *Explorer) CalculateTotalLimit(pagination *filters.Pagination) (int, err
 	return MinInt(totalLimit, int(e.config.QueryMaximumResults)), nil
 }
 
-
 func (e *Explorer) getClassList(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {
