@@ -214,6 +214,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		targetVector = params.HybridSearch.TargetVectors[0]
 	}
 
+	var err error
+	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+	if err != nil {
+		return nil, err
+	}
+
 	origParams := params
 	params.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,
