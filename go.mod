@@ -55,7 +55,6 @@ require (
 	github.com/hashicorp/raft v1.5.0
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
-	github.com/pkoukk/tiktoken-go v0.1.6
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
