@@ -263,7 +263,7 @@ func TestHybridWithNearTextSubsearch(t *testing.T) {
 	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
-	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid: { nearText: {concepts: [\"rain\", \"nice\"]},  properties: [\"contents\"], alpha:1}, autocut: -1){num}}}", className)).Do(ctx)
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid: { searches: { nearText: {concepts: [\"rain\", \"nice\"]}},  properties: [\"contents\"], alpha:1}, autocut: -1){num}}}", className)).Do(ctx)
 	require.Nil(t, err)
 	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 	require.Len(t, result, 4)
@@ -289,7 +289,7 @@ func TestHybridWithOnlyVectorSearch(t *testing.T) {
 		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
 	require.Nil(t, err)
 
-	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{vector:%v}){text}}}", className, model.Object.Vector)).Do(ctx)
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: nearVector: {vector:%v}}){text}}}", className, model.Object.Vector)).Do(ctx)
 	require.Nil(t, err)
 	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 	require.Len(t, result, 1)
