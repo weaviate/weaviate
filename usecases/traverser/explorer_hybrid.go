@@ -210,7 +210,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var err error
 	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
 	if err != nil {
-		return nil,  err
+		return nil, err
 	}
 
 	origParams := params
