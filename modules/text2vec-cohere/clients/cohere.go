@@ -82,11 +82,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	icheck := ent.NewClassSettings(cfg)
-	config := ent.VectorizationConfig{
-		Model:   icheck.Model(),
-		BaseURL: icheck.BaseURL(),
-	}
+	config := v.getVectorizationConfig(cfg)
 	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
 	return res, nil, err
 }
@@ -94,14 +90,18 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	return res, nil, err
+}
+
+func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	icheck := ent.NewClassSettings(cfg)
-	config := ent.VectorizationConfig{
+	return ent.VectorizationConfig{
 		Model:    icheck.Model(),
 		BaseURL:  icheck.BaseURL(),
 		Truncate: icheck.Truncate(),
 	}
-	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
-	return res, nil, err
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
