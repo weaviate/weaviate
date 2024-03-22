@@ -102,6 +102,7 @@ func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, 
 
 	tke, err := tiktoken.EncodingForModel(icheck.Model())
 	if err != nil { // fail all objects as they all have the same model
+		errs := make(map[int]error)
 		for j := range objects {
 			errs[j] = err
 		}
