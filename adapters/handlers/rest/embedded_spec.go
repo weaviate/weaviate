@@ -547,6 +547,70 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ]
+      },
+      "patch": {
+        "description": "Updates a batch of Objects. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "batch",
+          "objects"
+        ],
+        "summary": "Updates existing objects by merging the provided properties",
+        "operationId": "batch.objects.merge",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Object"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully applied. No content provided.",
+            "schema": {
+              "$ref": "#/definitions/BatchMergeResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/batch/references": {
@@ -3442,6 +3506,33 @@ func init() {
         }
       }
     },
+    "BatchMergeError": {
+      "description": "error if object failed to update",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "BatchMergeIndividualResult": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/BatchMergeError"
+        },
+        "id": {
+          "description": "id of the given object",
+          "type": "string"
+        }
+      }
+    },
+    "BatchMergeResponse": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BatchMergeIndividualResult"
+      }
+    },
     "BatchReference": {
       "properties": {
         "from": {
@@ -5773,6 +5864,73 @@ func init() {
             "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
+      },
+      "patch": {
+        "description": "Updates a batch of Objects. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "batch",
+          "objects"
+        ],
+        "summary": "Updates existing objects by merging the provided properties",
+        "operationId": "batch.objects.merge",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Object"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+            "name": "consistency_level",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully applied. No content provided.",
+            "schema": {
+              "$ref": "#/definitions/BatchMergeResponse"
             }
           },
           "401": {
@@ -8879,6 +9037,33 @@ func init() {
             "FAILED"
           ]
         }
+      }
+    },
+    "BatchMergeError": {
+      "description": "error if object failed to update",
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "BatchMergeIndividualResult": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/BatchMergeError"
+        },
+        "id": {
+          "description": "id of the given object",
+          "type": "string"
+        }
+      }
+    },
+    "BatchMergeResponse": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/BatchMergeIndividualResult"
       }
     },
     "BatchReference": {

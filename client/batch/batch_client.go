@@ -45,6 +45,8 @@ type ClientService interface {
 
 	BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsDeleteOK, error)
 
+	BatchObjectsMerge(params *BatchObjectsMergeParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsMergeOK, error)
+
 	BatchReferencesCreate(params *BatchReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchReferencesCreateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -129,6 +131,47 @@ func (a *Client) BatchObjectsDelete(params *BatchObjectsDeleteParams, authInfo r
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for batch.objects.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+BatchObjectsMerge updates existing objects by merging the provided properties
+
+Updates a batch of Objects. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+*/
+func (a *Client) BatchObjectsMerge(params *BatchObjectsMergeParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*BatchObjectsMergeOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewBatchObjectsMergeParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "batch.objects.merge",
+		Method:             "PATCH",
+		PathPattern:        "/batch/objects",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &BatchObjectsMergeReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*BatchObjectsMergeOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for batch.objects.merge: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -66,6 +66,12 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		WithPayload(h.objectsResponse(objs))
 }
 
+func (h *batchObjectHandlers) mergeObjects(params batch.BatchObjectsMergeParams,
+	principal *models.Principal,
+) middleware.Responder {
+	return nil
+}
+
 func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
@@ -241,6 +247,8 @@ func setupObjectBatchHandlers(api *operations.WeaviateAPI, manager *objects.Batc
 
 	api.BatchBatchObjectsCreateHandler = batch.
 		BatchObjectsCreateHandlerFunc(h.addObjects)
+	api.BatchBatchObjectsMergeHandler = batch.
+		BatchObjectsMergeHandlerFunc(h.mergeObjects)
 	api.BatchBatchReferencesCreateHandler = batch.
 		BatchReferencesCreateHandlerFunc(h.addReferences)
 	api.BatchBatchObjectsDeleteHandler = batch.
