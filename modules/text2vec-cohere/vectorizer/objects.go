@@ -60,7 +60,7 @@ func New(client Client, logger logrus.FieldLogger) *Vectorizer {
 	return &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, refreshRateFunction, logger),
+		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, refreshRateFunction, logger, false),
 	}
 }
 

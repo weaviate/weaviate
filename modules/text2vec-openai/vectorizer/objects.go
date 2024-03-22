@@ -47,7 +47,7 @@ func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *
 	vec := &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger),
+		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger, true),
 	}
 
 	return vec

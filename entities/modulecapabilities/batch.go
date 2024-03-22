@@ -48,7 +48,7 @@ type BatchClient interface {
 		config moduletools.ClassConfig) (*VectorizationResult, *RateLimits, error)
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, ratelimitTimer func(limits *RateLimits), logger logrus.FieldLogger) *Batch {
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, ratelimitTimer func(limits *RateLimits), logger logrus.FieldLogger, needsInitialRequest bool) *Batch {
 	batch := Batch{
 		client:                    client,
 		objectVectorizer:          objectsvectorizer.New(),
@@ -57,7 +57,7 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxObjectsPerBatch:        maxObjectsPerBatch,
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 	}
-	enterrors.GoWrapper(func() { batch.batchWorker(ratelimitTimer, logger) }, logger)
+	enterrors.GoWrapper(func() { batch.batchWorker(ratelimitTimer, needsInitialRequest, logger) }, logger)
 	return &batch
 }
 
@@ -77,7 +77,7 @@ type Batch struct {
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
 //     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
-func (b *Batch) batchWorker(ratelimitTimer func(limits *RateLimits), logger logrus.FieldLogger) {
+func (b *Batch) batchWorker(ratelimitTimer func(limits *RateLimits), needsInitialRequest bool, logger logrus.FieldLogger) {
 	rateLimit := &RateLimits{}
 	if ratelimitTimer != nil {
 		enterrors.GoWrapper(func() { ratelimitTimer(rateLimit) }, logger)
@@ -85,7 +85,7 @@ func (b *Batch) batchWorker(ratelimitTimer func(limits *RateLimits), logger logr
 
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
-	firstRequest := true
+	firstRequest := needsInitialRequest
 	timePerToken := 0.0
 	batchTookInS := float64(0)
 

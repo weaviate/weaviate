@@ -86,7 +86,7 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := NewBatchVectorizer(client, 1*time.Second, 2000, 2000.0, nil, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, 1*time.Second, 2000, 2000.0, nil, logger, false) // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -123,7 +123,7 @@ func TestBatchMultiple(t *testing.T) {
 	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
-	v := NewBatchVectorizer(client, 40*time.Second, 2000, 2000.0, nil, logger) // avoid waiting for rate limit
+	v := NewBatchVectorizer(client, 40*time.Second, 2000, 2000.0, nil, logger, false) // avoid waiting for rate limit
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -182,7 +182,7 @@ func TestBatchTimeouts(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger, false) // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
 			errs := make(map[int]error)
@@ -219,7 +219,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger, false) // avoid waiting for rate limit
 
 			errs := make(map[int]error)
 			vecs := make([][]float32, len(texts))
