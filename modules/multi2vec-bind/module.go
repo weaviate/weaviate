@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -178,7 +180,7 @@ func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 }
 
 func (m *BindModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.bindVectorizer.Object)
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.bindVectorizer.Object)
 }
 
 func (m *BindModule) VectorizeInput(ctx context.Context,

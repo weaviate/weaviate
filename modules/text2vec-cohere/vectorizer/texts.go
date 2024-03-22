@@ -16,21 +16,15 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	settings := NewClassSettings(cfg)
-	res, err := v.client.VectorizeQuery(ctx, inputs, ent.VectorizationConfig{
-		Model:    settings.Model(),
-		Truncate: settings.Truncate(),
-		BaseURL:  settings.BaseURL(),
-	})
+	res, _, err := v.client.VectorizeQuery(ctx, inputs, cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "remote client vectorize")
 	}
-	return libvectorizer.CombineVectors(res.Vectors), nil
+	return libvectorizer.CombineVectors(res.Vector), nil
 }
