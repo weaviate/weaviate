@@ -431,6 +431,7 @@ func TestRFJourney(t *testing.T) {
 
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -468,7 +469,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
@@ -507,7 +508,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
@@ -548,7 +549,7 @@ func TestRFJourney(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
@@ -672,7 +673,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -702,7 +703,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -742,7 +743,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -990,7 +991,11 @@ func TestHybridOverSearch(t *testing.T) {
 		prov.Register(testerModule)
 
 		log, _ := test.NewNullLogger()
+<<<<<<< HEAD
 		explorer := traverser.NewExplorer(fos, log, prov, nil, defaultConfig)
+=======
+		explorer := traverser.NewExplorer(fos, log, prov, metrics, defaultConfig)
+>>>>>>> master
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)

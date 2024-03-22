@@ -76,14 +76,14 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		tenant = ""
 	}
 
-	res, dist, err := idx.objectSearch(ctx, totalLimit,
+	res, scores, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
 		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	return res, dist, nil
+	return res, scores, nil
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -91,13 +91,14 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
-	res, _, err := db.SparseObjectSearch(ctx, params)
+	res, scores, err := db.SparseObjectSearch(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
+	res, scores = db.getStoreObjectsWithScores(res, scores, params.Pagination)
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties, params.Tenant),
+		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
@@ -408,6 +409,14 @@ func (db *DB) getStoreObjects(res []*storobj.Object, pagination *filters.Paginat
 		return nil
 	}
 	return res[offset:limit]
+}
+
+func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32, pagination *filters.Pagination) ([]*storobj.Object, []float32) {
+	offset, limit := db.getOffsetLimit(len(res), pagination.Offset, pagination.Limit)
+	if offset == 0 && limit == 0 {
+		return nil, nil
+	}
+	return res[offset:limit], scores[offset:limit]
 }
 
 func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {
