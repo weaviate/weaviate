@@ -16,9 +16,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
@@ -33,19 +35,19 @@ const (
 type Vectorizer struct {
 	client           Client
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
-	batchVectorizer  *modulecapabilities.Batch
+	batchVectorizer  *batch.Batch
 }
 
 func New(client Client, logger logrus.FieldLogger) *Vectorizer {
 	// cohere has only request limit and no token limit
-	execAfterRequestFunction := func(limits *modulecapabilities.RateLimits) {
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
 			limits.RemainingRequests -= 1
 			return
 		}
 
-		// initial values
+		// initial values, from https://docs.cohere.com/docs/going-live#production-key-specifications
 		limits.RemainingRequests = 10000
 		limits.ResetTokens = 61
 		limits.LimitRequests = 10000
@@ -60,15 +62,15 @@ func New(client Client, logger logrus.FieldLogger) *Vectorizer {
 	return &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, execAfterRequestFunction, logger, false),
+		batchVectorizer:  batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, execAfterRequestFunction, logger, false),
 	}
 }
 
 type Client interface {
 	Vectorize(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error)
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 	VectorizeQuery(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error)
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -119,8 +121,7 @@ func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, 
 			continue
 		}
 		skipAll = false
-		text := v.objectVectorizer.Texts(ctx, objects[i], icheck)
-		texts[i] = text
+		texts[i] = v.objectVectorizer.Texts(ctx, objects[i], icheck)
 		tokenCounts[i] = 0 // no token limit
 	}
 

@@ -15,7 +15,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/sirupsen/logrus"
 
@@ -40,14 +41,14 @@ const (
 type Vectorizer struct {
 	client           Client
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
-	batchVectorizer  *modulecapabilities.Batch
+	batchVectorizer  *batch.Batch
 }
 
 func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *Vectorizer {
 	vec := &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  modulecapabilities.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger, true),
+		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger, true),
 	}
 
 	return vec
@@ -55,9 +56,9 @@ func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *
 
 type Client interface {
 	Vectorize(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error)
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 	VectorizeQuery(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecapabilities.VectorizationResult, error)
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed

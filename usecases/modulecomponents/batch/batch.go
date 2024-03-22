@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modulecapabilities
+package batch
 
 import (
 	"context"
@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
@@ -45,10 +47,10 @@ type BatchJob struct {
 
 type BatchClient interface {
 	Vectorize(ctx context.Context, input []string,
-		config moduletools.ClassConfig) (*VectorizationResult, *RateLimits, error)
+		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, execAfterRequestFunction func(limits *RateLimits), logger logrus.FieldLogger, needsInitialRequest bool) *Batch {
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, execAfterRequestFunction func(limits *modulecomponents.RateLimits), logger logrus.FieldLogger, needsInitialRequest bool) *Batch {
 	batch := Batch{
 		client:                    client,
 		objectVectorizer:          objectsvectorizer.New(),
@@ -77,8 +79,8 @@ type Batch struct {
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
 //     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
-func (b *Batch) batchWorker(execAfterRequestFunction func(limits *RateLimits), needsInitialRequest bool, logger logrus.FieldLogger) {
-	rateLimit := &RateLimits{afterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+func (b *Batch) batchWorker(execAfterRequestFunction func(limits *modulecomponents.RateLimits), needsInitialRequest bool, logger logrus.FieldLogger) {
+	rateLimit := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
 	rateLimit.ResetAfterRequestFunction()
 
 	texts := make([]string, 0, 100)
@@ -195,7 +197,7 @@ func (b *Batch) batchWorker(execAfterRequestFunction func(limits *RateLimits), n
 	}
 }
 
-func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *RateLimits) error {
+func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits) error {
 	res, rateLimitNew, err := b.client.Vectorize(job.ctx, texts, cfg)
 	if err != nil {
 		for j := 0; j < len(texts); j++ {

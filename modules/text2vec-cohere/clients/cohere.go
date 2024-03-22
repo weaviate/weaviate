@@ -20,7 +20,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -82,7 +81,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	icheck := ent.NewClassSettings(cfg)
 	config := ent.VectorizationConfig{
 		Model:   icheck.Model(),
@@ -94,7 +93,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	icheck := ent.NewClassSettings(cfg)
 	config := ent.VectorizationConfig{
 		Model:    icheck.Model(),
@@ -107,7 +106,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, inputType inputType,
-) (*modulecapabilities.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Texts:     input,
 		Model:     model,
@@ -158,7 +157,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &modulecapabilities.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
 		Vector:     resBody.Embeddings,

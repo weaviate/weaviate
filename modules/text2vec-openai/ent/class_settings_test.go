@@ -23,48 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-type FakeClassConfig struct {
-	classConfig           map[string]interface{}
-	vectorizePropertyName bool
-	skippedProperty       string
-	excludedProperty      string
-}
-
-func (f FakeClassConfig) Class() map[string]interface{} {
-	return f.classConfig
-}
-
-func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return f.classConfig
-}
-
-func (f FakeClassConfig) Property(propName string) map[string]interface{} {
-	if propName == f.skippedProperty {
-		return map[string]interface{}{
-			"skip": true,
-		}
-	}
-	if propName == f.excludedProperty {
-		return map[string]interface{}{
-			"vectorizePropertyName": false,
-		}
-	}
-	if f.vectorizePropertyName {
-		return map[string]interface{}{
-			"vectorizePropertyName": true,
-		}
-	}
-	return nil
-}
-
-func (f FakeClassConfig) Tenant() string {
-	return ""
-}
-
-func (f FakeClassConfig) TargetVector() string {
-	return ""
-}
-
 func Test_classSettings_Validate(t *testing.T) {
 	class := &models.Class{
 		Class: "test",
@@ -82,7 +40,7 @@ func Test_classSettings_Validate(t *testing.T) {
 	}{
 		{
 			name: "text-embedding-3-small",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "text-embedding-3-small",
 				},
@@ -90,7 +48,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-small, 512 dimensions",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-small",
 					"dimensions": 512,
@@ -99,7 +57,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-small, wrong dimensions",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-small",
 					"dimensions": 1,
@@ -109,7 +67,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-large",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "text-embedding-3-large",
 				},
@@ -117,7 +75,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-large, 512 dimensions",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"dimensions": 1024,
@@ -126,7 +84,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-3-large, wrong dimensions",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"dimensions": 512,
@@ -136,7 +94,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-ada-002",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":        "ada",
 					"modelVersion": "002",
@@ -145,7 +103,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-ada-002 - dimensions error",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "ada",
 					"dimensions": 512,
@@ -155,7 +113,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "text-embedding-ada-002 - wrong model version",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":        "ada",
 					"modelVersion": "003",
@@ -165,7 +123,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "wrong model name",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model": "unknown-model",
 				},
@@ -174,7 +132,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		},
 		{
 			name: "wrong properties",
-			cfg: &FakeClassConfig{
+			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":      "text-embedding-3-large",
 					"properties": "wrong-properties",

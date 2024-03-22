@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modulecapabilities
+package batch
 
 import (
 	"context"
@@ -26,7 +26,7 @@ import (
 
 func TestBatch(t *testing.T) {
 	client := &fakeBatchClient{}
-	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 	cases := []struct {
 		name       string
@@ -116,7 +116,7 @@ func TestBatch(t *testing.T) {
 
 func TestBatchMultiple(t *testing.T) {
 	client := &fakeBatchClient{}
-	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
 	v := NewBatchVectorizer(client, 40*time.Second, 2000, 2000.0, nil, logger, true) // avoid waiting for rate limit
@@ -154,7 +154,7 @@ func TestBatchMultiple(t *testing.T) {
 
 func TestBatchTimeouts(t *testing.T) {
 	client := &fakeBatchClient{defaultResetRate: 1}
-	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
 	objs := []*models.Object{
@@ -187,7 +187,7 @@ func TestBatchTimeouts(t *testing.T) {
 
 func TestBatchRequestLimit(t *testing.T) {
 	client := &fakeBatchClient{defaultResetRate: 1}
-	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
+	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	longString := "ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab ab"
 	logger, _ := test.NewNullLogger()
 

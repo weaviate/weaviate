@@ -9,13 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modulecapabilities
+package modulecomponents
 
 import "time"
 
 type RateLimits struct {
 	LastOverwrite        time.Time
-	afterRequestFunction func(limits *RateLimits)
+	AfterRequestFunction func(limits *RateLimits)
 	LimitRequests        int
 	LimitTokens          int
 	RemainingRequests    int
@@ -25,8 +25,8 @@ type RateLimits struct {
 }
 
 func (rl *RateLimits) ResetAfterRequestFunction() {
-	if rl.afterRequestFunction != nil {
-		rl.afterRequestFunction(rl)
+	if rl.AfterRequestFunction != nil {
+		rl.AfterRequestFunction(rl)
 	}
 }
 

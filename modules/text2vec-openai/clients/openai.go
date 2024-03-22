@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -125,20 +124,20 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 
 func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	config := v.getVectorizationConfig(cfg)
 	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecapabilities.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
 	res, _, err := v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
 	return res, err
 }
 
-func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecapabilities.VectorizationResult, *modulecapabilities.RateLimits, error) {
+func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal body")
@@ -196,7 +195,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		}
 	}
 
-	return &modulecapabilities.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,

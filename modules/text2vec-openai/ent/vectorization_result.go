@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-func GetRateLimitsFromHeader(header http.Header) *modulecapabilities.RateLimits {
+func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 	requestsReset, err := time.ParseDuration(header.Get("x-ratelimit-reset-requests"))
 	if err != nil {
 		requestsReset = 0
@@ -28,7 +28,7 @@ func GetRateLimitsFromHeader(header http.Header) *modulecapabilities.RateLimits 
 	if err != nil {
 		tokensReset = 0
 	}
-	return &modulecapabilities.RateLimits{
+	return &modulecomponents.RateLimits{
 		LimitRequests:     getHeaderInt(header, "x-ratelimit-limit-requests"),
 		LimitTokens:       getHeaderInt(header, "x-ratelimit-limit-tokens"),
 		RemainingRequests: getHeaderInt(header, "x-ratelimit-remaining-requests"),

@@ -20,56 +20,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 )
-
-type FakeClassConfig struct {
-	classConfig           map[string]interface{}
-	vectorizePropertyName bool
-	skippedProperty       string
-	excludedProperty      string
-}
-
-func (f FakeClassConfig) Class() map[string]interface{} {
-	return f.classConfig
-}
-
-func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return f.classConfig
-}
-
-func (f FakeClassConfig) Property(propName string) map[string]interface{} {
-	if propName == f.skippedProperty {
-		return map[string]interface{}{
-			"skip": true,
-		}
-	}
-	if propName == f.excludedProperty {
-		return map[string]interface{}{
-			"vectorizePropertyName": false,
-		}
-	}
-	if f.vectorizePropertyName {
-		return map[string]interface{}{
-			"vectorizePropertyName": true,
-		}
-	}
-	return nil
-}
-
-func (f FakeClassConfig) Tenant() string {
-	return ""
-}
-
-func (f FakeClassConfig) TargetVector() string {
-	return ""
-}
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
@@ -142,13 +101,13 @@ func TestClient(t *testing.T) {
 			return server.URL, nil
 		}
 
-		expected := &modulecapabilities.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, FakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -165,7 +124,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, FakeClassConfig{})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -183,7 +142,7 @@ func TestClient(t *testing.T) {
 		}
 
 		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			FakeClassConfig{})
+			fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 error: nope, not gonna happen")
@@ -200,14 +159,14 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Api-Key", []string{"some-key"})
 
-		expected := &modulecapabilities.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
 			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
 		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			FakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -224,7 +183,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, FakeClassConfig{})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
@@ -244,7 +203,7 @@ func TestClient(t *testing.T) {
 			"X-Openai-Api-Key", []string{""})
 
 		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			FakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+			fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
