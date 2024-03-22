@@ -13,16 +13,12 @@ package store
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 
-	"github.com/cenkalti/backoff/v4"
 	command "github.com/weaviate/weaviate/cluster/proto/cluster"
-	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/exp/slices"
 )
 
 var (
@@ -31,6 +27,14 @@ var (
 	errShardNotFound = errors.New("shard not found")
 )
 
+type ClassInfo struct {
+	Exists            bool
+	MultiTenancy      models.MultiTenancyConfig
+	ReplicationFactor int
+	Tenants           int
+	Properties        int
+}
+
 type schema struct {
 	nodeID      string
 	shardReader shardReader
@@ -38,169 +42,11 @@ type schema struct {
 	Classes map[string]*metaClass
 }
 
-type shardReader interface {
-	GetShardsStatus(class string) (models.ShardStatusList, error)
-}
-
-type metaClass struct {
-	Class      models.Class
-	shardMutex sync.RWMutex
-	Sharding   sharding.State
-}
-
-func NewSchema(nodeID string, shardReader shardReader) *schema {
-	return &schema{
-		nodeID:      nodeID,
-		Classes:     make(map[string]*metaClass, 128),
-		shardReader: shardReader,
-	}
-}
-
-func (s *schema) Len() int {
+func (s *schema) ClassInfo(class string) (ci ClassInfo) {
 	s.RLock()
 	defer s.RUnlock()
-	return len(s.Classes)
-}
 
-func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
-	s.Lock()
-	defer s.Unlock()
-	_, exists := s.Classes[cls.Class]
-	if exists {
-		return errClassExists
-	}
-
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss}
-	return nil
-}
-
-// updateClass modifies existing class based on the givin update function
-func (s *schema) updateClass(name string, update func(*metaClass) error) error {
-	s.Lock()
-	defer s.Unlock()
-
-	info := s.Classes[name]
-	if info == nil {
-		return errClassNotFound
-	}
-	return update(info)
-}
-
-func (s *schema) deleteClass(name string) {
-	s.Lock()
-	defer s.Unlock()
-	delete(s.Classes, name)
-}
-
-func (s *schema) addProperty(class string, p models.Property) error {
-	s.Lock()
-	defer s.Unlock()
-
-	info := s.Classes[class]
-	if info == nil {
-		return errClassNotFound
-	}
-
-	// update all at once to prevent race condition with concurrent readers
-	src := info.Class.Properties
-	dest := make([]*models.Property, len(src)+1)
-	copy(dest, src)
-	dest[len(src)] = &p
-	info.Class.Properties = dest
-	return nil
-}
-
-func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {
-	req.Tenants = removeNilTenants(req.Tenants)
-	s.Lock()
-	defer s.Unlock()
-
-	info := s.Classes[class]
-	if info == nil {
-		return errClassNotFound
-	}
-
-	ps := info.Sharding.Physical
-
-	for i, t := range req.Tenants {
-		if _, ok := ps[t.Name]; ok {
-			req.Tenants[i] = nil // already exists
-			continue
-		}
-
-		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: t.Nodes}
-		info.SetPhysicalForShard(t.Name, p)
-		if !slices.Contains(t.Nodes, s.nodeID) {
-			req.Tenants[i] = nil // is owner by another node
-		}
-	}
-	req.Tenants = removeNilTenants(req.Tenants)
-	return nil
-}
-
-func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) error {
-	s.Lock()
-	defer s.Unlock()
-
-	info := s.Classes[class]
-	if info == nil {
-		return errClassNotFound
-	}
-
-	for _, name := range req.Tenants {
-		info.Sharding.DeletePartition(name)
-	}
-	return nil
-}
-
-func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) (n int, err error) {
-	s.Lock()
-	defer s.Unlock()
-
-	info := s.Classes[class]
-	if info == nil {
-		return 0, errClassNotFound
-	}
-
-	missingShards := []string{}
-	ps := info.Sharding.Physical
-	for i, u := range req.Tenants {
-
-		p, ok := ps[u.Name]
-		if !ok {
-			missingShards = append(missingShards, u.Name)
-			req.Tenants[i] = nil
-			continue
-		}
-		if p.ActivityStatus() == u.Status {
-			req.Tenants[i] = nil
-			continue
-		}
-		copy := p.DeepCopy()
-		copy.Status = u.Status
-		if u.Nodes != nil && len(u.Nodes) >= 0 {
-			copy.BelongsToNodes = u.Nodes
-		}
-		ps[u.Name] = copy
-		if !slices.Contains(copy.BelongsToNodes, s.nodeID) {
-			req.Tenants[i] = nil
-		}
-		n++
-	}
-	if len(missingShards) > 0 {
-		err = fmt.Errorf("%w: %v", errShardNotFound, missingShards)
-	}
-
-	req.Tenants = removeNilTenants(req.Tenants)
-	return
-}
-
-func (s *schema) clear() {
-	s.Lock()
-	defer s.Unlock()
-	for k := range s.Classes {
-		delete(s.Classes, k)
-	}
+	return s.Classes[class].ClassInfo()
 }
 
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
@@ -216,95 +62,36 @@ func (s *schema) ClassEqual(name string) string {
 	return ""
 }
 
-type ClassInfo struct {
-	Exists            bool
-	MultiTenancy      models.MultiTenancyConfig
-	ReplicationFactor int
-	Tenants           int
-	Properties        int
-}
-
-func (s *schema) ClassInfo(class string) (ci ClassInfo) {
-	var i *metaClass
-	err := backoff.Retry(func() error {
-		s.RLock()
-		defer s.RUnlock()
-
-		i = s.Classes[class]
-		if i == nil {
-			return fmt.Errorf("class not found")
-		}
-		return nil
-	}, utils.NewBackoff())
-	if err != nil {
-		return
-	}
-
-	ci.Exists = true
-	ci.Properties = len(i.Class.Properties)
-	ci.MultiTenancy = parseMultiTenancyConfig(i)
-	ci.ReplicationFactor = 1
-	if i.Class.ReplicationConfig != nil && i.Class.ReplicationConfig.Factor > 1 {
-		ci.ReplicationFactor = int(i.Class.ReplicationConfig.Factor)
-	}
-	ci.Tenants = len(i.Sharding.Physical)
-	return ci
-}
-
 func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
-	info, _ := s.ReadMetaClass(class)
-	return parseMultiTenancyConfig(info)
+	return s.metaClass(class).MultiTenancyConfig()
 }
 
-func parseMultiTenancyConfig(class *metaClass) (cfg models.MultiTenancyConfig) {
-	if class == nil || class.Class.MultiTenancyConfig == nil {
-		return
-	}
-	cfg = *class.Class.MultiTenancyConfig
-	return
-}
-
-// Read
+// Read performs a read operation `reader` on the specified class and sharding state
 func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
-	info, err := s.ReadMetaClass(class)
-	if err != nil {
+	meta := s.metaClass(class)
+	if meta == nil {
 		return errClassNotFound
 	}
 
-	s.Lock()
-	defer s.Unlock()
-
-	return reader(&info.Class, &info.Sharding)
+	return meta.RLockGuard(reader)
 }
 
-func (s *schema) ReadMetaClass(class string) (*metaClass, error) {
-	var (
-		info   *metaClass
-		exists bool
-	)
-	backoff.Retry(func() error {
-		s.RLock()
-		defer s.RUnlock()
-
-		info, exists = s.Classes[class]
-		if !exists {
-			return fmt.Errorf("class %s not found locally", class)
-		}
-		return nil
-	}, utils.NewBackoff())
-
-	if info == nil {
-		return nil, fmt.Errorf("class %s not found locally", class)
-	}
-	return info, nil
+func (s *schema) metaClass(class string) *metaClass {
+	s.RLock()
+	defer s.RUnlock()
+	return s.Classes[class]
 }
 
+// ReadOnlyClass returns a shallow copy of a class.
+// The copy is read-only and should not be modified.
 func (s *schema) ReadOnlyClass(class string) *models.Class {
-	info, err := s.ReadMetaClass(class)
-	if err != nil {
+	s.RLock()
+	defer s.RUnlock()
+	meta := s.Classes[class]
+	if meta == nil {
 		return nil
 	}
-	return &info.Class
+	return meta.CloneClass()
 }
 
 // ReadOnlySchema returns a read only schema
@@ -323,8 +110,7 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	cp.Classes = make([]*models.Class, len(s.Classes))
 	i := 0
 	for _, meta := range s.Classes {
-		c := meta.Class
-		cp.Classes[i] = &c
+		cp.Classes[i] = meta.CloneClass()
 		i++
 	}
 
@@ -333,89 +119,158 @@ func (s *schema) ReadOnlySchema() models.Schema {
 
 // ShardOwner returns the node owner of the specified shard
 func (s *schema) ShardOwner(class, shard string) (string, error) {
-	i, err := s.ReadMetaClass(class)
-	if err != nil {
+	meta := s.metaClass(class)
+	if meta == nil {
 		return "", errClassNotFound
 	}
 
-	x, ok := i.GetPhysicalForShard(shard)
-	if !ok {
-		return "", errShardNotFound
-	}
-	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-		return "", fmt.Errorf("owner node not found")
-	}
-	return x.BelongsToNodes[0], nil
+	return meta.ShardOwner(shard)
 }
 
 // ShardFromUUID returns shard name of the provided uuid
 func (s *schema) ShardFromUUID(class string, uuid []byte) string {
-	i, err := s.ReadMetaClass(class)
-	if err != nil {
+	meta := s.metaClass(class)
+	if meta == nil {
 		return ""
 	}
-	return i.Sharding.PhysicalShard(uuid)
+	return meta.ShardFromUUID(uuid)
 }
 
-// ShardOwner returns the node owner of the specified shard
+// ShardReplicas returns the replica nodes of a shard
 func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
-	info, err := s.ReadMetaClass(class)
-	if err != nil {
+	meta := s.metaClass(class)
+	if meta == nil {
 		return nil, errClassNotFound
 	}
-
-	x, ok := info.GetPhysicalForShard(shard)
-	if !ok {
-		return nil, errShardNotFound
-	}
-	return x.BelongsToNodes, nil
+	return meta.ShardReplicas(shard)
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
 func (s *schema) TenantShard(class, tenant string) (string, string) {
-	var exTenant, status string
-	info, err := s.ReadMetaClass(class)
-	if err != nil || !info.Sharding.PartitioningEnabled {
-		return exTenant, status
+	s.RLock()
+	defer s.RUnlock()
+
+	meta := s.Classes[class]
+	if meta == nil {
+		return "", ""
 	}
 
-	backoff.Retry(func() error {
-		physical, ok := info.GetPhysicalForShard(tenant)
-		if !ok {
-			return fmt.Errorf("doesn't exists")
-		}
-		exTenant = tenant
-		status = physical.ActivityStatus()
-		return nil
-	}, utils.NewBackoff())
-
-	return exTenant, status
+	return meta.TenantShard(tenant)
 }
 
 func (s *schema) CopyShardingState(class string) *sharding.State {
-	info, err := s.ReadMetaClass(class)
-	if err != nil {
+	meta := s.metaClass(class)
+	if meta == nil {
 		return nil
 	}
 
-	st := info.Sharding.DeepCopy()
-	return &st
+	return meta.CopyShardingState()
 }
 
 func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
 	return s.shardReader.GetShardsStatus(class)
 }
 
-func (m *metaClass) SetPhysicalForShard(shard string, physical sharding.Physical) {
-	m.shardMutex.RLock()
-	defer m.shardMutex.RUnlock()
-
-	m.Sharding.Physical[shard] = physical
+type shardReader interface {
+	GetShardsStatus(class string) (models.ShardStatusList, error)
 }
 
-func (m *metaClass) GetPhysicalForShard(shard string) (sharding.Physical, bool) {
-	m.shardMutex.RLock()
-	defer m.shardMutex.RUnlock()
-	p, ok := m.Sharding.Physical[shard]
-	return p, ok
+func NewSchema(nodeID string, shardReader shardReader) *schema {
+	return &schema{
+		nodeID:      nodeID,
+		Classes:     make(map[string]*metaClass, 128),
+		shardReader: shardReader,
+	}
+}
+
+func (s *schema) len() int {
+	s.RLock()
+	defer s.RUnlock()
+	return len(s.Classes)
+}
+
+func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
+	s.Lock()
+	defer s.Unlock()
+	_, exists := s.Classes[cls.Class]
+	if exists {
+		return errClassExists
+	}
+
+	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss}
+	return nil
+}
+
+// updateClass modifies existing class based on the givin update function
+func (s *schema) updateClass(name string, f func(cls *models.Class, ss *sharding.State) error) error {
+	s.Lock()
+	defer s.Unlock()
+
+	meta := s.Classes[name]
+	if meta == nil {
+		return errClassNotFound
+	}
+	return meta.LockGuard(f)
+}
+
+func (s *schema) deleteClass(name string) {
+	s.Lock()
+	defer s.Unlock()
+	delete(s.Classes, name)
+}
+
+func (s *schema) addProperty(class string, p models.Property) error {
+	s.Lock()
+	defer s.Unlock()
+
+	meta := s.Classes[class]
+	if meta == nil {
+		return errClassNotFound
+	}
+	return meta.AddProperty(p)
+}
+
+func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {
+	req.Tenants = removeNilTenants(req.Tenants)
+	s.Lock()
+	defer s.Unlock()
+
+	meta := s.Classes[class]
+	if meta == nil {
+		return errClassNotFound
+	}
+
+	return meta.AddTenants(s.nodeID, req)
+}
+
+func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) error {
+	s.Lock()
+	defer s.Unlock()
+
+	meta := s.Classes[class]
+	if meta == nil {
+		return errClassNotFound
+	}
+
+	return meta.DeleteTenants(req)
+}
+
+func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) (n int, err error) {
+	s.Lock()
+	defer s.Unlock()
+
+	meta := s.Classes[class]
+	if meta == nil {
+		return 0, errClassNotFound
+	}
+
+	return meta.UpdateTenants(s.nodeID, req)
+}
+
+func (s *schema) clear() {
+	s.Lock()
+	defer s.Unlock()
+	for k := range s.Classes {
+		delete(s.Classes, k)
+	}
 }

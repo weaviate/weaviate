@@ -70,7 +70,7 @@ func (s *Service) Ready() bool {
 	return s.store.Ready()
 }
 
-func (s *Service) SchemaReader() *schema {
+func (s *Service) SchemaReader() retrySchema {
 	return s.store.SchemaReader()
 }
 
