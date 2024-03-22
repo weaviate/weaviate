@@ -34,6 +34,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviate().
 		WithText2VecContextionary().
+		WithBackendFilesystem().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		Start(ctx)
 	require.NoError(t, err)

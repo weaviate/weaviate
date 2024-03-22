@@ -71,26 +71,45 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Target vectors",
 			Type:        graphql.NewList(graphql.String),
 		},
-		"nearText": &graphql.InputObjectFieldConfig{
-			Description: "nearText element",
 
-			Type: graphql.NewInputObject(
+		"searches": &graphql.InputObjectFieldConfig{
+			Description: "Subsearch list",
+			Type: graphql.NewList(graphql.NewInputObject(
 				graphql.InputObjectConfig{
-					Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
-					Fields:      nearTextFields(prefixName),
-					Description: descriptions.GetWhereInpObj,
-				},
-			),
-		},
+					Description: "Subsearch list",
+					Name:        fmt.Sprintf("%sSearchesInpObj", prefixName),
+					Fields: (func() graphql.InputObjectConfigFieldMap {
+						subSearchFields := make(graphql.InputObjectConfigFieldMap)
+						fieldMap := graphql.InputObjectConfigFieldMap{
+							"nearText": &graphql.InputObjectFieldConfig{
+								Description: "nearText element",
 
-		"nearVector": &graphql.InputObjectFieldConfig{
-			Description: "nearVector element",
-			Type: graphql.NewInputObject(
-				graphql.InputObjectConfig{
-					Name:   fmt.Sprintf("%sNearVectorInpObj", prefixName),
-					Fields: common_filters.NearVectorFields(prefixName),
+								Type: graphql.NewInputObject(
+									graphql.InputObjectConfig{
+										Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
+										Fields:      nearTextFields(prefixName),
+										Description: "Near text search",
+									},
+								),
+							},
+							"nearVector": &graphql.InputObjectFieldConfig{
+								Description: "nearVector element",
+								Type: graphql.NewInputObject(
+									graphql.InputObjectConfig{
+										Name:        fmt.Sprintf("%sNearVectorInpObj", prefixName),
+										Description: "Near vector search",
+										Fields:      common_filters.NearVectorFields(prefixName),
+									},
+								),
+							},
+						}
+						for key, fieldConfig := range fieldMap {
+							subSearchFields[key] = fieldConfig
+						}
+						return subSearchFields
+					})(),
 				},
-			),
+			)),
 		},
 	}
 

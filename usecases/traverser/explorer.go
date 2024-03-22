@@ -47,7 +47,7 @@ type Explorer struct {
 	modulesProvider   ModulesProvider
 	schemaGetter      uc.SchemaGetter
 	nearParamsVector  *nearParamsVector
-	targetParamHelper *targetVectorParamHelper
+	targetParamHelper *TargetVectorParamHelper
 	metrics           explorerMetrics
 	config            config.Config
 }
@@ -107,7 +107,7 @@ func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesPro
 		metrics:           metrics,
 		schemaGetter:      nil, // schemaGetter is set later
 		nearParamsVector:  newNearParamsVector(modulesProvider, searcher),
-		targetParamHelper: newTargetParamHelper(),
+		targetParamHelper: NewTargetParamHelper(),
 		config:            conf,
 	}
 }
@@ -213,7 +213,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	targetVector, err = e.targetParamHelper.getTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
 		params.ClassName, targetVector)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
@@ -389,6 +389,9 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		return nil, fmt.Errorf("search results to get response: %w", err)
 	}
 	for _, res := range input {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		additionalProperties := make(map[string]interface{})
 
 		if res.AdditionalProperties != nil {
@@ -707,7 +710,7 @@ func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	targetVector := e.targetParamHelper.getTargetVectorFromParams(params)
+	targetVector := e.targetParamHelper.GetTargetVectorFromParams(params)
 	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err

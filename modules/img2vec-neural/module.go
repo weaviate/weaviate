@@ -34,6 +34,7 @@ type ImageModule struct {
 	vectorizer      imageVectorizer
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
+	logger          logrus.FieldLogger
 }
 
 type imageVectorizer interface {
@@ -53,6 +54,7 @@ func (m *ImageModule) Type() modulecapabilities.ModuleType {
 func (m *ImageModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -98,6 +100,10 @@ func (m *ImageModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool,
 	ichek := vectorizer.NewClassSettings(cfg)
 	mediaProps, err := ichek.Properties()
 	return false, mediaProps, err
+}
+
+func (m *ImageModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return modulecapabilities.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {

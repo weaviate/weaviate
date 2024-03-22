@@ -231,7 +231,7 @@ func NewHNSWPQCompressor(
 	data [][]float32,
 	store *lsmkv.Store,
 ) (VectorCompressor, error) {
-	quantizer, err := NewProductQuantizer(cfg, distance, dimensions)
+	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +244,10 @@ func NewHNSWPQCompressor(
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
-	quantizer.Fit(data)
+	err = quantizer.Fit(data)
+	if err != nil {
+		return nil, err
+	}
 	return pqVectorsCompressor, nil
 }
 
@@ -257,7 +260,7 @@ func RestoreHNSWPQCompressor(
 	encoders []PQEncoder,
 	store *lsmkv.Store,
 ) (VectorCompressor, error) {
-	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders)
+	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
 	if err != nil {
 		return nil, err
 	}

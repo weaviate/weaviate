@@ -227,7 +227,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 			vector = hs.Vector
 		}
 
-		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.NearText)
+		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -244,7 +244,7 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 
 		if nearVec != nil {
 			out.HybridSearch.NearVectorParams = &searchparams.NearVector{
-				Vector:        nearVec.Vector,
+				Vector:        byteops.Float32FromByteVector(nearVec.VectorBytes),
 				TargetVectors: nearVec.TargetVectors,
 			}
 			if nearVec.Distance != nil {
