@@ -282,6 +282,8 @@ func (p *Provider) getVectorizer(class *models.Class, targetVector string) strin
 }
 
 func (p *Provider) getVector(object *models.Object, targetVector string) []float32 {
+	p.vectorsLock.Lock()
+	defer p.vectorsLock.Unlock()
 	if targetVector != "" {
 		if len(object.Vectors) == 0 {
 			return nil
