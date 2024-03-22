@@ -108,6 +108,12 @@ func growIndexToAccomodateNode(index []*vertex, id uint64,
 		newSize = id + cache.MinimumIndexGrowthDelta
 	}
 
+	logger.WithField("action", "hnsw_grow_index").
+		WithField("current_size", previousSize).
+		WithField("new_size", newSize).
+		WithField("doc_id", id).
+		Debugf("index growing from %d to %d, doc_id %d\n", previousSize, newSize, id)
+
 	newIndex := make([]*vertex, newSize)
 	copy(newIndex, index)
 
