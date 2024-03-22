@@ -341,6 +341,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		pointerResultList = hybrid.Results{}
 	}
 
+	// The rest of weaviate uses []search.Result, so we convert the hpointerResultList to []search.Result
+
 	out := make([]search.Result, 0, len(pointerResultList))
 	for _, pointerResult := range pointerResultList {
 		out = append(out, *pointerResult)
