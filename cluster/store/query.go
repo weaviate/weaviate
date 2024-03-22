@@ -52,8 +52,8 @@ func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the meta class to get both the class and sharding information
-	metaClass, err := st.db.Schema.ReadMetaClass(subCommand.Class)
-	if err != nil {
+	metaClass := st.db.Schema.metaClass(subCommand.Class)
+	if metaClass == nil {
 		return []byte{}, nil
 	}
 

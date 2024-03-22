@@ -18,6 +18,8 @@ import (
 	"fmt"
 
 	command "github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -68,13 +70,13 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		req.State.SetLocalName(nodeID)
 	}
 
-	update := func(cur *metaClass) error {
-		u, err := db.parser.ParseClassUpdate(&cur.Class, req.Class)
+	update := func(cls *models.Class, ss *sharding.State) error {
+		u, err := db.parser.ParseClassUpdate(cls, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
 		}
-		cur.Class.VectorIndexConfig = u.VectorIndexConfig
-		cur.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		cls.VectorIndexConfig = u.VectorIndexConfig
+		cls.InvertedIndexConfig = u.InvertedIndexConfig
 		return nil
 	}
 

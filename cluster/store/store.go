@@ -319,8 +319,8 @@ func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
 }
 
-func (f *Store) SchemaReader() *schema {
-	return f.db.Schema
+func (f *Store) SchemaReader() retrySchema {
+	return retrySchema{f.db.Schema}
 }
 
 func (st *Store) Stats() map[string]string { return st.raft.Stats() }
@@ -340,7 +340,7 @@ func (st *Store) Execute(req *cmd.ApplyRequest) error {
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
 	}
-	if req.Type == cmd.ApplyRequest_TYPE_RESTORE_CLASS && st.SchemaReader().ClassInfo(req.Class).Exists {
+	if req.Type == cmd.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
 		st.log.Info("class already restored", "class", req.Class)
 		return nil
 	}
@@ -452,7 +452,7 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	st.log.Info("successfully restored schema from snapshot")
 
 	if st.reloadDB() {
-		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.Len())
+		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.len())
 	}
 
 	return nil
@@ -573,7 +573,7 @@ func (st *Store) loadDatabase(ctx context.Context) {
 	}
 
 	st.dbLoaded.Store(true)
-	st.log.Info("database has been successfully loaded", "n", st.db.Schema.Len())
+	st.log.Info("database has been successfully loaded", "n", st.db.Schema.len())
 }
 
 // reloadDB reloads the node's local db. If the db is already loaded, it will be reloaded.
