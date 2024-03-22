@@ -16,9 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/errorcompounder"
-
-	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -170,83 +167,6 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 	}
 
 	return nil
-}
-
-func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
-	concept *models.Object, originalIndex int, resultsC *chan BatchObject,
-	fieldsToKeep map[string]struct{}, repl *additional.ReplicationProperties,
-) {
-	var id strfmt.UUID
-
-	ec := &errorcompounder.ErrorCompounder{}
-
-	// Auto Schema
-	err := b.autoSchemaManager.autoSchema(ctx, principal, concept, true)
-	ec.Add(err)
-
-	if concept.ID == "" {
-		// Generate UUID for the new object
-		uid, err := generateUUID()
-		id = uid
-		ec.Add(err)
-	} else {
-		if _, err := uuid.Parse(concept.ID.String()); err != nil {
-			ec.Add(err)
-		}
-		id = concept.ID
-	}
-
-	object := &models.Object{}
-	object.LastUpdateTimeUnix = 0
-	object.ID = id
-	object.Vector = concept.Vector
-	object.Vectors = concept.Vectors
-	object.Tenant = concept.Tenant
-
-	if _, ok := fieldsToKeep["class"]; ok {
-		object.Class = concept.Class
-	}
-	if _, ok := fieldsToKeep["properties"]; ok {
-		object.Properties = concept.Properties
-	}
-
-	if object.Properties == nil {
-		object.Properties = map[string]interface{}{}
-	}
-	now := unixNow()
-	if _, ok := fieldsToKeep["creationTimeUnix"]; ok {
-		object.CreationTimeUnix = now
-	}
-	if _, ok := fieldsToKeep["lastUpdateTimeUnix"]; ok {
-		object.LastUpdateTimeUnix = now
-	}
-
-	class, err := b.schemaManager.GetClass(ctx, principal, object.Class)
-	ec.Add(err)
-
-	if class == nil {
-		// TODO: reconsolidate returning that error from GetClass
-		ec.Add(fmt.Errorf("class '%s' not present in schema", object.Class))
-	} else {
-		ec.Add(validation.New(b.vectorRepo.Exists, b.config, repl).Object(ctx, class, object, nil))
-		ec.Add(b.modulesProvider.UpdateVector(ctx, object, class, b.findObject, b.logger))
-	}
-
-	*resultsC <- BatchObject{
-		UUID:          id,
-		Object:        object,
-		Err:           ec.ToError(),
-		OriginalIndex: originalIndex,
-	}
-}
-
-func objectsChanToSlice(c chan BatchObject) BatchObjects {
-	result := make([]BatchObject, len(c))
-	for object := range c {
-		result[object.OriginalIndex] = object
-	}
-
-	return result
 }
 
 func unixNow() int64 {
