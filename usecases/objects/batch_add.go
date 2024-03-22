@@ -14,11 +14,9 @@ package objects
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -58,7 +56,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
 	}
 
-	batchObjects := b.validateAndGetVector(ctx, principal, classes, repl)
+	batchObjects := b.validateAndGetVector(ctx, principal, objects, repl)
 
 	if err := b.autoSchemaManager.autoTenants(ctx, principal, objects); err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
@@ -172,36 +170,6 @@ func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
 	}
 
 	return nil
-}
-
-func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-) BatchObjects {
-	fieldsToKeep := determineResponseFields(fields)
-	c := make(chan BatchObject, len(objects))
-
-	// the validation function can't error directly, it would return an error
-	// over the channel. But by using an error group, we can easily limit the
-	// concurrency
-	//
-	// see https://github.com/weaviate/weaviate/issues/3179 for details of how the
-	// unbounded concurrency caused a production outage
-	eg := enterrors.NewErrorGroupWrapper(b.logger)
-	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
-
-	// Generate a goroutine for each separate request
-	for i, object := range objects {
-		i := i
-		object := object
-		eg.Go(func() error {
-			b.validateObject(ctx, principal, object, i, &c, fieldsToKeep, repl)
-			return nil
-		}, object.ID)
-	}
-
-	eg.Wait()
-	close(c)
-	return objectsChanToSlice(c)
 }
 
 func (b *BatchManager) validateObject(ctx context.Context, principal *models.Principal,
