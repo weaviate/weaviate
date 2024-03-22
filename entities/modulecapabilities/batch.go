@@ -227,7 +227,9 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 	return err
 }
 
-func (b *Batch) SubmitBatchAndWait(ctx context.Context, errs map[int]error, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string, vecs [][]float32) {
+func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassConfig, skipObject []bool, tokenCounts []int, texts []string) ([][]float32, map[int]error) {
+	vecs := make([][]float32, len(skipObject))
+	errs := make(map[int]error)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
@@ -244,6 +246,7 @@ func (b *Batch) SubmitBatchAndWait(ctx context.Context, errs map[int]error, cfg 
 	}
 
 	wg.Wait()
+	return vecs, errs
 }
 
 type objectVectorizer func(context.Context, *models.Object, moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)

@@ -108,11 +108,9 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 
 func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
 ) ([][]float32, map[int]error) {
-	errs := make(map[int]error)
 	texts := make([]string, len(objects))
 	tokenCounts := make([]int, len(objects))
 	icheck := ent.NewClassSettings(cfg)
-	vecs := make([][]float32, len(objects))
 
 	// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
 	skipAll := true
@@ -127,10 +125,8 @@ func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, 
 	}
 
 	if skipAll {
-		return vecs, errs
+		return make([][]float32, len(objects)), make(map[int]error)
 	}
 
-	v.batchVectorizer.SubmitBatchAndWait(ctx, errs, cfg, skipObject, tokenCounts, texts, vecs)
-
-	return vecs, errs
+	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }

@@ -91,15 +91,11 @@ func TestBatch(t *testing.T) {
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
 			}
-			errs := make(map[int]error)
-			vecs := make([][]float32, len(tt.objects))
 
 			texts, tokenCounts := generateTokens(tt.objects)
 
 			ctx, cancl := context.WithDeadline(context.Background(), deadline)
-			v.SubmitBatchAndWait(
-				ctx, errs, cfg, tt.skip, tokenCounts, texts, vecs,
-			)
+			vecs, errs := v.SubmitBatchAndWait(ctx, cfg, tt.skip, tokenCounts, texts)
 
 			require.Len(t, errs, len(tt.wantErrors))
 			require.Len(t, vecs, len(tt.objects))
@@ -137,12 +133,8 @@ func TestBatchMultiple(t *testing.T) {
 			texts, tokenCounts := generateTokens([]*models.Object{
 				{Class: "Car", Properties: map[string]interface{}{"test": "wait 100"}},
 			})
-			errs := make(map[int]error)
-			vecs := make([][]float32, len(texts))
 
-			v.SubmitBatchAndWait(
-				context.Background(), errs, cfg, []bool{false}, tokenCounts, texts, vecs,
-			)
+			vecs, errs := v.SubmitBatchAndWait(context.Background(), cfg, []bool{false}, tokenCounts, texts)
 			require.Len(t, vecs, 1)
 			require.Len(t, errs, 0)
 			res <- i
@@ -185,12 +177,8 @@ func TestBatchTimeouts(t *testing.T) {
 			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger, false) // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
-			errs := make(map[int]error)
-			vecs := make([][]float32, len(texts))
 
-			v.SubmitBatchAndWait(
-				context.Background(), errs, cfg, skip, tokenCounts, texts, vecs,
-			)
+			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 
 			require.Len(t, errs, tt.expectedErrors)
 		})
@@ -221,13 +209,7 @@ func TestBatchRequestLimit(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger, false) // avoid waiting for rate limit
 
-			errs := make(map[int]error)
-			vecs := make([][]float32, len(texts))
-
-			v.SubmitBatchAndWait(
-				context.Background(), errs, cfg, skip, tokenCounts, texts, vecs,
-			)
-
+			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)
 		})
 	}
