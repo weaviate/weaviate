@@ -11,14 +11,25 @@
 
 package modulecapabilities
 
+import "time"
+
 type RateLimits struct {
-	LimitRequests     int
-	LimitTokens       int
-	RemainingRequests int
-	RemainingTokens   int
-	ResetRequests     int
-	ResetTokens       int
+	LastOverwrite        time.Time
+	afterRequestFunction func(limits *RateLimits)
+	LimitRequests        int
+	LimitTokens          int
+	RemainingRequests    int
+	RemainingTokens      int
+	ResetRequests        int
+	ResetTokens          int
 }
+
+func (rl *RateLimits) ResetAfterRequestFunction() {
+	if rl.afterRequestFunction != nil {
+		rl.afterRequestFunction(rl)
+	}
+}
+
 type VectorizationResult struct {
 	Text       []string
 	Dimensions int

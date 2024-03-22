@@ -48,7 +48,7 @@ type BatchClient interface {
 		config moduletools.ClassConfig) (*VectorizationResult, *RateLimits, error)
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, ratelimitTimer func(limits *RateLimits), logger logrus.FieldLogger, needsInitialRequest bool) *Batch {
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, execAfterRequestFunction func(limits *RateLimits), logger logrus.FieldLogger, needsInitialRequest bool) *Batch {
 	batch := Batch{
 		client:                    client,
 		objectVectorizer:          objectsvectorizer.New(),
@@ -57,7 +57,7 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxObjectsPerBatch:        maxObjectsPerBatch,
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 	}
-	enterrors.GoWrapper(func() { batch.batchWorker(ratelimitTimer, needsInitialRequest, logger) }, logger)
+	enterrors.GoWrapper(func() { batch.batchWorker(execAfterRequestFunction, needsInitialRequest, logger) }, logger)
 	return &batch
 }
 
@@ -77,11 +77,9 @@ type Batch struct {
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
 //     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
-func (b *Batch) batchWorker(ratelimitTimer func(limits *RateLimits), needsInitialRequest bool, logger logrus.FieldLogger) {
-	rateLimit := &RateLimits{}
-	if ratelimitTimer != nil {
-		enterrors.GoWrapper(func() { ratelimitTimer(rateLimit) }, logger)
-	}
+func (b *Batch) batchWorker(execAfterRequestFunction func(limits *RateLimits), needsInitialRequest bool, logger logrus.FieldLogger) {
+	rateLimit := &RateLimits{afterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	rateLimit.ResetAfterRequestFunction()
 
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
@@ -194,7 +192,6 @@ func (b *Batch) batchWorker(ratelimitTimer func(limits *RateLimits), needsInitia
 			_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit)
 		}
 		job.wg.Done()
-
 	}
 }
 
@@ -221,7 +218,7 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 		rateLimit.RemainingRequests = rateLimitNew.RemainingRequests
 		rateLimit.RemainingTokens = rateLimitNew.RemainingTokens
 	} else {
-		rateLimit.RemainingRequests -= 1
+		rateLimit.ResetAfterRequestFunction()
 	}
 
 	return err
