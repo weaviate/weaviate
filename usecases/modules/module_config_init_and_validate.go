@@ -189,7 +189,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 			for modName := range vectorizer {
 				if modName == "none" {
 					// the class does not use a vectorizer, nothing to do for us
-					return nil
+					continue
 				}
 				if mod := p.GetByName(modName); mod == nil {
 					return errors.Errorf("class.VectorConfig.Vectorizer module with name %s doesn't exist", modName)
