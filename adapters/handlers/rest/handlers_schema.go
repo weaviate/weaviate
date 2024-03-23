@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -24,7 +25,7 @@ import (
 )
 
 type schemaHandlers struct {
-	manager             *schemaUC.Manager
+	manager             *schemaUC.ManagerWithConsistency
 	metricRequestsTotal restApiRequestsTotal
 }
 
@@ -76,7 +77,8 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
+	spew.Dump(err)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -136,7 +138,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetSchema(principal)
+	dbSchema, err := s.manager.GetSchema(principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -168,13 +170,19 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	var tenant string
-	if params.Tenant == nil {
-		tenant = ""
-	} else {
-		tenant = *params.Tenant
-	}
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
+	// TODO-RAFT START
+	// Fix changed interface GetShardsStatus -> ShardsStatus
+	// Previous definition:
+	// status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
+	// var tenant string
+	// if params.Tenant == nil {
+	// 	tenant = ""
+	// } else {
+	// 	tenant = *params.Tenant
+	// }
+
+	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	// TODO-RAFT END
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -219,7 +227,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	created, err := s.manager.AddTenants(
+	err := s.manager.AddTenants(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -234,7 +242,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK().WithPayload(created)
+	return schema.NewTenantsCreateOK() //.WithPayload(created)
 }
 
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
@@ -321,7 +329,8 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
-	h := &schemaHandlers{manager, newSchemaRequestsTotal(metrics, logger)}
+	schemaManagerWithConsistency := schemaUC.NewManagerWithConsistency(manager)
+	h := &schemaHandlers{&schemaManagerWithConsistency, newSchemaRequestsTotal(metrics, logger)}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.
 		SchemaObjectsCreateHandlerFunc(h.addClass)

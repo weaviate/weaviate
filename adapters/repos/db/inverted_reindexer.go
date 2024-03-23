@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -52,8 +51,10 @@ type ShardInvertedReindexer struct {
 }
 
 func NewShardInvertedReindexer(shard ShardLike, logger logrus.FieldLogger) *ShardInvertedReindexer {
-	class, _ := schema.GetClassByName(shard.Index().getSchema.GetSchemaSkipAuth().Objects,
-		shard.Index().Config.ClassName.String())
+	class := shard.Index().getSchema.ReadOnlyClass(shard.Index().Config.ClassName.String())
+	if class == nil {
+		return nil
+	}
 
 	return &ShardInvertedReindexer{
 		logger: logger,

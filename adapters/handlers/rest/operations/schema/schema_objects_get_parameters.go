@@ -22,14 +22,22 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewSchemaObjectsGetParams creates a new SchemaObjectsGetParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewSchemaObjectsGetParams() SchemaObjectsGetParams {
 
-	return SchemaObjectsGetParams{}
+	var (
+		// initialize parameters with default values
+
+		consistencyDefault = bool(true)
+	)
+
+	return SchemaObjectsGetParams{
+		Consistency: &consistencyDefault,
+	}
 }
 
 // SchemaObjectsGetParams contains all the bound params for the schema objects get operation
@@ -46,6 +54,11 @@ type SchemaObjectsGetParams struct {
 	  In: path
 	*/
 	ClassName string
+	/*If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+	  In: header
+	  Default: true
+	*/
+	Consistency *bool
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -59,6 +72,10 @@ func (o *SchemaObjectsGetParams) BindRequest(r *http.Request, route *middleware.
 
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := o.bindConsistency(r.Header[http.CanonicalHeaderKey("consistency")], true, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -77,6 +94,29 @@ func (o *SchemaObjectsGetParams) bindClassName(rawData []string, hasKey bool, fo
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ClassName = raw
+
+	return nil
+}
+
+// bindConsistency binds and validates parameter Consistency from header.
+func (o *SchemaObjectsGetParams) bindConsistency(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewSchemaObjectsGetParams()
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("consistency", "header", "bool", raw)
+	}
+	o.Consistency = &value
 
 	return nil
 }

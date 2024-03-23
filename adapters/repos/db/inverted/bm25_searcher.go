@@ -41,7 +41,7 @@ import (
 type BM25Searcher struct {
 	config         schema.BM25Config
 	store          *lsmkv.Store
-	schema         schema.Schema
+	getClass       func(string) *models.Class
 	classSearcher  ClassSearcher // to allow recursive searches on ref-props
 	propIndices    propertyspecific.Indices
 	propLenTracker propLengthRetriever
@@ -54,14 +54,14 @@ type propLengthRetriever interface {
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
-	schema schema.Schema, propIndices propertyspecific.Indices,
+	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:         config,
 		store:          store,
-		schema:         schema,
+		getClass:       getClass,
 		propIndices:    propIndices,
 		classSearcher:  classSearcher,
 		propLenTracker: propLenTracker,
@@ -75,13 +75,13 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
-		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {
+		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
 			return nil, nil, inverted.NewMissingSearchableIndexError(property)
 		}
 	}
-	class, err := schema.GetClassByName(b.schema.Objects, string(className))
-	if err != nil {
-		return nil, nil, err
+	class := b.getClass(className.String())
+	if class == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
 	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
@@ -648,13 +648,13 @@ func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
-func PropertyHasSearchableIndex(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
-	propertyName := strings.Split(tentativePropertyName, "^")[0]
-	c, err := schema.GetClassByName(schemaDefinition, string(className))
-	if err != nil {
+func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName string) bool {
+	if class == nil {
 		return false
 	}
-	p, err := schema.GetPropertyByName(c, propertyName)
+
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	p, err := schema.GetPropertyByName(class, propertyName)
 	if err != nil {
 		return false
 	}

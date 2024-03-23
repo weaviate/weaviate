@@ -144,7 +144,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	err = NewValidator(c.schemaGetter, params).Do()
+	err = NewValidator(c.schemaGetter.ReadOnlyClass, params).Do()
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +232,7 @@ func (c *Classifier) validateFilter(filter *libfilters.LocalFilter) error {
 	if filter == nil {
 		return nil
 	}
-	return libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filter)
+	return libfilters.ValidateFilters(c.schemaGetter.ReadOnlyClass, filter)
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {

@@ -94,7 +94,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 						},
 					},
 				},
-				expectedError: "validate: class: SomeClass doesn't exist",
+				expectedError: "validate: failed to get class: SomeClass, with err=<nil>",
 			},
 			{
 				input: &models.BatchDelete{

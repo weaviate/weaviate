@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -34,15 +35,14 @@ import (
 )
 
 type indices struct {
-	shards                 shards
-	db                     db
-	auth                   auth
-	regexpObjects          *regexp.Regexp
-	regexpObjectsOverwrite *regexp.Regexp
-	regexObjectsDigest     *regexp.Regexp
-	regexpObjectsSearch    *regexp.Regexp
-	regexpObjectsFind      *regexp.Regexp
-
+	shards                    shards
+	db                        *db.DB
+	auth                      auth
+	regexpObjects             *regexp.Regexp
+	regexpObjectsOverwrite    *regexp.Regexp
+	regexObjectsDigest        *regexp.Regexp
+	regexpObjectsSearch       *regexp.Regexp
+	regexpObjectsFind         *regexp.Regexp
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
 	regexpReferences          *regexp.Regexp
@@ -134,11 +134,7 @@ type shards interface {
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 }
 
-type db interface {
-	StartupComplete() bool
-}
-
-func NewIndices(shards shards, db db, auth auth) *indices {
+func NewIndices(shards shards, db *db.DB, auth auth) *indices {
 	return &indices{
 		regexpObjects:          regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -348,7 +344,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 }
 
 func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
-	index, shard string,
+	class, shard string,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -362,7 +358,17 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
+	index := i.db.GetIndexForIncoming(entschema.ClassName(class))
+	if index == nil {
+		http.Error(w, "index not found", http.StatusInternalServerError)
+		return
+	}
+
+	errs := index.IncomingBatchPutObjects(r.Context(), shard, objs)
+	if len(errs) > 0 && errors.Is(errs[0], db.ErrShardNotFound) {
+		http.Error(w, errs[0].Error(), http.StatusInternalServerError)
+		return
+	}
 	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

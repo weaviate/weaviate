@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	ucschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -68,7 +67,6 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 
 	migrationStateUpdated := false
 	updateLock := new(sync.Mutex)
-	sch := m.schemaGetter.GetSchemaSkipAuth().Objects
 
 	m.log().Debug("starting migration")
 
@@ -78,7 +76,7 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 		index := index
 
 		eg.Go(func() error {
-			migratedProps, err := m.migrateClass(ctx, index, sch)
+			migratedProps, err := m.migrateClass(ctx, index, m.schemaGetter.ReadOnlyClass)
 			if err != nil {
 				m.logIndex(index).WithError(err).Error("failed migrating class")
 				return errors.Wrap(err, "failed migrating class")
@@ -152,15 +150,13 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 	return nil
 }
 
-func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index *Index,
-	sch *models.Schema,
-) (map[string]struct{}, error) {
+func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index *Index, getClass func(string) *models.Class) (map[string]struct{}, error) {
 	m.logIndex(index).Debug("started migration of index")
 
 	className := index.Config.ClassName.String()
-	class, err := ucschema.GetClassByName(sch, className)
-	if err != nil {
-		return nil, err
+	class := getClass(className)
+	if class == nil {
+		return nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
 	shard2PropsToFix := map[string]map[string]struct{}{}

@@ -40,7 +40,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	inspector := newTypeInspector(t.schemaGetter)
+	inspector := newTypeInspector(t.schemaGetter.ReadOnlyClass)
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		className := params.ClassName.String()
@@ -91,7 +91,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 
 	if params.Filters != nil {
-		if err := filters.ValidateFilters(t.schemaGetter.GetSchemaSkipAuth(), params.Filters); err != nil {
+		if err := filters.ValidateFilters(t.schemaGetter.ReadOnlyClass, params.Filters); err != nil {
 			return nil, errors.Wrap(err, "invalid 'where' filter")
 		}
 	}

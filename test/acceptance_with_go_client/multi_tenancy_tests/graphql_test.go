@@ -278,6 +278,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 			require.NotNil(t, response.Data)
 
 			agg := response.Data["Aggregate"].(map[string]interface{})
+			require.NotNil(t, agg)
+
 			objects := agg[className].([]interface{})
 			require.Len(t, objects, 1)
 			obj := objects[0].(map[string]interface{})[fieldName].(map[string]interface{})

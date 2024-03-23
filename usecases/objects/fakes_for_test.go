@@ -45,6 +45,7 @@ type fakeSchemaManager struct {
 	}
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
+	tenantsEnabled    bool
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -73,13 +74,23 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { re
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, class := range classes {
+	if f.GetSchemaResponse.Objects == nil {
+		return nil, f.GetschemaErr
+	}
+	for _, class := range f.GetSchemaResponse.Objects.Classes {
 		if class.Class == name {
 			return class, f.GetschemaErr
 		}
 	}
 	return nil, f.GetschemaErr
+}
+
+func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
+	c, err := f.GetClass(context.TODO(), nil, name)
+	if err != nil {
+		return nil
+	}
+	return c
 }
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
@@ -98,6 +109,13 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
+	return nil
+}
+
+func (f *fakeSchemaManager) AddTenants(ctx context.Context,
+	principal *models.Principal, class string, tenants []*models.Tenant,
+) error {
+	f.tenantsEnabled = true
 	return nil
 }
 
@@ -137,6 +155,10 @@ func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, princi
 		}
 	}
 	return nil
+}
+
+func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
+	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
 }
 
 type fakeLocks struct {

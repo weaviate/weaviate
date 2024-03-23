@@ -139,6 +139,10 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
+func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
+	return f.schema.GetClass(class)
+}
+
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
 }

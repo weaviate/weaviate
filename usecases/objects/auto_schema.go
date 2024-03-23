@@ -19,8 +19,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	cloud_utils "github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -52,15 +54,10 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, allowCreateClass bool,
 ) error {
-	if m.config.Enabled {
-		return m.performAutoSchema(ctx, principal, object, allowCreateClass)
+	if !m.config.Enabled {
+		return nil
 	}
-	return nil
-}
 
-func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, allowCreateClass bool,
-) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	if object == nil {
@@ -74,32 +71,25 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 
 	object.Class = schema.UppercaseClassName(object.Class)
 
-	schemaClass, err := m.getClass(principal, object)
-	if err != nil {
-		return err
-	}
-	if schemaClass == nil && !allowCreateClass {
-		return fmt.Errorf("given class does not exist")
-	}
-	properties, err := m.getProperties(object)
-	if err != nil {
-		return err
-	}
-	if schemaClass == nil {
-		return m.createClass(ctx, principal, object.Class, properties)
-	}
-	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
-}
-
-func (m *autoSchemaManager) getClass(principal *models.Principal,
-	object *models.Object,
-) (*models.Class, error) {
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, err
-	}
-	schemaClass := s.GetClass(schema.ClassName(object.Class))
-	return schemaClass, nil
+	// Batch together the GetClass and subsequent createClass or updateClass to ensure we will retry if the schema changes
+	// have not yet propagated back to the follower node.
+	return backoff.Retry(func() error {
+		schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+		if err != nil {
+			return err
+		}
+		if schemaClass == nil && !allowCreateClass {
+			return fmt.Errorf("given class does not exist")
+		}
+		properties, err := m.getProperties(object)
+		if err != nil {
+			return err
+		}
+		if schemaClass == nil {
+			return m.createClass(ctx, principal, object.Class, properties)
+		}
+		return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
+	}, cloud_utils.NewBackoff())
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
@@ -120,7 +110,7 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property, existingProperties []*models.Property,
 ) error {
-	existingPropertiesIndexMap := map[string]int{}
+	existingPropertiesIndexMap := make(map[string]int, len(existingProperties))
 	for index := range existingProperties {
 		existingPropertiesIndexMap[existingProperties[index].Name] = index
 	}
@@ -460,7 +450,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 		return nestedProperties, nil
 	}
 
-	nestedPropertiesIndexMap := map[string]int{}
+	nestedPropertiesIndexMap := make(map[string]int, len(nestedProperties))
 	for index := range nestedProperties {
 		nestedPropertiesIndexMap[nestedProperties[index].Name] = index
 	}
@@ -491,4 +481,49 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 	}
 
 	return nestedProperties, nil
+}
+
+func (m *autoSchemaManager) autoTenants(ctx context.Context,
+	principal *models.Principal, objects []*models.Object,
+) error {
+	classTenants := make(map[string]map[string]struct{})
+
+	for _, obj := range objects {
+		// TODO: track the classes we have already checked
+		//       before calling getClass again
+		if m.schemaManager.MultiTenancy(obj.Class).AutoTenantCreation {
+			cls, ok := classTenants[obj.Class]
+			if !ok {
+				classTenants[obj.Class] = map[string]struct{}{obj.Tenant: {}}
+				continue
+			}
+			cls[obj.Tenant] = struct{}{}
+		}
+	}
+
+	for class, tenantNames := range classTenants {
+		tenants := make([]*models.Tenant, len(tenantNames))
+		i := 0
+		for name := range tenantNames {
+			tenants[i] = &models.Tenant{Name: name}
+			i++
+		}
+		if err := m.addTenants(ctx, principal, class, tenants); err != nil {
+			return fmt.Errorf("add tenants to class %q: %w", class, err)
+		}
+	}
+	return nil
+}
+
+func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
+	class string, tenants []*models.Tenant,
+) error {
+	if len(tenants) == 0 {
+		return fmt.Errorf(
+			"tenants must be included for multitenant-enabled class %q", class)
+	}
+	if err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+		return err
+	}
+	return nil
 }

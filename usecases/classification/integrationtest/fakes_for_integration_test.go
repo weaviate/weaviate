@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type fakeSchemaGetter struct {
@@ -44,6 +45,10 @@ type fakeSchemaGetter struct {
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
+	return f.schema.GetClass(className)
 }
 
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
@@ -98,7 +103,7 @@ func (m *fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
 }
 
 func singleShardState() *sharding.State {
-	config, err := sharding.ParseConfig(nil, 1)
+	config, err := shardingConfig.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}

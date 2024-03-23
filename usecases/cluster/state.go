@@ -37,6 +37,8 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
+	Localhost bool `json:"localhost" yaml:"localhost"`
 }
 
 type AuthConfig struct {
@@ -98,7 +100,6 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 
 	if len(joinAddr) > 0 {
-
 		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 		if err != nil {
 			logger.WithField("action", "cluster_attempt_join").
@@ -142,6 +143,9 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -195,6 +199,16 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// NodeAddress is used to resolve the node name into an ip address without the port
+func (s *State) NodeAddress(id string) string {
+	for _, mem := range s.list.Members() {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
+	return ""
 }
 
 func (s *State) SchemaSyncIgnored() bool {

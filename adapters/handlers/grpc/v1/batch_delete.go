@@ -17,18 +17,19 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, scheme schema.Schema) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, getClass func(string) *models.Class) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	// make sure collection exists
-	_, err := schema.GetClassByName(scheme.Objects, req.Collection)
-	if err != nil {
-		return objects.BatchDeleteParams{}, err
+	class := getClass(req.Collection)
+	if class == nil {
+		return objects.BatchDeleteParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
 	}
 
 	params.ClassName = schema.ClassName(req.Collection)
@@ -45,12 +46,12 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, scheme schema.Schema
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := extractFilters(req.Filters, scheme, req.Collection)
+	clause, err := extractFilters(req.Filters, getClass, req.Collection)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
 	filter := &filters.LocalFilter{Root: &clause}
-	if err := filters.ValidateFilters(scheme, filter); err != nil {
+	if err := filters.ValidateFilters(getClass, filter); err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
 	params.Filters = filter

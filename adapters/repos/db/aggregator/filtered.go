@@ -118,12 +118,12 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 }
 
 func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
-	var (
-		s     = fa.getSchema.GetSchemaSkipAuth()
-		class = s.GetClass(fa.params.ClassName)
-		cfg   = inverted.ConfigFromModel(class.InvertedIndexConfig)
-	)
-	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
+	class := fa.getSchema.ReadOnlyClass(fa.params.ClassName.String())
+	if class == nil {
+		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", fa.params.ClassName)
+	}
+	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
+	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, fa.classSearcher,
 		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)

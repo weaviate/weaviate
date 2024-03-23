@@ -76,7 +76,7 @@ func TestNonExistingClassRelaxedCrossValidation(t *testing.T) {
 	className := "NonExistingClass"
 	s := Empty()
 
-	pdt, err := s.FindPropertyDataTypeWithRefs([]string{className}, true, ClassName("AnotherNonExistingClass"))
+	pdt, err := FindPropertyDataTypeWithRefs(s.GetClass, []string{className}, true, ClassName("AnotherNonExistingClass"))
 
 	assert.Nil(t, err)
 	assert.True(t, pdt.IsReference())
@@ -87,7 +87,7 @@ func TestNonExistingClassPropertyBelongsTo(t *testing.T) {
 	className := "NonExistingClass"
 	s := Empty()
 
-	pdt, err := s.FindPropertyDataTypeWithRefs([]string{className}, false, ClassName(className))
+	pdt, err := FindPropertyDataTypeWithRefs(s.GetClass, []string{className}, false, ClassName(className))
 
 	assert.Nil(t, err)
 	assert.True(t, pdt.IsReference())

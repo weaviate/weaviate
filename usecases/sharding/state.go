@@ -20,13 +20,14 @@ import (
 	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 const shardNameLength = 12
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
-	Config              Config              `json:"config"`
+	Config              config.Config       `json:"config"`
 	Physical            map[string]Physical `json:"physical"`
 	Virtual             []Virtual           `json:"virtual"`
 	PartitioningEnabled bool                `json:"partitioningEnabled"`
@@ -126,7 +127,7 @@ type nodes interface {
 	LocalName() string
 }
 
-func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
+func InitState(id string, config config.Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
 		Config:              config,
 		IndexID:             id,
@@ -490,19 +491,6 @@ func (s State) DeepCopy() State {
 		Physical:            physicalCopy,
 		Virtual:             virtualCopy,
 		PartitioningEnabled: s.PartitioningEnabled,
-	}
-}
-
-func (c Config) DeepCopy() Config {
-	return Config{
-		VirtualPerPhysical:  c.VirtualPerPhysical,
-		DesiredCount:        c.DesiredCount,
-		ActualCount:         c.ActualCount,
-		DesiredVirtualCount: c.DesiredVirtualCount,
-		ActualVirtualCount:  c.ActualVirtualCount,
-		Key:                 c.Key,
-		Strategy:            c.Strategy,
-		Function:            c.Function,
 	}
 }
 

@@ -61,6 +61,7 @@ func TestGRPC_Batch_Cluster(t *testing.T) {
 	client, err := wvt.NewClient(config)
 	require.NoError(t, err)
 	require.NotNil(t, client)
+
 	// clean DB
 	err = client.Schema().AllDeleter().Do(ctx)
 	require.NoError(t, err)
@@ -81,8 +82,12 @@ func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T
 		t.Run("grpc batch import", func(t *testing.T) {
 			objects := []*models.Object{
 				{
-					Class:      className,
-					ID:         strfmt.UUID(id1),
+					Class: className,
+					ID:    strfmt.UUID(id1),
+					// These properties slightly differ from the one defined in the class. We are laying them all out as
+					// "base" properties and not as nested properties.
+					// This will cause auto schema to kick in and will make the follower have eventual consistency on the
+					// schema changes. With proper internal retry mechanism this will be transparent to the client.
 					Properties: properties,
 				},
 			}
@@ -99,9 +104,10 @@ func testGRPCBatchAPI(ctx context.Context, client *wvt.Client) func(t *testing.T
 			require.NotNil(t, objs)
 			require.Len(t, objs, 1)
 			assert.Equal(t, className, objs[0].Class)
-			props, ok := objs[0].Properties.(map[string]interface{})
+			// We check that the properties are layed out and not nested. This indicates auto schema did it's job.
+			objectProperties, ok := objs[0].Properties.(map[string]interface{})
 			require.True(t, ok)
-			require.Equal(t, len(properties), len(props))
+			require.Equal(t, len(properties), len(objectProperties))
 		})
 	}
 }

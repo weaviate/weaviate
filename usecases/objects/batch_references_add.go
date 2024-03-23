@@ -112,11 +112,7 @@ func (b *BatchManager) validateReferencesConcurrently(ctx context.Context,
 func (b *BatchManager) autodetectToClass(ctx context.Context,
 	principal *models.Principal, batchReferences BatchReferences,
 ) error {
-	classPropTarget := make(map[string]string)
-	scheme, err := b.schemaManager.GetSchema(principal)
-	if err != nil {
-		return NewErrInvalidUserInput("get schema: %v", err)
-	}
+	classPropTarget := make(map[string]string, len(batchReferences))
 	for i, ref := range batchReferences {
 		// get to class from property datatype
 		if ref.To.Class != "" || ref.Err != nil {
@@ -127,9 +123,9 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 
 		target, ok := classPropTarget[className+propName]
 		if !ok {
-			class := scheme.FindClassByName(ref.From.Class)
-			if class == nil {
-				batchReferences[i].Err = fmt.Errorf("class %s does not exist", className)
+			class, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String())
+			if class == nil || err != nil {
+				batchReferences[i].Err = fmt.Errorf("class %s does not exist or there was an error getting it err=%v", className, err)
 				continue
 			}
 

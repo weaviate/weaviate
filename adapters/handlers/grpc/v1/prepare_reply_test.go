@@ -1549,7 +1549,7 @@ func TestGRPCReply(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme, tt.usesWeaviateStruct)
+			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme.GetClass, tt.usesWeaviateStruct)
 			if tt.hasError {
 				require.NotNil(t, err)
 			} else {

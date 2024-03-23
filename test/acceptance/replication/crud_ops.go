@@ -31,41 +31,49 @@ import (
 )
 
 func getClass(t *testing.T, host, class string) *models.Class {
+	t.Helper()
 	helper.SetupClient(host)
 	return helper.GetClass(t, class)
 }
 
 func updateClass(t *testing.T, host string, class *models.Class) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.UpdateClass(t, class)
 }
 
 func createObject(t *testing.T, host string, obj *models.Object) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.CreateObject(t, obj)
 }
 
 func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.CreateObjectCL(t, obj, cl)
 }
 
 func createTenantObject(t *testing.T, host string, obj *models.Object) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.CreateObject(t, obj)
 }
 
 func createObjects(t *testing.T, host string, batch []*models.Object) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.CreateObjectsBatch(t, batch)
 }
 
 func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.CreateObjectsBatch(t, batch)
 }
 
 func getObject(t *testing.T, host, class string, id strfmt.UUID, withVec bool) (*models.Object, error) {
+	t.Helper()
 	helper.SetupClient(host)
 	var include string
 	if withVec {
@@ -75,58 +83,69 @@ func getObject(t *testing.T, host, class string, id strfmt.UUID, withVec bool) (
 }
 
 func getTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
+	t.Helper()
 	helper.SetupClient(host)
 	return helper.TenantObject(t, class, id, tenant)
 }
 
 func objectExistsCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (bool, error) {
+	t.Helper()
 	helper.SetupClient(host)
 	return helper.ObjectExistsCL(t, class, id, cl)
 }
 
 func getObjectCL(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) (*models.Object, error) {
+	t.Helper()
 	helper.SetupClient(host)
 	return helper.GetObjectCL(t, class, id, cl)
 }
 
 func getObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodename string) (*models.Object, error) {
+	t.Helper()
 	helper.SetupClient(host)
 	return helper.GetObjectFromNode(t, class, id, nodename)
 }
 
 func getTenantObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, nodename, tenant string) (*models.Object, error) {
+	t.Helper()
 	helper.SetupClient(host)
 	return helper.GetTenantObjectFromNode(t, class, id, nodename, tenant)
 }
 
 func patchObject(t *testing.T, host string, patch *models.Object) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.PatchObject(t, patch)
 }
 
 func patchTenantObject(t *testing.T, host string, patch *models.Object) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.PatchObject(t, patch)
 }
 
 func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.UpdateObjectCL(t, obj, cl)
 }
 
 func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
+	t.Helper()
 	helper.SetupClient(host)
 	resp, err := helper.AddReferences(t, refs)
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
 func addTenantReferences(t *testing.T, host string, refs []*models.BatchReference) {
+	t.Helper()
 	helper.SetupClient(host)
 	resp, err := helper.AddReferences(t, refs)
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
 func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
+	t.Helper()
 	helper.SetupClient(host)
 
 	toDelete, err := helper.GetObject(t, class, id)
@@ -139,6 +158,7 @@ func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
 }
 
 func deleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string) {
+	t.Helper()
 	helper.SetupClient(host)
 	helper.DeleteTenantObject(t, class, id, tenant)
 
@@ -147,6 +167,7 @@ func deleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant
 }
 
 func deleteObjects(t *testing.T, host, class string, path []string, valueText string) {
+	t.Helper()
 	helper.SetupClient(host)
 
 	batchDelete := &models.BatchDelete{
@@ -166,6 +187,7 @@ func deleteObjects(t *testing.T, host, class string, path []string, valueText st
 }
 
 func deleteTenantObjects(t *testing.T, host, class string, path []string, valueText, tenant string) {
+	t.Helper()
 	helper.SetupClient(host)
 
 	batchDelete := &models.BatchDelete{
@@ -186,6 +208,7 @@ func deleteTenantObjects(t *testing.T, host, class string, path []string, valueT
 }
 
 func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, fields ...string) []interface{} {
+	t.Helper()
 	helper.SetupClient(host)
 
 	if cl == "" {
@@ -202,6 +225,7 @@ func gqlGet(t *testing.T, host, class string, cl replica.ConsistencyLevel, field
 }
 
 func gqlGetNearVec(t *testing.T, host, class string, vec []interface{}, cl replica.ConsistencyLevel, fields ...string) []interface{} {
+	t.Helper()
 	helper.SetupClient(host)
 
 	if cl == "" {
@@ -219,6 +243,7 @@ func gqlGetNearVec(t *testing.T, host, class string, vec []interface{}, cl repli
 }
 
 func gqlDo(t *testing.T, class, query string) []interface{} {
+	t.Helper()
 	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 
 	result := resp.Get("Get").Get(class)
@@ -228,6 +253,7 @@ func gqlDo(t *testing.T, class, query string) []interface{} {
 func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 	tenant string, fields ...string,
 ) []interface{} {
+	t.Helper()
 	helper.SetupClient(host)
 
 	if cl == "" {
@@ -249,6 +275,7 @@ func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 func countTenantObjects(t *testing.T, host, class string,
 	tenant string,
 ) int64 {
+	t.Helper()
 	helper.SetupClient(host)
 
 	q := fmt.Sprintf(`{Aggregate{%s(tenant: %q){meta{count}}}}`, class, tenant)
@@ -264,6 +291,7 @@ func countTenantObjects(t *testing.T, host, class string,
 }
 
 func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
+	t.Helper()
 	helper.SetupClient(host)
 	verbose := verbosity.OutputVerbose
 	params := nodes.NewNodesGetParams().WithOutput(&verbose)

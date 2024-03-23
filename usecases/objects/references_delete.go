@@ -122,11 +122,11 @@ func (req *DeleteReferenceInput) validate(
 		return err
 	}
 
-	schema, err := sm.GetSchema(principal)
+	class, err := sm.GetClass(ctx, principal, req.Class)
 	if err != nil {
 		return err
 	}
-	return validateReferenceSchema(req.Class, req.Property, schema)
+	return validateReferenceSchema(sm, class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.
