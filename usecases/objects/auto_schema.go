@@ -22,7 +22,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	cloud_utils "github.com/weaviate/weaviate/cluster/utils"
+	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -88,8 +88,8 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if schemaClass == nil {
 			return m.createClass(ctx, principal, object.Class, properties)
 		}
-		return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
-	}, cloud_utils.NewBackoff())
+		return m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...)
+	}, utils.NewBackoff())
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
@@ -105,50 +105,6 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
 	return m.schemaManager.AddClass(ctx, principal, class)
-}
-
-func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
-	className string, properties []*models.Property, existingProperties []*models.Property,
-) error {
-	existingPropertiesIndexMap := make(map[string]int, len(existingProperties))
-	for index := range existingProperties {
-		existingPropertiesIndexMap[existingProperties[index].Name] = index
-	}
-
-	propertiesToAdd := []*models.Property{}
-	propertiesToUpdate := []*models.Property{}
-	for _, prop := range properties {
-		index, exists := existingPropertiesIndexMap[schema.LowercaseFirstLetter(prop.Name)]
-		if !exists {
-			propertiesToAdd = append(propertiesToAdd, prop)
-		} else if _, isNested := schema.AsNested(existingProperties[index].DataType); isNested {
-			mergedNestedProperties, merged := schema.MergeRecursivelyNestedProperties(existingProperties[index].NestedProperties,
-				prop.NestedProperties)
-			if merged {
-				prop.NestedProperties = mergedNestedProperties
-				propertiesToUpdate = append(propertiesToUpdate, prop)
-			}
-		}
-	}
-	for _, newProp := range propertiesToAdd {
-		m.logger.
-			WithField("auto_schema", "updateClass").
-			Debugf("update class %s add property %s", className, newProp.Name)
-		err := m.schemaManager.AddClassProperty(ctx, principal, className, newProp)
-		if err != nil {
-			return err
-		}
-	}
-	for _, updatedProp := range propertiesToUpdate {
-		m.logger.
-			WithField("auto_schema", "updateClass").
-			Debugf("update class %s merge object property %s", className, updatedProp.Name)
-		err := m.schemaManager.MergeClassObjectProperty(ctx, principal, className, updatedProp)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {

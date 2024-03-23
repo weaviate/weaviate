@@ -109,8 +109,8 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("AddProperty", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := cluster.AddPropertyRequest{Property: &models.Property{}}
-		migrator.On("AddProperty", Anything, "A", req.Property).Return(nil)
+		req := cluster.AddPropertyRequest{Properties: []*models.Property{}}
+		migrator.On("AddProperty", Anything, "A", req.Properties).Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.AddProperty("A", req))
 	})

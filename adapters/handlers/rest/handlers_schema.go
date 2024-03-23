@@ -120,7 +120,7 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesAddParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, s.manager.ReadOnlyClass(params.ClassName), false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {

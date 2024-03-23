@@ -133,11 +133,13 @@ func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) error {
 	return s.Execute(command)
 }
 
-func (s *Service) AddProperty(class string, p *models.Property) error {
-	if p == nil || p.Name == "" || class == "" {
-		return fmt.Errorf("empty property or empty class name : %w", errBadRequest)
+func (s *Service) AddProperty(class string, props ...*models.Property) error {
+	for _, p := range props {
+		if p == nil || p.Name == "" || class == "" {
+			return fmt.Errorf("empty property or empty class name : %w", errBadRequest)
+		}
 	}
-	req := cmd.AddPropertyRequest{Property: p}
+	req := cmd.AddPropertyRequest{Properties: props}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
