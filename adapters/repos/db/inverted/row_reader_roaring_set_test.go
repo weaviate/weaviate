@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -180,6 +181,19 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				{"hhh", []uint64{11111111, 2222222, 33333333}},
 			},
 		},
+		{
+			name:     "not like 'h*' value",
+			value:    "h*",
+			operator: filters.OperatorNotLike,
+			expected: []kvData{
+				{"h*", func() []uint64 {
+					bm := sroar.NewBitmap()
+					bm.SetMany([]uint64{11111111, 2222222, 33333333})
+					return roaringset.NewInvertedBitmap(
+						bm, maxDocID+roaringset.DefaultBufferIncrement).ToArray()
+				}()},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -231,6 +245,17 @@ func TestRowReaderRoaringSet(t *testing.T) {
 					assert.True(t, result[i].v.Contains(expectedV))
 				}
 			}
+		})
+
+		t.Run(tc.name+" readFn failed", func(t *testing.T) {
+			result := []readResult{}
+			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
+			err := rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
+				return false, fmt.Errorf("fake error")
+			})
+
+			assert.Len(t, result, 0)
+			assert.NotNil(t, err)
 		})
 	}
 }
