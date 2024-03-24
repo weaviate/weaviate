@@ -413,15 +413,13 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	for _, prop := range props {
-		i.ForEachShard(func(key string, shard ShardLike) error {
-			shard.createPropertyIndex(ctx, prop, eg)
-			return nil
-		})
+	i.ForEachShard(func(key string, shard ShardLike) error {
+		shard.createPropertyIndex(ctx, eg, props...)
 		if err := eg.Wait(); err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
 		}
-	}
+		return nil
+	})
 	return nil
 }
 
