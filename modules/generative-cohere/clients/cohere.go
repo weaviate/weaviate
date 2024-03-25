@@ -74,13 +74,12 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
 	input := generateInput{
-		Prompt:            prompt,
-		Model:             settings.Model(),
-		MaxTokens:         settings.MaxTokens(),
-		Temperature:       settings.Temperature(),
-		K:                 settings.K(),
-		StopSequences:     settings.StopSequences(),
-		ReturnLikelihoods: settings.ReturnLikelihoods(),
+		Prompt:        prompt,
+		Model:         settings.Model(),
+		MaxTokens:     settings.MaxTokens(),
+		Temperature:   settings.Temperature(),
+		K:             settings.K(),
+		StopSequences: settings.StopSequences(),
 	}
 
 	body, err := json.Marshal(input)
@@ -189,13 +188,12 @@ func (v *cohere) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Prompt            string   `json:"prompt"`
-	Model             string   `json:"model"`
-	MaxTokens         int      `json:"max_tokens"`
-	Temperature       int      `json:"temperature"`
-	K                 int      `json:"k"`
-	StopSequences     []string `json:"stop_sequences"`
-	ReturnLikelihoods string   `json:"return_likelihoods"`
+	Prompt        string   `json:"prompt"`
+	Model         string   `json:"model"`
+	MaxTokens     int      `json:"max_tokens"`
+	Temperature   int      `json:"temperature"`
+	K             int      `json:"k"`
+	StopSequences []string `json:"stop_sequences"`
 }
 
 type generateResponse struct {

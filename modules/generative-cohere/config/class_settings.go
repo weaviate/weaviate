@@ -19,13 +19,12 @@ import (
 )
 
 const (
-	baseURLProperty           = "baseURL"
-	modelProperty             = "model"
-	temperatureProperty       = "temperature"
-	maxTokensProperty         = "maxTokens"
-	kProperty                 = "k"
-	stopSequencesProperty     = "stopSequences"
-	returnLikelihoodsProperty = "returnLikelihoods"
+	baseURLProperty       = "baseURL"
+	modelProperty         = "model"
+	temperatureProperty   = "temperature"
+	maxTokensProperty     = "maxTokens"
+	kProperty             = "k"
+	stopSequencesProperty = "stopSequences"
 )
 
 var availableCohereModels = []string{
@@ -36,13 +35,12 @@ var availableCohereModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL                 = "https://api.cohere.ai"
-	DefaultCohereModel             = "command-r"
-	DefaultCohereTemperature       = 0
-	DefaultCohereMaxTokens         = 2048
-	DefaultCohereK                 = 0
-	DefaultCohereStopSequences     = []string{}
-	DefaultCohereReturnLikelihoods = "NONE"
+	DefaultBaseURL             = "https://api.cohere.ai"
+	DefaultCohereModel         = "command-r"
+	DefaultCohereTemperature   = 0
+	DefaultCohereMaxTokens     = 2048
+	DefaultCohereK             = 0
+	DefaultCohereStopSequences = []string{}
 )
 
 type classSettings struct {
@@ -125,10 +123,6 @@ func (ic *classSettings) K() int {
 
 func (ic *classSettings) StopSequences() []string {
 	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultCohereStopSequences)
-}
-
-func (ic *classSettings) ReturnLikelihoods() string {
-	return *ic.getStringProperty(returnLikelihoodsProperty, DefaultCohereReturnLikelihoods)
 }
 
 func contains[T comparable](s []T, e T) bool {
