@@ -19,6 +19,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -38,6 +38,7 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
+	"golang.org/x/sync/errgroup"
 )
 
 var composerBucket = []byte("composer")
@@ -367,19 +368,6 @@ func (composer *composer) Upgrade(callback func()) error {
 		return composer.index.(upgradableIndexer).Upgrade(callback)
 	}
 
-	count := composer.index.AlreadyIndexed()
-	ids := make([]uint64, 0, count)
-	vectors := make([][]float32, 0, count)
-	cursor := composer.store.Bucket(helpers.VectorsBucketLSM).Cursor()
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(k)
-		vc := make([]float32, len(v)/4)
-		float32SliceFromByteSlice(v, vc)
-		ids = append(ids, id)
-		vectors = append(vectors, vc)
-	}
-	cursor.Close()
-
 	index, err := hnsw.New(
 		hnsw.Config{
 			Logger:                composer.logger,
@@ -404,9 +392,48 @@ func (composer *composer) Upgrade(callback func()) error {
 		return err
 	}
 
-	compressionhelpers.Concurrently(uint64(count), func(i uint64) {
-		index.Add(ids[i], vectors[i])
-	})
+	bucket := composer.store.Bucket(helpers.VectorsBucketLSM)
+
+	var g errgroup.Group
+	workerCount := runtime.GOMAXPROCS(0)
+	type task struct {
+		id     uint64
+		vector []float32
+	}
+
+	ch := make(chan task, workerCount)
+
+	for i := 0; i < workerCount; i++ {
+		g.Go(func() error {
+			for t := range ch {
+				err := index.Add(t.id, t.vector)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+	}
+
+	cursor := bucket.Cursor()
+
+	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		id := binary.BigEndian.Uint64(k)
+		vc := make([]float32, len(v)/4)
+		float32SliceFromByteSlice(v, vc)
+
+		ch <- task{id: id, vector: vc}
+	}
+	cursor.Close()
+
+	close(ch)
+
+	err = g.Wait()
+	if err != nil {
+		callback()
+		return errors.Wrap(err, "upgrade")
+	}
 
 	buf := make([]byte, 1)
 	buf[0] = 1
