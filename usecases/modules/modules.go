@@ -727,7 +727,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	panic("VectorFromSearchParam was called without any known params present")
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
@@ -756,7 +756,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	panic("CrossClassVectorFromSearchParam was called without any known params present")
 }
 
 func (p *Provider) getTargetVector(class *models.Class, params interface{}) (string, error) {
@@ -811,7 +811,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 		}
 	}
 
-	return nil, fmt.Errorf("VectorFromInput was called without vectorizer")
+	return nil, fmt.Errorf("VectorFromInput was called without vectorizer on class %v for input %v", className, input)
 }
 
 // ParseClassifierSettings parses and adds classifier specific settings

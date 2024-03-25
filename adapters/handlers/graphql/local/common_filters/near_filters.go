@@ -25,13 +25,13 @@ func NearVectorArgument(argumentPrefix, className string) *graphql.ArgumentConfi
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:   fmt.Sprintf("%sNearVectorInpObj", prefix),
-				Fields: nearVectorFields(prefix),
+				Fields: NearVectorFields(prefix),
 			},
 		),
 	}
 }
 
-func nearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
+func NearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Vector,
