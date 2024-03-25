@@ -71,6 +71,7 @@ import (
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
+	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
@@ -610,6 +611,12 @@ func registerModules(appState *state.State) error {
 			enabledModules[strings.TrimSpace(module)] = true
 		}
 	}
+
+	appState.Modules.Register(modt2vbigram.New())
+	appState.Logger.
+		WithField("action", "startup").
+		WithField("module", "text2vec-bigram").
+		Debug("enabled module")
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
 		appState.Modules.Register(modcontextionary.New())
