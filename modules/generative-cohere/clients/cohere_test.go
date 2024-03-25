@@ -43,8 +43,8 @@ func TestGetAnswer(t *testing.T) {
 		{
 			name: "when the server has a successful aner",
 			answer: generateResponse{
-				Generations: []generation{{Text: "John"}},
-				Error:       nil,
+				Text:  "John",
+				Error: nil,
 			},
 			expectedResult: "John",
 		},
