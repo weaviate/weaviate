@@ -296,6 +296,7 @@ func (c *Cacher) dedupJobList() {
 		// nothing to do
 		return
 	}
+
 	c.logger.
 		WithFields(logrus.Fields{
 			"action": "request_cacher_dedup_joblist_start",
@@ -304,6 +305,11 @@ func (c *Cacher) dedupJobList() {
 		Debug("starting job list deduplication")
 	deduped := make([]cacherJob, len(incompleteJobs))
 	found := map[multi.Identifier]struct{}{}
+
+	// don't look up refs that are already completed - this can for example happen with cyclic refs
+	for _, job := range c.completeJobs() {
+		found[job.si] = struct{}{}
+	}
 
 	n := 0
 	for _, job := range incompleteJobs {
