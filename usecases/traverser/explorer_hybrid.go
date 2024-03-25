@@ -368,6 +368,5 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		}
 		return groupedResults, nil
 	}
-
 	return out, nil
 }

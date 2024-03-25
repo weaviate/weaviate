@@ -201,7 +201,6 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		}
 		return groupedResults, nil
 	}
-
 	return res, nil
 }
 
@@ -368,6 +367,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	if err != nil {
 		return nil, err
 	}
+
 	if params.GroupBy != nil {
 		for _, result := range results {
 			wrapper := map[string]interface{}{}
