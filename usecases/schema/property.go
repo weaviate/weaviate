@@ -20,18 +20,18 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// AddClassProperty it is upsert. it adds properties to a class and updates
+// AddClassProperty it is upsert operation. it adds properties to a class and updates
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, merge bool, newProps ...*models.Property,
 ) error {
-	if len(newProps) == 0 {
-		return nil
-	}
-
 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
 		return err
+	}
+
+	if len(newProps) == 0 {
+		return nil
 	}
 
 	// validate new props
@@ -45,11 +45,11 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		}
 	}
 
-	existingNames := map[string]bool{}
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
 		return err
 	}
 
+	existingNames := make(map[string]bool, len(class.Properties))
 	if !merge {
 		for _, p := range class.Properties {
 			existingNames[strings.ToLower(p.Name)] = true
@@ -124,9 +124,7 @@ func (h *Handler) setNewPropDefaults(class *models.Class, props ...*models.Prope
 		return err
 	}
 
-	for _, prop := range props {
-		h.moduleConfig.SetSinglePropertyDefaults(class, prop)
-	}
+	h.moduleConfig.SetSinglePropertyDefaults(class, props...)
 	return nil
 }
 

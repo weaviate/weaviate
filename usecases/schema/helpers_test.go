@@ -187,7 +187,7 @@ func (f *fakeModuleConfig) SetClassDefaults(class *models.Class) {
 }
 
 func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
-	prop *models.Property,
+	prop ...*models.Property,
 ) {
 }
 
