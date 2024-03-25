@@ -137,7 +137,7 @@ func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, erro
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return url.JoinPath(passedBaseURL, "/v1/generate")
+	return url.JoinPath(passedBaseURL, "/v1/chat")
 }
 
 func (v *cohere) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
