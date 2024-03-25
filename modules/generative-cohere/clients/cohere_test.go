@@ -94,11 +94,11 @@ func TestGetAnswer(t *testing.T) {
 
 		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
 		require.NoError(t, err)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/generate", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat", buildURL)
 
 		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
 		require.NoError(t, err)
-		assert.Equal(t, "http://default-url.com/v1/generate", buildURL)
+		assert.Equal(t, "http://default-url.com/v1/chat", buildURL)
 	})
 }
 
@@ -110,7 +110,7 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/generate", r.URL.String())
+	assert.Equal(f.t, "/v1/chat", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
