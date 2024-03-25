@@ -13,6 +13,7 @@ package t2vbigram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,8 +32,6 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-var activeVectoriser = "alphabet"
-
 const Name = "text2vec-bigram"
 
 func New() *BigramModule {
@@ -40,11 +40,13 @@ func New() *BigramModule {
 
 type BigramModule struct {
 	vectors                      map[string][]float32
+	storageProvider              moduletools.StorageProvider
 	GraphqlProvider              modulecapabilities.GraphQLArguments
 	Searcher                     modulecapabilities.Searcher
 	NearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	AdditionalPropertiesProvider modulecapabilities.AdditionalProperties
+	activeVectoriser             string
 }
 
 func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
@@ -60,20 +62,33 @@ func (m *BigramModule) Type() modulecapabilities.ModuleType {
 }
 
 func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+	m.storageProvider = params.GetStorageProvider()
+	appState, ok := params.GetAppState().(*state.State)
+	if !ok {
+		return errors.New("appState is not a *state.State")
+	}
+
+	m.activeVectoriser = appState.ServerConfig.Config.Bigram.Method
 	m.logger = params.GetLogger()
 
 	bigramConfig := os.Getenv("BIGRAM")
-	switch bigramConfig {
-	case "alphabet":
-		activeVectoriser = "alphabet"
-	case "trigram":
-		activeVectoriser = "trigram"
-	case "bytepairs":
-		activeVectoriser = "bytepairs"
-	default:
-		activeVectoriser = "alphabet"
+	if bigramConfig != "" {
+		switch bigramConfig {
+		case "alphabet":
+			m.activeVectoriser = "alphabet"
+		case "trigram":
+			m.activeVectoriser = "trigram"
+		case "bytepairs":
+			m.activeVectoriser = "bytepairs"
+		default:
+			m.activeVectoriser = "alphabet"
+		}
 	}
-	
+
+	if m.activeVectoriser == "" {
+		m.activeVectoriser = "alphabet"
+	}
+
 	return nil
 }
 
@@ -190,7 +205,7 @@ func bytePairs2Vector(input string) ([]float32, error) {
 	return vector[1:], nil
 }
 
-func text2vec(input string) ([]float32, error) {
+func text2vec(input, activeVectoriser string) ([]float32, error) {
 	switch activeVectoriser {
 	case "alphabet":
 		return alphabet2Vector(input)
@@ -204,7 +219,7 @@ func text2vec(input string) ([]float32, error) {
 }
 
 func (m *BigramModule) VectorizeInput(ctx context.Context, input string, cfg moduletools.ClassConfig) ([]float32, error) {
-	vector, err := text2vec(input)
+	vector, err := text2vec(input, m.activeVectoriser)
 	return vector, err
 }
 
@@ -235,13 +250,29 @@ func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForP
 func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletools.ClassConfig) ([]float32, error) {
 	var vectors [][]float32
 	for _, input := range inputs {
-		vector, err := text2vec(input)
+		vector, err := text2vec(input, m.activeVectoriser)
 		if err != nil {
 			return nil, err
 		}
 		vectors = append(vectors, vector)
 	}
 	return libvectorizer.CombineVectors(vectors), nil
+}
+
+func (m *BigramModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	var vectors [][]float32
+	var errors = map[int]error{}
+	for i, obj := range objs {
+		if skipObject[i] {
+			continue
+		}
+		vector, _, err := m.VectorizeObject(ctx, obj, cfg)
+		if err != nil {
+			errors[i] = err
+		}
+		vectors = append(vectors, vector)
+	}
+	return vectors, nil, errors
 }
 
 var (
