@@ -46,7 +46,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
 		dirName := t.TempDir()
 
-		b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 		b.UpdateStatus(storagestate.StatusReadOnly)
@@ -64,7 +64,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
-	b, err := NewBucket(ctx, dirName, dirName, logrus.New(), nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 

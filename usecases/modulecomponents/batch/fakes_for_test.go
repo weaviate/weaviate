@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package batch
 
 import (
 	"context"
@@ -72,61 +72,22 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	}, rateLimit, nil
 }
 
-func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-type fakeClient struct {
-	lastInput  []string
-	lastConfig moduletools.ClassConfig
-}
-
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0, 1, 2, 3}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil, nil
-}
-
-func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-type FakeClassConfig struct {
+type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
 }
 
-func (f FakeClassConfig) Class() map[string]interface{} {
+func (f fakeClassConfig) Class() map[string]interface{} {
 	return f.classConfig
 }
 
-func (f FakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	return f.classConfig
 }
 
-func (f FakeClassConfig) Property(propName string) map[string]interface{} {
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	if propName == f.skippedProperty {
 		return map[string]interface{}{
 			"skip": true,
@@ -145,10 +106,10 @@ func (f FakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
 }
 
-func (f FakeClassConfig) Tenant() string {
+func (f fakeClassConfig) Tenant() string {
 	return ""
 }
 
-func (f FakeClassConfig) TargetVector() string {
+func (f fakeClassConfig) TargetVector() string {
 	return ""
 }
