@@ -13,8 +13,6 @@ package vectorizer
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -94,44 +92,11 @@ func (cs *classSettings) validateVoyageAISetting(value string, availableValues [
 }
 
 func (cs *classSettings) getProperty(name, defaultValue string) string {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := cs.cfg.Class()[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return strings.ToLower(asString)
-		}
-	}
-
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cs *classSettings) getBoolProperty(name string, defaultValue bool) bool {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := cs.cfg.Class()[name]
-	if ok {
-		asBool, ok := value.(bool)
-		if ok {
-			return asBool
-		}
-		asString, ok := value.(string)
-		if ok {
-			asBool, err := strconv.ParseBool(asString)
-			if err == nil {
-				return asBool
-			}
-		}
-	}
-
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsBool(name, defaultValue)
 }
 
 func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

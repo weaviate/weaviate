@@ -424,6 +424,7 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 
@@ -456,6 +457,7 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with negative limit ---")
@@ -489,6 +491,7 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 2 ---")
@@ -524,6 +527,7 @@ func TestRFJourney(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
 		fmt.Println("--- Start results for hybrid with offset 4 ---")
@@ -643,6 +647,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 0, len(hybridResults))
@@ -668,6 +673,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 3, len(hybridResults))
@@ -703,6 +709,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))
@@ -954,6 +961,7 @@ func TestHybridOverSearch(t *testing.T) {
 		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
 		explorer := traverser.NewExplorer(fos, log, prov, metrics, defaultConfig)
+		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(hybridResults))

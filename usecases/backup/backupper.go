@@ -165,7 +165,7 @@ func (b *backupper) backup(ctx context.Context,
 
 		// the coordinator might want to abort the backup
 		done := make(chan struct{})
-		ctx := b.withCancellation(context.Background(), id, done)
+		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}

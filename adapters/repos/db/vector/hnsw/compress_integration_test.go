@@ -18,6 +18,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -30,6 +32,7 @@ import (
 
 func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
 
 	efConstruction := 64
 	ef := 32
@@ -81,9 +84,9 @@ func Test_NoRaceCompressAdaptsSegments(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
-		index.Add(uint64(id), vectors[id])
-	})
+	require.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+		return index.Add(uint64(id), vectors[id])
+	}))
 	uc.PQ = ent.PQConfig{
 		Enabled: true,
 		Encoder: ent.PQEncoder{
