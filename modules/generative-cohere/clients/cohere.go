@@ -123,7 +123,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
 	}
 
-	textResponse := resBody.Generations[0].Text
+	textResponse := resBody.Text
 
 	return &generativemodels.GenerateResponse{
 		Result: &textResponse,
@@ -197,12 +197,8 @@ type generateInput struct {
 }
 
 type generateResponse struct {
-	Generations []generation
-	Error       *cohereApiError `json:"error,omitempty"`
-}
-
-type generation struct {
-	Text string `json:"text"`
+	Text  string          `json:"text"`
+	Error *cohereApiError `json:"error,omitempty"`
 }
 
 // need to check this
