@@ -29,7 +29,7 @@ const (
 )
 
 var availableCohereModels = []string{
-	"command-xlarge-beta",
+	"command-r", "command-xlarge-beta",
 	"command-xlarge", "command-medium", "command-xlarge-nightly", "command-medium-nightly", "xlarge", "medium",
 	"command", "command-light", "command-nightly", "command-light-nightly", "base", "base-light",
 }
@@ -37,7 +37,7 @@ var availableCohereModels = []string{
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
 	DefaultBaseURL                 = "https://api.cohere.ai"
-	DefaultCohereModel             = "command-nightly"
+	DefaultCohereModel             = "command-r"
 	DefaultCohereTemperature       = 0
 	DefaultCohereMaxTokens         = 2048
 	DefaultCohereK                 = 0
