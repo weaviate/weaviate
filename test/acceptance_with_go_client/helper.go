@@ -26,6 +26,9 @@ var (
 func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []string {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Data)
+	for _, err := range resp.Errors {
+		t.Logf("GetIds error: %v", err)
+	}
 	require.Empty(t, resp.Errors)
 
 	classMap, ok := resp.Data["Get"].(map[string]interface{})

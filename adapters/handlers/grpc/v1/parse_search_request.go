@@ -75,25 +75,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 		out.AdditionalProperties.NoProps = true
 	}
 
-	if hs := req.HybridSearch; hs != nil {
-		fusionType := common_filters.HybridFusionDefault
-		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RANKED {
-			fusionType = common_filters.HybridRankedFusion
-		} else if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
-			fusionType = common_filters.HybridRelativeScoreFusion
-		}
-
-		var vector []float32
-		// bytes vector has precedent for being more efficient
-		if len(hs.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(hs.VectorBytes)
-		} else if len(hs.Vector) > 0 {
-			vector = hs.Vector
-		}
-
-		out.HybridSearch = &searchparams.HybridSearch{Query: hs.Query, Properties: schema.LowercaseFirstLetterOfStrings(hs.Properties), Vector: vector, Alpha: float64(hs.Alpha), FusionAlgorithm: fusionType, TargetVectors: hs.TargetVectors}
-	}
-
 	if bm25 := req.Bm25Search; bm25 != nil {
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 	}
@@ -229,30 +210,62 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 		out.Pagination.Limit = int(config.QueryDefaults.Limit)
 	}
 
-	if nt := req.NearText; nt != nil {
-		moveAwayOut, err := extractNearTextMove(req.Collection, nt.MoveAway)
+	// Hybrid search now has the ability to run subsearches using the real nearvector and neartext searches.  So we need to extract those settings the same way we prepare for the real searches.
+	if hs := req.HybridSearch; hs != nil {
+		fusionType := common_filters.HybridFusionDefault
+		if hs.FusionType == pb.Hybrid_FUSION_TYPE_RANKED {
+			fusionType = common_filters.HybridRankedFusion
+		} else if hs.FusionType == pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE {
+			fusionType = common_filters.HybridRelativeScoreFusion
+		}
+
+		var vector []float32
+		// bytes vector has precedent for being more efficient
+		if len(hs.VectorBytes) > 0 {
+			vector = byteops.Float32FromByteVector(hs.VectorBytes)
+		} else if len(hs.Vector) > 0 {
+			vector = hs.Vector
+		}
+
+		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
-		moveToOut, err := extractNearTextMove(req.Collection, nt.MoveTo)
+		nearVec := req.HybridSearch.NearVector
+
+		out.HybridSearch = &searchparams.HybridSearch{
+			Query:           hs.Query,
+			Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
+			Vector:          vector,
+			Alpha:           float64(hs.Alpha),
+			FusionAlgorithm: fusionType,
+			TargetVectors:   hs.TargetVectors,
+		}
+
+		if nearVec != nil {
+			out.HybridSearch.NearVectorParams = &searchparams.NearVector{
+				Vector:        byteops.Float32FromByteVector(nearVec.VectorBytes),
+				TargetVectors: nearVec.TargetVectors,
+			}
+			if nearVec.Distance != nil {
+				out.HybridSearch.NearVectorParams.Distance = *nearVec.Distance
+				out.HybridSearch.NearVectorParams.WithDistance = true
+			}
+			if nearVec.Certainty != nil {
+				out.HybridSearch.NearVectorParams.Certainty = *nearVec.Certainty
+			}
+		}
+
+		if nearTxt != nil {
+			out.HybridSearch.NearTextParams = &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
+		}
+	}
+
+	var nearText *nearText2.NearTextParams
+	if req.NearText != nil {
+		nearText, err = extractNearText(out.ClassName, out.Pagination.Limit, req.NearText)
 		if err != nil {
 			return dto.GetParams{}, err
-		}
-
-		nearText := &nearText2.NearTextParams{
-			Values:        nt.Query,
-			Limit:         out.Pagination.Limit,
-			MoveAwayFrom:  moveAwayOut,
-			MoveTo:        moveToOut,
-			TargetVectors: nt.TargetVectors,
-		}
-
-		if nt.Certainty != nil {
-			nearText.Certainty = *nt.Certainty
-		}
-		if nt.Distance != nil {
-			nearText.Distance = *nt.Distance
-			nearText.WithDistance = true
 		}
 		if out.ModuleParams == nil {
 			out.ModuleParams = make(map[string]interface{})
@@ -334,6 +347,12 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	var targetVectors *[]string
 	if hs := req.HybridSearch; hs != nil {
 		targetVectors = &hs.TargetVectors
+		if hs.NearText != nil {
+			targetVectors = &hs.NearText.TargetVectors
+		}
+		if hs.NearVector != nil {
+			targetVectors = &hs.NearVector.TargetVectors
+		}
 	}
 	if na := req.NearAudio; na != nil {
 		targetVectors = &na.TargetVectors
@@ -406,6 +425,38 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 		rerank.Query = req.Rerank.Query
 	}
 	return &rerank
+}
+
+func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch) (*nearText2.NearTextParams, error) {
+	if nearTextIn == nil {
+		return nil, nil
+	}
+
+	moveAwayOut, err := extractNearTextMove(classname, nearTextIn.MoveAway)
+	if err != nil {
+		return &nearText2.NearTextParams{}, err
+	}
+	moveToOut, err := extractNearTextMove(classname, nearTextIn.MoveTo)
+	if err != nil {
+		return &nearText2.NearTextParams{}, err
+	}
+
+	nearText := &nearText2.NearTextParams{
+		Values:        nearTextIn.Query,
+		Limit:         limit,
+		MoveAwayFrom:  moveAwayOut,
+		MoveTo:        moveToOut,
+		TargetVectors: nearTextIn.TargetVectors,
+	}
+
+	if nearTextIn.Certainty != nil {
+		nearText.Certainty = *nearTextIn.Certainty
+	}
+	if nearTextIn.Distance != nil {
+		nearText.Distance = *nearTextIn.Distance
+		nearText.WithDistance = true
+	}
+	return nearText, nil
 }
 
 func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearText2.ExploreMove, error) {
