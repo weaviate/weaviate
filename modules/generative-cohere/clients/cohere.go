@@ -73,8 +73,10 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
+	emptyChatHistory := make([]message, 0)
 	input := generateInput{
-		Prompt:        prompt,
+		ChatHistory:   emptyChatHistory,
+		Message:       prompt,
 		Model:         settings.Model(),
 		MaxTokens:     settings.MaxTokens(),
 		Temperature:   settings.Temperature(),
@@ -188,12 +190,18 @@ func (v *cohere) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Prompt        string   `json:"prompt"`
-	Model         string   `json:"model"`
-	MaxTokens     int      `json:"max_tokens"`
-	Temperature   int      `json:"temperature"`
-	K             int      `json:"k"`
-	StopSequences []string `json:"stop_sequences"`
+	ChatHistory   []message `json:"chat_history"`
+	Message       string    `json:"message"`
+	Model         string    `json:"model"`
+	MaxTokens     int       `json:"max_tokens"`
+	Temperature   int       `json:"temperature"`
+	K             int       `json:"k"`
+	StopSequences []string  `json:"stop_sequences"`
+}
+
+type message struct {
+	Role    string `json:"role"`
+	Message string `json:"message"`
 }
 
 type generateResponse struct {
