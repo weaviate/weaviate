@@ -76,6 +76,7 @@ type NearTextParams struct {
 	WithDistance bool
 	Network      bool
 	Autocorrect  bool
+	TargetVectors []string
 }
 
 type GroupBy struct {

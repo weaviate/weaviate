@@ -214,6 +214,7 @@ func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.
 		}
 		fused = newResults
 	}
+
 	if params.Autocut > 0 {
 		scores := make([]float32, len(fused))
 		for i := range fused {
