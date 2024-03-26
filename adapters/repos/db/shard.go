@@ -91,7 +91,7 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper)
+	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -713,36 +713,43 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
-	if !inverted.HasInvertedIndex(prop) {
-		return
+func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+	for _, prop := range props {
+		if !inverted.HasInvertedIndex(prop) {
+			continue
+		}
+
+		eg.Go(func() error {
+			if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+				return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+			}
+
+			if s.index.invertedIndexConfig.IndexNullState {
+				eg.Go(func() error {
+					if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+						return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
+					}
+					return nil
+				})
+			}
+
+			if s.index.invertedIndexConfig.IndexPropertyLength {
+				eg.Go(func() error {
+					if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+						return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
+					}
+					return nil
+				})
+			}
+
+			return nil
+		})
+
+		if err := eg.Wait(); err != nil {
+			return err
+		}
 	}
-
-	eg.Go(func() error {
-		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
-		}
-
-		if s.index.invertedIndexConfig.IndexNullState {
-			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-					return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-				}
-				return nil
-			})
-		}
-
-		if s.index.invertedIndexConfig.IndexPropertyLength {
-			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-					return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-				}
-				return nil
-			})
-		}
-
-		return nil
-	})
+	return nil
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {

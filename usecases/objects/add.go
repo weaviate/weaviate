@@ -33,10 +33,10 @@ type schemaManager interface {
 	) (*models.Class, error)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
+	// AddClassProperty it is upsert operation. it adds properties to a class and updates
+	// existing properties if the merge bool passed true.
 	AddClassProperty(ctx context.Context, principal *models.Principal,
-		class string, property *models.Property) error
-	MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-		class string, property *models.Property) error
+		class *models.Class, merge bool, prop ...*models.Property) error
 	MultiTenancy(class string) models.MultiTenancyConfig
 }
 
