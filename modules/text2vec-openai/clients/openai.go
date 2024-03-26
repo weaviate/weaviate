@@ -243,6 +243,37 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 	return v.openAIOrganization
 }
 
+func (v *client) getRateLimit(ctx context.Context) (int, int) {
+	returnRPM := 0
+	returnTPM := 0
+	if rpm := v.getValueFromContext(ctx, "X-Openai-Ratelimit-RequestPM-Embedding"); rpm != "" {
+		s, err := strconv.Atoi(rpm)
+		if err == nil {
+			returnRPM = s
+		}
+	}
+	if rpm := v.getValueFromContext(ctx, "X-Openai-Ratelimit-TokenPM-Embedding"); rpm != "" {
+		s, err := strconv.Atoi(rpm)
+		if err == nil {
+			returnTPM = s
+		}
+	}
+
+	return returnRPM, returnTPM
+}
+
+func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, tpm := v.getRateLimit(ctx)
+	return &modulecomponents.RateLimits{
+		RemainingTokens:   rpm,
+		LimitTokens:       rpm,
+		ResetTokens:       61,
+		RemainingRequests: tpm,
+		LimitRequests:     tpm,
+		ResetRequests:     61,
+	}
+}
+
 func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	var apiKey, envVar string
 

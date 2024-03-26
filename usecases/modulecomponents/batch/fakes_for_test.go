@@ -34,6 +34,8 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		c.defaultResetRate = 60
 	}
 
+	var reqError error
+
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
 	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
@@ -57,6 +59,11 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 			rateLimit.LimitRequests = 2 * reqs
 		}
 
+		reqErr := len("ReqError ")
+		if len(text[i]) >= reqErr && text[i][:reqErr] == "ReqError " {
+			reqError = fmt.Errorf("%v", strings.Split(text[i][reqErr:], " ")[0])
+		}
+
 		if len(text[i]) >= len("wait ") && text[i][:5] == "wait " {
 			wait, _ := strconv.Atoi(text[i][5:])
 			time.Sleep(time.Duration(wait) * time.Millisecond)
@@ -69,7 +76,11 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 		Errors:     errors,
-	}, rateLimit, nil
+	}, rateLimit, reqError
+}
+
+func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: c.defaultResetRate, ResetRequests: 0}
 }
 
 type fakeClassConfig struct {
