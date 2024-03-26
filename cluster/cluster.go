@@ -78,7 +78,7 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 10*time.Second); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, c.config.BootstrapTimeout+3*time.Second); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 

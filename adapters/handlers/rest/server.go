@@ -34,7 +34,9 @@ import (
 	"github.com/go-openapi/swag"
 	flags "github.com/jessevdk/go-flags"
 	"golang.org/x/net/netutil"
-
+	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 )
 
@@ -65,7 +67,7 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 // ConfigureAPI configures the API and handlers.
 func (s *Server) ConfigureAPI() {
 	if s.api != nil {
-		s.handler = configureAPI(s.api)
+		s.handler, s.cluster = configureAPI(s.api)
 	}
 }
 
@@ -107,6 +109,7 @@ type Server struct {
 
 	api          *operations.WeaviateAPI
 	handler      http.Handler
+	cluster      *state.State
 	hasListeners bool
 	shutdown     chan struct{}
 	shuttingDown int32
@@ -143,7 +146,7 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 	}
 
 	s.api = api
-	s.handler = configureAPI(api)
+	s.handler, s.cluster = configureAPI(api)
 }
 
 func (s *Server) hasScheme(scheme string) bool {
@@ -331,7 +334,17 @@ func (s *Server) Serve() (err error) {
 
 	wg.Add(1)
 	go s.handleShutdown(wg, &servers)
-
+	
+	migrator := db.NewMigrator(s.cluster.DB, s.cluster.Logger)	
+	if err = s.cluster.CloudService.Open(context.Background(),
+	 schema.NewExecutor(migrator, s.cluster.CloudService.SchemaReader(),
+	  s.cluster.Logger)); err != nil {
+		s.cluster.Logger.
+			WithField("action", "startup").
+			WithError(err).
+			Fatal("could not open cloud meta store")
+	}
+	
 	wg.Wait()
 	return nil
 }

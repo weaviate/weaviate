@@ -325,14 +325,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.Modules.SetSchemaGetter(schemaManager)
 
 	// TODO-RAFT START
-
-	err = appState.CloudService.Open(ctx, executor)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not open cloud meta store")
-	}
+	// err = appState.CloudService.Open(ctx, executor)
+	// if err != nil {
+	// 	appState.Logger.
+	// 		WithField("action", "startup").
+	// 		WithError(err).
+	// 		Fatal("could not open cloud meta store")
+	// }
 	// TODO-RAFT END
 
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
@@ -431,7 +430,7 @@ func parseNode2Port(appState *state.State) (m map[string]int, err error) {
 	return m, nil
 }
 
-func configureAPI(api *operations.WeaviateAPI) http.Handler {
+func configureAPI(api *operations.WeaviateAPI) (http.Handler, *state.State) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
@@ -521,7 +520,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	startGrpcServer(grpcServer, appState)
 
-	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+	return setupGlobalMiddleware(api.Serve(setupMiddlewares)), appState
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
