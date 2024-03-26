@@ -100,7 +100,7 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
 	}
-	if req.Properties == nil || len(req.Properties) == 0 {
+	if len(req.Properties) == 0 {
 		return fmt.Errorf("%w: empty property", errBadRequest)
 	}
 

@@ -127,15 +127,15 @@ func (m *metaClass) AddProperty(props ...*models.Property) error {
 	defer m.Unlock()
 
 	// update all at once to prevent race condition with concurrent readers
-	src := filterOutDup(m.Class.Properties, props)
+	src := filterOutDuplicates(m.Class.Properties, props)
 	dest := make([]*models.Property, len(src)+len(props))
 	copy(dest, append(src, props...))
 	m.Class.Properties = dest
 	return nil
 }
 
-// filterOutDup removes from the old any existing property could cause duplication
-func filterOutDup(old, new []*models.Property) []*models.Property {
+// filterOutDuplicates removes from the old any existing property could cause duplication
+func filterOutDuplicates(old, new []*models.Property) []*models.Property {
 	// create memory to avoid duplication
 	var newUnique []*models.Property
 	mem := make(map[string]int, len(new))
