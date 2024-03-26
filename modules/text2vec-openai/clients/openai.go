@@ -246,15 +246,13 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 func (v *client) getRateLimit(ctx context.Context) (int, int) {
 	returnRPM := 0
 	returnTPM := 0
-	rpm := ctx.Value("X-Openai-Ratelimit-RequestPM-Embedding")
-	if rpmS, ok := rpm.(string); ok && rpmS != "" {
+	if rpmS := v.getValueFromContext(ctx, "X-Openai-Ratelimit-RequestPM-Embedding"); rpmS != "" {
 		s, err := strconv.Atoi(rpmS)
 		if err == nil {
 			returnRPM = s
 		}
 	}
-	tpm := ctx.Value("X-Openai-Ratelimit-TokenPM-Embedding")
-	if tpmS, ok := tpm.(string); ok && tpmS != "" {
+	if tpmS := v.getValueFromContext(ctx, "X-Openai-Ratelimit-TokenPM-Embedding"); tpmS != "" {
 		s, err := strconv.Atoi(tpmS)
 		if err == nil {
 			returnTPM = s
