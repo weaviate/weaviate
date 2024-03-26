@@ -20,8 +20,8 @@ type RateLimits struct {
 	LimitTokens          int
 	RemainingRequests    int
 	RemainingTokens      int
-	ResetRequests        int
-	ResetTokens          int
+	ResetRequests        time.Time
+	ResetTokens          time.Time
 }
 
 func (rl *RateLimits) ResetAfterRequestFunction() {
