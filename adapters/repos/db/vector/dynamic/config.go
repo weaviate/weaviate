@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package composer
+package dynamic
 
 import (
 	"github.com/pkg/errors"
@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/composer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 

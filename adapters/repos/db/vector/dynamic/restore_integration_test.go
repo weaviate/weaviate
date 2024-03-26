@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package composer_test
+package dynamic_test
 
 import (
 	"context"
@@ -20,14 +20,14 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/composer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/composer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -58,7 +58,7 @@ func TestBackup_Integration(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 
-	config := composer.Config{
+	config := dynamic.Config{
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -80,15 +80,15 @@ func TestBackup_Integration(t *testing.T) {
 	}
 
 	uc := ent.UserConfig{
-		Threeshold: uint64(vectors_size),
-		Distance:   distancer.Type(),
-		HnswUC:     hnswuc,
-		FlatUC:     fuc,
+		Threshold: uint64(vectors_size),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
 	}
 
 	store := testinghelpers.NewDummyStore(t)
 
-	idx, err := composer.New(config, uc, store)
+	idx, err := dynamic.New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -106,7 +106,7 @@ func TestBackup_Integration(t *testing.T) {
 	assert.True(t, recall1 > 0.9)
 
 	assert.Nil(t, idx.Shutdown(context.Background()))
-	idx, err = composer.New(config, uc, store)
+	idx, err = dynamic.New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 

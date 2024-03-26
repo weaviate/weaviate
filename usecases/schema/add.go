@@ -559,7 +559,7 @@ func (m *Manager) parseTargetVectorsVectorIndexConfig(class *models.Class) error
 func (m *Manager) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{},
 ) (schema.VectorIndexConfig, error) {
-	if vectorIndexType != "hnsw" && vectorIndexType != "flat" && vectorIndexType != "composer" {
+	if vectorIndexType != "hnsw" && vectorIndexType != "flat" && vectorIndexType != "dynamic" {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			vectorIndexType)
