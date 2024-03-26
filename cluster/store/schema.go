@@ -219,7 +219,7 @@ func (s *schema) deleteClass(name string) {
 	delete(s.Classes, name)
 }
 
-func (s *schema) addProperty(class string, p models.Property) error {
+func (s *schema) addProperty(class string, props ...*models.Property) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -227,7 +227,7 @@ func (s *schema) addProperty(class string, p models.Property) error {
 	if meta == nil {
 		return errClassNotFound
 	}
-	return meta.AddProperty(p)
+	return meta.AddProperty(props...)
 }
 
 func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {

@@ -324,9 +324,9 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 	return l.shard.addTimestampProperties(ctx)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	l.mustLoad()
-	l.shard.createPropertyIndex(ctx, prop, eg)
+	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {

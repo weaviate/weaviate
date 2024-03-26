@@ -97,7 +97,7 @@ func (e *executor) DeleteClass(cls string) error {
 func (e *executor) AddProperty(className string, req cluster.AddPropertyRequest) error {
 	ctx := context.Background()
 	e.triggerSchemaUpdateCallbacks()
-	return e.migrator.AddProperty(ctx, className, req.Property)
+	return e.migrator.AddProperty(ctx, className, req.Properties...)
 }
 
 func (e *executor) AddTenants(class string, req *cluster.AddTenantsRequest) error {

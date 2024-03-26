@@ -27,7 +27,7 @@ type UpdateClassRequest struct {
 }
 
 type AddPropertyRequest struct {
-	*models.Property
+	Properties []*models.Property
 }
 
 type DeleteClassRequest struct {
