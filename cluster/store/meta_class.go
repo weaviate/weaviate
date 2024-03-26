@@ -13,6 +13,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	command "github.com/weaviate/weaviate/cluster/proto/cluster"
@@ -121,17 +122,36 @@ func (m *metaClass) CopyShardingState() *sharding.State {
 	return &st
 }
 
-func (m *metaClass) AddProperty(p models.Property) error {
+func (m *metaClass) AddProperty(props ...*models.Property) error {
 	m.Lock()
 	defer m.Unlock()
 
 	// update all at once to prevent race condition with concurrent readers
-	src := m.Class.Properties
-	dest := make([]*models.Property, len(src)+1)
-	copy(dest, src)
-	dest[len(src)] = &p
+	src := filterOutDuplicates(m.Class.Properties, props)
+	dest := make([]*models.Property, len(src)+len(props))
+	copy(dest, append(src, props...))
 	m.Class.Properties = dest
 	return nil
+}
+
+// filterOutDuplicates removes from the old any existing property could cause duplication
+func filterOutDuplicates(old, new []*models.Property) []*models.Property {
+	// create memory to avoid duplication
+	var newUnique []*models.Property
+	mem := make(map[string]int, len(new))
+	for idx := range new {
+		mem[strings.ToLower(new[idx].Name)] = idx
+	}
+
+	// pick only what is not in the new proprieties
+	for idx := range old {
+		if _, exists := mem[strings.ToLower(old[idx].Name)]; exists {
+			continue
+		}
+		newUnique = append(newUnique, old[idx])
+	}
+
+	return newUnique
 }
 
 func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest) error {

@@ -40,7 +40,7 @@ type Migrator interface {
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
 
 	AddProperty(ctx context.Context, className string,
-		prop *models.Property) error
+		props ...*models.Property) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
