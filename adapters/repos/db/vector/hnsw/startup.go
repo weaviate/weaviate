@@ -18,6 +18,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -148,6 +149,7 @@ func (h *hnsw) restoreFromDisk() error {
 				h.logger,
 				state.PQData.Encoders,
 				h.store,
+				h.allocChecker,
 			)
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
@@ -175,6 +177,29 @@ func (h *hnsw) restoreFromDisk() error {
 }
 
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	if h.allocChecker != nil {
+		// allocChecker is optional, we can only check if it was actually set
+
+		// It's hard to estimate how much memory we'd need to do a successful
+		// hnsw delete cleanup. The value below is probalby vastly overstated.
+		// However, without a doubt, delete cleanup could lead to temporary
+		// memory increases, either because it loads vectors into cache or
+		// because it rewrites connections in a way that they could need more
+		// memory than before. Either way, it's probably a good idea not to
+		// start a cleanup cycle if we are already this close to running out of
+		// memory.
+		memoryNeeded := int64(100 * 1024 * 1024)
+
+		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
+			h.logger.WithFields(logrus.Fields{
+				"action": "hnsw_tombstone_cleanup",
+				"event":  "cleanup_skipped_oom",
+				"class":  h.className,
+			}).WithError(err).
+				Warnf("skipping hnsw cleanup due to memory pressure")
+			return false
+		}
+	}
 	executed, err := h.cleanUpTombstonedNodes(shouldAbort)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").

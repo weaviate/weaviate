@@ -37,6 +37,9 @@ type Monitor struct {
 	mu    sync.Mutex
 	limit int64
 	used  int64
+
+	// TODO: remove
+	debugCounter int
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -44,6 +47,14 @@ type Monitor struct {
 func (m *Monitor) Refresh() {
 	m.obtainCurrentUsage()
 	m.updateLimit()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// if m.debugCounter%20 == 0 {
+	fmt.Printf(`{"action":"update_memory_monitor","level":"debug","usage":%d,"limit":%d}`+"\n", m.used, m.limit)
+	// }
+	m.debugCounter++
 }
 
 // we have no intentions of ever modifying the limit, but SetMemoryLimit with a
@@ -118,3 +129,8 @@ func (m *Monitor) updateLimit() {
 }
 
 type metricsReader func() int64
+
+type AllocChecker interface {
+	CheckAlloc(sizeInBytes int64) error
+	Refresh()
+}

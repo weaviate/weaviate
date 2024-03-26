@@ -19,6 +19,7 @@ import (
 	"unsafe"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -35,6 +36,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	cancel           chan bool
 	logger           logrus.FieldLogger
 	deletionInterval time.Duration
+	allocChecker     memwatch.AllocChecker
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
@@ -49,6 +51,7 @@ const (
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize int,
 	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
+	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
 	vc := &shardedLockCache[float32]{
 		vectorForID: func(ctx context.Context, id uint64) ([]float32, error) {
@@ -70,6 +73,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		shardedLocks:     common.NewDefaultShardedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
+		allocChecker:     allocChecker,
 	}
 
 	vc.watchForDeletion()
@@ -78,6 +82,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 
 func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
+	allocChecker memwatch.AllocChecker,
 ) Cache[byte] {
 	vc := &shardedLockCache[byte]{
 		vectorForID:      vecForID,
@@ -90,6 +95,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 		shardedLocks:     common.NewDefaultShardedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
+		allocChecker:     allocChecker,
 	}
 
 	vc.watchForDeletion()
@@ -98,6 +104,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int,
 
 func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	logger logrus.FieldLogger, deletionInterval time.Duration,
+	allocChecker memwatch.AllocChecker,
 ) Cache[uint64] {
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
@@ -110,6 +117,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		shardedLocks:     common.NewDefaultShardedRWLocks(),
 		maintenanceLock:  sync.RWMutex{},
 		deletionInterval: deletionInterval,
+		allocChecker:     allocChecker,
 	}
 
 	vc.watchForDeletion()
@@ -121,6 +129,25 @@ func (s *shardedLockCache[T]) All() [][]T {
 }
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
+	if s.allocChecker != nil {
+		// we don't really know the exact size here, but we don't have to be
+		// accurate. If mem pressure is this high, we basically want to prevent any
+		// new permanent heap alloc. If we underestimate the size of a vector a
+		// bit, we might allow one more vector than we can really fit. But the one
+		// after would fail then. Given that vectors are typically somewhat small
+		// (in the single-digit KBs), it doesn't matter much, as long as we stop
+		// allowing vectors when we're out of memory.
+		estimatedSize := int64(1024)
+		if err := s.allocChecker.CheckAlloc(estimatedSize); err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"action": "vector_cache_miss",
+				"event":  "vector_load_skipped_oom",
+				"doc_id": id,
+			}).WithError(err).
+				Warnf("cannot load vector into cache due to memory pressure")
+			return nil, err
+		}
+	}
 	s.shardedLocks.RLock(id)
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)

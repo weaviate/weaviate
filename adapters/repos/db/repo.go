@@ -152,7 +152,7 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:              memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97),
 	}
 
-	// make sure memMonitor has an initial state
+	// make sure allocChecker has an initial state
 	db.memMonitor.Refresh()
 
 	if db.maxNumberGoroutines == 0 {
