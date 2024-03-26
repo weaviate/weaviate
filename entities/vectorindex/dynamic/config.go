@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package composer
+package dynamic
 
 import (
 	"fmt"
@@ -25,16 +25,16 @@ const (
 )
 
 type UserConfig struct {
-	Distance   string          `json:"distance"`
-	Threeshold uint64          `json:"threshold"`
-	HnswUC     hnsw.UserConfig `json:"hnswuc"`
-	FlatUC     flat.UserConfig `json:"flatuc"`
+	Distance  string          `json:"distance"`
+	Threshold uint64          `json:"threshold"`
+	HnswUC    hnsw.UserConfig `json:"hnsw"`
+	FlatUC    flat.UserConfig `json:"flat"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
 // the schema.VectorIndexConfig interface is implemented
 func (u UserConfig) IndexType() string {
-	return "composer"
+	return "dynamic"
 }
 
 func (u UserConfig) DistanceName() string {
@@ -43,7 +43,7 @@ func (u UserConfig) DistanceName() string {
 
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
-	u.Threeshold = DefaultThreshold
+	u.Threshold = DefaultThreshold
 	u.Distance = common.DefaultDistanceMetric
 	u.HnswUC = hnsw.NewDefaultUserConfig()
 	u.FlatUC = flat.NewDefaultUserConfig()
@@ -71,12 +71,12 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 	}
 
 	if err := common.OptionalIntFromMap(asMap, "threshold", func(v int) {
-		uc.Threeshold = uint64(v)
+		uc.Threshold = uint64(v)
 	}); err != nil {
 		return uc, err
 	}
 
-	hnswConfig, ok := asMap["hnswuc"]
+	hnswConfig, ok := asMap["hnsw"]
 	if !ok || hnswConfig == nil {
 		return uc, nil
 	}
@@ -88,11 +88,11 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 
 	castedHnswUC, ok := hnswUC.(hnsw.UserConfig)
 	if !ok {
-		return uc, fmt.Errorf("invalid hnswUC configuration")
+		return uc, fmt.Errorf("invalid hnsw configuration")
 	}
 	uc.HnswUC = castedHnswUC
 
-	flatConfig, ok := asMap["flatuc"]
+	flatConfig, ok := asMap["flat"]
 	if !ok || flatConfig == nil {
 		return uc, nil
 	}
@@ -104,7 +104,7 @@ func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error)
 
 	castedFlatUC, ok := flatUC.(flat.UserConfig)
 	if !ok {
-		return uc, fmt.Errorf("invalid flatUC configuration")
+		return uc, fmt.Errorf("invalid flat configuration")
 	}
 	uc.FlatUC = castedFlatUC
 

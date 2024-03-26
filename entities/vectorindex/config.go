@@ -15,16 +15,16 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/composer"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 const (
-	DefaultVectorIndexType  = VectorIndexTypeHNSW
-	VectorIndexTypeHNSW     = "hnsw"
-	VectorIndexTypeFLAT     = "flat"
-	VectorIndexTypeCOMPOSER = "composer"
+	DefaultVectorIndexType = VectorIndexTypeHNSW
+	VectorIndexTypeHNSW    = "hnsw"
+	VectorIndexTypeFLAT    = "flat"
+	VectorIndexTypeDYNAMIC = "dynamic"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -39,9 +39,9 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schema.V
 		return hnsw.ParseAndValidateConfig(input)
 	case VectorIndexTypeFLAT:
 		return flat.ParseAndValidateConfig(input)
-	case VectorIndexTypeCOMPOSER:
-		return composer.ParseAndValidateConfig(input)
+	case VectorIndexTypeDYNAMIC:
+		return dynamic.ParseAndValidateConfig(input)
 	default:
-		return nil, fmt.Errorf("Invalid vectorIndexType (­%s). Supported types are hnsw and flat", vectorIndexType)
+		return nil, fmt.Errorf("invalid vectorIndexType (%s). Supported types are hnsw, flat, and dynamic", vectorIndexType)
 	}
 }

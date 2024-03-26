@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package composer_test
+package dynamic_test
 
 import (
 	"context"
@@ -20,19 +20,19 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/composer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/composer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func TestComposer(t *testing.T) {
+func TestDynamic(t *testing.T) {
 	dimensions := 20
 	vectors_size := 10_000
 	queries_size := 10
@@ -54,7 +54,7 @@ func TestComposer(t *testing.T) {
 		EF:                    32,
 		VectorCacheMaxObjects: 1_000_000,
 	}
-	composer, err := composer.New(composer.Config{
+	dynamic, err := dynamic.New(dynamic.Config{
 		RootPath:              rootPath,
 		ID:                    "nil-vector-test",
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
@@ -71,38 +71,38 @@ func TestComposer(t *testing.T) {
 		ShardCompactionCallbacks: noopCallback,
 		ShardFlushCallbacks:      noopCallback,
 	}, ent.UserConfig{
-		Threeshold: uint64(vectors_size),
-		Distance:   distancer.Type(),
-		HnswUC:     hnswuc,
-		FlatUC:     fuc,
+		Threshold: uint64(vectors_size),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
 	}, testinghelpers.NewDummyStore(t))
 	assert.Nil(t, err)
 
 	compressionhelpers.Concurrently(uint64(vectors_size), func(i uint64) {
-		composer.Add(i, vectors[i])
+		dynamic.Add(i, vectors[i])
 	})
-	shouldUpgrade, at := composer.ShouldUpgrade()
+	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, vectors_size, at)
-	assert.False(t, composer.Upgraded())
-	recall1, latency1 := recallAndLatency(queries, k, composer, truths)
+	assert.False(t, dynamic.Upgraded())
+	recall1, latency1 := recallAndLatency(queries, k, dynamic, truths)
 	fmt.Println(recall1, latency1)
 	assert.True(t, recall1 > 0.99)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-	composer.Upgrade(func() {
+	dynamic.Upgrade(func() {
 		wg.Done()
 	})
 	wg.Wait()
-	shouldUpgrade, _ = composer.ShouldUpgrade()
+	shouldUpgrade, _ = dynamic.ShouldUpgrade()
 	assert.False(t, shouldUpgrade)
-	recall2, latency2 := recallAndLatency(queries, k, composer, truths)
+	recall2, latency2 := recallAndLatency(queries, k, dynamic, truths)
 	fmt.Println(recall2, latency2)
 	assert.True(t, recall2 > 0.9)
 	assert.True(t, latency1 > latency2)
 }
 
-func recallAndLatency(queries [][]float32, k int, index composer.VectorIndex, truths [][]uint64) (float32, float32) {
+func recallAndLatency(queries [][]float32, k int, index dynamic.VectorIndex, truths [][]uint64) (float32, float32) {
 	var relevant uint64
 	retrieved := k * len(queries)
 

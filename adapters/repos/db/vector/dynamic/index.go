@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package composer
+package dynamic
 
 import (
 	"context"
@@ -34,14 +34,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema"
-	ent "github.com/weaviate/weaviate/entities/vectorindex/composer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 	"golang.org/x/sync/errgroup"
 )
 
-var composerBucket = []byte("composer")
+var dynamicBucket = []byte("dynamic")
 
 type VectorIndex interface {
 	Dump(labels ...string)
@@ -72,7 +72,7 @@ type upgradableIndexer interface {
 	ShouldUpgrade() (bool, int)
 }
 
-type composer struct {
+type dynamic struct {
 	sync.RWMutex
 	id                       string
 	targetVector             string
@@ -96,7 +96,7 @@ type composer struct {
 	db                       *bolt.DB
 }
 
-func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
+func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -115,7 +115,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		DistanceProvider: cfg.DistanceProvider,
 	}
 
-	index := &composer{
+	index := &dynamic{
 		id:                       cfg.ID,
 		targetVector:             cfg.TargetVector,
 		logger:                   logger,
@@ -128,7 +128,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		distanceProvider:         cfg.DistanceProvider,
 		makeCommitLoggerThunk:    cfg.MakeCommitLoggerThunk,
 		store:                    store,
-		threshold:                uc.Threeshold,
+		threshold:                uc.Threshold,
 		tombstoneCallbacks:       cfg.TombstoneCallbacks,
 		shardCompactionCallbacks: cfg.ShardCompactionCallbacks,
 		shardFlushCallbacks:      cfg.ShardFlushCallbacks,
@@ -142,7 +142,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(composerBucket)
+		_, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		return err
 	})
 	if err != nil {
@@ -151,7 +151,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 
 	upgraded := false
 	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(composerBucket)
+		b := tx.Bucket(dynamicBucket)
 		v := b.Get([]byte{0})
 		if v == nil {
 			return nil
@@ -161,7 +161,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "get composer state")
+		return nil, errors.Wrap(err, "get dynamic state")
 	}
 
 	index.db = db
@@ -201,157 +201,157 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*composer, error) {
 	return index, nil
 }
 
-func (composer *composer) Compressed() bool {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.Compressed()
+func (dynamic *dynamic) Compressed() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Compressed()
 }
 
-func (composer *composer) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.AddBatch(ctx, ids, vectors)
+func (dynamic *dynamic) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.AddBatch(ctx, ids, vectors)
 }
 
-func (composer *composer) Add(id uint64, vector []float32) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.Add(id, vector)
+func (dynamic *dynamic) Add(id uint64, vector []float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Add(id, vector)
 }
 
-func (composer *composer) Delete(ids ...uint64) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.Delete(ids...)
+func (dynamic *dynamic) Delete(ids ...uint64) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Delete(ids...)
 }
 
-func (composer *composer) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.SearchByVector(vector, k, allow)
+func (dynamic *dynamic) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SearchByVector(vector, k, allow)
 }
 
-func (composer *composer) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.SearchByVectorDistance(vector, targetDistance, maxLimit, allow)
+func (dynamic *dynamic) SearchByVectorDistance(vector []float32, targetDistance float32, maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SearchByVectorDistance(vector, targetDistance, maxLimit, allow)
 }
 
-func (composer *composer) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (dynamic *dynamic) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
-	if composer.upgraded.Load() {
-		composer.RLock()
-		defer composer.RUnlock()
-		composer.index.UpdateUserConfig(parsed.HnswUC, callback)
+	if dynamic.upgraded.Load() {
+		dynamic.RLock()
+		defer dynamic.RUnlock()
+		dynamic.index.UpdateUserConfig(parsed.HnswUC, callback)
 	} else {
-		composer.hnswUC = parsed.HnswUC
-		composer.RLock()
-		defer composer.RUnlock()
-		composer.index.UpdateUserConfig(parsed.FlatUC, callback)
+		dynamic.hnswUC = parsed.HnswUC
+		dynamic.RLock()
+		defer dynamic.RUnlock()
+		dynamic.index.UpdateUserConfig(parsed.FlatUC, callback)
 	}
 	return nil
 }
 
-func (composer *composer) Drop(ctx context.Context) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	if err := composer.db.Close(); err != nil {
+func (dynamic *dynamic) Drop(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
-	os.Remove(filepath.Join(composer.rootPath, "index.db"))
-	return composer.index.Drop(ctx)
+	os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+	return dynamic.index.Drop(ctx)
 }
 
-func (composer *composer) Flush() error {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.Flush()
+func (dynamic *dynamic) Flush() error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Flush()
 }
 
-func (composer *composer) Shutdown(ctx context.Context) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	if err := composer.db.Close(); err != nil {
+func (dynamic *dynamic) Shutdown(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
-	return composer.index.Shutdown(ctx)
+	return dynamic.index.Shutdown(ctx)
 }
 
-func (composer *composer) SwitchCommitLogs(ctx context.Context) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.SwitchCommitLogs(ctx)
+func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.SwitchCommitLogs(ctx)
 }
 
-func (composer *composer) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.ListFiles(ctx, basePath)
+func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ListFiles(ctx, basePath)
 }
 
-func (composer *composer) ValidateBeforeInsert(vector []float32) error {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.ValidateBeforeInsert(vector)
+func (dynamic *dynamic) ValidateBeforeInsert(vector []float32) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ValidateBeforeInsert(vector)
 }
 
-func (composer *composer) PostStartup() {
-	composer.Lock()
-	defer composer.Unlock()
-	composer.index.PostStartup()
+func (dynamic *dynamic) PostStartup() {
+	dynamic.Lock()
+	defer dynamic.Unlock()
+	dynamic.index.PostStartup()
 }
 
-func (composer *composer) Dump(labels ...string) {
+func (dynamic *dynamic) Dump(labels ...string) {
 	if len(labels) > 0 {
 		fmt.Printf("--------------------------------------------------\n")
 		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
 	}
 	fmt.Printf("--------------------------------------------------\n")
-	fmt.Printf("ID: %s\n", composer.id)
+	fmt.Printf("ID: %s\n", dynamic.id)
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (composer *composer) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.DistanceBetweenVectors(x, y)
+func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.DistanceBetweenVectors(x, y)
 }
 
-func (composer *composer) ContainsNode(id uint64) bool {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.ContainsNode(id)
+func (dynamic *dynamic) ContainsNode(id uint64) bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ContainsNode(id)
 }
 
-func (composer *composer) AlreadyIndexed() uint64 {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.AlreadyIndexed()
+func (dynamic *dynamic) AlreadyIndexed() uint64 {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.AlreadyIndexed()
 }
 
-func (composer *composer) DistancerProvider() distancer.Provider {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.index.DistancerProvider()
+func (dynamic *dynamic) DistancerProvider() distancer.Provider {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.DistancerProvider()
 }
 
-func (composer *composer) ShouldUpgrade() (bool, int) {
-	if !composer.upgraded.Load() {
-		return true, int(composer.threshold)
+func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
+	if !dynamic.upgraded.Load() {
+		return true, int(dynamic.threshold)
 	}
-	composer.RLock()
-	defer composer.RUnlock()
-	return (composer.index).(upgradableIndexer).ShouldUpgrade()
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return (dynamic.index).(upgradableIndexer).ShouldUpgrade()
 }
 
-func (composer *composer) Upgraded() bool {
-	composer.RLock()
-	defer composer.RUnlock()
-	return composer.upgraded.Load() && composer.index.(upgradableIndexer).Upgraded()
+func (dynamic *dynamic) Upgraded() bool {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.upgraded.Load() && dynamic.index.(upgradableIndexer).Upgraded()
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
@@ -361,38 +361,38 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	return slice
 }
 
-func (composer *composer) Upgrade(callback func()) error {
-	composer.Lock()
-	defer composer.Unlock()
-	if composer.upgraded.Load() {
-		return composer.index.(upgradableIndexer).Upgrade(callback)
+func (dynamic *dynamic) Upgrade(callback func()) error {
+	dynamic.Lock()
+	defer dynamic.Unlock()
+	if dynamic.upgraded.Load() {
+		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
 	index, err := hnsw.New(
 		hnsw.Config{
-			Logger:                composer.logger,
-			RootPath:              composer.rootPath,
-			ID:                    composer.id,
-			ShardName:             composer.shardName,
-			ClassName:             composer.className,
-			PrometheusMetrics:     composer.prometheusMetrics,
-			VectorForIDThunk:      composer.vectorForIDThunk,
-			TempVectorForIDThunk:  composer.tempVectorForIDThunk,
-			DistanceProvider:      composer.distanceProvider,
-			MakeCommitLoggerThunk: composer.makeCommitLoggerThunk,
+			Logger:                dynamic.logger,
+			RootPath:              dynamic.rootPath,
+			ID:                    dynamic.id,
+			ShardName:             dynamic.shardName,
+			ClassName:             dynamic.className,
+			PrometheusMetrics:     dynamic.prometheusMetrics,
+			VectorForIDThunk:      dynamic.vectorForIDThunk,
+			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
+			DistanceProvider:      dynamic.distanceProvider,
+			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
 		},
-		composer.hnswUC,
-		composer.tombstoneCallbacks,
-		composer.shardCompactionCallbacks,
-		composer.shardFlushCallbacks,
-		composer.store,
+		dynamic.hnswUC,
+		dynamic.tombstoneCallbacks,
+		dynamic.shardCompactionCallbacks,
+		dynamic.shardFlushCallbacks,
+		dynamic.store,
 	)
 	if err != nil {
 		callback()
 		return err
 	}
 
-	bucket := composer.store.Bucket(helpers.VectorsBucketLSM)
+	bucket := dynamic.store.Bucket(helpers.VectorsBucketLSM)
 
 	var g errgroup.Group
 	workerCount := runtime.GOMAXPROCS(0)
@@ -438,16 +438,16 @@ func (composer *composer) Upgrade(callback func()) error {
 	buf := make([]byte, 1)
 	buf[0] = 1
 
-	err = composer.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(composerBucket)
+	err = dynamic.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
 		return b.Put([]byte{0}, buf)
 	})
 	if err != nil {
-		return errors.Wrap(err, "update composer")
+		return errors.Wrap(err, "update dynamic")
 	}
 
-	composer.index = index
-	composer.upgraded.Store(true)
+	dynamic.index = index
+	dynamic.upgraded.Store(true)
 	callback()
 	return nil
 }

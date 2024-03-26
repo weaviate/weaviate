@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package composer
+package dynamic
 
 import (
 	"testing"
@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func Test_ComposerUserConfig(t *testing.T) {
+func Test_DynamicUserConfig(t *testing.T) {
 	type test struct {
 		name         string
 		input        interface{}
@@ -35,8 +35,8 @@ func Test_ComposerUserConfig(t *testing.T) {
 			name:  "nothing specified, all defaults",
 			input: nil,
 			expected: UserConfig{
-				Distance:   common.DefaultDistanceMetric,
-				Threeshold: DefaultThreshold,
+				Distance:  common.DefaultDistanceMetric,
+				Threshold: DefaultThreshold,
 				HnswUC: hnsw.UserConfig{
 					CleanupIntervalSeconds: hnsw.DefaultCleanupIntervalSeconds,
 					MaxConnections:         hnsw.DefaultMaxConnections,

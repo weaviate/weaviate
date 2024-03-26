@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/composer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -51,7 +51,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
-	composerent "github.com/weaviate/weaviate/entities/vectorindex/composer"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -431,10 +431,10 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
 		vectorIndex = vi
-	case vectorindex.VectorIndexTypeCOMPOSER:
-		composerUserConfig, ok := vectorIndexUserConfig.(composerent.UserConfig)
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		dynamicUserConfig, ok := vectorIndexUserConfig.(dynamicent.UserConfig)
 		if !ok {
-			return nil, errors.Errorf("composer vector index: config is not composer.UserConfig: %T",
+			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
 				vectorIndexUserConfig)
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
@@ -448,7 +448,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 
 		s.index.logger.Error(s.path(), vecIdxID, s.index.Config.ClassName.String())
 
-		vi, err := composer.New(composer.Config{
+		vi, err := dynamic.New(dynamic.Config{
 			ID:                   vecIdxID,
 			TargetVector:         targetVector,
 			Logger:               s.index.logger,
@@ -466,14 +466,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks:       s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			ShardCompactionCallbacks: s.cycleCallbacks.compactionCallbacks,
 			ShardFlushCallbacks:      s.cycleCallbacks.flushCallbacks,
-		}, composerUserConfig, s.store)
+		}, dynamicUserConfig, s.store)
 		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: composer index", s.ID())
+			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
 		}
 		vectorIndex = vi
 	default:
 		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeCOMPOSER)
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
