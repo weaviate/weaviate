@@ -268,19 +268,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		RaftPort:           appState.ServerConfig.Config.Raft.Port,
 		RPCPort:            appState.ServerConfig.Config.Raft.InternalRPCPort,
 		ServerName2PortMap: server2port,
+		BootstrapTimeout:   appState.ServerConfig.Config.Raft.BootstrapTimeout,
 		BootstrapExpect:    appState.ServerConfig.Config.Raft.BootstrapExpect,
 		HeartbeatTimeout:   appState.ServerConfig.Config.Raft.HeartbeatTimeout,
 		RecoveryTimeout:    appState.ServerConfig.Config.Raft.RecoveryTimeout,
 		ElectionTimeout:    appState.ServerConfig.Config.Raft.ElectionTimeout,
 		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
-
-		DB:           nil,
-		Parser:       schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
-		AddrResolver: appState.Cluster,
-		Logger:       sLogger(),
-		LogLevel:     logLevel(),
-		IsLocalHost:  appState.ServerConfig.Config.Cluster.Localhost,
+		DB:                 nil,
+		Parser:             schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		AddrResolver:       appState.Cluster,
+		Logger:             sLogger(),
+		LogLevel:           logLevel(),
+		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:   schemaRepo.LoadLegacySchema,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {

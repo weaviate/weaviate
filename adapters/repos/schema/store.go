@@ -23,6 +23,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	clusterStore "github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
@@ -563,4 +564,16 @@ func createClassPayload(class *models.Class,
 		}
 	}
 	return pl, nil
+}
+
+func (r *store) LoadLegacySchema() (map[string]clusterStore.ClassState, error) {
+	res := make(map[string]clusterStore.ClassState)
+	legacySchema, err := r.Load(context.Background())
+	if err != nil {
+		return res, fmt.Errorf("could not load legacy schema: %w", err)
+	}
+	for _, c := range legacySchema.ObjectSchema.Classes {
+		res[c.Class] = clusterStore.ClassState{Class: *c, Shards: *legacySchema.ShardingState[c.Class]}
+	}
+	return res, nil
 }

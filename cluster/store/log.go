@@ -12,6 +12,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/hashicorp/raft"
@@ -36,8 +37,9 @@ func (l rLog) LastAppliedCommand() (uint64, error) {
 	}
 	var rLog raft.Log
 	for ; last >= first; last-- {
-		if err := l.GetLog(last, &rLog); err != nil {
-			return 0, fmt.Errorf("get log at index: %w", err)
+		err := l.GetLog(last, &rLog)
+		if err != nil && !errors.Is(err, raft.ErrLogNotFound) {
+			return 0, fmt.Errorf("get log at index %d: %w", last, err)
 		}
 		if rLog.Type == raft.LogCommand {
 			return last, nil
