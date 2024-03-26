@@ -181,7 +181,7 @@ func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
 	rpm := DefaultRPM
 
-	if rpmS, ok := ctx.Value("X-Cohere-Ratelimit-RequestPM-Embedding").(string); ok && rpmS != "" {
+	if rpmS := v.getValueFromContext(ctx, "X-Cohere-Ratelimit-RequestPM-Embedding"); rpmS != "" {
 		s, err := strconv.Atoi(rpmS)
 		if err == nil {
 			rpm = s

@@ -240,7 +240,7 @@ func TestClient(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Openai-Ratelimit-RequestPM-Embedding", "50")
+			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
 
 		rl := c.GetVectorizerRateLimit(ctxWithValue)
 		assert.Equal(t, 50, rl.LimitRequests)
@@ -252,7 +252,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
-		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", "60")
+		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
 
 		rl := c.GetVectorizerRateLimit(ctxWithValue)
 		assert.Equal(t, 60, rl.LimitTokens)
