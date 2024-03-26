@@ -196,14 +196,14 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponen
 		}
 
 		limits.RemainingRequests = rpm
-		limits.ResetRequests = 61
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
 		limits.LimitRequests = rpm
 		limits.LastOverwrite = time.Now()
 
 		// high dummy values
 		limits.RemainingTokens = DefaultTPM
 		limits.LimitTokens = DefaultTPM
-		limits.ResetTokens = 1
+		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
 	}
 
 	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}

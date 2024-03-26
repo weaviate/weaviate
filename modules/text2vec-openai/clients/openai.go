@@ -267,10 +267,10 @@ func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.R
 	return &modulecomponents.RateLimits{
 		RemainingTokens:   tpm,
 		LimitTokens:       tpm,
-		ResetTokens:       61,
+		ResetTokens:       time.Now().Add(61 * time.Second),
 		RemainingRequests: rpm,
 		LimitRequests:     rpm,
-		ResetRequests:     61,
+		ResetRequests:     time.Now().Add(61 * time.Second),
 	}
 }
 
