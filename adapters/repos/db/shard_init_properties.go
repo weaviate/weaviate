@@ -28,9 +28,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
-	for _, prop := range class.Properties {
-		s.createPropertyIndex(context.TODO(), prop, eg)
-	}
+	s.createPropertyIndex(context.Background(), eg, class.Properties...)
 
 	eg.Go(func() error {
 		if err := s.addIDProperty(context.TODO()); err != nil {

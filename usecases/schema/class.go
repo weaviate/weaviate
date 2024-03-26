@@ -212,57 +212,63 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	h.moduleConfig.SetClassDefaults(class)
 }
 
-func setPropertyDefaults(prop *models.Property) {
-	setPropertyDefaultTokenization(prop)
-	setPropertyDefaultIndexing(prop)
-	setNestedPropertiesDefaults(prop.NestedProperties)
-}
-
-func setPropertyDefaultTokenization(prop *models.Property) {
-	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-	case schema.DataTypeString, schema.DataTypeStringArray:
-		// deprecated as of v1.19, default tokenization was word
-		// which will be migrated to text+whitespace
-		if prop.Tokenization == "" {
-			prop.Tokenization = models.PropertyTokenizationWord
-		}
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		if prop.Tokenization == "" {
-			if os.Getenv("DEFAULT_TOKENIZATION") != "" {
-				prop.Tokenization = os.Getenv("DEFAULT_TOKENIZATION")
-			} else {
-				prop.Tokenization = models.PropertyTokenizationWord
-			}
-		}
-	default:
-		// tokenization not supported for other data types
+func setPropertyDefaults(props ...*models.Property) {
+	setPropertyDefaultTokenization(props...)
+	setPropertyDefaultIndexing(props...)
+	for _, prop := range props {
+		setNestedPropertiesDefaults(prop.NestedProperties)
 	}
 }
 
-func setPropertyDefaultIndexing(prop *models.Property) {
-	// if IndexInverted is set but IndexFilterable and IndexSearchable are not
-	// migrate IndexInverted later.
-	if prop.IndexInverted != nil &&
-		prop.IndexFilterable == nil &&
-		prop.IndexSearchable == nil {
-		return
-	}
-
-	vTrue := true
-	if prop.IndexFilterable == nil {
-		prop.IndexFilterable = &vTrue
-	}
-	if prop.IndexSearchable == nil {
+func setPropertyDefaultTokenization(props ...*models.Property) {
+	for _, prop := range props {
 		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
-			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
-			prop.IndexSearchable = &vTrue
+			// deprecated as of v1.19, default tokenization was word
+			// which will be migrated to text+whitespace
+			if prop.Tokenization == "" {
+				prop.Tokenization = models.PropertyTokenizationWord
+			}
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			prop.IndexSearchable = &vTrue
+			if prop.Tokenization == "" {
+				if os.Getenv("DEFAULT_TOKENIZATION") != "" {
+					prop.Tokenization = os.Getenv("DEFAULT_TOKENIZATION")
+				} else {
+					prop.Tokenization = models.PropertyTokenizationWord
+				}
+			}
 		default:
-			vFalse := false
-			prop.IndexSearchable = &vFalse
+			// tokenization not supported for other data types
+		}
+	}
+}
+
+func setPropertyDefaultIndexing(props ...*models.Property) {
+	for _, prop := range props {
+		// if IndexInverted is set but IndexFilterable and IndexSearchable are not
+		// migrate IndexInverted later.
+		if prop.IndexInverted != nil &&
+			prop.IndexFilterable == nil &&
+			prop.IndexSearchable == nil {
+			continue
+		}
+
+		vTrue := true
+		if prop.IndexFilterable == nil {
+			prop.IndexFilterable = &vTrue
+		}
+		if prop.IndexSearchable == nil {
+			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+			case schema.DataTypeString, schema.DataTypeStringArray:
+				// string/string[] are migrated to text/text[] later,
+				// at this point they are still valid data types, therefore should be handled here
+				prop.IndexSearchable = &vTrue
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				prop.IndexSearchable = &vTrue
+			default:
+				vFalse := false
+				prop.IndexSearchable = &vFalse
+			}
 		}
 	}
 }
@@ -330,30 +336,45 @@ func (h *Handler) migrateClassSettings(class *models.Class) {
 	}
 }
 
-func migratePropertySettings(prop *models.Property) {
-	migratePropertyDataTypeAndTokenization(prop)
-	migratePropertyIndexInverted(prop)
+func migratePropertySettings(props ...*models.Property) {
+	migratePropertyDataTypeAndTokenization(props...)
+	migratePropertyIndexInverted(props...)
+}
+
+func mergeClassExistedProp(class *models.Class, props ...*models.Property) {
+	existingNames := map[string]int{}
+	for idx, p := range class.Properties {
+		existingNames[strings.ToLower(p.Name)] = idx
+	}
+
+	for _, p := range props {
+		if idx, ok := existingNames[strings.ToLower(p.Name)]; ok {
+			class.Properties[idx].NestedProperties, _ = schema.MergeRecursivelyNestedProperties(class.Properties[idx].NestedProperties, p.NestedProperties)
+		}
+	}
 }
 
 // as of v1.19 DataTypeString and DataTypeStringArray are deprecated
 // here both are changed to Text/TextArray
 // and proper, backward compatible tokenization
-func migratePropertyDataTypeAndTokenization(prop *models.Property) {
-	switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-	case schema.DataTypeString:
-		prop.DataType = schema.DataTypeText.PropString()
-	case schema.DataTypeStringArray:
-		prop.DataType = schema.DataTypeTextArray.PropString()
-	default:
-		// other types need no migration and do not support tokenization
-		return
-	}
+func migratePropertyDataTypeAndTokenization(props ...*models.Property) {
+	for _, prop := range props {
+		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		case schema.DataTypeString:
+			prop.DataType = schema.DataTypeText.PropString()
+		case schema.DataTypeStringArray:
+			prop.DataType = schema.DataTypeTextArray.PropString()
+		default:
+			// other types need no migration and do not support tokenization
+			continue
+		}
 
-	switch prop.Tokenization {
-	case models.PropertyTokenizationWord:
-		prop.Tokenization = models.PropertyTokenizationWhitespace
-	case models.PropertyTokenizationField:
-		// stays field
+		switch prop.Tokenization {
+		case models.PropertyTokenizationWord:
+			prop.Tokenization = models.PropertyTokenizationWhitespace
+		case models.PropertyTokenizationField:
+			// stays field
+		}
 	}
 }
 
@@ -361,73 +382,75 @@ func migratePropertyDataTypeAndTokenization(prop *models.Property) {
 // IndexFilterable (set inverted index)
 // and IndexSearchable (map inverted index with term frequencies;
 // therefore applicable only to text/text[] data types)
-func migratePropertyIndexInverted(prop *models.Property) {
-	// if none of new options is set, use inverted settings
-	if prop.IndexInverted != nil &&
-		prop.IndexFilterable == nil &&
-		prop.IndexSearchable == nil {
-		prop.IndexFilterable = prop.IndexInverted
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
-		// string/string[] are already migrated into text/text[], can be skipped here
-		case schema.DataTypeText, schema.DataTypeTextArray:
-			prop.IndexSearchable = prop.IndexInverted
-		default:
-			vFalse := false
-			prop.IndexSearchable = &vFalse
+func migratePropertyIndexInverted(props ...*models.Property) {
+	for _, prop := range props {
+		// if none of new options is set, use inverted settings
+		if prop.IndexInverted != nil &&
+			prop.IndexFilterable == nil &&
+			prop.IndexSearchable == nil {
+			prop.IndexFilterable = prop.IndexInverted
+			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+			// string/string[] are already migrated into text/text[], can be skipped here
+			case schema.DataTypeText, schema.DataTypeTextArray:
+				prop.IndexSearchable = prop.IndexInverted
+			default:
+				vFalse := false
+				prop.IndexSearchable = &vFalse
+			}
 		}
+		// new options have precedence so inverted can be reset
+		prop.IndexInverted = nil
 	}
-	// new options have precedence so inverted can be reset
-	prop.IndexInverted = nil
 }
 
 func (h *Handler) validateProperty(
-	property *models.Property, class *models.Class,
-	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
+	class *models.Class, existingPropertyNames map[string]bool,
+	relaxCrossRefValidation bool, props ...*models.Property,
 ) error {
-	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
-		return err
-	}
-
-	if err := schema.ValidateReservedPropertyName(property.Name); err != nil {
-		return err
-	}
-
-	if existingPropertyNames[strings.ToLower(property.Name)] {
-		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times",
-			class.Class, property.Name)
-	}
-
-	// Validate data type of property.
-	propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
-		relaxCrossRefValidation, schema.ClassName(class.Class))
-	if err != nil {
-		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
-	}
-
-	if propertyDataType.IsNested() {
-		if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+	for _, property := range props {
+		if _, err := schema.ValidatePropertyName(property.Name); err != nil {
 			return err
 		}
-	} else {
-		if len(property.NestedProperties) > 0 {
-			return fmt.Errorf("property '%s': nestedProperties not allowed for data types other than object/object[]",
-				property.Name)
+
+		if err := schema.ValidateReservedPropertyName(property.Name); err != nil {
+			return err
+		}
+
+		if existingPropertyNames[strings.ToLower(property.Name)] {
+			return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, class.Class)
+		}
+
+		// Validate data type of property.
+		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
+			relaxCrossRefValidation, schema.ClassName(class.Class))
+		if err != nil {
+			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
+		}
+
+		if propertyDataType.IsNested() {
+			if err := validateNestedProperties(property.NestedProperties, property.Name); err != nil {
+				return err
+			}
+		} else {
+			if len(property.NestedProperties) > 0 {
+				return fmt.Errorf("property '%s': nestedProperties not allowed for data types other than object/object[]",
+					property.Name)
+			}
+		}
+
+		if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
+			return err
+		}
+
+		if err := h.validatePropertyIndexing(property); err != nil {
+			return err
+		}
+
+		if err := h.validatePropModuleConfig(class, property); err != nil {
+			return err
 		}
 	}
 
-	if err := h.validatePropertyTokenization(property.Tokenization, propertyDataType); err != nil {
-		return err
-	}
-
-	if err := h.validatePropertyIndexing(property); err != nil {
-		return err
-	}
-
-	if err := h.validatePropModuleConfig(class, property); err != nil {
-		return err
-	}
-
-	// all is fine!
 	return nil
 }
 
@@ -464,7 +487,7 @@ func (h *Handler) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := h.validateProperty(property, class, existingPropertyNames, relaxCrossRefValidation); err != nil {
+		if err := h.validateProperty(class, existingPropertyNames, relaxCrossRefValidation, property); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
