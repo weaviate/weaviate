@@ -600,7 +600,7 @@ func TestCacher(t *testing.T) {
 		res, ok = cr.Get(multi.Identifier{ID: idNestedInNestedID, ClassName: "SomeNestedClassNested2"})
 		require.True(t, ok)
 		assert.Equal(t, expectedInnerInner, res)
-		assert.Equal(t, 4, repo.counter, "required the expected amount of lookups")
+		assert.Equal(t, 3, repo.counter, "required the expected amount of lookups")
 	})
 
 	t.Run("with group and with a additional group lookup", func(t *testing.T) {
