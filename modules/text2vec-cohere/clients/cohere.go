@@ -180,12 +180,14 @@ func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
 	rpm := DefaultRPM
-	if rpmParsed := v.getValueFromContext(ctx, "X-Cohere-Ratelimit-Embedding-RequestPM"); rpmParsed != "" {
-		s, err := strconv.Atoi(rpmParsed)
+
+	if rpmS, ok := ctx.Value("X-Cohere-Ratelimit-RequestPM-Embedding").(string); ok && rpmS != "" {
+		s, err := strconv.Atoi(rpmS)
 		if err == nil {
 			rpm = s
 		}
 	}
+
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
