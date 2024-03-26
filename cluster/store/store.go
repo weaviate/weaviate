@@ -188,7 +188,7 @@ func (st *Store) IsVoter() bool { return st.voter }
 func (st *Store) ID() string    { return st.nodeID }
 
 // Open opens this store and marked as such.
-func (st *Store) Open(ctx context.Context) (err error) {
+func (st *Store) Open(ctx context.Context, serviceLocker chan uint) (err error) {
 	if st.open.Load() { // store already opened
 		return nil
 	}
@@ -252,58 +252,69 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"last_log_applied_index", st.initialLastAppliedIndex,
 		"last_snapshot_index", lastSnapshotIndex)
 
-	go st.onLeaderFound(st.migrationTimeout)
+	go st.onLeaderFound(st.migrationTimeout, serviceLocker)
 
 	return nil
 }
 
 // onLeaderFound execute specific tasks when the leader is detected
-func (st *Store) onLeaderFound(timeout time.Duration) {
+func (st *Store) onLeaderFound(timeout time.Duration, serviceLocker chan uint) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-	for range t.C {
-		if leader := st.Leader(); leader != "" {
-			st.log.Info("current Leader", "address", leader)
-		} else {
-			continue
-		}
-
-		// migrate from old non raft schema to the new schema
-		migrate := func() error {
-			legacySchema, err := st.loadLegacySchema()
-			if err != nil {
-				return fmt.Errorf("load schema: %w", err)
+	defer func() {
+		serviceLocker <- SIG_CLOSE
+	}()
+	for {
+		select {
+		case <-time.After(timeout):
+			st.log.Error("migrate old schema timed out")
+			return
+		case <-t.C:
+			if leader := st.Leader(); leader != "" {
+				st.log.Info("current Leader", "address", leader)
+			} else {
+				continue
 			}
 
-			// If the legacy schema is empty we can abort early
-			if len(legacySchema) == 0 {
-				st.log.Info("legacy schema is empty, nothing to migrate")
+			// migrate from old non raft schema to the new schema
+			migrate := func() error {
+				legacySchema, err := st.loadLegacySchema()
+				if err != nil {
+					return fmt.Errorf("load schema: %w", err)
+				}
+
+				// If the legacy schema is empty we can abort early
+				if len(legacySchema) == 0 {
+					st.log.Info("legacy schema is empty, nothing to migrate")
+					return nil
+				}
+
+				// serialize snapshot
+				b, c, err := LegacySnapshot(st.nodeID, legacySchema)
+				if err != nil {
+					return fmt.Errorf("create snapshot: %s" + err.Error())
+				}
+				b.Index = st.raft.LastIndex()
+				b.Term = 1
+				if err := st.raft.Restore(b, c, timeout); err != nil {
+					return fmt.Errorf("raft restore: %w" + err.Error())
+				}
 				return nil
 			}
 
-			// serialize snapshot
-			b, c, err := LegacySnapshot(st.nodeID, legacySchema)
-			if err != nil {
-				return fmt.Errorf("create snapshot: %s" + err.Error())
-			}
-			b.Index = st.raft.LastIndex()
-			b.Term = 1
-			if err := st.raft.Restore(b, c, timeout); err != nil {
-				return fmt.Errorf("raft restore: %w" + err.Error())
-			}
-			return nil
-		}
-
-		// Only leader can restore the old schema
-		if st.IsLeader() && st.db.Schema.len() == 0 && st.loadLegacySchema != nil {
-			st.log.Info("starting migration from old schema")
-			if err := migrate(); err != nil {
-				st.log.Error("migrate from old schema: %v" + err.Error())
-			} else {
-				st.log.Info("migration from the old schema has been successfully completed")
+			// Only leader can restore the old schema
+			if st.IsLeader() && st.db.Schema.len() == 0 && st.loadLegacySchema != nil {
+				st.log.Info("starting migration from old schema")
+				serviceLocker <- SIG_LOCK
+				if err := migrate(); err != nil {
+					st.log.Error("migrate from old schema: %v" + err.Error())
+					serviceLocker <- SIG_UNLOCK
+				} else {
+					st.log.Info("migration from the old schema has been successfully completed")
+					return
+				}
 			}
 		}
-		return
 	}
 }
 

@@ -35,7 +35,18 @@ func NewForbidden(principal *models.Principal, verb, resource string) Forbidden 
 	}
 }
 
+func NewWriteForbidden() Forbidden {
+	return Forbidden{
+		verb:     "Write",
+		resource: "*",
+	}
+}
+
 func (f Forbidden) Error() string {
+	if f.principal == nil {
+		return "forbidden: the node is under READONLY mode"
+	}
+
 	optionalGroups := ""
 	if len(f.principal.Groups) == 1 {
 		optionalGroups = fmt.Sprintf(" (of group '%s')", f.principal.Groups[0])

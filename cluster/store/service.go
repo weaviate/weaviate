@@ -20,16 +20,25 @@ import (
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
+)
+
+const (
+	SIG_LOCK = iota
+	SIG_UNLOCK
+	SIG_CLOSE
 )
 
 // Service abstracts away the Raft store, providing clients with an interface that encompasses all write operations.
 // It ensures that these operations are executed on the current leader, regardless of the specific leader in the cluster.
 type Service struct {
-	store *Store
-	cl    client
-	log   *slog.Logger
+	rwListenerCh chan uint
+	readOnly     bool
+	store        *Store
+	cl           client
+	log          *slog.Logger
 }
 
 // client to communicate with remote services
@@ -48,7 +57,26 @@ func NewService(store *Store, client client) *Service {
 func (s *Service) Open(ctx context.Context, db Indexer) error {
 	s.log.Info("starting raft sub-system ...")
 	s.store.SetDB(db)
-	return s.store.Open(ctx)
+	s.rwListenerCh = make(chan uint)
+	go s.listenToServiceLocker()
+	return s.store.Open(ctx, s.rwListenerCh)
+}
+
+func (s *Service) listenToServiceLocker() {
+	for x := range s.rwListenerCh {
+		switch x {
+		case SIG_LOCK:
+			s.readOnly = true
+			s.log.Info("service is READONLY")
+		case SIG_UNLOCK:
+			s.readOnly = false
+			s.log.Info("service is normal read/write")
+		case SIG_CLOSE:
+			close(s.rwListenerCh)
+			s.log.Info("service is back to normal read/write and listener closed")
+			return
+		}
+	}
 }
 
 func (s *Service) Close(ctx context.Context) (err error) {
@@ -215,15 +243,18 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) err
 	return s.Execute(command)
 }
 
-func (st *Service) Execute(req *cmd.ApplyRequest) error {
-	if st.store.IsLeader() {
-		return st.store.Execute(req)
+func (s *Service) Execute(req *cmd.ApplyRequest) error {
+	if s.readOnly {
+		return errors.NewWriteForbidden()
 	}
-	leader := st.store.Leader()
+	if s.store.IsLeader() {
+		return s.store.Execute(req)
+	}
+	leader := s.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
 	}
-	_, err := st.cl.Apply(leader, req)
+	_, err := s.cl.Apply(leader, req)
 	return err
 }
 

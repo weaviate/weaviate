@@ -220,7 +220,7 @@ func TestServiceStoreInit(t *testing.T) {
 
 	// Already Open
 	store.open.Store(true)
-	assert.Nil(t, store.Open(ctx))
+	assert.Nil(t, store.Open(ctx, make(chan uint)))
 
 	// notify non voter
 	store.bootstrapExpect = 0
