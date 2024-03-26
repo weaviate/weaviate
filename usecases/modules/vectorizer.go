@@ -204,7 +204,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 			if !reVectorize {
 				skipRevectorization[i] = true
 				p.lockGuard(func() {
-					obj = p.addVectorToObject(obj, vector, addProps, cfg)
+					p.addVectorToObject(obj, vector, addProps, cfg)
 				})
 			}
 		}
@@ -220,7 +220,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 			}
 
 			p.lockGuard(func() {
-				objects[i] = p.addVectorToObject(objects[i], vectors[i], addProp, cfg)
+				p.addVectorToObject(objects[i], vectors[i], addProp, cfg)
 			})
 		}
 
@@ -234,7 +234,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				errs[i] = fmt.Errorf("update reference vector: %w", err)
 			}
 			p.lockGuard(func() {
-				obj = p.addVectorToObject(obj, vector, nil, cfg)
+				p.addVectorToObject(obj, vector, nil, cfg)
 			})
 		}
 		return errs, nil
@@ -305,7 +305,7 @@ func (p *Provider) lockGuard(mutate func()) {
 
 func (p *Provider) addVectorToObject(object *models.Object,
 	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
-) *models.Object {
+) {
 	if len(additional) > 0 {
 		if object.Additional == nil {
 			object.Additional = models.AdditionalProperties{}
@@ -316,13 +316,12 @@ func (p *Provider) addVectorToObject(object *models.Object,
 	}
 	if cfg.TargetVector() == "" {
 		object.Vector = vector
-		return object
+		return
 	}
 	if object.Vectors == nil {
 		object.Vectors = models.Vectors{}
 	}
 	object.Vectors[cfg.TargetVector()] = vector
-	return object
 }
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
@@ -374,7 +373,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			}
 
 			p.lockGuard(func() {
-				object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+				p.addVectorToObject(object, vector, additionalProperties, cfg)
 			})
 			return nil
 		}
@@ -385,7 +384,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			return fmt.Errorf("update reference vector: %w", err)
 		}
 		p.lockGuard(func() {
-			object = p.addVectorToObject(object, vector, nil, cfg)
+			p.addVectorToObject(object, vector, nil, cfg)
 		})
 	}
 	return nil
