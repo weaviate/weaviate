@@ -75,6 +75,10 @@ func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 	}, nil, nil
 }
 
+func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
+}
+
 type fakeClient struct {
 	lastInput  []string
 	lastConfig moduletools.ClassConfig
@@ -102,6 +106,10 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 	}, nil, nil
+}
+
+func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
 }
 
 type fakeClassConfig struct {

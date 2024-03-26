@@ -48,9 +48,10 @@ type BatchJob struct {
 type BatchClient interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
+	GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits
 }
 
-func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, execAfterRequestFunction func(limits *modulecomponents.RateLimits), logger logrus.FieldLogger, needsInitialRequest bool) *Batch {
+func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, logger logrus.FieldLogger) *Batch {
 	batch := Batch{
 		client:                    client,
 		objectVectorizer:          objectsvectorizer.New(),
@@ -59,7 +60,7 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxObjectsPerBatch:        maxObjectsPerBatch,
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 	}
-	enterrors.GoWrapper(func() { batch.batchWorker(execAfterRequestFunction, needsInitialRequest, logger) }, logger)
+	enterrors.GoWrapper(func() { batch.batchWorker() }, logger)
 	return &batch
 }
 
@@ -79,18 +80,25 @@ type Batch struct {
 //  2. It splits the job into smaller vectorizer-batches if the token limit is reached. Note that objects from different
 //     batches are not mixed with each other to simplify returning the vectors.
 //  3. It sends the smaller batches to the vectorizer
-func (b *Batch) batchWorker(execAfterRequestFunction func(limits *modulecomponents.RateLimits), needsInitialRequest bool, logger logrus.FieldLogger) {
-	rateLimit := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
-	rateLimit.ResetAfterRequestFunction()
-
+func (b *Batch) batchWorker() {
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
-	firstRequest := needsInitialRequest
 	timePerToken := 0.0
 	batchTookInS := float64(0)
 
+	firstRequest := true
+	var rateLimit *modulecomponents.RateLimits
+
+	// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
 	for job := range b.jobQueueCh {
-		// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
+		// for the first request we get the rate limits from the vectorizer. This cannot be done before as these values
+		// come from the user as part of the request
+		if firstRequest {
+			rateLimit = b.client.GetVectorizerRateLimit(job.ctx)
+			if rateLimit.RemainingRequests != 0 && rateLimit.RemainingTokens != 0 {
+				firstRequest = false
+			}
+		}
 
 		objCounter := 0
 		tokensInCurrentBatch := 0
@@ -104,6 +112,7 @@ func (b *Batch) batchWorker(execAfterRequestFunction func(limits *modulecomponen
 				err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit)
 				if err != nil {
 					job.errs[objCounter] = err
+					objCounter++
 					continue
 				}
 				firstRequest = false

@@ -48,7 +48,7 @@ func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *
 	vec := &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger, true),
+		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, logger),
 	}
 
 	return vec
@@ -59,6 +59,7 @@ type Client interface {
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 	VectorizeQuery(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error)
+	GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits
 }
 
 // IndexCheck returns whether a property of a class should be indexed

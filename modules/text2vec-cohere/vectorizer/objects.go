@@ -39,30 +39,10 @@ type Vectorizer struct {
 }
 
 func New(client Client, logger logrus.FieldLogger) *Vectorizer {
-	// cohere has only request limit and no token limit
-	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
-		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise we only deduct the request that just happened
-		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
-			limits.RemainingRequests -= 1
-			return
-		}
-
-		// initial values, from https://docs.cohere.com/docs/going-live#production-key-specifications
-		limits.RemainingRequests = 10000
-		limits.ResetTokens = 61
-		limits.LimitRequests = 10000
-		limits.LastOverwrite = time.Now()
-
-		// high dummy values
-		limits.RemainingTokens = 10000000
-		limits.LimitTokens = 10000000
-		limits.ResetTokens = 1
-	}
-
 	return &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, execAfterRequestFunction, logger, false),
+		batchVectorizer:  batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, logger),
 	}
 }
 
@@ -71,6 +51,7 @@ type Client interface {
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 	VectorizeQuery(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
+	GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits
 }
 
 // IndexCheck returns whether a property of a class should be indexed
