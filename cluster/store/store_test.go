@@ -192,6 +192,10 @@ func TestServiceEndpoints(t *testing.T) {
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
 	srv.store.db.Schema.clear()
+
+	s := New(m.cfg)
+	m.store = &s
+	srv = NewService(m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))

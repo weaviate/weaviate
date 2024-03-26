@@ -262,6 +262,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for range t.C {
+
 		if leader := st.Leader(); leader != "" {
 			st.log.Info("current Leader", "address", leader)
 		} else {
@@ -328,7 +329,6 @@ func (st *Store) Close(ctx context.Context) (err error) {
 	}
 
 	st.open.Store(false)
-
 	st.transport.Close()
 
 	st.log.Info("closing log store ...")
@@ -583,8 +583,9 @@ func (st *Store) Notify(id, addr string) (err error) {
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
 		st.log.Error("bootstrapping cluster: " + err.Error())
-
-		return err
+		if !errors.Is(err, raft.ErrCantBootstrap) {
+			return err
+		}
 	}
 	st.bootstrapped.Store(true)
 	return nil
