@@ -73,6 +73,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithGenerativeAWS().
 		WithGenerativeAnyscale().
 		WithQnAOpenAI().
-		WithRerankerCohere()
+		WithRerankerCohere().
+		WithRerankerVoyageAI()
 	return
 }
