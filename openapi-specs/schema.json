@@ -379,26 +379,11 @@
       },
       "type": "object"
     },
-    "ShardingConfig": {
-      "description": "Specify how the index should be sharded and distributed in the cluster",
-      "properties": {
-        "desiredCount": {
-          "description": "(Defaults to the number of nodes.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the `desiredCount` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
-          "default": 1,
-          "type": "integer"
-        },
-        "virtualPerPhysical": {
-          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
-          "default": 128,
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "properties": {
         "factor": {
+          "default": 1,
           "description": "Number of times a class is replicated",
           "type": "integer"
         }
@@ -409,12 +394,14 @@
       "description": "tuning parameters for the BM25 algorithm",
       "properties": {
         "k1": {
-          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "default": 1.2,
+          "description": "Calibrates term-weight scaling based on the term frequency within a document",
           "format": "float",
           "type": "number"
         },
         "b": {
-          "description": "calibrates term-weight scaling based on the document length",
+          "default": 0.75,
+          "description": "Calibrates term-weight scaling based on the document length",
           "format": "float",
           "type": "number"
         }
@@ -425,18 +412,22 @@
       "description": "fine-grained control over stopword list usage",
       "properties": {
         "preset": {
+          "default": "en",
+          "enum": ["en", "none"],
           "description": "pre-existing list of common words by language",
           "type": "string"
         },
         "additions": {
-          "description": "stopwords to be considered additionally",
+          "default": [],
+          "description": "Stopwords to be considered additionally. Can be any array of custom strings.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "removals": {
-          "description": "stopwords to be removed from consideration",
+          "default": [],
+          "description": "stopwords to be removed from consideration. Can be any array of custom strings.",
           "type": "array",
           "items": {
             "type": "string"
@@ -449,6 +440,7 @@
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
         "enabled": {
+          "default": false,
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
           "x-omitempty": false
@@ -673,7 +665,8 @@
           "type": "object"
         },
         "shardingConfig": {
-          "$ref": "#/definitions/ShardingConfig"
+          "description": "Specify how the index should be sharded and distributed in the cluster",
+          "type": "object"
         },
         "replicationConfig": {
           "$ref": "#/definitions/ReplicationConfig"

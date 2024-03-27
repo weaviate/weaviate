@@ -3051,14 +3051,16 @@ func init() {
       "type": "object",
       "properties": {
         "b": {
-          "description": "calibrates term-weight scaling based on the document length",
+          "description": "Calibrates term-weight scaling based on the document length",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "default": 0.75
         },
         "k1": {
-          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "description": "Calibrates term-weight scaling based on the term frequency within a document",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "default": 1.2
         }
       }
     },
@@ -3658,7 +3660,8 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "$ref": "#/definitions/ShardingConfig"
+          "description": "Specify how the index should be sharded and distributed in the cluster",
+          "type": "object"
         },
         "vectorConfig": {
           "type": "object",
@@ -4053,6 +4056,7 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
+          "default": false,
           "x-omitempty": false
         }
       }
@@ -4608,7 +4612,8 @@ func init() {
       "properties": {
         "factor": {
           "description": "Number of times a class is replicated",
-          "type": "integer"
+          "type": "integer",
+          "default": 1
         }
       }
     },
@@ -4716,22 +4721,6 @@ func init() {
         "$ref": "#/definitions/ShardStatusGetResponse"
       }
     },
-    "ShardingConfig": {
-      "description": "Specify how the index should be sharded and distributed in the cluster",
-      "type": "object",
-      "properties": {
-        "desiredCount": {
-          "description": "(Defaults to the number of nodes.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the ` + "`" + `desiredCount` + "`" + ` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
-          "type": "integer",
-          "default": 1
-        },
-        "virtualPerPhysical": {
-          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
-          "type": "integer",
-          "default": 128
-        }
-      }
-    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -4765,19 +4754,26 @@ func init() {
       "type": "object",
       "properties": {
         "additions": {
-          "description": "stopwords to be considered additionally",
+          "description": "Stopwords to be considered additionally. Can be any array of custom strings.",
           "type": "array",
+          "default": null,
           "items": {
             "type": "string"
           }
         },
         "preset": {
           "description": "pre-existing list of common words by language",
-          "type": "string"
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "none"
+          ]
         },
         "removals": {
-          "description": "stopwords to be removed from consideration",
+          "description": "stopwords to be removed from consideration. Can be any array of custom strings.",
           "type": "array",
+          "default": null,
           "items": {
             "type": "string"
           }
@@ -8301,14 +8297,16 @@ func init() {
       "type": "object",
       "properties": {
         "b": {
-          "description": "calibrates term-weight scaling based on the document length",
+          "description": "Calibrates term-weight scaling based on the document length",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "default": 0.75
         },
         "k1": {
-          "description": "calibrates term-weight scaling based on the term frequency within a document",
+          "description": "Calibrates term-weight scaling based on the term frequency within a document",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "default": 1.2
         }
       }
     },
@@ -9041,7 +9039,8 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "$ref": "#/definitions/ShardingConfig"
+          "description": "Specify how the index should be sharded and distributed in the cluster",
+          "type": "object"
         },
         "vectorConfig": {
           "type": "object",
@@ -9462,6 +9461,7 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
+          "default": false,
           "x-omitempty": false
         }
       }
@@ -10035,7 +10035,8 @@ func init() {
       "properties": {
         "factor": {
           "description": "Number of times a class is replicated",
-          "type": "integer"
+          "type": "integer",
+          "default": 1
         }
       }
     },
@@ -10143,22 +10144,6 @@ func init() {
         "$ref": "#/definitions/ShardStatusGetResponse"
       }
     },
-    "ShardingConfig": {
-      "description": "Specify how the index should be sharded and distributed in the cluster",
-      "type": "object",
-      "properties": {
-        "desiredCount": {
-          "description": "(Defaults to the number of nodes.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the ` + "`" + `desiredCount` + "`" + ` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
-          "type": "integer",
-          "default": 1
-        },
-        "virtualPerPhysical": {
-          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
-          "type": "integer",
-          "default": 128
-        }
-      }
-    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -10192,19 +10177,26 @@ func init() {
       "type": "object",
       "properties": {
         "additions": {
-          "description": "stopwords to be considered additionally",
+          "description": "Stopwords to be considered additionally. Can be any array of custom strings.",
           "type": "array",
+          "default": [],
           "items": {
             "type": "string"
           }
         },
         "preset": {
           "description": "pre-existing list of common words by language",
-          "type": "string"
+          "type": "string",
+          "default": "en",
+          "enum": [
+            "en",
+            "none"
+          ]
         },
         "removals": {
-          "description": "stopwords to be removed from consideration",
+          "description": "stopwords to be removed from consideration. Can be any array of custom strings.",
           "type": "array",
+          "default": [],
           "items": {
             "type": "string"
           }
