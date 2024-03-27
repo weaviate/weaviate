@@ -530,8 +530,23 @@ func parseClusterConfig() (cluster.Config, error) {
 	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
+	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
+	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
+
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
+
+	if advertiseAddrSet {
+		cfg.AdvertiseAddr = advertiseAddr
+	}
+
+	if advertisePortSet {
+		asInt, err := strconv.Atoi(advertisePort)
+		if err != nil {
+			return cfg, fmt.Errorf("parse CLUSTER_ADVERTISE_PORT as int: %w", err)
+		}
+		cfg.AdvertisePort = asInt
+	}
 
 	if gossipBindSet {
 		asInt, err := strconv.Atoi(gossipBind)

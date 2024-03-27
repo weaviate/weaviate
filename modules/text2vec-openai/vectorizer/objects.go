@@ -13,6 +13,16 @@ package vectorizer
 
 import (
 	"context"
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/tiktoken-go"
+
+	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -21,23 +31,34 @@ import (
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
+const (
+	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
+	// time per token goes down up to a certain batch size and then flattens - however the times vary a lot so we
+	// don't want to get too close to the maximum of 50s
+	OpenAiMaxTimePerBatch = float64(10)
+)
+
 type Vectorizer struct {
 	client           Client
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
+	batchVectorizer  *batch.Batch
 }
 
-func New(client Client) *Vectorizer {
-	return &Vectorizer{
+func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *Vectorizer {
+	vec := &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
+		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger, true),
 	}
+
+	return vec
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	Vectorize(ctx context.Context, input []string,
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 	VectorizeQuery(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -62,8 +83,8 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg modu
 
 func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	text := v.objectVectorizer.Texts(ctx, object, NewClassSettings(cfg))
-	res, err := v.client.Vectorize(ctx, text, v.getVectorizationConfig(cfg))
+	text := v.objectVectorizer.Texts(ctx, object, ent.NewClassSettings(cfg))
+	res, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -74,16 +95,36 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	return res.Vector[0], nil
 }
 
-func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
-	settings := NewClassSettings(cfg)
-	return ent.VectorizationConfig{
-		Type:         settings.Type(),
-		Model:        settings.Model(),
-		ModelVersion: settings.ModelVersion(),
-		ResourceName: settings.ResourceName(),
-		DeploymentID: settings.DeploymentID(),
-		BaseURL:      settings.BaseURL(),
-		IsAzure:      settings.IsAzure(),
-		Dimensions:   settings.Dimensions(),
+func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
+) ([][]float32, map[int]error) {
+	texts := make([]string, len(objects))
+	tokenCounts := make([]int, len(objects))
+	icheck := ent.NewClassSettings(cfg)
+
+	tke, err := tiktoken.EncodingForModel(icheck.Model())
+	if err != nil { // fail all objects as they all have the same model
+		errs := make(map[int]error)
+		for j := range objects {
+			errs[j] = err
+		}
+		return nil, errs
 	}
+
+	// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+	skipAll := true
+	for i := range objects {
+		if skipObject[i] {
+			continue
+		}
+		skipAll = false
+		text := v.objectVectorizer.Texts(ctx, objects[i], icheck)
+		texts[i] = text
+		tokenCounts[i] = clients.GetTokensCount(icheck.Model(), text, tke)
+	}
+
+	if skipAll {
+		return make([][]float32, len(objects)), make(map[int]error)
+	}
+
+	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }

@@ -118,6 +118,9 @@ type ModulesProvider interface {
 	UsingRef2Vec(className string) bool
 	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, repo modulecapabilities.FindObjectFn,
 		logger logrus.FieldLogger) error
+	BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+		findObjectFn modulecapabilities.FindObjectFn,
+		logger logrus.FieldLogger) (map[int]error, error)
 	VectorizerName(className string) (string, error)
 }
 

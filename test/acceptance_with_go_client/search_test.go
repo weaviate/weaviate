@@ -132,7 +132,8 @@ func TestSearchOnArrays(t *testing.T) {
 				results, err = c.GraphQL().Get().WithClassName(className).WithBM25(builder).WithFields(graphql.Field{Name: "num"}).Do(ctx)
 				require.Nil(t, err)
 			}
-			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+			result_int := results.Data["Get"].(map[string]interface{})[className]
+			result := result_int.([]interface{})
 			require.Len(t, result, 2)
 			require.Equal(t, 0., result[0].(map[string]interface{})["num"])
 			require.Equal(t, 1., result[1].(map[string]interface{})["num"])
@@ -195,9 +196,15 @@ func TestSearchOnSomeProperties(t *testing.T) {
 				alpha = "alpha:0" // exclude vector search, it doesn't matter for this testcase
 			}
 
-			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s:{query:\"hello\", properties: [\"%s\"] %s} ){_additional{id}}}}", className, tt.queryType, tt.property, alpha)).Do(ctx)
+			results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(%s:{query:\"hello\", properties: [\"%s\"] %s} ){_additional{id score}}}}", className, tt.queryType, tt.property, alpha)).Do(ctx)
 			result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 			require.Len(t, result, tt.results)
+
+			if len(result) > 0 && result[0].(map[string]interface{})["score"] != nil {
+				val, err := result[0].(map[string]interface{})["score"].(float64)
+				require.Nil(t, err)
+				require.Greater(t, val, 0.0)
+			}
 		})
 	}
 }
@@ -247,6 +254,21 @@ func TestHybridWithPureVectorSearch(t *testing.T) {
 	require.Len(t, result, 4)
 }
 
+func TestHybridWithNearTextSubsearch(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "ParagraphWithManyWords"
+
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid: { searches: { nearText: {concepts: [\"rain\", \"nice\"]}},  properties: [\"contents\"], alpha:1}, autocut: -1){num}}}", className)).Do(ctx)
+	require.Nil(t, err)
+	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+	require.Len(t, result, 4)
+}
+
 func TestHybridWithOnlyVectorSearch(t *testing.T) {
 	ctx := context.Background()
 	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
@@ -267,7 +289,33 @@ func TestHybridWithOnlyVectorSearch(t *testing.T) {
 		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
 	require.Nil(t, err)
 
-	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{vector:%v}){text}}}", className, model.Object.Vector)).Do(ctx)
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: { nearVector: {vector:%v}}}){text}}}", className, model.Object.Vector)).Do(ctx)
+	require.Nil(t, err)
+	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
+	require.Len(t, result, 1)
+}
+
+func TestHybridWithVectorSubsearch(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c.Schema().AllDeleter().Do(ctx)
+
+	className := "HybridVectorOnlySearch"
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: []string{"text"}},
+		},
+		Vectorizer: "text2vec-contextionary",
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+	creator := c.Data().Creator()
+	model, err := creator.WithClassName(className).WithProperties(
+		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
+	require.Nil(t, err)
+
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: { nearVector: { vector:%v}}}){text}}}", className, model.Object.Vector)).Do(ctx)
 	require.Nil(t, err)
 	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 	require.Len(t, result, 1)

@@ -47,6 +47,7 @@ type textVectorizer interface {
 	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) ([]float32, error)
+	ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, map[int]error)
 }
 
 type metaProvider interface {
@@ -101,7 +102,7 @@ func (m *CohereModule) initVectorizer(ctx context.Context, timeout time.Duration
 	apiKey := os.Getenv("COHERE_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
 
 	return nil
@@ -121,6 +122,12 @@ func (m *CohereModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *CohereModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+
+	return vecs, nil, errs
 }
 
 func (m *CohereModule) MetaInfo() (map[string]interface{}, error) {

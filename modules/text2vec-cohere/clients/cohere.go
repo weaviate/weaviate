@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/moduletools"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
@@ -34,9 +36,22 @@ type embeddingsRequest struct {
 	InputType inputType `json:"input_type,omitempty"`
 }
 
+type billedUnits struct {
+	InputTokens    int `json:"input_tokens,omitempty"`
+	OutputTokens   int `json:"output_tokens,omitempty"`
+	SearchUnits    int `json:"search_units,omitempty"`
+	Classificatons int `json:"classifications,omitempty"`
+}
+
+type meta struct {
+	BilledUnits billedUnits `json:"billed_units,omitempty"`
+	Warnings    []string    `json:"warnings,omitempty"`
+}
+
 type embeddingsResponse struct {
 	Embeddings [][]float32 `json:"embeddings,omitempty"`
 	Message    string      `json:"message,omitempty"`
+	Meta       meta        `json:"meta,omitempty"`
 }
 
 type vectorizer struct {
@@ -65,20 +80,33 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	return res, nil, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+	return res, nil, err
+}
+
+func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	icheck := ent.NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		Model:    icheck.Model(),
+		BaseURL:  icheck.BaseURL(),
+		Truncate: icheck.Truncate(),
+	}
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, inputType inputType,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Texts:     input,
 		Model:     model,
@@ -129,10 +157,10 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
-		Vectors:    resBody.Embeddings,
+		Vector:     resBody.Embeddings,
 	}, nil
 }
 

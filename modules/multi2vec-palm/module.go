@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -44,6 +46,7 @@ type Module struct {
 	nearVideoSearcher        modulecapabilities.Searcher
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
+	logger                   logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -77,6 +80,7 @@ func (m *Module) Type() modulecapabilities.ModuleType {
 func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -114,7 +118,10 @@ func (m *Module) InitExtension(modules []modulecapabilities.Module) error {
 func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("PALM_APIKEY")
+	apiKey := os.Getenv("GOOGLE_APIKEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("PALM_APIKEY")
+	}
 	client := clients.New(apiKey, timeout, logger)
 
 	m.imageVectorizer = vectorizer.New(client)
@@ -134,6 +141,10 @@ func (m *Module) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.imageVectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *Module) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.imageVectorizer.Object)
 }
 
 func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {

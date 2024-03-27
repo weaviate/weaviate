@@ -12,14 +12,13 @@
 package vectorizer
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -47,11 +46,12 @@ var (
 )
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	base *basesettings.BaseClassSettings
+	cfg  moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg)}
 }
 
 // PaLM params
@@ -162,45 +162,12 @@ func (ic *classSettings) field(name, property string) bool {
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("multi2vec-palm")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.base.GetPropertyAsString(name, defaultValue)
 }
 
 func (ic *classSettings) getInt64Property(name string, defaultValue int64) int64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("multi2vec-palm")[name]
-	if ok {
-		asNumber, ok := value.(json.Number)
-		if ok {
-			if asInt64, err := asNumber.Int64(); err == nil {
-				return asInt64
-			}
-		}
-		asInt, ok := value.(int)
-		if ok {
-			asInt64 := int64(asInt)
-			return asInt64
-		}
-		asString := ic.getStringProperty(name, "")
-		if asInt, err := strconv.Atoi(asString); err == nil {
-			asInt64 := int64(asInt)
-			return asInt64
-		}
+	if val := ic.base.GetPropertyAsInt64(name, &defaultValue); val != nil {
+		return *val
 	}
 	return defaultValue
 }
@@ -362,28 +329,7 @@ func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
 }
 
 func (ic *classSettings) getNumber(in interface{}) (float32, error) {
-	switch i := in.(type) {
-	case float64:
-		return float32(i), nil
-	case float32:
-		return i, nil
-	case int:
-		return float32(i), nil
-	case string:
-		num, err := strconv.ParseFloat(i, 64)
-		if err != nil {
-			return 0, err
-		}
-		return float32(num), err
-	case json.Number:
-		num, err := i.Float64()
-		if err != nil {
-			return 0, err
-		}
-		return float32(num), err
-	default:
-		return 0.0, errors.Errorf("Unrecognized weight entry type: %T", i)
-	}
+	return ic.base.GetNumber(in)
 }
 
 func validateSetting[T string | int64](value T, availableValues []T) bool {

@@ -46,7 +46,7 @@ func init() {
       "name": "Weaviate",
       "url": "https://weaviate.io"
     },
-    "version": "1.24.4"
+    "version": "1.24.6"
   },
   "basePath": "/v1",
   "paths": {
@@ -5152,7 +5152,7 @@ func init() {
       "name": "Weaviate",
       "url": "https://weaviate.io"
     },
-    "version": "1.24.4"
+    "version": "1.24.6"
   },
   "basePath": "/v1",
   "paths": {

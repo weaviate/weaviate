@@ -386,7 +386,6 @@ func testLegacySchemaValidation(host string) func(t *testing.T) {
 			require.NotNil(t, classCreated.Properties[1])
 			assert.Equal(t, classCreated.Properties[1].Name, "otherText")
 		})
-
 	}
 }
 

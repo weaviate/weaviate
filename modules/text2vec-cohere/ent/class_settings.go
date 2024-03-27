@@ -9,11 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -83,7 +82,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
 	}
 
-	err := cs.validateIndexState(class, cs)
+	err := cs.validateIndexState(class, cs.VectorizeClassName(), cs.PropertyIndexed)
 	if err != nil {
 		return err
 	}
@@ -101,28 +100,11 @@ func (cs *classSettings) validateCohereSetting(value string, availableValues []s
 }
 
 func (cs *classSettings) getProperty(name, defaultValue string) string {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	model, ok := cs.cfg.Class()[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			if name == "truncate" {
-				return asString
-			} else {
-				return strings.ToLower(asString)
-			}
-		}
-	}
-
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
-func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
-	if settings.VectorizeClassName() {
+func (cs *classSettings) validateIndexState(class *models.Class, vectorizeClassName bool, propIndexed func(string) bool) error {
+	if vectorizeClassName {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
 
@@ -142,7 +124,7 @@ func (cs *classSettings) validateIndexState(class *models.Class, settings ClassS
 			continue
 		}
 
-		if settings.PropertyIndexed(prop.Name) {
+		if propIndexed(prop.Name) {
 			// found at least one, this is a valid schema
 			return nil
 		}

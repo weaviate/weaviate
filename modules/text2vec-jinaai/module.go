@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -127,6 +129,10 @@ func (m *JinaAIModule) VectorizeObject(ctx context.Context,
 
 func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
+}
+
+func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
