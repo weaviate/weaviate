@@ -3655,8 +3655,7 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "description": "Manage how the index should be sharded and distributed in the cluster",
-          "type": "object"
+          "$ref": "#/definitions/ShardingConfig"
         },
         "vectorConfig": {
           "type": "object",
@@ -4708,6 +4707,21 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/ShardStatusGetResponse"
+      }
+    },
+    "ShardingConfig": {
+      "description": "Specify how the index should be sharded and distributed in the cluster",
+      "type": "object",
+      "properties": {
+        "desiredCount": {
+          "description": "(Defaults to the number of nodes in the cluster.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the ` + "`" + `desiredCount` + "`" + ` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
+          "type": "integer"
+        },
+        "virtualPerPhysical": {
+          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
+          "type": "integer",
+          "default": 128
+        }
       }
     },
     "SingleRef": {
@@ -9016,8 +9030,7 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "description": "Manage how the index should be sharded and distributed in the cluster",
-          "type": "object"
+          "$ref": "#/definitions/ShardingConfig"
         },
         "vectorConfig": {
           "type": "object",
@@ -10113,6 +10126,21 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/ShardStatusGetResponse"
+      }
+    },
+    "ShardingConfig": {
+      "description": "Specify how the index should be sharded and distributed in the cluster",
+      "type": "object",
+      "properties": {
+        "desiredCount": {
+          "description": "(Defaults to the number of nodes in the cluster.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the ` + "`" + `desiredCount` + "`" + ` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
+          "type": "integer"
+        },
+        "virtualPerPhysical": {
+          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
+          "type": "integer",
+          "default": 128
+        }
       }
     },
     "SingleRef": {
