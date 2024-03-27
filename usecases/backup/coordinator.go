@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,7 +36,7 @@ const (
 )
 
 var (
-	errNoShardFound = errors.New("no shard found")
+	// errNoShardFound = errors.New("no shard found")
 	errCannotCommit = errors.New("cannot commit")
 	errMetaNotFound = errors.New("metadata not found")
 	errUnknownOp    = errors.New("unknown backup operation")
@@ -487,20 +488,10 @@ func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map
 
 // groupByShard returns classes group by nodes
 func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeMap, error) {
-	m := make(nodeMap, 32)
-	for _, cls := range classes {
-		nodes, err := c.selector.Shards(ctx, cls)
-		if err != nil {
-			return nil, fmt.Errorf("class %q: %w", cls, errNoShardFound)
-		}
-		for _, node := range nodes {
-			nd, ok := m[node]
-			if !ok {
-				nd = &backup.NodeDescriptor{Classes: make([]string, 0, 5)}
-			}
-			nd.Classes = append(nd.Classes, cls)
-			m[node] = nd
-		}
+	nodes := c.nodeResolver.AllNames()
+	m := make(nodeMap, len(nodes))
+	for _, node := range nodes {
+		m[node] = &backup.NodeDescriptor{Classes: slices.Clone(classes)}
 	}
 	return m, nil
 }
