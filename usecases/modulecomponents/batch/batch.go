@@ -158,9 +158,9 @@ func (b *Batch) batchWorker() {
 			// if a single object is larger than the current token limit we need to wait until the token limit refreshes
 			// enough to be able to handle the object. This assumes that the tokenLimit refreshes linearly which is true
 			// for openAI, but needs to be checked for other providers
-			if len(texts) == 0 && rateLimit.ResetTokens.Sub(time.Now()) > 0 {
+			if len(texts) == 0 && time.Until(rateLimit.ResetTokens) > 0 {
 				fractionOfTotalLimit := float32(job.tokens[objCounter]) / float32(rateLimit.LimitTokens)
-				sleepTime := rateLimit.ResetTokens.Sub(time.Now()) * time.Duration(fractionOfTotalLimit)
+				sleepTime := time.Until(rateLimit.ResetTokens) * time.Duration(fractionOfTotalLimit)
 				if time.Since(job.startTime)+sleepTime < b.maxBatchTime {
 					time.Sleep(sleepTime)
 					rateLimit.RemainingTokens += int(float32(rateLimit.LimitTokens) * fractionOfTotalLimit)
@@ -186,9 +186,9 @@ func (b *Batch) batchWorker() {
 
 			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OPenAI
 			// free tier only the RPD limits are shown but not RPM
-			if rateLimit.RemainingRequests <= 0 && rateLimit.ResetRequests.Sub(time.Now()) > 0 {
+			if rateLimit.RemainingRequests <= 0 && time.Until(rateLimit.ResetRequests) > 0 {
 				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
-				if time.Since(job.startTime)+rateLimit.ResetRequests.Sub(time.Now()) > b.maxBatchTime {
+				if time.Since(job.startTime)+time.Until(rateLimit.ResetRequests) > b.maxBatchTime {
 					for j := origIndex[0]; j < len(job.texts); j++ {
 						if !job.skipObject[j] {
 							job.errs[j] = errors.New("request rate limit exceeded and will not refresh in time")
@@ -196,7 +196,7 @@ func (b *Batch) batchWorker() {
 					}
 					break
 				}
-				time.Sleep(rateLimit.ResetRequests.Sub(time.Now()))
+				time.Sleep(time.Until(rateLimit.ResetRequests))
 			}
 
 			// reset for next vectorizer-batch
