@@ -73,7 +73,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviateCluster(2).
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -86,7 +86,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "azure", azureBackupJourneyClassName,
-				azureBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				azureBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 
 		require.Nil(t, compose.Terminate(ctx))

@@ -657,3 +657,9 @@ func (m *configMigrator) UpdateVectorIndexConfigs(ctx context.Context,
 	m.vectorConfigsUpdateCalled = true
 	return nil
 }
+
+func (m *configMigrator) UpdateAsyncReplication(ctx context.Context,
+	className string, enabled bool,
+) error {
+	return nil
+}

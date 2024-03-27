@@ -112,8 +112,11 @@ func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
 	return d.getContainerByName(SecondWeaviate)
 }
 
-func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
-	return d.getContainerByName(WeaviateNode2)
+func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
+	if n == 1 {
+		return d.GetWeaviate()
+	}
+	return d.getContainerByName(fmt.Sprintf("%s%d", Weaviate, n))
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {

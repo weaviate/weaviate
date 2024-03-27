@@ -52,7 +52,7 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }

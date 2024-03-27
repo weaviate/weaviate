@@ -33,7 +33,7 @@ func multiShardScaleOut(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -77,7 +77,7 @@ func multiShardScaleOut(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("add references", func(t *testing.T) {
@@ -132,7 +132,7 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNode(ctx, t, compose, compose.GetWeaviateNode(2).Name())
 		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
 		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)

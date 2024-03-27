@@ -31,7 +31,7 @@ func readRepair(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -76,11 +76,11 @@ func readRepair(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("stop node 2", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNode(ctx, t, compose, compose.GetWeaviateNode(2).Name())
 		time.Sleep(10 * time.Second)
 	})
 
@@ -97,7 +97,7 @@ func readRepair(t *testing.T) {
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
+		err = compose.Start(ctx, compose.GetWeaviateNode(2).Name())
 		require.Nil(t, err)
 	})
 
@@ -110,7 +110,7 @@ func readRepair(t *testing.T) {
 		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
 		time.Sleep(10 * time.Second)
 
-		resp, err := getObjectCL(t, compose.GetWeaviateNode2().URI(),
+		resp, err := getObjectCL(t, compose.GetWeaviateNode(2).URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, repairObj.ID, resp.ID)
@@ -125,7 +125,7 @@ func readRepair(t *testing.T) {
 	}
 
 	t.Run("replace object", func(t *testing.T) {
-		updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
+		updateObjectCL(t, compose.GetWeaviateNode(2).URI(), &replaceObj, replica.One)
 	})
 
 	t.Run("restart node 1", func(t *testing.T) {
@@ -133,14 +133,14 @@ func readRepair(t *testing.T) {
 	})
 
 	t.Run("run exists to trigger read repair", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode(2).URI(),
 			replaceObj.Class, replaceObj.ID, replica.All)
 		require.Nil(t, err)
 		require.True(t, exists)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNode(ctx, t, compose, compose.GetWeaviateNode(2).Name())
 		time.Sleep(10 * time.Second)
 
 		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),

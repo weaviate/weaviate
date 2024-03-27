@@ -266,6 +266,12 @@ func (n *NilMigrator) UpdateVectorIndexConfigs(ctx context.Context, className st
 	return nil
 }
 
+func (n *NilMigrator) UpdateAsyncReplication(ctx context.Context,
+	className string, enabled bool,
+) error {
+	return nil
+}
+
 func (n *NilMigrator) ValidateInvertedIndexConfigUpdate(ctx context.Context, old, updated *models.InvertedIndexConfig) error {
 	return nil
 }

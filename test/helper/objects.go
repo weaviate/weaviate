@@ -79,6 +79,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
 func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, err error) {
 	AssertRequestOk(t, resp, err, nil)
 	for _, elem := range resp {
@@ -118,6 +129,15 @@ func DeleteClass(t *testing.T, class string) {
 func DeleteObject(t *testing.T, object *models.Object) {
 	params := objects.NewObjectsClassDeleteParams().
 		WithClassName(object.Class).WithID(object.ID)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }

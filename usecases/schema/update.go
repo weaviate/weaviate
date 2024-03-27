@@ -101,6 +101,7 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 	updatedSharding := updated.ShardingConfig.(sharding.Config)
 	initialRF := initial.ReplicationConfig.Factor
 	updatedRF := updated.ReplicationConfig.Factor
+
 	var updatedState *sharding.State
 	if initialRF != updatedRF {
 		uss, err := m.scaleOut.Scale(ctx, className, updatedSharding, initialRF, updatedRF)
@@ -109,6 +110,10 @@ func (m *Manager) UpdateClass(ctx context.Context, principal *models.Principal,
 				initialRF, updatedRF)
 		}
 		updatedState = uss
+	}
+
+	if updatedRF < 2 && updated.ReplicationConfig.AsyncEnabled {
+		return fmt.Errorf("cannot enable async replication without replicas")
 	}
 
 	tx, err := m.cluster.BeginTransaction(ctx, UpdateClass,
@@ -178,6 +183,13 @@ func (m *Manager) updateClassApplyChanges(ctx context.Context, className string,
 	}
 	if err := m.migrator.UpdateInvertedIndexConfig(ctx, className,
 		updated.InvertedIndexConfig); err != nil {
+		return errors.Wrap(err, "inverted index config")
+	}
+
+	replicationEnabled := updated.ReplicationConfig != nil && updated.ReplicationConfig.Factor > 1
+	asyncReplicationEnabled := replicationEnabled && updated.ReplicationConfig.AsyncEnabled
+
+	if err := m.migrator.UpdateAsyncReplication(ctx, className, asyncReplicationEnabled); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
 

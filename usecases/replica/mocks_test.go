@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type fakeRClient struct {
@@ -54,6 +55,20 @@ func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard stri
 ) ([]RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, ids)
 	return args.Get(0).([]RepairResponse), args.Error(1)
+}
+
+func (f *fakeRClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
+	initialToken, finalToken uint64, limit int,
+) ([]RepairResponse, uint64, error) {
+	args := f.Called(ctx, host, index, shard, initialToken, finalToken, limit)
+	return args.Get(0).([]RepairResponse), args.Get(1).(uint64), args.Error(2)
+}
+
+func (f *fakeRClient) HashTreeLevel(ctx context.Context,
+	host, index, shard string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	args := f.Called(ctx, host, index, shard, level, discriminant)
+	return args.Get(0).([]hashtree.Digest), args.Error(1)
 }
 
 type fakeClient struct {
@@ -150,6 +165,16 @@ func (f *fakeShardingState) ResolveParentNodes(_ string, shard string) (map[stri
 // node resolver
 type fakeNodeResolver struct {
 	hosts map[string]string
+}
+
+func (r *fakeNodeResolver) AllHostnames() []string {
+	hosts := make([]string, 0, len(r.hosts))
+
+	for _, h := range r.hosts {
+		hosts = append(hosts, h)
+	}
+
+	return hosts
 }
 
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {

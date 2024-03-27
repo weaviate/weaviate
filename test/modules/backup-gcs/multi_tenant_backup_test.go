@@ -75,7 +75,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviateCluster(2).
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -93,7 +93,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
 				gcsBackupJourneyBackupIDCluster, tenantNames,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

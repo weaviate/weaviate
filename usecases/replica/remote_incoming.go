@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type RemoteIncomingRepo interface {
@@ -46,6 +47,10 @@ type RemoteIncomingRepo interface {
 		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
 		ids []strfmt.UUID) (result []RepairResponse, err error)
+	DigestObjectsInTokenRange(ctx context.Context, class, shardName string,
+		initialToken, finalToken uint64, limit int) (result []RepairResponse, lastTokenRead uint64, err error)
+	HashTreeLevel(ctx context.Context, indexName, shardName string,
+		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
 type RemoteReplicaIncoming struct {
@@ -128,4 +133,16 @@ func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) (result []RepairResponse, err error) {
 	return rri.repo.DigestObjects(ctx, indexName, shardName, ids)
+}
+
+func (rri *RemoteReplicaIncoming) DigestObjectsInTokenRange(ctx context.Context,
+	indexName, shardName string, initialToken, finalToken uint64, limit int,
+) (result []RepairResponse, lastTokenRead uint64, err error) {
+	return rri.repo.DigestObjectsInTokenRange(ctx, indexName, shardName, initialToken, finalToken, limit)
+}
+
+func (rri *RemoteReplicaIncoming) HashTreeLevel(ctx context.Context,
+	indexName, shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	return rri.repo.HashTreeLevel(ctx, indexName, shardName, level, discriminant)
 }

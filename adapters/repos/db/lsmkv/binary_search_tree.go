@@ -51,6 +51,14 @@ func (t *binarySearchTree) get(key []byte) ([]byte, error) {
 	return t.root.get(key)
 }
 
+func (t *binarySearchTree) getNode(key []byte) (*binarySearchNode, error) {
+	if t.root == nil {
+		return nil, lsmkv.NotFound
+	}
+
+	return t.root.getNode(key)
+}
+
 func (t *binarySearchTree) setTombstone(key []byte, secondaryKeys [][]byte) {
 	if t.root == nil {
 		// we need to actively insert a node with a tombstone, even if this node is
@@ -273,9 +281,17 @@ func (n *binarySearchNode) insert(key, value []byte, secondaryKeys [][]byte) (ne
 }
 
 func (n *binarySearchNode) get(key []byte) ([]byte, error) {
+	node, err := n.getNode(key)
+	if err != nil {
+		return nil, err
+	}
+	return node.value, nil
+}
+
+func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 	if bytes.Equal(n.key, key) {
 		if !n.tombstone {
-			return n.value, nil
+			return n, nil
 		} else {
 			return nil, lsmkv.Deleted
 		}
@@ -286,13 +302,13 @@ func (n *binarySearchNode) get(key []byte) ([]byte, error) {
 			return nil, lsmkv.NotFound
 		}
 
-		return n.left.get(key)
+		return n.left.getNode(key)
 	} else {
 		if n.right == nil {
 			return nil, lsmkv.NotFound
 		}
 
-		return n.right.get(key)
+		return n.right.getNode(key)
 	}
 }
 

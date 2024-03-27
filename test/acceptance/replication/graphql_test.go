@@ -31,7 +31,7 @@ func graphqlSearch(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -76,11 +76,11 @@ func graphqlSearch(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("stop node 2", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNode(ctx, t, compose, compose.GetWeaviateNode(2).Name())
 		time.Sleep(10 * time.Second)
 	})
 
@@ -90,7 +90,7 @@ func graphqlSearch(t *testing.T) {
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
+		err = compose.Start(ctx, compose.GetWeaviateNode(2).Name())
 		require.Nil(t, err)
 	})
 

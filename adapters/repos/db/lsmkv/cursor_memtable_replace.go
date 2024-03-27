@@ -13,12 +13,15 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
+	"sort"
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type memtableCursor struct {
 	data    []*binarySearchNode
+	keyFn   func(n *binarySearchNode) []byte
 	current int
 	lock    func()
 	unlock  func()
@@ -38,7 +41,55 @@ func (m *Memtable) newCursor() innerCursorReplace {
 	data := m.key.flattenInOrder()
 
 	return &memtableCursor{
-		data:   data,
+		data: data,
+		keyFn: func(n *binarySearchNode) []byte {
+			return n.key
+		},
+		lock:   m.RLock,
+		unlock: m.RUnlock,
+	}
+}
+
+func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
+	// This cursor is a really primitive approach, it actually requires
+	// flattening the entire memtable - even if the cursor were to point to the
+	// very last element. However, given that the memtable will on average be
+	// only half it's max capacity and even that is relatively small, we might
+	// get away with the full-flattening and a linear search. Let's not optimize
+	// prematurely.
+
+	m.RLock()
+	defer m.RUnlock()
+
+	secondaryToPrimary := m.secondaryToPrimary[pos]
+
+	sortedSecondaryKeys := make([]string, 0, len(secondaryToPrimary))
+
+	for skey := range secondaryToPrimary {
+		sortedSecondaryKeys = append(sortedSecondaryKeys, skey)
+	}
+
+	sort.SliceStable(sortedSecondaryKeys, func(i, j int) bool {
+		return sortedSecondaryKeys[i] <= sortedSecondaryKeys[j]
+	})
+
+	data := make([]*binarySearchNode, len(sortedSecondaryKeys))
+
+	var err error
+
+	for i, skey := range sortedSecondaryKeys {
+		key := secondaryToPrimary[skey]
+		data[i], err = m.key.getNode(key)
+		if err != nil {
+			panic(fmt.Errorf("secondaryToPrimary[%s] unexpected: %w)", skey, err))
+		}
+	}
+
+	return &memtableCursor{
+		data: data,
+		keyFn: func(n *binarySearchNode) []byte {
+			return n.secondaryKeys[pos]
+		},
 		lock:   m.RLock,
 		unlock: m.RUnlock,
 	}
@@ -55,9 +106,9 @@ func (c *memtableCursor) first() ([]byte, []byte, error) {
 	c.current = 0
 
 	if c.data[c.current].tombstone {
-		return c.data[c.current].key, nil, lsmkv.Deleted
+		return c.keyFn(c.data[c.current]), nil, lsmkv.Deleted
 	}
-	return c.data[c.current].key, c.data[c.current].value, nil
+	return c.keyFn(c.data[c.current]), c.data[c.current].value, nil
 }
 
 func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
@@ -71,14 +122,14 @@ func (c *memtableCursor) seek(key []byte) ([]byte, []byte, error) {
 
 	c.current = pos
 	if c.data[c.current].tombstone {
-		return c.data[c.current].key, nil, lsmkv.Deleted
+		return c.keyFn(c.data[c.current]), nil, lsmkv.Deleted
 	}
-	return c.data[pos].key, c.data[pos].value, nil
+	return c.keyFn(c.data[pos]), c.data[pos].value, nil
 }
 
 func (c *memtableCursor) posLargerThanEqual(key []byte) int {
 	for i, node := range c.data {
-		if bytes.Compare(node.key, key) >= 0 {
+		if bytes.Compare(c.keyFn(node), key) >= 0 {
 			return i
 		}
 	}
@@ -96,7 +147,7 @@ func (c *memtableCursor) next() ([]byte, []byte, error) {
 	}
 
 	if c.data[c.current].tombstone {
-		return c.data[c.current].key, nil, lsmkv.Deleted
+		return c.keyFn(c.data[c.current]), nil, lsmkv.Deleted
 	}
-	return c.data[c.current].key, c.data[c.current].value, nil
+	return c.keyFn(c.data[c.current]), c.data[c.current].value, nil
 }
