@@ -96,10 +96,9 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
-	return res, nil, err
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
 }
 
 func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {

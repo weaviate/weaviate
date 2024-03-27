@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
+
 	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vec-base"
 
 	"github.com/pkg/errors"
@@ -112,7 +114,7 @@ func (m *CohereModule) RootHandler() http.Handler {
 func (m *CohereModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
 func (m *CohereModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {

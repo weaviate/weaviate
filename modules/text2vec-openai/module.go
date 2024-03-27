@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+
 	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vec-base"
 
 	"github.com/pkg/errors"
@@ -30,8 +32,7 @@ import (
 )
 
 const (
-	Name          = "text2vec-openai"
-	OpenAITimeout = 40 * time.Second
+	Name = "text2vec-openai"
 )
 
 func New() *OpenAIModule {
@@ -99,7 +100,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, OpenAITimeout, m.logger)
+	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
 
 	return nil
@@ -118,7 +119,8 @@ func (m *OpenAIModule) RootHandler() http.Handler {
 func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	icheck := ent.NewClassSettings(cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, icheck)
 }
 
 func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
