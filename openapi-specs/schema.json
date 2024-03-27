@@ -634,7 +634,7 @@
     "Class": {
       "properties": {
         "class": {
-          "description": "Name of the class as URI relative to the schema URL.",
+          "description": "Name of the collection (a.k.a. class). Multiple words should be concatenated in CamelCase, e.g. `ArticleAuthor`.",
           "type": "string"
         },
         "vectorConfig": {
