@@ -162,9 +162,9 @@ func TestBatchTimeouts(t *testing.T) {
 
 	objs := []*models.Object{
 		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 18"}}, // first request, set rate down so the next two items can be sent
-		{Class: "Car", Properties: map[string]interface{}{"test": "wait 90"}},   // second batch, use up batch time to trigger waiting for refresh
+		{Class: "Car", Properties: map[string]interface{}{"test": "wait 200"}},  // second batch, use up batch time to trigger waiting for refresh
 		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 20"}}, // set next rate so the next object is too long. Depending on the total batch time it either sleeps or not
-		{Class: "Car", Properties: map[string]interface{}{"test": "next batch long long"}},
+		{Class: "Car", Properties: map[string]interface{}{"test": "next batch long long long long long"}},
 	}
 	skip := []bool{false, false, false, false}
 
@@ -173,7 +173,7 @@ func TestBatchTimeouts(t *testing.T) {
 		expectedErrors int
 	}{
 		{batchTime: 100 * time.Millisecond, expectedErrors: 1},
-		{batchTime: 2 * time.Second, expectedErrors: 0},
+		{batchTime: 1 * time.Second, expectedErrors: 0},
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
