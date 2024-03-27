@@ -206,7 +206,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
 	baseURL, resourceName, deploymentID, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
@@ -238,7 +238,7 @@ func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 }
 
 func (v *client) getOpenAIOrganization(ctx context.Context) string {
-	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
 	}
 	return v.openAIOrganization
@@ -247,13 +247,13 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 func (v *client) getRateLimit(ctx context.Context) (int, int) {
 	returnRPM := 0
 	returnTPM := 0
-	if rpmS := v.getValueFromContext(ctx, "X-Openai-Ratelimit-RequestPM-Embedding"); rpmS != "" {
+	if rpmS := modulecomponents.GetValueFromContext(ctx, "X-Openai-Ratelimit-RequestPM-Embedding"); rpmS != "" {
 		s, err := strconv.Atoi(rpmS)
 		if err == nil {
 			returnRPM = s
 		}
 	}
-	if tpmS := v.getValueFromContext(ctx, "X-Openai-Ratelimit-TokenPM-Embedding"); tpmS != "" {
+	if tpmS := modulecomponents.GetValueFromContext(ctx, "X-Openai-Ratelimit-TokenPM-Embedding"); tpmS != "" {
 		s, err := strconv.Atoi(tpmS)
 		if err == nil {
 			returnTPM = s
@@ -306,24 +306,10 @@ func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 }
 
 func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
-}
-
-func (v *client) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
 }
 
 func (v *client) getModelString(docType, model, action, version string) string {

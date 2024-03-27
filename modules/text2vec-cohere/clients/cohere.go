@@ -172,7 +172,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
@@ -189,7 +189,7 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
 	rpm := DefaultRPM
 
-	if rpmS := v.getValueFromContext(ctx, "X-Cohere-Ratelimit-RequestPM-Embedding"); rpmS != "" {
+	if rpmS := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Ratelimit-RequestPM-Embedding"); rpmS != "" {
 		s, err := strconv.Atoi(rpmS)
 		if err == nil {
 			rpm = s
@@ -227,21 +227,8 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
