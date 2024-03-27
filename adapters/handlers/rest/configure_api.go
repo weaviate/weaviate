@@ -68,6 +68,7 @@ import (
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
+	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -632,6 +633,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgpt4all.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankervoyageai.Name]; ok {
+		appState.Modules.Register(modrerankervoyageai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankervoyageai.Name).
 			Debug("enabled module")
 	}
 
