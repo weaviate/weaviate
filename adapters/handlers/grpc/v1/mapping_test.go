@@ -160,9 +160,10 @@ func TestNewPrimitiveValue(t *testing.T) {
 		},
 	}
 
+	m := NewMapping(false)
 	for _, tt := range tests {
 		for _, test := range tt.tests {
-			out, err := NewPrimitiveValue(tt.in, test.datatype)
+			out, err := m.NewPrimitiveValue(tt.in, test.datatype)
 			if test.shouldError {
 				if err == nil {
 					t.Logf("expected an error for %v and %s", tt.in, test.datatype)
