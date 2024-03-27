@@ -28,7 +28,7 @@
 //	Host: localhost
 //	BasePath: /v1
 //	Version: 1.24.6
-//	Contact: Weaviate<hello@weaviate.io> https://github.com/weaviate
+//	Contact: Weaviate https://weaviate.io
 //
 //	Consumes:
 //	  - application/json
