@@ -349,6 +349,11 @@
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate",
       "properties": {
+        "cleanupIntervalSeconds": {
+          "description": "Asynchronous index clean up happens every n seconds",
+          "format": "int",
+          "type": "number"
+        },
         "bm25": {
           "$ref": "#/definitions/BM25Config"
         },
@@ -356,25 +361,16 @@
           "$ref": "#/definitions/StopwordConfig"
         },
         "indexTimestamps": {
-          "default": false,
           "description": "Index each object by its internal timestamps",
           "type": "boolean"
         },
         "indexNullState": {
-          "default": false,
           "description": "Index each object with the null state",
           "type": "boolean"
         },
         "indexPropertyLength": {
-          "default": false,
           "description": "Index length of properties",
           "type": "boolean"
-        },
-        "cleanupIntervalSeconds": {
-          "default": 60,
-          "description": "Asynchronous index clean up happens every n seconds",
-          "format": "int",
-          "type": "number"
         }
       },
       "type": "object"
@@ -383,7 +379,6 @@
       "description": "Configure how replication is executed in a cluster",
       "properties": {
         "factor": {
-          "default": 1,
           "description": "Number of times a class is replicated",
           "type": "integer"
         }
@@ -394,14 +389,12 @@
       "description": "tuning parameters for the BM25 algorithm",
       "properties": {
         "k1": {
-          "default": 1.2,
-          "description": "Calibrates term-weight scaling based on the term frequency within a document",
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
           "format": "float",
           "type": "number"
         },
         "b": {
-          "default": 0.75,
-          "description": "Calibrates term-weight scaling based on the document length",
+          "description": "calibrates term-weight scaling based on the document length",
           "format": "float",
           "type": "number"
         }
@@ -412,22 +405,18 @@
       "description": "fine-grained control over stopword list usage",
       "properties": {
         "preset": {
-          "default": "en",
-          "enum": ["en", "none"],
           "description": "pre-existing list of common words by language",
           "type": "string"
         },
         "additions": {
-          "default": [],
-          "description": "Stopwords to be considered additionally. Can be any array of custom strings.",
+          "description": "stopwords to be considered additionally",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "removals": {
-          "default": [],
-          "description": "stopwords to be removed from consideration. Can be any array of custom strings.",
+          "description": "stopwords to be removed from consideration",
           "type": "array",
           "items": {
             "type": "string"
@@ -440,7 +429,6 @@
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
         "enabled": {
-          "default": false,
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
           "x-omitempty": false
@@ -644,7 +632,6 @@
       "type": "object"
     },
     "Class": {
-      "required": ["class"],
       "properties": {
         "class": {
           "description": "Name of the class as URI relative to the schema URL.",
@@ -665,7 +652,7 @@
           "type": "object"
         },
         "shardingConfig": {
-          "description": "Specify how the index should be sharded and distributed in the cluster",
+          "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
         "replicationConfig": {
