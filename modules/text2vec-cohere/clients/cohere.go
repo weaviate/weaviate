@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -176,6 +177,14 @@ func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	key, err := v.getApiKey(ctx)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
 }
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
