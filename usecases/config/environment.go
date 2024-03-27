@@ -28,7 +28,7 @@ import (
 const (
 	DefaultRaftPort             = 8300
 	DefaultRaftInternalPort     = 8301
-	DefaultRaftBootstrapTimeout = 10
+	DefaultRaftBootstrapTimeout = 90
 	DefaultRaftBootstrapExpect  = 1
 )
 

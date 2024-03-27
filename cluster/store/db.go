@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	command "github.com/weaviate/weaviate/cluster/proto/cluster"
 	"github.com/weaviate/weaviate/entities/models"
@@ -33,6 +34,7 @@ type localDB struct {
 	Schema *schema
 	store  Indexer
 	parser Parser
+	log    *slog.Logger
 }
 
 func (db *localDB) SetIndexer(idx Indexer) {
@@ -166,6 +168,21 @@ func (db *localDB) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool) err
 func (db *localDB) Load(ctx context.Context, nodeID string) error {
 	if err := db.store.Open(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+// Reload updates an already opened local database with the newest schema.
+// It updates existing indexes and adds new ones as necessary
+func (db *localDB) Reload() error {
+	for k, v := range db.Schema.Classes {
+		db.log.Info("restore local index", "name", k)
+		if err := db.store.UpdateIndex(command.UpdateClassRequest{
+			Class: &v.Class,
+			State: &v.Sharding,
+		}); err != nil {
+			return fmt.Errorf("restore index %q: %w", k, err)
+		}
 	}
 	return nil
 }

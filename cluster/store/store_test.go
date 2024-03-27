@@ -779,6 +779,11 @@ func (m *MockIndexer) UpdateClass(req cmd.UpdateClassRequest) error {
 	return args.Error(0)
 }
 
+func (m *MockIndexer) UpdateIndex(req cmd.UpdateClassRequest) error {
+	args := m.Called(req)
+	return args.Error(0)
+}
+
 func (m *MockIndexer) DeleteClass(name string) error {
 	args := m.Called(name)
 	return args.Error(0)

@@ -71,6 +71,7 @@ type Indexer interface {
 	DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error
 	UpdateShardStatus(*cmd.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
+	UpdateIndex(cmd.UpdateClassRequest) error
 	Open(context.Context) error
 	Close(context.Context) error
 }
@@ -175,7 +176,7 @@ func New(cfg Config) Store {
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
 		addResolver:       newAddrResolver(&cfg),
-		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser},
+		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser, cfg.Logger},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
 
@@ -656,14 +657,8 @@ func (st *Store) reloadDB() bool {
 		return false
 	}
 
-	st.log.Info("reload local db: closing db ...")
-	if err := st.db.Close(ctx); err != nil {
-		st.log.Error("reload db: close db " + err.Error())
-		panic(fmt.Sprintf("reload db from snapshot: close db: %v", err))
-	}
-
 	st.log.Info("reload local db: loading indexes ...")
-	if err := st.db.Load(ctx, st.nodeID); err != nil {
+	if err := st.db.Reload(); err != nil {
 		st.log.Error("cannot reload database: " + err.Error())
 		panic(fmt.Sprintf("cannot reload database: %v", err))
 	}
