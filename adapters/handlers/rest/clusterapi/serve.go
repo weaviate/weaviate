@@ -54,6 +54,20 @@ func Serve(appState *state.State) {
 	http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
 }
 
+func ServeReady(appState *state.State) {
+	port := 8080
+	appState.Logger.WithField("port", port).
+		WithField("action", "cluster_api_ready").
+		Debugf("serving cluster api on port %d", port)
+
+	mux := http.NewServeMux()
+
+	mux.Handle("/v1/.well-known/", addLiveAndReadyness(appState, mux))
+
+	mux.Handle("/", index())
+	http.ListenAndServe(fmt.Sprintf(":%d", port), mux)
+}
+
 func index() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() != "" && r.URL.String() != "/" {
@@ -66,5 +80,25 @@ func index() http.Handler {
 		}
 
 		json.NewEncoder(w).Encode(payload)
+	})
+}
+
+func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() == "/v1/.well-known/live" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		if r.URL.String() == "/v1/.well-known/ready" {
+			code := http.StatusServiceUnavailable
+			if state.CloudService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
+				code = http.StatusOK
+			}
+			w.WriteHeader(code)
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }
