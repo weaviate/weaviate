@@ -137,7 +137,7 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNodeAt(ctx, t, compose, 2)
 		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
 		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)

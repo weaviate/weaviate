@@ -370,6 +370,24 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 	}
 }
 
+func (st *Store) WaitForLeader(ctx context.Context, period time.Duration) {
+	deadline := time.After(period)
+	t := time.NewTicker(50 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+		case <-deadline:
+			return
+
+		case <-t.C:
+			if st.Leader() != "" {
+				return
+			}
+		}
+	}
+}
+
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
