@@ -32,7 +32,8 @@ import (
 type Class struct {
 
 	// Name of the class as URI relative to the schema URL.
-	Class string `json:"class,omitempty"`
+	// Required: true
+	Class *string `json:"class"`
 
 	// Description of the class.
 	Description string `json:"description,omitempty"`
@@ -52,8 +53,8 @@ type Class struct {
 	// replication config
 	ReplicationConfig *ReplicationConfig `json:"replicationConfig,omitempty"`
 
-	// Manage how the index should be sharded and distributed in the cluster
-	ShardingConfig interface{} `json:"shardingConfig,omitempty"`
+	// sharding config
+	ShardingConfig *ShardingConfig `json:"shardingConfig,omitempty"`
 
 	// vector config
 	VectorConfig map[string]VectorConfig `json:"vectorConfig,omitempty"`
@@ -72,6 +73,10 @@ type Class struct {
 func (m *Class) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateClass(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateInvertedIndexConfig(formats); err != nil {
 		res = append(res, err)
 	}
@@ -88,6 +93,10 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateShardingConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateVectorConfig(formats); err != nil {
 		res = append(res, err)
 	}
@@ -95,6 +104,15 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Class) validateClass(formats strfmt.Registry) error {
+
+	if err := validate.Required("class", "body", m.Class); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -181,6 +199,25 @@ func (m *Class) validateReplicationConfig(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Class) validateShardingConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.ShardingConfig) { // not required
+		return nil
+	}
+
+	if m.ShardingConfig != nil {
+		if err := m.ShardingConfig.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("shardingConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("shardingConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *Class) validateVectorConfig(formats strfmt.Registry) error {
 	if swag.IsZero(m.VectorConfig) { // not required
 		return nil
@@ -224,6 +261,10 @@ func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 	}
 
 	if err := m.contextValidateReplicationConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateShardingConfig(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -297,6 +338,22 @@ func (m *Class) contextValidateReplicationConfig(ctx context.Context, formats st
 				return ve.ValidateName("replicationConfig")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("replicationConfig")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Class) contextValidateShardingConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.ShardingConfig != nil {
+		if err := m.ShardingConfig.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("shardingConfig")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("shardingConfig")
 			}
 			return err
 		}

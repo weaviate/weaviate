@@ -3625,6 +3625,9 @@ func init() {
     },
     "Class": {
       "type": "object",
+      "required": [
+        "class"
+      ],
       "properties": {
         "class": {
           "description": "Name of the class as URI relative to the schema URL.",
@@ -3655,8 +3658,7 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "description": "Manage how the index should be sharded and distributed in the cluster",
-          "type": "object"
+          "$ref": "#/definitions/ShardingConfig"
         },
         "vectorConfig": {
           "type": "object",
@@ -3978,19 +3980,23 @@ func init() {
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
-          "format": "int"
+          "format": "int",
+          "default": 60
         },
         "indexNullState": {
           "description": "Index each object with the null state",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "indexPropertyLength": {
           "description": "Index length of properties",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
@@ -4708,6 +4714,22 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/ShardStatusGetResponse"
+      }
+    },
+    "ShardingConfig": {
+      "description": "Specify how the index should be sharded and distributed in the cluster",
+      "type": "object",
+      "properties": {
+        "desiredCount": {
+          "description": "(Defaults to the number of nodes.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the ` + "`" + `desiredCount` + "`" + ` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
+          "type": "integer",
+          "default": 1
+        },
+        "virtualPerPhysical": {
+          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
+          "type": "integer",
+          "default": 128
+        }
       }
     },
     "SingleRef": {
@@ -8986,6 +9008,9 @@ func init() {
     },
     "Class": {
       "type": "object",
+      "required": [
+        "class"
+      ],
       "properties": {
         "class": {
           "description": "Name of the class as URI relative to the schema URL.",
@@ -9016,8 +9041,7 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "description": "Manage how the index should be sharded and distributed in the cluster",
-          "type": "object"
+          "$ref": "#/definitions/ShardingConfig"
         },
         "vectorConfig": {
           "type": "object",
@@ -9365,19 +9389,23 @@ func init() {
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
-          "format": "int"
+          "format": "int",
+          "default": 60
         },
         "indexNullState": {
           "description": "Index each object with the null state",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "indexPropertyLength": {
           "description": "Index length of properties",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
@@ -10113,6 +10141,22 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/ShardStatusGetResponse"
+      }
+    },
+    "ShardingConfig": {
+      "description": "Specify how the index should be sharded and distributed in the cluster",
+      "type": "object",
+      "properties": {
+        "desiredCount": {
+          "description": "(Defaults to the number of nodes.) Controls how many shards should be created for this collection index. The typical setting is that a collection should be distributed across all the nodes in the cluster, but you can explicitly set this value to a lower value. If the ` + "`" + `desiredCount` + "`" + ` is larger than the amount of physical nodes in the cluster, then some nodes will contain multiple shards.",
+          "type": "integer",
+          "default": 1
+        },
+        "virtualPerPhysical": {
+          "description": "Weaviate uses virtual shards. This helps in reducing the amount of data moved when resharding",
+          "type": "integer",
+          "default": 128
+        }
       }
     },
     "SingleRef": {
