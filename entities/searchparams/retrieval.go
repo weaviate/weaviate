@@ -67,15 +67,15 @@ type ExploreMove struct {
 }
 
 type NearTextParams struct {
-	Values       []string
-	Limit        int
-	MoveTo       ExploreMove
-	MoveAwayFrom ExploreMove
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
-	Network      bool
-	Autocorrect  bool
+	Values        []string
+	Limit         int
+	MoveTo        ExploreMove
+	MoveAwayFrom  ExploreMove
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	Network       bool
+	Autocorrect   bool
 	TargetVectors []string
 }
 

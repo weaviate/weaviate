@@ -19,8 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-
-
 func GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
 	if targetVector == "" {
 		class := sch.FindClassByName(schema.ClassName(className))

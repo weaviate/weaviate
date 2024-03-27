@@ -37,16 +37,16 @@ type authorizer interface {
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
-	config                  *config.WeaviateConfig
-	locks                   locks
-	logger                  logrus.FieldLogger
-	authorizer              authorizer
-	vectorSearcher          VectorSearcher
-	explorer                explorer
-	schemaGetter            schema.SchemaGetter
-	nearParamsVector        *nearParamsVector
-	metrics                 *Metrics
-	ratelimiter             *ratelimiter.Limiter
+	config           *config.WeaviateConfig
+	locks            locks
+	logger           logrus.FieldLogger
+	authorizer       authorizer
+	vectorSearcher   VectorSearcher
+	explorer         explorer
+	schemaGetter     schema.SchemaGetter
+	nearParamsVector *nearParamsVector
+	metrics          *Metrics
+	ratelimiter      *ratelimiter.Limiter
 }
 
 type VectorSearcher interface {
@@ -72,16 +72,16 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 	metrics *Metrics, maxGetRequests int,
 ) *Traverser {
 	return &Traverser{
-		config:                  config,
-		locks:                   locks,
-		logger:                  logger,
-		authorizer:              authorizer,
-		vectorSearcher:          vectorSearcher,
-		explorer:                explorer,
-		schemaGetter:            schemaGetter,
-		nearParamsVector:        newNearParamsVector(modulesProvider, vectorSearcher),
-		metrics:                 metrics,
-		ratelimiter:             ratelimiter.New(maxGetRequests),
+		config:           config,
+		locks:            locks,
+		logger:           logger,
+		authorizer:       authorizer,
+		vectorSearcher:   vectorSearcher,
+		explorer:         explorer,
+		schemaGetter:     schemaGetter,
+		nearParamsVector: newNearParamsVector(modulesProvider, vectorSearcher),
+		metrics:          metrics,
+		ratelimiter:      ratelimiter.New(maxGetRequests),
 	}
 }
 
