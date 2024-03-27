@@ -33,16 +33,16 @@ type InvertedIndexConfig struct {
 	Bm25 *BM25Config `json:"bm25,omitempty"`
 
 	// Asynchronous index clean up happens every n seconds
-	CleanupIntervalSeconds *int64 `json:"cleanupIntervalSeconds,omitempty"`
+	CleanupIntervalSeconds int64 `json:"cleanupIntervalSeconds,omitempty"`
 
 	// Index each object with the null state
-	IndexNullState *bool `json:"indexNullState,omitempty"`
+	IndexNullState bool `json:"indexNullState,omitempty"`
 
 	// Index length of properties
-	IndexPropertyLength *bool `json:"indexPropertyLength,omitempty"`
+	IndexPropertyLength bool `json:"indexPropertyLength,omitempty"`
 
 	// Index each object by its internal timestamps
-	IndexTimestamps *bool `json:"indexTimestamps,omitempty"`
+	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
 
 	// stopwords
 	Stopwords *StopwordConfig `json:"stopwords,omitempty"`

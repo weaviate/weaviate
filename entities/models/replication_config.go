@@ -29,7 +29,7 @@ import (
 type ReplicationConfig struct {
 
 	// Number of times a class is replicated
-	Factor *int64 `json:"factor,omitempty"`
+	Factor int64 `json:"factor,omitempty"`
 }
 
 // Validate validates this replication config

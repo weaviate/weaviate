@@ -18,12 +18,9 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // StopwordConfig fine-grained control over stopword list usage
@@ -31,70 +28,18 @@ import (
 // swagger:model StopwordConfig
 type StopwordConfig struct {
 
-	// Stopwords to be considered additionally. Can be any array of custom strings.
+	// stopwords to be considered additionally
 	Additions []string `json:"additions"`
 
 	// pre-existing list of common words by language
-	// Enum: [en none]
-	Preset *string `json:"preset,omitempty"`
+	Preset string `json:"preset,omitempty"`
 
-	// stopwords to be removed from consideration. Can be any array of custom strings.
+	// stopwords to be removed from consideration
 	Removals []string `json:"removals"`
 }
 
 // Validate validates this stopword config
 func (m *StopwordConfig) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validatePreset(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-var stopwordConfigTypePresetPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["en","none"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		stopwordConfigTypePresetPropEnum = append(stopwordConfigTypePresetPropEnum, v)
-	}
-}
-
-const (
-
-	// StopwordConfigPresetEn captures enum value "en"
-	StopwordConfigPresetEn string = "en"
-
-	// StopwordConfigPresetNone captures enum value "none"
-	StopwordConfigPresetNone string = "none"
-)
-
-// prop value enum
-func (m *StopwordConfig) validatePresetEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, stopwordConfigTypePresetPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *StopwordConfig) validatePreset(formats strfmt.Registry) error {
-	if swag.IsZero(m.Preset) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validatePresetEnum("preset", "body", *m.Preset); err != nil {
-		return err
-	}
-
 	return nil
 }
 

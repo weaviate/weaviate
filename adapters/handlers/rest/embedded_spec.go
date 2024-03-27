@@ -3051,16 +3051,14 @@ func init() {
       "type": "object",
       "properties": {
         "b": {
-          "description": "Calibrates term-weight scaling based on the document length",
+          "description": "calibrates term-weight scaling based on the document length",
           "type": "number",
-          "format": "float",
-          "default": 0.75
+          "format": "float"
         },
         "k1": {
-          "description": "Calibrates term-weight scaling based on the term frequency within a document",
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
           "type": "number",
-          "format": "float",
-          "default": 1.2
+          "format": "float"
         }
       }
     },
@@ -3627,12 +3625,9 @@ func init() {
     },
     "Class": {
       "type": "object",
-      "required": [
-        "class"
-      ],
       "properties": {
         "class": {
-          "description": "Name of the class as URI relative to the schema URL.",
+          "description": "Name of the collection (a.k.a. class). Multiple words should be concatenated in CamelCase, e.g. ` + "`" + `ArticleAuthor` + "`" + `.",
           "type": "string"
         },
         "description": {
@@ -3660,7 +3655,7 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "description": "Specify how the index should be sharded and distributed in the cluster",
+          "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
         "vectorConfig": {
@@ -3983,23 +3978,19 @@ func init() {
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
-          "format": "int",
-          "default": 60
+          "format": "int"
         },
         "indexNullState": {
           "description": "Index each object with the null state",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "indexPropertyLength": {
           "description": "Index length of properties",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
@@ -4056,7 +4047,6 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
-          "default": false,
           "x-omitempty": false
         }
       }
@@ -4612,8 +4602,7 @@ func init() {
       "properties": {
         "factor": {
           "description": "Number of times a class is replicated",
-          "type": "integer",
-          "default": 1
+          "type": "integer"
         }
       }
     },
@@ -4754,26 +4743,19 @@ func init() {
       "type": "object",
       "properties": {
         "additions": {
-          "description": "Stopwords to be considered additionally. Can be any array of custom strings.",
+          "description": "stopwords to be considered additionally",
           "type": "array",
-          "default": null,
           "items": {
             "type": "string"
           }
         },
         "preset": {
           "description": "pre-existing list of common words by language",
-          "type": "string",
-          "default": "en",
-          "enum": [
-            "en",
-            "none"
-          ]
+          "type": "string"
         },
         "removals": {
-          "description": "stopwords to be removed from consideration. Can be any array of custom strings.",
+          "description": "stopwords to be removed from consideration",
           "type": "array",
-          "default": null,
           "items": {
             "type": "string"
           }
@@ -8297,16 +8279,14 @@ func init() {
       "type": "object",
       "properties": {
         "b": {
-          "description": "Calibrates term-weight scaling based on the document length",
+          "description": "calibrates term-weight scaling based on the document length",
           "type": "number",
-          "format": "float",
-          "default": 0.75
+          "format": "float"
         },
         "k1": {
-          "description": "Calibrates term-weight scaling based on the term frequency within a document",
+          "description": "calibrates term-weight scaling based on the term frequency within a document",
           "type": "number",
-          "format": "float",
-          "default": 1.2
+          "format": "float"
         }
       }
     },
@@ -9006,12 +8986,9 @@ func init() {
     },
     "Class": {
       "type": "object",
-      "required": [
-        "class"
-      ],
       "properties": {
         "class": {
-          "description": "Name of the class as URI relative to the schema URL.",
+          "description": "Name of the collection (a.k.a. class). Multiple words should be concatenated in CamelCase, e.g. ` + "`" + `ArticleAuthor` + "`" + `.",
           "type": "string"
         },
         "description": {
@@ -9039,7 +9016,7 @@ func init() {
           "$ref": "#/definitions/ReplicationConfig"
         },
         "shardingConfig": {
-          "description": "Specify how the index should be sharded and distributed in the cluster",
+          "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
         },
         "vectorConfig": {
@@ -9388,23 +9365,19 @@ func init() {
         "cleanupIntervalSeconds": {
           "description": "Asynchronous index clean up happens every n seconds",
           "type": "number",
-          "format": "int",
-          "default": 60
+          "format": "int"
         },
         "indexNullState": {
           "description": "Index each object with the null state",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "indexPropertyLength": {
           "description": "Index length of properties",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "indexTimestamps": {
           "description": "Index each object by its internal timestamps",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
@@ -9461,7 +9434,6 @@ func init() {
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
-          "default": false,
           "x-omitempty": false
         }
       }
@@ -10035,8 +10007,7 @@ func init() {
       "properties": {
         "factor": {
           "description": "Number of times a class is replicated",
-          "type": "integer",
-          "default": 1
+          "type": "integer"
         }
       }
     },
@@ -10177,26 +10148,19 @@ func init() {
       "type": "object",
       "properties": {
         "additions": {
-          "description": "Stopwords to be considered additionally. Can be any array of custom strings.",
+          "description": "stopwords to be considered additionally",
           "type": "array",
-          "default": [],
           "items": {
             "type": "string"
           }
         },
         "preset": {
           "description": "pre-existing list of common words by language",
-          "type": "string",
-          "default": "en",
-          "enum": [
-            "en",
-            "none"
-          ]
+          "type": "string"
         },
         "removals": {
-          "description": "stopwords to be removed from consideration. Can be any array of custom strings.",
+          "description": "stopwords to be removed from consideration",
           "type": "array",
-          "default": [],
           "items": {
             "type": "string"
           }

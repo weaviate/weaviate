@@ -31,9 +31,8 @@ import (
 // swagger:model Class
 type Class struct {
 
-	// Name of the class as URI relative to the schema URL.
-	// Required: true
-	Class *string `json:"class"`
+	// Name of the collection (a.k.a. class). Multiple words should be concatenated in CamelCase, e.g. `ArticleAuthor`.
+	Class string `json:"class,omitempty"`
 
 	// Description of the class.
 	Description string `json:"description,omitempty"`
@@ -53,7 +52,7 @@ type Class struct {
 	// replication config
 	ReplicationConfig *ReplicationConfig `json:"replicationConfig,omitempty"`
 
-	// Specify how the index should be sharded and distributed in the cluster
+	// Manage how the index should be sharded and distributed in the cluster
 	ShardingConfig interface{} `json:"shardingConfig,omitempty"`
 
 	// vector config
@@ -72,10 +71,6 @@ type Class struct {
 // Validate validates this class
 func (m *Class) Validate(formats strfmt.Registry) error {
 	var res []error
-
-	if err := m.validateClass(formats); err != nil {
-		res = append(res, err)
-	}
 
 	if err := m.validateInvertedIndexConfig(formats); err != nil {
 		res = append(res, err)
@@ -100,15 +95,6 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *Class) validateClass(formats strfmt.Registry) error {
-
-	if err := validate.Required("class", "body", m.Class); err != nil {
-		return err
-	}
-
 	return nil
 }
 
