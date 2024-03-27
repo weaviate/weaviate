@@ -79,6 +79,10 @@ func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecom
 	return &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 }
 
+func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
 type fakeClient struct {
 	lastInput  []string
 	lastConfig moduletools.ClassConfig
@@ -110,6 +114,10 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 
 func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
 }
 
 type fakeClassConfig struct {

@@ -43,12 +43,14 @@ type BatchJob struct {
 	vecs       [][]float32
 	skipObject []bool
 	startTime  time.Time
+	apiKeyHash [32]byte
 }
 
 type BatchClient interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
 	GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits
+	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
 func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjectsPerBatch int, maxTimePerVectorizerBatch float64, logger logrus.FieldLogger) *Batch {
@@ -86,18 +88,16 @@ func (b *Batch) batchWorker() {
 	timePerToken := 0.0
 	batchTookInS := float64(0)
 
-	firstRequest := true
-	var rateLimit *modulecomponents.RateLimits
+	rateLimitPerApiKey := make(map[[32]byte]*modulecomponents.RateLimits)
 
 	// the total batch should not take longer than 60s to avoid timeouts. We will only use 40s here to be safe
 	for job := range b.jobQueueCh {
-		// for the first request we get the rate limits from the vectorizer. This cannot be done before as these values
-		// come from the user as part of the request
-		if firstRequest {
+		// check if we already have rate limits for the current api key and reuse them if possible
+		rateLimit, ok := rateLimitPerApiKey[job.apiKeyHash]
+		if !ok {
 			rateLimit = b.client.GetVectorizerRateLimit(job.ctx)
-			if rateLimit.RemainingRequests != 0 && rateLimit.RemainingTokens != 0 {
-				firstRequest = false
-			}
+		} else {
+			rateLimit.ResetAfterRequestFunction()
 		}
 
 		objCounter := 0
@@ -105,8 +105,9 @@ func (b *Batch) batchWorker() {
 		texts = texts[:0]
 		origIndex = origIndex[:0]
 
-		// we don't know the current rate limits without a request => send a small one
-		for objCounter < len(job.texts) && firstRequest {
+		// If the user does not supply rate limits, and we do not have defaults for the provider we don't know the
+		// rate limits without a request => send a small one
+		for objCounter < len(job.texts) && rateLimit.IsInitialized() {
 			var err error
 			if !job.skipObject[objCounter] {
 				err = b.makeRequest(job, job.texts[objCounter:objCounter+1], job.cfg, []int{objCounter}, rateLimit)
@@ -115,7 +116,6 @@ func (b *Batch) batchWorker() {
 					objCounter++
 					continue
 				}
-				firstRequest = false
 			}
 			objCounter++
 		}
@@ -143,7 +143,9 @@ func (b *Batch) batchWorker() {
 
 			// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
 			text := job.texts[objCounter]
-			if float32(tokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) && (timePerToken*float64(tokensInCurrentBatch) < b.maxTimePerVectorizerBatch) && len(texts) < b.maxObjectsPerBatch {
+			if float32(tokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) &&
+				(timePerToken*float64(tokensInCurrentBatch) < b.maxTimePerVectorizerBatch) &&
+				len(texts) < b.maxObjectsPerBatch {
 				tokensInCurrentBatch += job.tokens[objCounter]
 				texts = append(texts, text)
 				origIndex = append(origIndex, objCounter)
@@ -182,8 +184,8 @@ func (b *Batch) batchWorker() {
 				time.Sleep(sleepFor)
 			}
 
-			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the free
-			// tier only the RPD limits are shown but not RPM
+			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OPenAI
+			// free tier only the RPD limits are shown but not RPM
 			if rateLimit.RemainingRequests <= 0 && rateLimit.ResetRequests.Sub(time.Now()) > 0 {
 				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
 				if time.Since(job.startTime)+rateLimit.ResetRequests.Sub(time.Now()) > b.maxBatchTime {
@@ -208,6 +210,7 @@ func (b *Batch) batchWorker() {
 		if len(texts) > 0 && objCounter == len(job.texts) {
 			_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit)
 		}
+		rateLimitPerApiKey[job.apiKeyHash] = rateLimit
 		job.wg.Done()
 	}
 }
@@ -256,6 +259,7 @@ func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassCon
 		tokens:     tokenCounts,
 		vecs:       vecs,
 		skipObject: skipObject,
+		apiKeyHash: b.client.GetApiKeyHash(ctx, cfg),
 		startTime:  time.Now(),
 	}
 

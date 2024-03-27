@@ -30,6 +30,10 @@ func (rl *RateLimits) ResetAfterRequestFunction() {
 	}
 }
 
+func (rl *RateLimits) IsInitialized() bool {
+	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
+}
+
 type VectorizationResult struct {
 	Text       []string
 	Dimensions int

@@ -47,11 +47,9 @@ func New(client Client, logger logrus.FieldLogger) *Vectorizer {
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
+	batch.BatchClient
 	VectorizeQuery(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
-	GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits
 }
 
 // IndexCheck returns whether a property of a class should be indexed

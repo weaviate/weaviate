@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -260,6 +261,16 @@ func (v *client) getRateLimit(ctx context.Context) (int, int) {
 	}
 
 	return returnRPM, returnTPM
+}
+
+func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	config := v.getVectorizationConfig(cfg)
+
+	key, err := v.getApiKey(ctx, config.IsAzure)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
 }
 
 func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
