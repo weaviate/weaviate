@@ -81,6 +81,15 @@ func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 	return nil
 }
 
+func (e *executor) UpdateIndex(req cluster.UpdateClassRequest) error {
+	ctx := context.Background()
+	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
+		return err
+	}
+	e.triggerSchemaUpdateCallbacks()
+	return nil
+}
+
 func (e *executor) DeleteClass(cls string) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls); err != nil {
