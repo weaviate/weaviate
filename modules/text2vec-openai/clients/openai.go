@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -241,6 +242,47 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 		return value
 	}
 	return v.openAIOrganization
+}
+
+func (v *client) getRateLimit(ctx context.Context) (int, int) {
+	returnRPM := 0
+	returnTPM := 0
+	if rpmS := v.getValueFromContext(ctx, "X-Openai-Ratelimit-RequestPM-Embedding"); rpmS != "" {
+		s, err := strconv.Atoi(rpmS)
+		if err == nil {
+			returnRPM = s
+		}
+	}
+	if tpmS := v.getValueFromContext(ctx, "X-Openai-Ratelimit-TokenPM-Embedding"); tpmS != "" {
+		s, err := strconv.Atoi(tpmS)
+		if err == nil {
+			returnTPM = s
+		}
+	}
+
+	return returnRPM, returnTPM
+}
+
+func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	config := v.getVectorizationConfig(cfg)
+
+	key, err := v.getApiKey(ctx, config.IsAzure)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, tpm := v.getRateLimit(ctx)
+	return &modulecomponents.RateLimits{
+		RemainingTokens:   tpm,
+		LimitTokens:       tpm,
+		ResetTokens:       time.Now().Add(61 * time.Second),
+		RemainingRequests: rpm,
+		LimitRequests:     rpm,
+		ResetRequests:     time.Now().Add(61 * time.Second),
+	}
 }
 
 func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
