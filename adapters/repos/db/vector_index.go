@@ -40,5 +40,6 @@ type VectorIndex interface {
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 	ContainsNode(id uint64) bool
+	AlreadyIndexed() uint64
 	DistancerProvider() distancer.Provider
 }

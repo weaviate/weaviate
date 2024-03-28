@@ -976,11 +976,11 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 	return m.distancerProvider
 }
 
-func (m *mockBatchIndexer) ShouldCompress() (bool, int) {
+func (m *mockBatchIndexer) ShouldUpgrade() (bool, int) {
 	return m.shouldCompress, m.threshold
 }
 
-func (m *mockBatchIndexer) Compressed() bool {
+func (m *mockBatchIndexer) Upgraded() bool {
 	return m.compressed
 }
 
@@ -988,7 +988,7 @@ func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
 	return m.alreadyIndexed
 }
 
-func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
+func (m *mockBatchIndexer) Upgrade(callback func()) error {
 	if m.onCompressionTurnedOn != nil {
 		return m.onCompressionTurnedOn(callback)
 	}
