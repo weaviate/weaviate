@@ -154,14 +154,11 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	if len(params.HybridSearch.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.TargetVectors[0]
 	}
-	/*
-		//FIXME?
-
-		// Subsearch takes precedence over the top level
-		if len(subSearchParams.TargetVectors) > 0 {
-			targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
-		}
-	*/
+	// Subsearch takes precedence over the top level
+	if len(params.HybridSearch.NearTextParams.TargetVectors) > 0 {
+		targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
+	}
+	fmt.Println("targetVector", targetVector)
 
 	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
 	if err != nil {
@@ -201,6 +198,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	var err error
 	var results [][]*search.Result
 	var weights []float64
 	var names []string
@@ -212,12 +210,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	if len(params.HybridSearch.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.TargetVectors[0]
-	}
-
-	var err error
-	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
-	if err != nil {
-		return nil, err
 	}
 
 	origParams := params
@@ -253,6 +245,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = append(results, res)
 			names = append(names, name)
 		} else {
+			targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+			if err != nil {
+				return nil, err
+			}
 			sch := e.schemaGetter.GetSchemaSkipAuth()
 			class := sch.FindClassByName(schema.ClassName(params.ClassName))
 			if class == nil {
