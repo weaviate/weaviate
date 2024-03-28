@@ -67,7 +67,6 @@ func testGraphQL(t *testing.T) {
 	t.Run("setup test schema", addTestSchema)
 	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
 	t.Run("import test data (companies)", addTestDataCompanies)
-	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (pizzas)", addTestDataPizzas)
 	t.Run("import test data (array class)", addTestDataArrayClass)
@@ -151,13 +150,15 @@ func TestGroupBy(t *testing.T) {
 
 	defer func (){
 			// tear down
-	//deleteObjectClass(t, "CompanyGroup")
+	deleteObjectClass(t, "CompanyGroup")
+	deleteObjectClass(t, "RansomNote")
 	}()
 	// setup tests
-	//deleteObjectClass(t, "CompanyGroup")
-	//t.Run("setup test schema", addTestSchema)
 
-	//t.Run("import test data (company groups)", addTestDataCompanyGroups)
+	t.Run("setup test schema", addTestSchema)
+
+	t.Run("import test data (company groups)", addTestDataCompanyGroups)
+	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
 	t.Run("groupBy objects with bm25", groupByBm25)
 	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
