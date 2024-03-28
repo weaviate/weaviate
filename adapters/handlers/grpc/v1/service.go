@@ -136,6 +136,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 
 	scheme := s.schemaManager.GetSchemaSkipAuth()
+	replier := NewReplier(req.Uses_123Api, req.Uses_125Api)
 
 	type reply struct {
 		Result *pb.SearchReply
@@ -176,7 +177,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams, scheme, req.Uses_123Api)
+		proto, err := replier.Search(res, before, searchParams, scheme)
 		c <- reply{
 			Result: proto,
 			Error:  err,
