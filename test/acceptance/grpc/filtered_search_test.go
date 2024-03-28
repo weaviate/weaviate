@@ -108,7 +108,7 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, searchResp.Results, expectedLen)
 					for _, res := range searchResp.Results {
-						prop := res.Properties.NonRefProps.Fields[propName].GetStringValue()
+						prop := res.Properties.NonRefProps.Fields[propName].GetTextValue()
 						assert.NotContains(t, prop, tok1)
 					}
 				})
@@ -123,7 +123,7 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, searchResp.Results, expectedLen)
 					for _, res := range searchResp.Results {
-						prop := res.GetProperties().NonRefProps.Fields[propName].GetStringValue()
+						prop := res.GetProperties().NonRefProps.Fields[propName].GetTextValue()
 						assert.NotContains(t, prop, tok2)
 					}
 				})
@@ -138,7 +138,7 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 					require.Nil(t, err)
 					require.Len(t, searchResp.Results, expectedLen)
 					for _, res := range searchResp.Results {
-						prop := res.GetProperties().NonRefProps.Fields[propName].GetStringValue()
+						prop := res.GetProperties().NonRefProps.Fields[propName].GetTextValue()
 						assert.NotContains(t, prop, tok3)
 					}
 				})
@@ -177,7 +177,7 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 				require.Len(t, searchResp.Results, int(expectedLen))
 				lastResult := ""
 				for _, res := range searchResp.Results {
-					prop := res.Properties.NonRefProps.Fields[propName].GetStringValue()
+					prop := res.Properties.NonRefProps.Fields[propName].GetTextValue()
 					assert.NotContains(t, prop, tok1)
 					assert.Greater(t, prop, lastResult)
 					lastResult = prop
@@ -217,7 +217,7 @@ func TestGRPC_FilteredSearch(t *testing.T) {
 				require.Len(t, searchResp.Results, int(expectedLen))
 				lastResult := "[[[ [" // '[' is > 'Z' in the ascii table
 				for _, res := range searchResp.Results {
-					prop := res.Properties.NonRefProps.Fields[propName].GetStringValue()
+					prop := res.Properties.NonRefProps.Fields[propName].GetTextValue()
 					assert.NotContains(t, prop, tok1)
 					assert.Less(t, prop, lastResult)
 					lastResult = prop
