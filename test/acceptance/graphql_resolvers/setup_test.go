@@ -148,6 +148,7 @@ func testGraphQL(t *testing.T) {
 
 func TestGroupBy(t *testing.T) {
 
+
 	defer func (){
 			// tear down
 	//deleteObjectClass(t, "CompanyGroup")
@@ -160,6 +161,7 @@ func TestGroupBy(t *testing.T) {
 
 	t.Run("groupBy objects with bm25", groupByBm25)
 	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
+	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
 
 
 }
