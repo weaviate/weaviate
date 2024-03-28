@@ -20,14 +20,18 @@ type RateLimits struct {
 	LimitTokens          int
 	RemainingRequests    int
 	RemainingTokens      int
-	ResetRequests        int
-	ResetTokens          int
+	ResetRequests        time.Time
+	ResetTokens          time.Time
 }
 
 func (rl *RateLimits) ResetAfterRequestFunction() {
 	if rl.AfterRequestFunction != nil {
 		rl.AfterRequestFunction(rl)
 	}
+}
+
+func (rl *RateLimits) IsInitialized() bool {
+	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
 type VectorizationResult struct {
