@@ -33,12 +33,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	werrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
-	"golang.org/x/sync/errgroup"
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -394,7 +394,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	bucket := dynamic.store.Bucket(helpers.VectorsBucketLSM)
 
-	var g errgroup.Group
+	g := werrors.NewErrorGroupWrapper(dynamic.logger)
 	workerCount := runtime.GOMAXPROCS(0)
 	type task struct {
 		id     uint64
