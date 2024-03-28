@@ -210,14 +210,14 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 		require.NotNil(t, texts)
 		outTexts := make([]string, len(texts))
 		for i, text := range texts {
-			outTexts[i] = text.GetTextValue()
+			outTexts[i] = text.GetStringValue()
 		}
 		require.Equal(t, []string{"text1", "text2"}, outTexts)
 
 		ints := nonRefProps.GetFields()["ints"].GetListValue().GetValues()
 		require.NotNil(t, ints)
 		outInts := make([]int64, len(ints))
-		for i, int_ := range texts {
+		for i, int_ := range ints {
 			outInts[i] = int_.GetIntValue()
 		}
 		require.Equal(t, []int64{1, 2}, outInts)
@@ -263,7 +263,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 		require.NotNil(t, texts)
 		outTexts = make([]string, len(texts))
 		for i, text := range texts {
-			outTexts[i] = text.GetTextValue()
+			outTexts[i] = text.GetStringValue()
 		}
 		require.Equal(t, []string{"text1", "text2"}, outTexts)
 	})
