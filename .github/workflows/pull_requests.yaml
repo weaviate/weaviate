@@ -3,7 +3,7 @@ name: Tests
 on:
   push:
     branches:
-      - master
+      - main
       - 'stable/v*'
     tags:
       - '**'
@@ -174,7 +174,7 @@ jobs:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
     runs-on: ubuntu-latest
-    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
+    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@v4
       - name: Download coverage artifacts integration
