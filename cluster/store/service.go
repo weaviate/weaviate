@@ -221,6 +221,7 @@ func (st *Service) Execute(req *cmd.ApplyRequest) error {
 	if st.store.IsLeader() {
 		return st.store.Execute(req)
 	}
+	st.store.WaitForLeader(context.Background(), time.Duration(10*time.Second))
 	leader := st.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
@@ -234,6 +235,7 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 	if s.store.IsLeader() {
 		return s.store.Join(id, addr, voter)
 	}
+	// s.store.WaitForLeader(ctx, time.Duration(10*time.Second))
 	leader := s.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
@@ -248,6 +250,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	if s.store.IsLeader() {
 		return s.store.Remove(id)
 	}
+	// s.store.WaitForLeader(ctx, time.Duration(10*time.Second))
 	leader := s.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
@@ -330,7 +333,7 @@ func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryR
 	if s.store.IsLeader() {
 		return s.store.Query(req)
 	}
-
+	s.store.WaitForLeader(ctx, time.Duration(10*time.Second))
 	leaderAddr := s.store.Leader()
 	if leaderAddr == "" {
 		return &cmd.QueryResponse{}, ErrLeaderNotFound

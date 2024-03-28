@@ -324,17 +324,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	// TODO-RAFT START
-
-	err = appState.CloudService.Open(ctx, executor)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not open cloud meta store")
-	}
-	// TODO-RAFT END
-
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
@@ -347,6 +336,41 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	// wg := sync.WaitGroup{}
+	// wg.Add(1)
+	// TODO-RAFT START
+	go func() {
+		// defer wg.Done()
+		err = appState.CloudService.Open(ctx, executor)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+		// manually update schema once
+		schema := schemaManager.GetSchemaSkipAuth()
+		updateSchemaCallback(schema)
+	}()
+	// wg.Wait()
+	// TODO-RAFT END
+
+	// TODO-RAFT START
+	go func() {
+		err = appState.CloudService.Open(ctx, executor)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+		// manually update schema once
+		schema := schemaManager.GetSchemaSkipAuth()
+		updateSchemaCallback(schema)
+	}()
+	// wg.Wait()
+	// TODO-RAFT END
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
