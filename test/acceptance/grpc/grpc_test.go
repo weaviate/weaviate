@@ -88,6 +88,7 @@ func TestGRPC(t *testing.T) {
 					Uuid: true,
 				},
 				Uses_123Api: true,
+				Uses_125Api: true,
 			},
 		},
 		{
@@ -98,6 +99,7 @@ func TestGRPC(t *testing.T) {
 					Uuid: true,
 				},
 				Uses_123Api: true,
+				Uses_125Api: true,
 			},
 		},
 	}
@@ -179,7 +181,7 @@ func TestGRPC(t *testing.T) {
 
 				expectedObj := &pb.Properties{
 					Fields: map[string]*pb.Value{
-						"text": {Kind: &pb.Value_StringValue{StringValue: "some text"}},
+						"text": {Kind: &pb.Value_TextValue{TextValue: "some text"}},
 					},
 				}
 				assert.Equal(t, expectedObj, obj)
