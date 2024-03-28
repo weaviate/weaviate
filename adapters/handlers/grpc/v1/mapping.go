@@ -57,34 +57,34 @@ func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected bool when serializing bool", v)
 			}
-			return newBoolValue(val), nil
+			return NewBoolValue(val), nil
 		case schema.DataTypeDate:
 			val, ok := v.(string)
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing date", v)
 			}
-			return newDateValue(val), nil
+			return NewDateValue(val), nil
 		case schema.DataTypeNumber:
 			val, ok := v.(float64)
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected float64 when serializing number", v)
 			}
-			return newNumberValue(val), nil
+			return NewNumberValue(val), nil
 		case schema.DataTypeInt:
 			val, ok := v.(float64)
 			if !ok { // integers are returned as float64 from search
 				return nil, protoimpl.X.NewError("invalid type: %T expected float64 when serializing int property", v)
 			}
-			return newIntValue(int64(val)), nil
+			return NewIntValue(int64(val)), nil
 		case schema.DataTypeString:
 			val, ok := v.(string)
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing string property", v)
 			}
 			if m.uses125 {
-				return newTextValue(val), nil
+				return NewTextValue(val), nil
 			} else {
-				return newStringValue(val), nil
+				return NewStringValue(val), nil
 			}
 		case schema.DataTypeText:
 			val, ok := v.(string)
@@ -92,22 +92,22 @@ func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing text property", v)
 			}
 			if m.uses125 {
-				return newTextValue(val), nil
+				return NewTextValue(val), nil
 			} else {
-				return newStringValue(val), nil
+				return NewStringValue(val), nil
 			}
 		case schema.DataTypeUUID:
 			val, ok := v.(string)
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected string when serializing uuid property", v)
 			}
-			return newUuidValue(val), nil
+			return NewUuidValue(val), nil
 		case schema.DataTypeGeoCoordinates:
 			val, ok := v.(*models.GeoCoordinates)
 			if !ok {
 				return nil, protoimpl.X.NewError("invalid type: %T expected *models.GeoCoordinates when serializing geocoordinate property", v)
 			}
-			return newGeoValue(val), nil
+			return NewGeoValue(val), nil
 		case schema.DataTypeBlob:
 			val, ok := v.(string)
 			if !ok {
@@ -136,7 +136,7 @@ func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema
 		if err != nil {
 			return nil, errors.Wrap(err, "creating nested object")
 		}
-		return newObjectValue(obj), nil
+		return NewObjectValue(obj), nil
 	case schema.DataTypeObjectArray:
 		if _, ok := v.([]interface{}); !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected []map[string]interface{}", v)
@@ -237,7 +237,7 @@ func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newBoolValue(v)
+				x[i] = NewBoolValue(v)
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -263,7 +263,7 @@ func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newDateValue(v)
+				x[i] = NewDateValue(v)
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -289,7 +289,7 @@ func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newNumberValue(v)
+				x[i] = NewNumberValue(v)
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -319,7 +319,7 @@ func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newIntValue(int64(v))
+				x[i] = NewIntValue(int64(v))
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -345,7 +345,7 @@ func (m *Mapper) newListValueString(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newStringValue(v)
+				x[i] = NewStringValue(v)
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -371,7 +371,7 @@ func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newStringValue(v)
+				x[i] = NewStringValue(v)
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -397,7 +397,7 @@ func (m *Mapper) newListValueUuid(v interface{}) (*pb.Value, error) {
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
-				x[i] = newUuidValue(v)
+				x[i] = NewUuidValue(v)
 			}
 			listValue = &pb.ListValue{Values: x}
 		}
@@ -441,52 +441,52 @@ func (m *Mapper) newObjectList(v []interface{}, parent schema.PropertyInterface,
 		if err != nil {
 			return nil, err
 		}
-		x.Values[i] = newObjectValue(value)
+		x.Values[i] = NewObjectValue(value)
 	}
 	return x, nil
 }
 
 // NewBoolValue constructs a new boolean Value.
-func newBoolValue(v bool) *pb.Value {
+func NewBoolValue(v bool) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_BoolValue{BoolValue: v}}
 }
 
 // NewNumberValue constructs a new number Value.
-func newNumberValue(v float64) *pb.Value {
+func NewNumberValue(v float64) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_NumberValue{NumberValue: v}}
 }
 
 // NewIntValue constructs a new number Value.
-func newIntValue(v int64) *pb.Value {
+func NewIntValue(v int64) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_IntValue{IntValue: v}}
 }
 
 // NewStringValue constructs a new string Value.
-func newStringValue(v string) *pb.Value {
+func NewStringValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_StringValue{StringValue: v}}
 }
 
-func newTextValue(v string) *pb.Value {
+func NewTextValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_TextValue{TextValue: v}}
 }
 
 // NewDateValue constructs a new string Value.
-func newDateValue(v string) *pb.Value {
+func NewDateValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_DateValue{DateValue: v}}
 }
 
 // NewUuidValue constructs a new string Value.
-func newUuidValue(v string) *pb.Value {
+func NewUuidValue(v string) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_UuidValue{UuidValue: v}}
 }
 
 // NewGeoValue constructs a new geo Value.
-func newGeoValue(v *models.GeoCoordinates) *pb.Value {
+func NewGeoValue(v *models.GeoCoordinates) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_GeoValue{GeoValue: &pb.GeoCoordinate{Latitude: *v.Latitude, Longitude: *v.Longitude}}}
 }
 
 // NewObjectValue constructs a new struct Value.
-func newObjectValue(v *pb.Properties) *pb.Value {
+func NewObjectValue(v *pb.Properties) *pb.Value {
 	return &pb.Value{Kind: &pb.Value_ObjectValue{ObjectValue: v}}
 }
 
