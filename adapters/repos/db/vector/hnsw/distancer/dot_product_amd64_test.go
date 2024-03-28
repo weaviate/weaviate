@@ -18,18 +18,8 @@ import (
 	"unsafe"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
-	"golang.org/x/exp/constraints"
 	"golang.org/x/sys/cpu"
 )
-
-func DotProductGo[T constraints.Integer | constraints.Float](a, b []T) T {
-	var sum T
-	for i := range a {
-		sum += a[i] * b[i]
-	}
-
-	return sum
-}
 
 var dotByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
 	var sum uint16
