@@ -141,7 +141,13 @@ func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema
 		if _, ok := v.([]interface{}); !ok {
 			return nil, protoimpl.X.NewError("invalid type: %T expected []map[string]interface{}", v)
 		}
-		list, err := m.newObjectList(v.([]interface{}), parent, prop)
+		var list *pb.ListValue
+		var err error
+		if m.uses125 {
+			list, err = m.newObjectList125(v.([]interface{}), parent, prop)
+		} else {
+			list, err = m.newObjectList123(v.([]interface{}), parent, prop)
+		}
 		if err != nil {
 			return nil, errors.Wrap(err, "creating nested object array")
 		}
@@ -428,7 +434,7 @@ func (m *Mapper) parsePrimitiveArray(v interface{}, dt, innerDt schema.DataType)
 
 // NewList constructs a ListValue from a general-purpose Go slice.
 // The slice elements are converted using NewValue.
-func (m *Mapper) newObjectList(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
+func (m *Mapper) newObjectList123(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
 	if !selectProp.IsObject {
 		return nil, errors.New("select property is not an object")
 	}
@@ -444,6 +450,26 @@ func (m *Mapper) newObjectList(v []interface{}, parent schema.PropertyInterface,
 		x.Values[i] = NewObjectValue(value)
 	}
 	return x, nil
+}
+
+// NewList constructs a ListValue from a general-purpose Go slice.
+// The slice elements are converted using NewValue.
+func (m *Mapper) newObjectList125(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
+	if !selectProp.IsObject {
+		return nil, errors.New("select property is not an object")
+	}
+	x := make([]*pb.Properties, len(v))
+	for i, v := range v {
+		if _, ok := v.(map[string]interface{}); !ok {
+			return nil, protoimpl.X.NewError("invalid type: %T expected map[string]interface{}", v)
+		}
+		value, err := m.newObject(v.(map[string]interface{}), parent, selectProp)
+		if err != nil {
+			return nil, err
+		}
+		x[i] = value
+	}
+	return &pb.ListValue{Kind: &pb.ListValue_ObjectValues{ObjectValues: &pb.ObjectValues{Values: x}}}, nil
 }
 
 // NewBoolValue constructs a new boolean Value.
