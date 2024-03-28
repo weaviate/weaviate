@@ -63,7 +63,7 @@ func (m *ReRankerVoyageAIModule) Init(ctx context.Context,
 func (m *ReRankerVoyageAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("VOYAGE_API_KEY")
+	apiKey := os.Getenv("VOYAGEAI_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 	m.reranker = client
 	m.additionalPropertiesProvider = rerankeradditional.NewRankerProvider(m.reranker)

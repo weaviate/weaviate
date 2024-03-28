@@ -209,7 +209,7 @@ func (c *client) getApiKey(ctx context.Context) (string, error) {
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-Voyageai-Api-Key " +
-		"nor in environment variable under VOYAGE_API_KEY")
+		"nor in environment variable under VOYAGEAI_APIKEY")
 }
 
 type RankInput struct {
