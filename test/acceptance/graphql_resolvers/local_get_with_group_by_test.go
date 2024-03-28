@@ -122,7 +122,6 @@ func groupByObjects(t *testing.T) {
 
 func groupByBm25(t *testing.T) {
 	t.Run("group by: companies by city bm25", func(t *testing.T) {
-
 		getGroup := func(value interface{}) map[string]interface{} {
 			group := value.(map[string]interface{})["_additional"].(map[string]interface{})["group"].(map[string]interface{})
 			return group
@@ -203,14 +202,11 @@ func groupByBm25(t *testing.T) {
 		require.Equal(t, hits[0], "171d2b4c-3da1-4684-9c5e-aabd2a4f2998")
 		require.Equal(t, hits[1], "1f75ed97-39dd-4294-bff7-ecabd7923062")
 		require.Equal(t, hits[2], "1c2e21fc-46fe-4999-b41c-a800595129af")
-
 	})
-
 }
 
 func groupByHybridBm25(t *testing.T) {
 	t.Run("group by: companies by city hybrid bm25", func(t *testing.T) {
-
 		getGroup := func(value interface{}) map[string]interface{} {
 			group := value.(map[string]interface{})["_additional"].(map[string]interface{})["group"].(map[string]interface{})
 			return group
@@ -291,9 +287,7 @@ func groupByHybridBm25(t *testing.T) {
 		require.Equal(t, hits[0], "1f75ed97-39dd-4294-bff7-ecabd7923062")
 		require.Equal(t, hits[1], "1c2e21fc-46fe-4999-b41c-a800595129af")
 		require.Equal(t, hits[2], "171d2b4c-3da1-4684-9c5e-aabd2a4f2998")
-
 	})
-
 }
 
 func groupByHybridNearVector(t *testing.T) {
