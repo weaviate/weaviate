@@ -356,7 +356,6 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 		return nil, "", fmt.Errorf("group is not present %v", addProps)
 	}
 	group, ok := groupRaw.(*additional.Group)
-	fmt.Printf("%v+\n", group)
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse _additional %v", groupRaw)
 	}
