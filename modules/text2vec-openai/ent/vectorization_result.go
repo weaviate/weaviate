@@ -33,8 +33,8 @@ func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 		LimitTokens:       getHeaderInt(header, "x-ratelimit-limit-tokens"),
 		RemainingRequests: getHeaderInt(header, "x-ratelimit-remaining-requests"),
 		RemainingTokens:   getHeaderInt(header, "x-ratelimit-remaining-tokens"),
-		ResetRequests:     int(requestsReset.Seconds()),
-		ResetTokens:       int(tokensReset.Seconds()),
+		ResetRequests:     time.Now().Add(requestsReset),
+		ResetTokens:       time.Now().Add(tokensReset),
 	}
 }
 
