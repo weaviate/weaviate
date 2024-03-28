@@ -159,6 +159,7 @@ func TestGroupBy(t *testing.T) {
 	//t.Run("import test data (company groups)", addTestDataCompanyGroups)
 
 	t.Run("groupBy objects with bm25", groupByBm25)
+	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
 
 
 }
