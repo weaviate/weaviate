@@ -336,21 +336,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
-	// TODO-RAFT START
 
-	go func() {
-		err = appState.CloudService.Open(context.Background(), executor)
-		if err != nil {
-			appState.Logger.
-				WithField("action", "startup").
-				WithError(err).
-				Fatal("could not open cloud meta store")
-		}
-		// manually update schema once
-		schema := schemaManager.GetSchemaSkipAuth()
-		updateSchemaCallback(schema)
-	}()
-	// TODO-RAFT END
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
 		appState.Logger.
@@ -359,6 +345,23 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("migration failed")
 		os.Exit(1)
 	}
+
+	// TODO-RAFT START
+	go func() {
+		err = appState.CloudService.Open(context.Background(), executor)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+		updateSchemaCallback = makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
+		executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
+		// manually update schema once
+		updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
+
+	}()
+	// TODO-RAFT END
 
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNames := []string{}
@@ -397,6 +400,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't initialize")
 	}
+
+	// manually update schema once
+	updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
