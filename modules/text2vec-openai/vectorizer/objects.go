@@ -35,7 +35,7 @@ const (
 	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
 	// time per token goes down up to a certain batch size and then flattens - however the times vary a lot so we
 	// don't want to get too close to the maximum of 50s
-	OpenAiMaxTimePerBatch = float64(10)
+	OpenAIMaxTimePerBatch = float64(10)
 )
 
 type Vectorizer struct {
@@ -48,15 +48,14 @@ func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *
 	vec := &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAiMaxTimePerBatch, nil, logger, true),
+		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAIMaxTimePerBatch, logger),
 	}
 
 	return vec
 }
 
 type Client interface {
-	Vectorize(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
+	batch.BatchClient
 	VectorizeQuery(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error)
 }

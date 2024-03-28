@@ -36,7 +36,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
-	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: c.defaultResetRate, ResetRequests: 1}
+	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 	for i := range text {
 		if len(text[i]) >= len("error ") && text[i][:6] == "error " {
 			errors[i] = fmt.Errorf(text[i][6:])
@@ -82,6 +82,14 @@ func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
+func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
+}
+
+func (c *fakeBatchClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
+}
+
 type fakeClient struct {
 	lastInput  []string
 	lastConfig moduletools.ClassConfig
@@ -109,6 +117,14 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 		Dimensions: 4,
 		Text:       text,
 	}, nil
+}
+
+func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
 }
 
 type FakeClassConfig struct {

@@ -233,6 +233,31 @@ func TestClient(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
+
+	t.Run("pass rate limit headers requests", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := New("", "", "", 0, nullLogger())
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
+
+		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		assert.Equal(t, 50, rl.LimitRequests)
+		assert.Equal(t, 50, rl.RemainingRequests)
+	})
+
+	t.Run("pass rate limit headers tokens", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := New("", "", "", 0, nullLogger())
+
+		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
+
+		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		assert.Equal(t, 60, rl.LimitTokens)
+		assert.Equal(t, 60, rl.RemainingTokens)
+	})
 }
 
 type fakeHandler struct {

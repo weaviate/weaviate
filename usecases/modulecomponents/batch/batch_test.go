@@ -83,10 +83,13 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
 		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded or cancelled"), 5: fmt.Errorf("context deadline exceeded or cancelled")}},
+		{name: "request error", objects: []*models.Object{
+			{Class: "Car", Properties: map[string]interface{}{"test": "ReqError something"}},
+		}, skip: []bool{false}, wantErrors: map[int]error{0: fmt.Errorf("something")}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := NewBatchVectorizer(client, 1*time.Second, 2000, 2000.0, nil, logger, true) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, 1*time.Second, 2000, 2000.0, logger) // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -119,7 +122,7 @@ func TestBatchMultiple(t *testing.T) {
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
-	v := NewBatchVectorizer(client, 40*time.Second, 2000, 2000.0, nil, logger, true) // avoid waiting for rate limit
+	v := NewBatchVectorizer(client, 40*time.Second, 2000, 2000.0, logger) // avoid waiting for rate limit
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -159,9 +162,9 @@ func TestBatchTimeouts(t *testing.T) {
 
 	objs := []*models.Object{
 		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 18"}}, // first request, set rate down so the next two items can be sent
-		{Class: "Car", Properties: map[string]interface{}{"test": "wait 90"}},   // second batch, use up batch time to trigger waiting for refresh
+		{Class: "Car", Properties: map[string]interface{}{"test": "wait 200"}},  // second batch, use up batch time to trigger waiting for refresh
 		{Class: "Car", Properties: map[string]interface{}{"test": "tokens 20"}}, // set next rate so the next object is too long. Depending on the total batch time it either sleeps or not
-		{Class: "Car", Properties: map[string]interface{}{"test": "next batch long long"}},
+		{Class: "Car", Properties: map[string]interface{}{"test": "next batch long long long long long"}},
 	}
 	skip := []bool{false, false, false, false}
 
@@ -170,11 +173,11 @@ func TestBatchTimeouts(t *testing.T) {
 		expectedErrors int
 	}{
 		{batchTime: 100 * time.Millisecond, expectedErrors: 1},
-		{batchTime: 2 * time.Second, expectedErrors: 0},
+		{batchTime: 1 * time.Second, expectedErrors: 0},
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger, true) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, logger) // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
 
@@ -207,7 +210,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run("", func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, nil, logger, true) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, 2000, 2000.0, logger) // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)
