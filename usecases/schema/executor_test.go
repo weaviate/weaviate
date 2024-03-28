@@ -19,7 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -60,13 +60,13 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("AddClass", Anything, Anything, Anything).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.AddClass(cluster.AddClassRequest{}))
+		assert.Nil(t, x.AddClass(api.AddClassRequest{}))
 	})
 	t.Run("AddClassWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("AddClass", Anything, Anything, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.AddClass(cluster.AddClassRequest{}), ErrAny)
+		assert.ErrorIs(t, x.AddClass(api.AddClassRequest{}), ErrAny)
 	})
 
 	t.Run("DropClass", func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestExecutor(t *testing.T) {
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.UpdateClass(cluster.UpdateClassRequest{Class: cls}))
+		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
 	})
 
 	t.Run("UpdateVectorIndexConfig", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestExecutor(t *testing.T) {
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(ErrAny)
 
 		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.UpdateClass(cluster.UpdateClassRequest{Class: cls}), ErrAny)
+		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
 	})
 	t.Run("UpdateInvertedIndexConfig", func(t *testing.T) {
 		migrator := &fakeMigrator{}
@@ -104,30 +104,30 @@ func TestExecutor(t *testing.T) {
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(ErrAny)
 
 		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.UpdateClass(cluster.UpdateClassRequest{Class: cls}), ErrAny)
+		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
 	})
 
 	t.Run("AddProperty", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := cluster.AddPropertyRequest{Properties: []*models.Property{}}
+		req := api.AddPropertyRequest{Properties: []*models.Property{}}
 		migrator.On("AddProperty", Anything, "A", req.Properties).Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.AddProperty("A", req))
 	})
 
 	commit := func(success bool) {}
-	tenants := []*cluster.Tenant{{Name: "T1"}, {Name: "T2"}}
+	tenants := []*api.Tenant{{Name: "T1"}, {Name: "T2"}}
 
 	t.Run("DeleteTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.DeleteTenantsRequest{}
+		req := &api.DeleteTenantsRequest{}
 		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(commit, nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.DeleteTenants("A", req))
 	})
 	t.Run("DeleteTenantsWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.DeleteTenantsRequest{}
+		req := &api.DeleteTenantsRequest{}
 		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(commit, ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.DeleteTenants("A", req))
@@ -135,7 +135,7 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("UpdateTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.UpdateTenantsRequest{Tenants: tenants}
+		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		migrator.On("UpdateTenants", Anything, cls, Anything).Return(commit, nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateTenants("A", req))
@@ -145,14 +145,14 @@ func TestExecutor(t *testing.T) {
 		store := &fakeMetaHandler{}
 		store.On("ReadOnlyClass", "A").Return(nil)
 
-		req := &cluster.UpdateTenantsRequest{Tenants: tenants}
+		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)
 		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrNotFound)
 	})
 
 	t.Run("UpdateTenantsError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.UpdateTenantsRequest{Tenants: tenants}
+		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		migrator.On("UpdateTenants", Anything, cls, Anything).Return(commit, ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrAny)
@@ -160,20 +160,20 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("AddTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.AddTenantsRequest{Tenants: tenants}
+		req := &api.AddTenantsRequest{Tenants: tenants}
 		migrator.On("NewTenants", Anything, cls, Anything).Return(commit, nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.AddTenants("A", req))
 	})
 	t.Run("AddTenantsEmpty", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.AddTenantsRequest{Tenants: nil}
+		req := &api.AddTenantsRequest{Tenants: nil}
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.AddTenants("A", req))
 	})
 	t.Run("AddTenantsError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.AddTenantsRequest{Tenants: tenants}
+		req := &api.AddTenantsRequest{Tenants: tenants}
 		migrator.On("NewTenants", Anything, cls, Anything).Return(commit, ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.AddTenants("A", req), ErrAny)
@@ -181,7 +181,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("AddTenantsClassNotFound", func(t *testing.T) {
 		store := &fakeMetaHandler{}
 		store.On("ReadOnlyClass", "A").Return(nil)
-		req := &cluster.AddTenantsRequest{Tenants: tenants}
+		req := &api.AddTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)
 		assert.ErrorIs(t, x.AddTenants("A", req), ErrNotFound)
 	})
@@ -204,7 +204,7 @@ func TestExecutor(t *testing.T) {
 	})
 	t.Run("UpdateShardStatus", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		req := &cluster.UpdateShardStatusRequest{Class: "A", Shard: "S", Status: "ST"}
+		req := &api.UpdateShardStatusRequest{Class: "A", Shard: "S", Status: "ST"}
 		migrator.On("UpdateShardStatus", Anything, "A", "S", "ST").Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateShardStatus(req))
