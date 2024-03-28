@@ -14,7 +14,6 @@ package vectorizer
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
@@ -185,7 +184,7 @@ func TestVectorizingObjects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client, 40*time.Second, logger)
+			v := New(client, logger)
 
 			cfg := &FakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -198,7 +197,8 @@ func TestVectorizingObjects(t *testing.T) {
 				skippedProperty:       test.noindex,
 				excludedProperty:      test.excludedProperty,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, cfg)
+			icheck := ent.NewClassSettings(cfg)
+			vector, _, err := v.Object(context.Background(), test.input, cfg, icheck)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
