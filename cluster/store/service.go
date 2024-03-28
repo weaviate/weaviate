@@ -18,7 +18,7 @@ import (
 	"log/slog"
 	"time"
 
-	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
@@ -221,6 +221,9 @@ func (st *Service) Execute(req *cmd.ApplyRequest) error {
 	if st.store.IsLeader() {
 		return st.store.Execute(req)
 	}
+	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
+		return ErrUnknownCommand
+	}
 	leader := st.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
@@ -280,7 +283,7 @@ func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
 		return &models.Class{}, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
-		Type:       cmd.QueryRequest_TYPE_GET_READONLY_CLASS,
+		Type:       cmd.QueryRequest_TYPE_GET_CLASS,
 		SubCommand: subCommand,
 	}
 	queryResp, err := s.Query(context.Background(), command)

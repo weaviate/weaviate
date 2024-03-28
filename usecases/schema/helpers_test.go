@@ -19,7 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	command "github.com/weaviate/weaviate/cluster/proto/cluster"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"

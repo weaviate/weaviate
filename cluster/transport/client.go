@@ -17,7 +17,7 @@ import (
 	"net"
 	"strconv"
 
-	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -28,10 +28,10 @@ const serviceConfig = `
 		{
 			"name": [
 				{
-					"service": "weaviate.cloud.internal.cluster.ClusterService", "method": "Apply"
+					"service": "weaviate.internal.cluster.ClusterService", "method": "Apply"
 				},
 				{
-					"service": "weaviate.cloud.internal.cluster.ClusterService", "method": "Query"
+					"service": "weaviate.internal.cluster.ClusterService", "method": "Query"
 				}
 			],
 			"retryPolicy": {
