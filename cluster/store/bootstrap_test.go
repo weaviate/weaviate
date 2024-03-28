@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/mock"
-	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

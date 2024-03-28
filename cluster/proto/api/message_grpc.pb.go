@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             (unknown)
-// source: cluster/message.proto
+// source: api/message.proto
 
-package cluster
+package api
 
 import (
 	context "context"
@@ -19,11 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ClusterService_RemovePeer_FullMethodName = "/weaviate.cloud.internal.cluster.ClusterService/RemovePeer"
-	ClusterService_JoinPeer_FullMethodName   = "/weaviate.cloud.internal.cluster.ClusterService/JoinPeer"
-	ClusterService_NotifyPeer_FullMethodName = "/weaviate.cloud.internal.cluster.ClusterService/NotifyPeer"
-	ClusterService_Apply_FullMethodName      = "/weaviate.cloud.internal.cluster.ClusterService/Apply"
-	ClusterService_Query_FullMethodName      = "/weaviate.cloud.internal.cluster.ClusterService/Query"
+	ClusterService_RemovePeer_FullMethodName = "/weaviate.internal.cluster.ClusterService/RemovePeer"
+	ClusterService_JoinPeer_FullMethodName   = "/weaviate.internal.cluster.ClusterService/JoinPeer"
+	ClusterService_NotifyPeer_FullMethodName = "/weaviate.internal.cluster.ClusterService/NotifyPeer"
+	ClusterService_Apply_FullMethodName      = "/weaviate.internal.cluster.ClusterService/Apply"
+	ClusterService_Query_FullMethodName      = "/weaviate.internal.cluster.ClusterService/Query"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -226,7 +226,7 @@ func _ClusterService_Query_Handler(srv interface{}, ctx context.Context, dec fun
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ClusterService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "weaviate.cloud.internal.cluster.ClusterService",
+	ServiceName: "weaviate.internal.cluster.ClusterService",
 	HandlerType: (*ClusterServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -251,5 +251,5 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "cluster/message.proto",
+	Metadata: "api/message.proto",
 }

@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
@@ -24,7 +24,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	var payload []byte
 	var err error
 	switch req.Type {
-	case cmd.QueryRequest_TYPE_GET_READONLY_CLASS:
+	case cmd.QueryRequest_TYPE_GET_CLASS:
 		payload, err = st.QueryReadOnlyClass(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get read only class: %w", err)

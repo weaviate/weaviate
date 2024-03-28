@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package weaviate.cloud.internal.cluster;
+package weaviate.internal.cluster;
 
 service ClusterService {
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
@@ -63,7 +63,7 @@ message ApplyResponse {
 message QueryRequest {
   enum Type {
     TYPE_UNSPECIFIED = 0;
-    TYPE_GET_READONLY_CLASS = 1;
+    TYPE_GET_CLASS = 1;
     TYPE_GET_SCHEMA = 2;
   }
 
