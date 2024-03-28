@@ -50,6 +50,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
+	TestGroupBy(t)
 }
 
 func testGraphQL(t *testing.T) {
@@ -143,15 +144,12 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
-
-
 func TestGroupBy(t *testing.T) {
 
-
-	defer func (){
-			// tear down
-	deleteObjectClass(t, "CompanyGroup")
-	deleteObjectClass(t, "RansomNote")
+	defer func() {
+		// tear down
+		deleteObjectClass(t, "CompanyGroup")
+		deleteObjectClass(t, "RansomNote")
 	}()
 	// setup tests
 
@@ -163,7 +161,6 @@ func TestGroupBy(t *testing.T) {
 	t.Run("groupBy objects with bm25", groupByBm25)
 	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
 	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
-
 
 }
 
@@ -370,7 +367,6 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-
 	createObjectClass(t, &models.Class{
 		Class: "CompanyGroup",
 		ModuleConfig: map[string]interface{}{
@@ -380,9 +376,9 @@ func addTestSchema(t *testing.T) {
 		},
 		Properties: []*models.Property{
 			{
-				Name:         "name",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWord,
+				Name:            "name",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
 				IndexFilterable: boolRef(true),
 				IndexSearchable: boolRef(true),
 				ModuleConfig: map[string]interface{}{
@@ -392,9 +388,9 @@ func addTestSchema(t *testing.T) {
 				},
 			},
 			{
-				Name:     "city",
-				DataType: schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationField,
+				Name:            "city",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationField,
 				IndexFilterable: boolRef(true),
 				IndexSearchable: boolRef(true),
 				ModuleConfig: map[string]interface{}{
@@ -795,14 +791,11 @@ func addTestDataCompanies(t *testing.T) {
 		google3    strfmt.UUID = "c7829929-2037-4420-acbc-a433269feb93"
 	)
 
-
 	type companyTemplate struct {
 		id     strfmt.UUID
 		name   string
 		inCity []strfmt.UUID
 	}
-
-
 
 	companies := []companyTemplate{
 		{id: microsoft1, name: "Microsoft Inc.", inCity: []strfmt.UUID{dusseldorf}},
@@ -816,17 +809,15 @@ func addTestDataCompanies(t *testing.T) {
 		{id: google3, name: "Google"},
 	}
 
-
 	// companies
 	for _, company := range companies {
-
 
 		createObject(t, &models.Object{
 			Class: "Company",
 			ID:    company.id,
 			Properties: map[string]interface{}{
 				"city": company.inCity,
-				"name":   company.name,
+				"name": company.name,
 			},
 		})
 	}
@@ -868,13 +859,12 @@ func addTestDataCompanyGroups(t *testing.T) {
 	// companies
 	for _, company := range companies {
 
-
 		createObject(t, &models.Object{
 			Class: "CompanyGroup",
 			ID:    company.id,
 			Properties: map[string]interface{}{
 				"city": company.inCity,
-				"name":   company.name,
+				"name": company.name,
 			},
 		})
 		fmt.Printf("created company  %s\n", company.name)
