@@ -14,10 +14,12 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -27,6 +29,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
+)
+
+const (
+	DefaultRPM = 10000    // from https://docs.cohere.com/docs/going-live#production-key-specifications default for production keys
+	DefaultTPM = 10000000 // no token limit used by cohere
 )
 
 type embeddingsRequest struct {
@@ -170,6 +177,48 @@ func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	key, err := v.getApiKey(ctx)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm := DefaultRPM
+
+	if rpmS := v.getValueFromContext(ctx, "X-Cohere-Ratelimit-RequestPM-Embedding"); rpmS != "" {
+		s, err := strconv.Atoi(rpmS)
+		if err == nil {
+			rpm = s
+		}
+	}
+
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
+		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
+		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
+			limits.RemainingRequests -= 1
+			return
+		}
+
+		limits.RemainingRequests = rpm
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
+		limits.LimitRequests = rpm
+		limits.LastOverwrite = time.Now()
+
+		// high dummy values
+		limits.RemainingTokens = DefaultTPM
+		limits.LimitTokens = DefaultTPM
+		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
+	}
+
+	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	initialRL.ResetAfterRequestFunction() // set initial values
+
+	return initialRL
 }
 
 func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) string {
