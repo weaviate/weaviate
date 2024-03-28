@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
@@ -35,7 +35,7 @@ const (
 	OpenAIMaxTimePerBatch = float64(10)
 )
 
-func New(client text2vecBase.BatchClient, logger logrus.FieldLogger) *text2vecBase.BatchVectorizer {
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
 	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
@@ -60,7 +60,7 @@ func New(client text2vecBase.BatchClient, logger logrus.FieldLogger) *text2vecBa
 		return texts, tokenCounts, skipAll, nil
 	}
 
-	return text2vecBase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed

@@ -15,7 +15,7 @@ import (
 	"context"
 	"time"
 
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
@@ -31,7 +31,7 @@ const (
 	MaxTimePerBatch    = float64(10)
 )
 
-func New(client text2vecBase.BatchClient, logger logrus.FieldLogger) *text2vecBase.BatchVectorizer {
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
 	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
 		texts := make([]string, len(objects))
 		tokenCounts := make([]int, len(objects))
@@ -51,7 +51,7 @@ func New(client text2vecBase.BatchClient, logger logrus.FieldLogger) *text2vecBa
 		return texts, tokenCounts, skipAll, nil
 	}
 
-	return text2vecBase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
