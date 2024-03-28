@@ -26,8 +26,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
-	command "github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
@@ -57,21 +56,22 @@ var (
 	ErrNotLeader      = errors.New("node is not the leader")
 	ErrLeaderNotFound = errors.New("leader not found")
 	ErrNotOpen        = errors.New("store not open")
+	ErrUnknownCommand = errors.New("unknown command")
 )
 
 // Indexer interface updates both the collection and its indices in the filesystem.
 // This is distinct from updating metadata, which is handled through a different interface.
 type Indexer interface {
-	AddClass(cmd.AddClassRequest) error
-	UpdateClass(cmd.UpdateClassRequest) error
+	AddClass(api.AddClassRequest) error
+	UpdateClass(api.UpdateClassRequest) error
 	DeleteClass(string) error
-	AddProperty(class string, req cmd.AddPropertyRequest) error
-	AddTenants(class string, req *cmd.AddTenantsRequest) error
-	UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error
-	DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error
-	UpdateShardStatus(*cmd.UpdateShardStatusRequest) error
+	AddProperty(class string, req api.AddPropertyRequest) error
+	AddTenants(class string, req *api.AddTenantsRequest) error
+	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
+	DeleteTenants(class string, req *api.DeleteTenantsRequest) error
+	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
-	UpdateIndex(cmd.UpdateClassRequest) error
+	UpdateIndex(api.UpdateClassRequest) error
 	Open(context.Context) error
 	Close(context.Context) error
 }
@@ -195,41 +195,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 	defer func() { st.open.Store(err == nil) }()
 
-	if err = os.MkdirAll(st.raftDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", st.raftDir, err)
-	}
-
-	// log store
-	st.logStore, err = raftbolt.NewBoltStore(filepath.Join(st.raftDir, raftDBName))
-	if err != nil {
-		return fmt.Errorf("raft: bolt db: %w", err)
-	}
-
 	// log cache
-	logCache, err := raft.NewLogCache(logCacheCapacity, st.logStore)
+	logCache, err := st.init()
 	if err != nil {
-		return fmt.Errorf("raft: log cache: %w", err)
+		return fmt.Errorf("initialize raft store: %w", err)
 	}
-
-	// file snapshot store
-	st.snapshotStore, err = raft.NewFileSnapshotStore(st.raftDir, nRetainedSnapShots, os.Stdout)
-	if err != nil {
-		return fmt.Errorf("raft: file snapshot store: %w", err)
-	}
-
-	// tcp transport
-	address := fmt.Sprintf("%s:%d", st.host, st.raftPort)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
-	if err != nil {
-		return fmt.Errorf("net.ResolveTCPAddr address=%v: %w", address, err)
-	}
-
-	st.transport, err = st.addResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout)
-	if err != nil {
-		return fmt.Errorf("raft.NewTCPTransport  address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
-	}
-
-	st.log.Info("raft tcp transport", "address", address, "tcpMaxPool", tcpMaxPool, "tcpTimeout", tcpTimeout)
 
 	rLog := rLog{st.logStore}
 	st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
@@ -244,7 +214,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.log.Info("construct a new raft node")
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.transport)
 	if err != nil {
-		return fmt.Errorf("raft.NewRaft %v %w", address, err)
+		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
 
 	st.log.Info("raft node",
@@ -256,6 +226,46 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	go st.onLeaderFound(st.migrationTimeout)
 
 	return nil
+}
+
+func (st *Store) init() (logCache *raft.LogCache, err error) {
+	if err = os.MkdirAll(st.raftDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir %s: %w", st.raftDir, err)
+	}
+
+	// log store
+	st.logStore, err = raftbolt.NewBoltStore(filepath.Join(st.raftDir, raftDBName))
+	if err != nil {
+		return nil, fmt.Errorf("bolt db: %w", err)
+	}
+
+	// log cache
+	logCache, err = raft.NewLogCache(logCacheCapacity, st.logStore)
+	if err != nil {
+		return nil, fmt.Errorf("log cache: %w", err)
+	}
+
+	// file snapshot store
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.raftDir, nRetainedSnapShots, os.Stdout)
+	if err != nil {
+		return nil, fmt.Errorf("file snapshot store: %w", err)
+	}
+
+	// tcp transport
+	address := fmt.Sprintf("%s:%d", st.host, st.raftPort)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
+	}
+
+	st.transport, err = st.addResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
+			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
+	}
+	st.log.Info("tcp transport", "address", address, "tcpMaxPool", tcpMaxPool, "tcpTimeout", tcpTimeout)
+
+	return
 }
 
 // onLeaderFound execute specific tasks when the leader is detected
@@ -391,14 +401,14 @@ func (st *Store) Leader() string {
 	return string(add)
 }
 
-func (st *Store) Execute(req *cmd.ApplyRequest) error {
+func (st *Store) Execute(req *api.ApplyRequest) error {
 	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
 
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("marshal command: %w", err)
 	}
-	if req.Type == cmd.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
+	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
 		st.log.Info("class already restored", "class", req.Class)
 		return nil
 	}
@@ -425,7 +435,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		st.log.Info("not a valid command", "type", l.Type, "index", l.Index)
 		return ret
 	}
-	cmd := command.ApplyRequest{}
+	cmd := api.ApplyRequest{}
 	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
 		st.log.Error("decode command: " + err.Error())
 		panic("error proto un-marshalling log data")
@@ -446,35 +456,35 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	switch cmd.Type {
 
-	case command.ApplyRequest_TYPE_ADD_CLASS:
+	case api.ApplyRequest_TYPE_ADD_CLASS:
 		ret.Error = st.db.AddClass(&cmd, st.nodeID, schemaOnly)
 
-	case command.ApplyRequest_TYPE_RESTORE_CLASS:
+	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		err := st.db.AddClass(&cmd, st.nodeID, schemaOnly)
 		if err == nil || !errors.Is(err, errClassExists) {
 			ret.Error = err
 		}
 		st.log.Info("class already restored", "class", cmd.Class, "op", "apply_restore")
 
-	case command.ApplyRequest_TYPE_UPDATE_CLASS:
+	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		ret.Error = st.db.UpdateClass(&cmd, st.nodeID, schemaOnly)
 
-	case command.ApplyRequest_TYPE_DELETE_CLASS:
+	case api.ApplyRequest_TYPE_DELETE_CLASS:
 		ret.Error = st.db.DeleteClass(&cmd, schemaOnly)
 
-	case command.ApplyRequest_TYPE_ADD_PROPERTY:
+	case api.ApplyRequest_TYPE_ADD_PROPERTY:
 		ret.Error = st.db.AddProperty(&cmd, schemaOnly)
 
-	case command.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
+	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
 		ret.Error = st.db.UpdateShardStatus(&cmd, schemaOnly)
 
-	case command.ApplyRequest_TYPE_ADD_TENANT:
+	case api.ApplyRequest_TYPE_ADD_TENANT:
 		ret.Error = st.db.AddTenants(&cmd, schemaOnly)
 
-	case command.ApplyRequest_TYPE_UPDATE_TENANT:
+	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		ret.Data, ret.Error = st.db.UpdateTenants(&cmd, schemaOnly)
 
-	case command.ApplyRequest_TYPE_DELETE_TENANT:
+	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
 	default:
 		// This could occur when a new command has been introduced in a later app version
