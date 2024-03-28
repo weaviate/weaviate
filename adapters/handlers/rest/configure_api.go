@@ -324,17 +324,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	// TODO-RAFT START
-
-	err = appState.CloudService.Open(ctx, executor)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not open cloud meta store")
-	}
-	// TODO-RAFT END
-
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
@@ -356,6 +345,21 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("migration failed")
 		os.Exit(1)
 	}
+
+	// TODO-RAFT START
+	go func() {
+		err = appState.CloudService.Open(context.Background(), executor)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+		// manually update schema once
+		updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
+		configureServer = makeConfigureServer(appState)
+	}()
+	// TODO-RAFT END
 
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNames := []string{}
@@ -394,10 +398,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't initialize")
 	}
-
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {

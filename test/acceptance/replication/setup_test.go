@@ -15,12 +15,32 @@ import (
 	"testing"
 )
 
-func TestReplication(t *testing.T) {
+func TestReplication_ImmediateReplicaCRUD(t *testing.T) {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("immediate replica CRUD", immediateReplicaCRUD)
+}
+
+func TestReplication_EventualReplicaCRUD(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("eventual replica CRUD", eventualReplicaCRUD)
+}
+
+func TestReplication_MultiShardScaleOut(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("multishard scale out", multiShardScaleOut)
+}
+
+func TestReplication_ReadRepair(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("read repair", readRepair)
+}
+
+func TestReplication_GraphqlSearch(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("graphql search", graphqlSearch)
+}
+
+func TestReplication_MultiTenancyEnabled(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("multi-tenancy enabled", multiTenancyEnabled)
 }
