@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
@@ -38,8 +38,8 @@ func New() *HuggingFaceModule {
 }
 
 type HuggingFaceModule struct {
-	vectorizer                   text2vecBase.TextVectorizer
-	metaProvider                 text2vecBase.MetaProvider
+	vectorizer                   text2vecbase.TextVectorizer
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform

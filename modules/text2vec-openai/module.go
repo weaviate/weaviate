@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -40,8 +40,8 @@ func New() *OpenAIModule {
 }
 
 type OpenAIModule struct {
-	vectorizer                   text2vecBase.TextVectorizerBatch
-	metaProvider                 text2vecBase.MetaProvider
+	vectorizer                   text2vecbase.TextVectorizerBatch
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
