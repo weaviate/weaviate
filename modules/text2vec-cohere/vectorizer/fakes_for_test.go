@@ -67,12 +67,12 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 
 func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	return &modulecomponents.VectorizationResult{
 		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
-	}, nil, nil
+	}, nil
 }
 
 func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
@@ -102,14 +102,14 @@ func (c *fakeClient) Vectorize(ctx context.Context,
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &modulecomponents.VectorizationResult{
 		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
-	}, nil, nil
+	}, nil
 }
 
 func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {

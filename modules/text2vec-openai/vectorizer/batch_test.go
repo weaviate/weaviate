@@ -84,7 +84,7 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := New(client, 1*time.Second, logger) // avoid waiting for rate limit
+			v := New(client, logger) // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
