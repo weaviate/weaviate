@@ -349,6 +349,9 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	}
 	addProps, ok := add.(models.AdditionalProperties)
 	if !ok {
+		addProps, ok = add.(map[string]interface{})
+	}
+	if !ok {
 		return nil, "", fmt.Errorf("cannot parse _additional %v", add)
 	}
 	groupRaw, ok := addProps["group"]
