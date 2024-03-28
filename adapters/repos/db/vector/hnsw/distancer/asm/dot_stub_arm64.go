@@ -27,23 +27,23 @@ import (
 func Dot(x []float32, y []float32) float32 {
 	switch len(x) {
 	case 2:
-		return dot2(x, y)
+		return dot2[float32, float32](x, y)
 	case 4:
-		return dot4(x, y)
+		return dot4[float32, float32](x, y)
 	case 6:
-		return dot6(x, y)
+		return dot6[float32, float32](x, y)
 	case 8:
 		// manually inlined dot8(x, y)
 		sum := x[7]*y[7] + x[6]*y[6]
-		return dot6(x, y) + sum
+		return dot6[float32, float32](x, y) + sum
 	case 10:
 		// manually inlined dot10(x, y)
 		sum := x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
-		return dot6(x, y) + sum
+		return dot6[float32, float32](x, y) + sum
 	case 12:
 		// manually inlined dot12(x, y)
 		sum := x[11]*y[11] + x[10]*y[10] + x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
-		return dot6(x, y) + sum
+		return dot6[float32, float32](x, y) + sum
 	}
 
 	var res float32
