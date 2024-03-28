@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vec-base"
+	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 

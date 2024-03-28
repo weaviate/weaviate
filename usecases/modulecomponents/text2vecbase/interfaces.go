@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package text2vecBase
+package text2vecbase
 
 import (
 	"context"

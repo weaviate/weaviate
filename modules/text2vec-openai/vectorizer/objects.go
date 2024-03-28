@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vec-base"
+	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"

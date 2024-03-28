@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 
-	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vec-base"
+	text2vecBase "github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
