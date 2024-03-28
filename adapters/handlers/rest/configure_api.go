@@ -355,11 +355,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				WithError(err).
 				Fatal("could not open cloud meta store")
 		}
-		updateSchemaCallback = makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
-		executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 		// manually update schema once
 		updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
-
+		configureServer = makeConfigureServer(appState)
 	}()
 	// TODO-RAFT END
 
@@ -400,9 +398,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't initialize")
 	}
-
-	// manually update schema once
-	updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
