@@ -879,7 +879,6 @@ func (x *Hybrid) GetNearVector() *NearVector {
 	return nil
 }
 
-
 func (x *Hybrid) GetGroupBy() *GroupBy {
 	if x != nil {
 		return x.GroupBy
