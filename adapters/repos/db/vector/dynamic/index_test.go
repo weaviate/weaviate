@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -32,6 +33,8 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+var logger, _ = test.NewNullLogger()
+
 func TestDynamic(t *testing.T) {
 	dimensions := 20
 	vectors_size := 10_000
@@ -42,8 +45,8 @@ func TestDynamic(t *testing.T) {
 	rootPath := t.TempDir()
 	distancer := distancer.NewL2SquaredProvider()
 	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
 	})
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
@@ -78,7 +81,7 @@ func TestDynamic(t *testing.T) {
 	}, testinghelpers.NewDummyStore(t))
 	assert.Nil(t, err)
 
-	compressionhelpers.Concurrently(uint64(vectors_size), func(i uint64) {
+	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		dynamic.Add(i, vectors[i])
 	})
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
@@ -108,7 +111,7 @@ func recallAndLatency(queries [][]float32, k int, index dynamic.VectorIndex, tru
 
 	var querying time.Duration = 0
 	mutex := &sync.Mutex{}
-	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		before := time.Now()
 		results, _, _ := index.SearchByVector(queries[i], k, nil)
 		ellapsed := time.Since(before)

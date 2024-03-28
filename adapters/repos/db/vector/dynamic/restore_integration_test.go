@@ -41,8 +41,8 @@ func TestBackup_Integration(t *testing.T) {
 	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
 	truths := make([][]uint64, queries_size)
 	distancer := distancer.NewL2SquaredProvider()
-	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
 	})
 	logger, _ := test.NewNullLogger()
 
@@ -92,7 +92,7 @@ func TestBackup_Integration(t *testing.T) {
 	require.Nil(t, err)
 	idx.PostStartup()
 
-	compressionhelpers.Concurrently(uint64(vectors_size), func(i uint64) {
+	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(i, vectors[i])
 	})
 
