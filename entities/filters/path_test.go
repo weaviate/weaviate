@@ -139,7 +139,7 @@ func Test_SlicePath(t *testing.T) {
 
 		t.Run("as []string non-titleized", func(t *testing.T) {
 			expectedSegments := []string{"inCountry", "Country", "inContinent", "Continent", "onPlanet", "Planet", "name"}
-			segments := path.SliceNonTitleized()
+			segments := path.Slice()
 			assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
 		})
 	})

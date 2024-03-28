@@ -56,7 +56,7 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 	})
 
-	tests := []struct {
+	propsTests := []struct {
 		name string
 		req  *pb.SearchRequest
 	}{
@@ -101,7 +101,7 @@ func TestGRPC(t *testing.T) {
 			},
 		},
 	}
-	for _, tt := range tests {
+	for _, tt := range propsTests {
 		t.Run(tt.name, func(t *testing.T) {
 			scifi := "sci-fi"
 			resp, err := grpcClient.Search(context.TODO(), tt.req)
@@ -192,6 +192,72 @@ func TestGRPC(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Search with hybrid", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			HybridSearch: &pb.Hybrid{
+				Query: "Dune",
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetStringValue(), "Dune")
+	})
+
+	t.Run("Search with hybrid and group by", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			GroupBy: &pb.GroupBy{
+				Path:            []string{"title"},
+				NumberOfGroups:  1,
+				ObjectsPerGroup: 1,
+			},
+			HybridSearch: &pb.Hybrid{
+				Query: "Dune",
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.GroupByResults)
+		require.Len(t, resp.GroupByResults, 1)
+	})
+
+	t.Run("Search with near text", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			NearText: &pb.NearTextSearch{
+				Query: []string{"Dune"},
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetStringValue(), "Dune")
+	})
+
+	t.Run("Search with near text and group by", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			GroupBy: &pb.GroupBy{
+				Path:            []string{"title"},
+				NumberOfGroups:  1,
+				ObjectsPerGroup: 1,
+			},
+			NearText: &pb.NearTextSearch{
+				Query: []string{"Dune"},
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.GroupByResults)
+		require.Len(t, resp.GroupByResults, 1)
+	})
 
 	t.Run("Batch delete", func(t *testing.T) {
 		resp, err := grpcClient.BatchDelete(context.TODO(), &pb.BatchDeleteRequest{

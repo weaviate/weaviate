@@ -117,7 +117,6 @@ message Hybrid {
   repeated string target_vectors = 7;
   NearTextSearch near_text = 8;
   NearVector near_vector = 9;
-
 }
 
 message NearTextSearch {
