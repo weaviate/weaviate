@@ -19,9 +19,10 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	generative "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -166,13 +167,13 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	}
 
 	if generativeSearchEnabled {
-		var generateFmt *models.GenerateResult
+		var generateFmt *additionalModels.GenerateResult
 
 		generate, ok := additionalPropertiesMap["generate"]
 		if !ok {
-			generateFmt = &models.GenerateResult{}
+			generateFmt = &additionalModels.GenerateResult{}
 		} else {
-			generateFmt, ok = generate.(*models.GenerateResult)
+			generateFmt, ok = generate.(*additionalModels.GenerateResult)
 			if !ok {
 				return nil, "", errors.New("could not cast generative result additional prop")
 			}
@@ -212,7 +213,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if !ok {
 			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
 		}
-		rerankFmt, ok := rerank.([]*models.RankResult)
+		rerankFmt, ok := rerank.([]*additionalModels.RankResult)
 		if !ok {
 			return nil, "", errors.New("could not cast rerank result additional prop")
 		}
@@ -346,15 +347,16 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	if !ok {
 		return nil, "", fmt.Errorf("_additional is required for groups %v", asMap)
 	}
-	addAsMap, ok := add.(map[string]interface{})
+	addProps, ok := add.(models.AdditionalProperties)
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse _additional %v", add)
 	}
-	groupRaw, ok := addAsMap["group"]
+	groupRaw, ok := addProps["group"]
 	if !ok {
-		return nil, "", fmt.Errorf("group is not present %v", addAsMap)
+		return nil, "", fmt.Errorf("group is not present %v", addProps)
 	}
 	group, ok := groupRaw.(*additional.Group)
+	fmt.Printf("%v+\n", group)
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse _additional %v", groupRaw)
 	}
@@ -368,13 +370,13 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 
 	groupedGenerativeResults := ""
 	if generativeSearchEnabled {
-		var generateFmt *models.GenerateResult
+		var generateFmt *additionalModels.GenerateResult
 
-		generate, ok := addAsMap["generate"]
+		generate, ok := addProps["generate"]
 		if !ok {
-			generateFmt = &models.GenerateResult{}
+			generateFmt = &additionalModels.GenerateResult{}
 		} else {
-			generateFmt, ok = generate.(*models.GenerateResult)
+			generateFmt, ok = generate.(*additionalModels.GenerateResult)
 			if !ok {
 				return nil, "", errors.New("could not cast generative result additional prop")
 			}
@@ -405,11 +407,11 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	}
 
 	if rerankEnabled {
-		rerankRaw, ok := addAsMap["rerank"]
+		rerankRaw, ok := addProps["rerank"]
 		if !ok {
-			return nil, "", fmt.Errorf("rerank is not present %v", addAsMap)
+			return nil, "", fmt.Errorf("rerank is not present %v", addProps)
 		}
-		rerank, ok := rerankRaw.([]*models.RankResult)
+		rerank, ok := rerankRaw.([]*additionalModels.RankResult)
 		if !ok {
 			return nil, "", fmt.Errorf("cannot parse rerank %v", rerankRaw)
 		}
