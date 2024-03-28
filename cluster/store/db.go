@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	command "github.com/weaviate/weaviate/cluster/proto/cluster"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"

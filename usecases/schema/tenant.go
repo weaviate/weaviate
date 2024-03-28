@@ -18,7 +18,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -81,13 +81,13 @@ func (h *Handler) AddTenants(ctx context.Context,
 			WithField("#requested", len(names)).
 			Tracef("number of partitions for class %q does not match number of requested tenants", class)
 	}
-	request := cluster.AddTenantsRequest{
-		Tenants: make([]*cluster.Tenant, 0, len(partitions)),
+	request := api.AddTenantsRequest{
+		Tenants: make([]*api.Tenant, 0, len(partitions)),
 	}
 	for i, name := range names {
 		part, ok := partitions[name]
 		if ok {
-			request.Tenants = append(request.Tenants, &cluster.Tenant{
+			request.Tenants = append(request.Tenants, &api.Tenant{
 				Name:   name,
 				Nodes:  part,
 				Status: schema.ActivityStatus(validated[i].ActivityStatus),
@@ -171,11 +171,11 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return err
 	}
 
-	req := cluster.UpdateTenantsRequest{
-		Tenants: make([]*cluster.Tenant, len(tenants)),
+	req := api.UpdateTenantsRequest{
+		Tenants: make([]*api.Tenant, len(tenants)),
 	}
 	for i, tenant := range tenants {
-		req.Tenants[i] = &cluster.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
+		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 	return h.metaWriter.UpdateTenants(class, &req)
 }
@@ -199,7 +199,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		return err
 	}
 
-	req := cluster.DeleteTenantsRequest{
+	req := api.DeleteTenantsRequest{
 		Tenants: tenants,
 	}
 

@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	cmd "github.com/weaviate/weaviate/cluster/proto/cluster"
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"google.golang.org/grpc/codes"
@@ -115,6 +115,7 @@ func TestService(t *testing.T) {
 		_, err = client.Apply(addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		assert.Nil(t, err)
 
+		// test client retry
 		n := 0
 		executor.ef = func() error {
 			n++
@@ -133,7 +134,7 @@ func TestService(t *testing.T) {
 		executor.qf = func(*cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, store.ErrLeaderNotFound
 		}
-		_, err := client.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_READONLY_CLASS})
+		_, err := client.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASS})
 		assert.NotNil(t, err)
 		st, ok := status.FromError(err)
 		assert.True(t, ok)
@@ -141,7 +142,7 @@ func TestService(t *testing.T) {
 		assert.ErrorContains(t, st.Err(), store.ErrLeaderNotFound.Error())
 
 		executor.qf = nil
-		_, err = client.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_READONLY_CLASS})
+		_, err = client.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASS})
 		assert.Nil(t, err)
 
 		n := 0
@@ -153,7 +154,7 @@ func TestService(t *testing.T) {
 			return &cmd.QueryResponse{}, nil
 		}
 
-		_, err = client.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_READONLY_CLASS})
+		_, err = client.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASS})
 		assert.Nil(t, err)
 		assert.Greater(t, n, 1)
 	})
@@ -185,7 +186,7 @@ func TestClient(t *testing.T) {
 		assert.ErrorIs(t, err, ErrAny)
 		assert.ErrorContains(t, err, "resolve")
 
-		_, err = c.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_READONLY_CLASS})
+		_, err = c.Query(ctx, addr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASS})
 		assert.ErrorIs(t, err, ErrAny)
 		assert.ErrorContains(t, err, "resolve")
 	})
@@ -210,7 +211,7 @@ func TestClient(t *testing.T) {
 		_, err = c.Apply(badAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		assert.ErrorContains(t, err, "dial")
 
-		_, err = c.Query(ctx, badAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_READONLY_CLASS})
+		_, err = c.Query(ctx, badAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASS})
 		assert.ErrorContains(t, err, "dial")
 	})
 }
