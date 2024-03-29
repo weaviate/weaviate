@@ -81,6 +81,7 @@ func allTests(endpoint string) func(t *testing.T) {
 		t.Run("objects with vectorizer and objects", testCreateSchemaWithVectorizerAndBYOV(endpoint))
 		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
+		t.Run("aggregate", testAggregate(endpoint))
 	}
 }
 
