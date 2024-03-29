@@ -41,13 +41,14 @@ import (
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
 type Explorer struct {
-	searcher         objectsSearcher
-	logger           logrus.FieldLogger
-	modulesProvider  ModulesProvider
-	schemaGetter     uc.SchemaGetter
-	nearParamsVector *nearParamsVector
-	metrics          explorerMetrics
-	config           config.Config
+	searcher          objectsSearcher
+	logger            logrus.FieldLogger
+	modulesProvider   ModulesProvider
+	schemaGetter      uc.SchemaGetter
+	nearParamsVector  *nearParamsVector
+	targetParamHelper *TargetVectorParamHelper
+	metrics           explorerMetrics
+	config            config.Config
 }
 
 type explorerMetrics interface {
@@ -99,13 +100,14 @@ type hybridSearcher interface {
 // NewExplorer with search and connector repo
 func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesProvider ModulesProvider, metrics explorerMetrics, conf config.Config) *Explorer {
 	return &Explorer{
-		searcher:         searcher,
-		logger:           logger,
-		modulesProvider:  modulesProvider,
-		metrics:          metrics,
-		schemaGetter:     nil, // schemaGetter is set later
-		nearParamsVector: newNearParamsVector(modulesProvider, searcher),
-		config:           conf,
+		searcher:          searcher,
+		logger:            logger,
+		modulesProvider:   modulesProvider,
+		metrics:           metrics,
+		schemaGetter:      nil, // schemaGetter is set later
+		nearParamsVector:  newNearParamsVector(modulesProvider, searcher),
+		targetParamHelper: NewTargetParamHelper(),
+		config:            conf,
 	}
 }
 
@@ -212,7 +214,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	targetVector, err = GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
 		params.ClassName, targetVector)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
@@ -694,7 +696,7 @@ func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	targetVector := GetTargetVectorFromParams(params)
+	targetVector := e.targetParamHelper.GetTargetVectorFromParams(params)
 	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err

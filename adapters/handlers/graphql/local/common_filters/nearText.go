@@ -75,15 +75,6 @@ func ExtractNearText(source map[string]interface{}) (searchparams.NearTextParams
 		args.MoveAwayFrom = extractMovement(moveAwayFrom)
 	}
 
-	targetVectors, ok := source["targetVectors"]
-	if ok {
-		targetVectorsArray := targetVectors.([]interface{})
-		args.TargetVectors = make([]string, len(targetVectorsArray))
-		for i, value := range targetVectorsArray {
-			args.TargetVectors[i] = value.(string)
-		}
-	}
-
 	return args, nil
 }
 
