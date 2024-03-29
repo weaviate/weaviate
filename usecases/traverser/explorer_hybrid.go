@@ -165,7 +165,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 	subSearchParams.TargetVectors = []string{targetVector} // TODO support multiple target vectors
 
-
 	subsearchWrap := params
 	if subsearchWrap.ModuleParams == nil {
 		subsearchWrap.ModuleParams = map[string]interface{}{}

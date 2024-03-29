@@ -19,7 +19,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-
 type TargetVectorParamHelper struct{}
 
 func NewTargetParamHelper() *TargetVectorParamHelper {
