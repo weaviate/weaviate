@@ -15,20 +15,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/tiktoken-go"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/sirupsen/logrus"
-
-	"github.com/weaviate/tiktoken-go"
-
-	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
-
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 const (
@@ -38,26 +35,32 @@ const (
 	OpenAIMaxTimePerBatch = float64(10)
 )
 
-type Vectorizer struct {
-	client           Client
-	objectVectorizer *objectsvectorizer.ObjectVectorizer
-	batchVectorizer  *batch.Batch
-}
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
+	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+		texts := make([]string, len(objects))
+		tokenCounts := make([]int, len(objects))
+		icheck := ent.NewClassSettings(cfg)
 
-func New(client Client, maxBatchTime time.Duration, logger logrus.FieldLogger) *Vectorizer {
-	vec := &Vectorizer{
-		client:           client,
-		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  batch.NewBatchVectorizer(client, maxBatchTime, MaxObjectsPerBatch, OpenAIMaxTimePerBatch, logger),
+		tke, err := tiktoken.EncodingForModel(icheck.Model())
+		if err != nil { // fail all objects as they all have the same model
+			return nil, nil, false, err
+		}
+
+		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+		skipAll := true
+		for i := range texts {
+			if skipObject[i] {
+				continue
+			}
+			skipAll = false
+			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			texts[i] = text
+			tokenCounts[i] = clients.GetTokensCount(icheck.Model(), text, tke)
+		}
+		return texts, tokenCounts, skipAll, nil
 	}
 
-	return vec
-}
-
-type Client interface {
-	batch.BatchClient
-	VectorizeQuery(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, error)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -72,58 +75,4 @@ type ClassSettings interface {
 	DeploymentID() string
 	BaseURL() string
 	IsAzure() bool
-}
-
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object, cfg)
-	return vec, nil, err
-}
-
-func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	text := v.objectVectorizer.Texts(ctx, object, ent.NewClassSettings(cfg))
-	res, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(res.Vector) > 1 {
-		return libvectorizer.CombineVectors(res.Vector), nil
-	}
-	return res.Vector[0], nil
-}
-
-func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
-) ([][]float32, map[int]error) {
-	texts := make([]string, len(objects))
-	tokenCounts := make([]int, len(objects))
-	icheck := ent.NewClassSettings(cfg)
-
-	tke, err := tiktoken.EncodingForModel(icheck.Model())
-	if err != nil { // fail all objects as they all have the same model
-		errs := make(map[int]error)
-		for j := range objects {
-			errs[j] = err
-		}
-		return nil, errs
-	}
-
-	// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
-	skipAll := true
-	for i := range objects {
-		if skipObject[i] {
-			continue
-		}
-		skipAll = false
-		text := v.objectVectorizer.Texts(ctx, objects[i], icheck)
-		texts[i] = text
-		tokenCounts[i] = clients.GetTokensCount(icheck.Model(), text, tke)
-	}
-
-	if skipAll {
-		return make([][]float32, len(objects)), make(map[int]error)
-	}
-
-	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }
