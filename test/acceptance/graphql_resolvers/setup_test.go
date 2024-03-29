@@ -133,6 +133,7 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, duplicatesClassName)
 	deleteObjectClass(t, noPropsClassName)
 	deleteObjectClass(t, "CursorClass")
+	deleteObjectClass(t, "CompanyGroup")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -145,12 +146,6 @@ func testGraphQL(t *testing.T) {
 }
 
 func TestGroupBy(t *testing.T) {
-	defer func() {
-		// tear down
-		deleteObjectClass(t, "CompanyGroup")
-		deleteObjectClass(t, "RansomNote")
-	}()
-	// setup tests
 
 	t.Run("setup test schema", addTestSchema)
 
@@ -160,6 +155,22 @@ func TestGroupBy(t *testing.T) {
 	t.Run("groupBy objects with bm25", groupByBm25)
 	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
 	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
+
+	deleteObjectClass(t, "Person")
+	deleteObjectClass(t, "Pizza")
+	deleteObjectClass(t, "Country")
+	deleteObjectClass(t, "City")
+	deleteObjectClass(t, "Airport")
+	deleteObjectClass(t, "Company")
+	deleteObjectClass(t, "RansomNote")
+	deleteObjectClass(t, "MultiShard")
+	deleteObjectClass(t, "HasDateField")
+	deleteObjectClass(t, arrayClassName)
+	deleteObjectClass(t, duplicatesClassName)
+	deleteObjectClass(t, noPropsClassName)
+	deleteObjectClass(t, "CursorClass")
+	deleteObjectClass(t, "CompanyGroup")
+	deleteObjectClass(t, "CustomVectorClass")
 }
 
 func boolRef(a bool) *bool {
