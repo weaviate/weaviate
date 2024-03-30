@@ -34,6 +34,7 @@ const (
 	OperatorIsNull
 	ContainsAny
 	ContainsAll
+	ContainsNone
 )
 
 func (o Operator) OnValue() bool {

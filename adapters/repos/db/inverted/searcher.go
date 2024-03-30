@@ -642,31 +642,31 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 		if err != nil {
 			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueStringArray)
+		operands = getContainsOperands(operator, propType, path, valueStringArray)
 	case schema.DataTypeInt, schema.DataTypeIntArray:
 		valueIntArray, err := s.extractIntArray(value)
 		if err != nil {
 			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueIntArray)
+		operands = getContainsOperands(operator, propType, path, valueIntArray)
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
 		valueFloat64Array, err := s.extractFloat64Array(value)
 		if err != nil {
 			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueFloat64Array)
+		operands = getContainsOperands(operator, propType, path, valueFloat64Array)
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
 		valueBooleanArray, err := s.extractBoolArray(value)
 		if err != nil {
 			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueBooleanArray)
+		operands = getContainsOperands(operator, propType, path, valueBooleanArray)
 	case schema.DataTypeDate, schema.DataTypeDateArray:
 		valueDateArray, err := s.extractStringArray(value)
 		if err != nil {
 			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueDateArray)
+		operands = getContainsOperands(operator, propType, path, valueDateArray)
 	default:
 		return nil, fmt.Errorf("unsupported type '%T' for '%v' operator", propType, operator)
 	}
@@ -682,7 +682,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	out.children = children
 	// filters.ContainsAny
 	out.operator = filters.OperatorOr
-	if operator == filters.ContainsAll {
+	if operator == filters.ContainsAll || operator == filters.ContainsNone {
 		out.operator = filters.OperatorAnd
 	}
 	out.Class = class
@@ -813,11 +813,15 @@ func (s *Searcher) extractBoolArray(value interface{}) ([]bool, error) {
 	}
 }
 
-func getContainsOperands[T any](propType schema.DataType, path *filters.Path, values []T) []filters.Clause {
+func getContainsOperands[T any](operator filters.Operator, propType schema.DataType, path *filters.Path, values []T) []filters.Clause {
+	clauseOperator := filters.OperatorEqual
+	if operator == filters.ContainsNone {
+		clauseOperator = filters.OperatorNotEqual
+	}
 	operands := make([]filters.Clause, len(values))
 	for i := range values {
 		operands[i] = filters.Clause{
-			Operator: filters.OperatorEqual,
+			Operator: clauseOperator,
 			On:       path,
 			Value: &filters.Value{
 				Type:  propType,
