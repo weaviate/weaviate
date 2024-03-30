@@ -37,7 +37,7 @@ type WhereFilter struct {
 
 	// operator to use
 	// Example: GreaterThanEqual
-	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll]
+	// Enum: [And Or Equal Like NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange IsNull ContainsAny ContainsAll ContainsNone]
 	Operator string `json:"operator,omitempty"`
 
 	// path to the property currently being filtered
@@ -148,7 +148,7 @@ var whereFilterTypeOperatorPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll","ContainsNone"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -196,6 +196,9 @@ const (
 
 	// WhereFilterOperatorContainsAll captures enum value "ContainsAll"
 	WhereFilterOperatorContainsAll string = "ContainsAll"
+
+	// WhereFilterOperatorContainsNone captures enum value "ContainsNone"
+	WhereFilterOperatorContainsNone string = "ContainsNone"
 )
 
 // prop value enum

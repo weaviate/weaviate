@@ -4819,7 +4819,8 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone"
           ],
           "example": "GreaterThanEqual"
         },
@@ -10178,7 +10179,8 @@ func init() {
             "WithinGeoRange",
             "IsNull",
             "ContainsAny",
-            "ContainsAll"
+            "ContainsAll",
+            "ContainsNone"
           ],
           "example": "GreaterThanEqual"
         },

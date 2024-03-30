@@ -205,7 +205,7 @@ func validateUUIDOperators(propName schema.PropertyName, cw *clauseWrapper) erro
 
 	switch op {
 	case OperatorEqual, OperatorNotEqual, OperatorLessThan, OperatorLessThanEqual,
-		OperatorGreaterThan, OperatorGreaterThanEqual, ContainsAll, ContainsAny:
+		OperatorGreaterThan, OperatorGreaterThanEqual, ContainsAll, ContainsAny, ContainsNone:
 		return nil
 	default:
 		return fmt.Errorf("operator %q cannot be used on uuid/uuid[] props", op.Name())

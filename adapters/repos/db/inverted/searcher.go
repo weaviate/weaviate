@@ -225,7 +225,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 		return out, nil
 	}
 
-	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll {
+	if filter.Operator == filters.ContainsAny || filter.Operator == filters.ContainsAll || filter.Operator == filters.ContainsNone {
 		return s.extractContains(filter.On, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
