@@ -276,7 +276,7 @@ func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, 
 	mod := p.GetByName(moduleName)
 
 	_, okVec := mod.(modulecapabilities.Vectorizer)
-	if class.VectorConfig == nil || okVec {
+	if class.VectorConfig == nil || !okVec {
 		return
 	}
 
