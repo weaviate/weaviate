@@ -550,13 +550,13 @@ func (p *Provider) ListObjectsAdditionalExtend(ctx context.Context,
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
 func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}, 
+	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
-func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error) {
+func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
