@@ -178,6 +178,7 @@ func (b *Batch) batchWorker() {
 
 			start := time.Now()
 			_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, tokensInCurrentBatch)
+			fmt.Println("Batch took: ", time.Since(start).Seconds(), "s, with ", len(texts), "texts. Remaining reqs: ", rateLimit.RemainingRequests)
 
 			batchTookInS = time.Since(start).Seconds()
 			if tokensInCurrentBatch > 0 {
