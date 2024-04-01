@@ -145,7 +145,6 @@ func testGraphQL(t *testing.T) {
 }
 
 func TestGroupBy(t *testing.T) {
-
 	t.Run("setup test schema", addTestSchema)
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
