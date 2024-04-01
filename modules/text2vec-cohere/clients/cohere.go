@@ -196,7 +196,7 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponen
 		}
 	}
 
-	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
 			limits.RemainingRequests -= 1
@@ -215,7 +215,7 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponen
 	}
 
 	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
-	initialRL.ResetAfterRequestFunction() // set initial values
+	initialRL.ResetAfterRequestFunction(0) // set initial values
 
 	return initialRL
 }

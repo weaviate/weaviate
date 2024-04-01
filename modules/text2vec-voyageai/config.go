@@ -14,16 +14,17 @@ package modvoyageai
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/text2vec-voyageai/vectorizer"
 )
 
 func (m *VoyageAIModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
+		"vectorizeClassName": ent.DefaultVectorizeClassName,
 	}
 }
 
@@ -31,15 +32,15 @@ func (m *VoyageAIModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"skip":                  !vectorizer.DefaultPropertyIndexed,
-		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
+		"skip":                  !ent.DefaultPropertyIndexed,
+		"vectorizePropertyName": ent.DefaultVectorizePropertyName,
 	}
 }
 
 func (m *VoyageAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	settings := vectorizer.NewClassSettings(cfg)
+	settings := ent.NewClassSettings(cfg)
 	return settings.Validate(class)
 }
 
