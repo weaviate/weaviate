@@ -15,6 +15,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,6 +37,8 @@ func TestVectorizingObjects(t *testing.T) {
 		excludedClass       string // to simulate a schema where class names aren't vectorized
 		jinaAIModel         string
 	}
+
+	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -174,7 +179,7 @@ func TestVectorizingObjects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, logger)
 
 			ic := &fakeClassConfig{
 				excludedProperty:      test.excludedProperty,
@@ -183,12 +188,13 @@ func TestVectorizingObjects(t *testing.T) {
 				jinaAIModel:           test.jinaAIModel,
 				vectorizePropertyName: true,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic, ent.NewClassSettings(ic))
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
-			assert.Equal(t, client.lastConfig.Model, test.expectedJinaAIModel)
+			config := ent.NewClassSettings(client.lastConfig)
+			assert.Equal(t, config.Model(), test.expectedJinaAIModel)
 		})
 	}
 }
@@ -203,7 +209,7 @@ func TestClassSettings(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: make(map[string]interface{}),
 			},
-			expectedBaseURL: DefaultBaseURL,
+			expectedBaseURL: ent.DefaultBaseURL,
 		},
 		{
 			cfg: fakeClassConfig{
@@ -216,7 +222,7 @@ func TestClassSettings(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		ic := NewClassSettings(tt.cfg)
+		ic := ent.NewClassSettings(tt.cfg)
 		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
 	}
 }
