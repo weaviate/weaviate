@@ -200,7 +200,11 @@ type nodeResolver struct {
 }
 
 func (r nodeResolver) AllNames() []string {
-	panic("node resolving not implemented yet")
+	xs := []string{}
+	for _, n := range *r.nodes {
+		xs = append(xs, n.name)
+	}
+	return xs
 }
 
 func (r nodeResolver) Candidates() []string {

@@ -1635,34 +1635,31 @@ func file_v1_base_proto_rawDescGZIP() []byte {
 	return file_v1_base_proto_rawDescData
 }
 
-var (
-	file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-	file_v1_base_proto_msgTypes  = make([]protoimpl.MessageInfo, 18)
-	file_v1_base_proto_goTypes   = []interface{}{
-		(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
-		(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
-		(*NumberArrayProperties)(nil),       // 2: weaviate.v1.NumberArrayProperties
-		(*IntArrayProperties)(nil),          // 3: weaviate.v1.IntArrayProperties
-		(*TextArrayProperties)(nil),         // 4: weaviate.v1.TextArrayProperties
-		(*BooleanArrayProperties)(nil),      // 5: weaviate.v1.BooleanArrayProperties
-		(*ObjectPropertiesValue)(nil),       // 6: weaviate.v1.ObjectPropertiesValue
-		(*ObjectArrayProperties)(nil),       // 7: weaviate.v1.ObjectArrayProperties
-		(*ObjectProperties)(nil),            // 8: weaviate.v1.ObjectProperties
-		(*TextArray)(nil),                   // 9: weaviate.v1.TextArray
-		(*IntArray)(nil),                    // 10: weaviate.v1.IntArray
-		(*NumberArray)(nil),                 // 11: weaviate.v1.NumberArray
-		(*BooleanArray)(nil),                // 12: weaviate.v1.BooleanArray
-		(*Filters)(nil),                     // 13: weaviate.v1.Filters
-		(*FilterReferenceSingleTarget)(nil), // 14: weaviate.v1.FilterReferenceSingleTarget
-		(*FilterReferenceMultiTarget)(nil),  // 15: weaviate.v1.FilterReferenceMultiTarget
-		(*FilterReferenceCount)(nil),        // 16: weaviate.v1.FilterReferenceCount
-		(*FilterTarget)(nil),                // 17: weaviate.v1.FilterTarget
-		(*GeoCoordinatesFilter)(nil),        // 18: weaviate.v1.GeoCoordinatesFilter
-		(*Vectors)(nil),                     // 19: weaviate.v1.Vectors
-		(*structpb.Struct)(nil),             // 20: google.protobuf.Struct
-	}
-)
-
+var file_v1_base_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_v1_base_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_v1_base_proto_goTypes = []interface{}{
+	(ConsistencyLevel)(0),               // 0: weaviate.v1.ConsistencyLevel
+	(Filters_Operator)(0),               // 1: weaviate.v1.Filters.Operator
+	(*NumberArrayProperties)(nil),       // 2: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),          // 3: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),         // 4: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),      // 5: weaviate.v1.BooleanArrayProperties
+	(*ObjectPropertiesValue)(nil),       // 6: weaviate.v1.ObjectPropertiesValue
+	(*ObjectArrayProperties)(nil),       // 7: weaviate.v1.ObjectArrayProperties
+	(*ObjectProperties)(nil),            // 8: weaviate.v1.ObjectProperties
+	(*TextArray)(nil),                   // 9: weaviate.v1.TextArray
+	(*IntArray)(nil),                    // 10: weaviate.v1.IntArray
+	(*NumberArray)(nil),                 // 11: weaviate.v1.NumberArray
+	(*BooleanArray)(nil),                // 12: weaviate.v1.BooleanArray
+	(*Filters)(nil),                     // 13: weaviate.v1.Filters
+	(*FilterReferenceSingleTarget)(nil), // 14: weaviate.v1.FilterReferenceSingleTarget
+	(*FilterReferenceMultiTarget)(nil),  // 15: weaviate.v1.FilterReferenceMultiTarget
+	(*FilterReferenceCount)(nil),        // 16: weaviate.v1.FilterReferenceCount
+	(*FilterTarget)(nil),                // 17: weaviate.v1.FilterTarget
+	(*GeoCoordinatesFilter)(nil),        // 18: weaviate.v1.GeoCoordinatesFilter
+	(*Vectors)(nil),                     // 19: weaviate.v1.Vectors
+	(*structpb.Struct)(nil),             // 20: google.protobuf.Struct
+}
 var file_v1_base_proto_depIdxs = []int32{
 	20, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	2,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties

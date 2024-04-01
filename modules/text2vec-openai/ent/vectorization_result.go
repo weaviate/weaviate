@@ -15,24 +15,11 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
-type RateLimits struct {
-	LimitRequests     int
-	LimitTokens       int
-	RemainingRequests int
-	RemainingTokens   int
-	ResetRequests     int
-	ResetTokens       int
-}
-type VectorizationResult struct {
-	Text       []string
-	Dimensions int
-	Vector     [][]float32
-	Errors     []error
-}
-
-func GetRateLimitsFromHeader(header http.Header) *RateLimits {
+func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 	requestsReset, err := time.ParseDuration(header.Get("x-ratelimit-reset-requests"))
 	if err != nil {
 		requestsReset = 0
@@ -41,13 +28,13 @@ func GetRateLimitsFromHeader(header http.Header) *RateLimits {
 	if err != nil {
 		tokensReset = 0
 	}
-	return &RateLimits{
+	return &modulecomponents.RateLimits{
 		LimitRequests:     getHeaderInt(header, "x-ratelimit-limit-requests"),
 		LimitTokens:       getHeaderInt(header, "x-ratelimit-limit-tokens"),
 		RemainingRequests: getHeaderInt(header, "x-ratelimit-remaining-requests"),
 		RemainingTokens:   getHeaderInt(header, "x-ratelimit-remaining-tokens"),
-		ResetRequests:     int(requestsReset.Seconds()),
-		ResetTokens:       int(tokensReset.Seconds()),
+		ResetRequests:     time.Now().Add(requestsReset),
+		ResetTokens:       time.Now().Add(tokensReset),
 	}
 }
 
