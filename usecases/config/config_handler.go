@@ -195,7 +195,7 @@ type Profiling struct {
 	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
 	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
 	Disabled             bool `json:"disabled" yaml:"disabled"`
-  Port                 int `json:"port" yaml:"port"`
+	Port                 int  `json:"port" yaml:"port"`
 }
 
 type Persistence struct {
