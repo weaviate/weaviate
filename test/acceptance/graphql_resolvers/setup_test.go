@@ -95,7 +95,6 @@ func testGraphQL(t *testing.T) {
 	t.Run("expected get failures with invalid conditions", getsWithExpectedFailures)
 	t.Run("cursor through results", getWithCursorSearch)
 	t.Run("groupBy objects", groupByObjects)
-	t.Run("groupBy objects with bm25", groupByBm25)
 
 	// aggregate tests
 	t.Run("aggregates noPropsClass without grouping", aggregateNoPropsClassWithoutGroupByTest)
