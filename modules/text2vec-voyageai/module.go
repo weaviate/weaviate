@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/text2vec-aws/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
