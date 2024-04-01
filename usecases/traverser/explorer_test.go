@@ -2800,7 +2800,7 @@ func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in
 
 func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{}, class *models.Class,
+	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
 }

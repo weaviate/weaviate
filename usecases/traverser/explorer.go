@@ -68,7 +68,7 @@ type ModulesProvider interface {
 		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
-		argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error)
+		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error)
 }
 
@@ -348,7 +348,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	if e.modulesProvider != nil {
 
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, params.ModuleParams, e.GetClassByName(params.ClassName))
+			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {
 			return nil, errors.Errorf("explorer: list class: extend: %v", err)
 		}
