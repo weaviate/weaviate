@@ -819,19 +819,19 @@ func addTestDataCompanies(t *testing.T) {
 
 	// companies
 	for _, company := range companies {
-		               inCity := []interface{}{}
-               for _, c := range company.inCity {
-                       inCity = append(inCity,
-                               map[string]interface{}{
-                                       "beacon": crossref.NewLocalhost("City", c).String(),
-                               })
-               }
+		inCity := []interface{}{}
+		for _, c := range company.inCity {
+			inCity = append(inCity,
+				map[string]interface{}{
+					"beacon": crossref.NewLocalhost("City", c).String(),
+				})
+		}
 		createObject(t, &models.Object{
 			Class: "Company",
 			ID:    company.id,
 			Properties: map[string]interface{}{
 				"inCity": inCity,
-				"name": company.name,
+				"name":   company.name,
 			},
 		})
 	}

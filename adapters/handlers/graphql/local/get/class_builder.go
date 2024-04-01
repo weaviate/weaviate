@@ -176,8 +176,6 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 			Fields: additionalProperties,
 		}),
 	}
-
-
 }
 
 func groupedByProperty(class *models.Class) *graphql.Object {
