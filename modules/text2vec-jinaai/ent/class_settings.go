@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
 	"fmt"
@@ -70,7 +70,7 @@ func (cs *classSettings) getProperty(name, defaultValue string) string {
 	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
-func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
+func (cs *classSettings) validateIndexState(class *models.Class, settings *classSettings) error {
 	if settings.VectorizeClassName() {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further

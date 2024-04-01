@@ -23,7 +23,7 @@ import (
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	settings := NewClassSettings(cfg)
+	settings := ent.NewClassSettings(cfg)
 	res, err := v.client.VectorizeQuery(ctx, inputs, ent.VectorizationConfig{
 		Model:   settings.Model(),
 		BaseURL: settings.BaseURL(),
