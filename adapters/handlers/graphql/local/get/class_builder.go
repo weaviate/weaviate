@@ -162,20 +162,6 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
-	additionalProperties["groupedBy"] = &graphql.Field{
-		Description: descriptions.AggregateGroupedBy,
-		Type:        groupedByProperty(class),
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			switch typed := p.Source.(type) {
-			case aggregation.Group:
-				return typed.GroupedBy, nil
-			case map[string]interface{}:
-				return typed["groupedBy"], nil
-			default:
-				return nil, fmt.Errorf("groupedBy: unsupported type %T", p.Source)
-			}
-		},
-	}
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
 	}
@@ -346,6 +332,7 @@ func (b *classBuilder) additionalGroupField(classProperties graphql.Fields, clas
 	for name, field := range classProperties {
 		hitsFields[name] = field
 	}
+	
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalGroup", class.Class),
