@@ -15,7 +15,7 @@ import "time"
 
 type RateLimits struct {
 	LastOverwrite        time.Time
-	AfterRequestFunction func(limits *RateLimits, tokensUsed int)
+	AfterRequestFunction func(limits *RateLimits, tokensUsed int, deductRequest bool)
 	LimitRequests        int
 	LimitTokens          int
 	RemainingRequests    int
@@ -26,7 +26,13 @@ type RateLimits struct {
 
 func (rl *RateLimits) ResetAfterRequestFunction(tokensUsed int) {
 	if rl.AfterRequestFunction != nil {
-		rl.AfterRequestFunction(rl, tokensUsed)
+		rl.AfterRequestFunction(rl, tokensUsed, true)
+	}
+}
+
+func (rl *RateLimits) CheckForReset() {
+	if rl.AfterRequestFunction != nil {
+		rl.AfterRequestFunction(rl, 0, false)
 	}
 }
 

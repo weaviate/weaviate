@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -189,31 +188,14 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassCon
 	return sha256.Sum256([]byte(key))
 }
 
-func (v *vectorizer) getRateLimit(ctx context.Context) (int, int) {
-	returnRPM := defaultRPM
-	returnTPM := defaultTPM
-	if rpmS := modulecomponents.GetValueFromContext(ctx, "X-Voyageai-Ratelimit-RequestPM-Embedding"); rpmS != "" {
-		s, err := strconv.Atoi(rpmS)
-		if err == nil {
-			returnRPM = s
-		}
-	}
-	if tpmS := modulecomponents.GetValueFromContext(ctx, "X-Voyageai-Ratelimit-TokenPM-Embedding"); tpmS != "" {
-		s, err := strconv.Atoi(tpmS)
-		if err == nil {
-			returnTPM = s
-		}
-	}
-
-	return returnRPM, returnTPM
-}
-
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
-	rpm, tpm := v.getRateLimit(ctx)
-	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int) {
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Voyageai", defaultRPM, defaultTPM)
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
-			limits.RemainingRequests -= 1
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
 			limits.RemainingTokens -= tokensUsed
 			return
 		}
