@@ -22,7 +22,8 @@ import (
 )
 
 func (t *Traverser) validateExploreDistance(params ExploreParams) error {
-	distType, err := t.validateCrossClassDistanceCompatibility()
+	targetVectors := t.extractTargetVectors(params)
+	distType, err := t.validateCrossClassDistanceCompatibility(targetVectors)
 	if err != nil {
 		return err
 	}
@@ -33,7 +34,7 @@ func (t *Traverser) validateExploreDistance(params ExploreParams) error {
 // ensures that all classes are configured with the same distance type.
 // if all classes are configured with the same type, said type is returned.
 // otherwise an error indicating which classes are configured differently.
-func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, err error) {
+func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []string) (distType string, err error) {
 	s := t.schemaGetter.GetSchemaSkipAuth()
 	if s.Objects == nil {
 		return common.DefaultDistanceMetric, nil
@@ -57,7 +58,7 @@ func (t *Traverser) validateCrossClassDistanceCompatibility() (distType string, 
 			continue
 		}
 
-		vectorConfig, assertErr := schema.TypeAssertVectorIndex(class)
+		vectorConfig, assertErr := schema.TypeAssertVectorIndex(class, targetVectors)
 		if assertErr != nil {
 			err = assertErr
 			return
@@ -102,7 +103,8 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
 
-	vectorConfig, err := schema.TypeAssertVectorIndex(class)
+	targetVector := t.targetVectorParamHelper.GetTargetVectorFromParams(params)
+	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err
 	}
@@ -112,6 +114,16 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 	}
 
 	return nil
+}
+
+func (t *Traverser) extractTargetVectors(params ExploreParams) []string {
+	if params.NearVector != nil {
+		return params.NearVector.TargetVectors
+	}
+	if params.NearObject != nil {
+		return params.NearObject.TargetVectors
+	}
+	return []string{}
 }
 
 func crossClassDistCompatError(classDistanceConfigs map[string]string) error {

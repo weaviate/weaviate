@@ -42,20 +42,22 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
-	if object.Vector != nil {
-		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := s.VectorIndex().ValidateBeforeInsert(object.Vector)
-		if err != nil {
-			return errors.Wrapf(err, "Validate vector index for %s", object.ID())
-		}
-	}
-
-	if len(object.Vectors) > 0 {
-		for targetVector, vector := range object.Vectors {
-			if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-				if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-					return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, object.ID())
+	if s.hasTargetVectors() {
+		if len(object.Vectors) > 0 {
+			for targetVector, vector := range object.Vectors {
+				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+						return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, object.ID())
+					}
 				}
+			}
+		}
+	} else {
+		if object.Vector != nil {
+			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+			err := s.vectorIndex.ValidateBeforeInsert(object.Vector)
+			if err != nil {
+				return errors.Wrapf(err, "Validate vector index for %s", object.ID())
 			}
 		}
 	}
@@ -71,13 +73,15 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return nil
 	}
 
-	if err := s.updateVectorIndex(object.Vector, status); err != nil {
-		return errors.Wrap(err, "update vector index")
-	}
-
-	for targetVector, vector := range object.Vectors {
-		if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
-			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
+	if s.hasTargetVectors() {
+		for targetVector, vector := range object.Vectors {
+			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
+			}
+		}
+	} else {
+		if err := s.updateVectorIndex(object.Vector, status); err != nil {
+			return errors.Wrap(err, "update vector index")
 		}
 	}
 
@@ -115,7 +119,7 @@ func (s *Shard) updateVectorIndexIgnoreDelete(vector []float32,
 		return nil
 	}
 
-	if err := s.VectorIndex().Add(status.docID, vector); err != nil {
+	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -155,7 +159,7 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus,
 ) error {
-	return s.updateVectorInVectorIndex(vector, status, s.queue, s.VectorIndex())
+	return s.updateVectorInVectorIndex(vector, status, s.queue, s.vectorIndex)
 }
 
 func (s *Shard) updateVectorIndexForName(vector []float32,
@@ -436,12 +440,15 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
-			if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
-				return fmt.Errorf("track dimensions (delete): %w", err)
-			}
-			for vecName, vec := range prevObject.Vectors {
-				if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
-					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+			if s.hasTargetVectors() {
+				for vecName, vec := range prevObject.Vectors {
+					if err := s.removeDimensionsForVecLSM(len(vec), status.oldDocID, vecName); err != nil {
+						return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+					}
+				}
+			} else {
+				if err := s.removeDimensionsLSM(len(prevObject.Vector), status.oldDocID); err != nil {
+					return fmt.Errorf("track dimensions (delete): %w", err)
 				}
 			}
 		}
@@ -454,12 +461,15 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
-		if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
-			return fmt.Errorf("track dimensions: %w", err)
-		}
-		for vecName, vec := range object.Vectors {
-			if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
-				return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
+		if s.hasTargetVectors() {
+			for vecName, vec := range object.Vectors {
+				if err := s.extendDimensionTrackerForVecLSM(len(vec), status.docID, vecName); err != nil {
+					return fmt.Errorf("track dimensions of '%s': %w", vecName, err)
+				}
+			}
+		} else {
+			if err := s.extendDimensionTrackerLSM(len(object.Vector), status.docID); err != nil {
+				return fmt.Errorf("track dimensions: %w", err)
 			}
 		}
 	}

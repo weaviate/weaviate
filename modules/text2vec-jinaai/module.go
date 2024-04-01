@@ -17,6 +17,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,24 +38,13 @@ func New() *JinaAIModule {
 }
 
 type JinaAIModule struct {
-	vectorizer                   textVectorizer
-	metaProvider                 metaProvider
+	vectorizer                   text2vecbase.TextVectorizer
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-}
-
-type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
-	Texts(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) ([]float32, error)
-}
-
-type metaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *JinaAIModule) Name() string {
@@ -120,9 +113,17 @@ func (m *JinaAIModule) RootHandler() http.Handler {
 }
 
 func (m *JinaAIModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
+func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {

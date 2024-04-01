@@ -12,8 +12,6 @@
 package lsmkv
 
 import (
-	"time"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -137,7 +135,7 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 	// 2.
 	m.size += uint64(entriesChanged * 2)
 	m.metrics.size(m.size)
-	m.lastWrite = time.Now()
+	m.updateDirtyAt()
 }
 
 func (m *Memtable) roaringSetAddCommitLog(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {

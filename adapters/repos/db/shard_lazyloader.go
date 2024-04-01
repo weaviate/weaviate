@@ -19,6 +19,8 @@ import (
 	"os"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -38,7 +40,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"golang.org/x/sync/errgroup"
 )
 
 type LazyLoadShard struct {
@@ -55,8 +56,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	promMetrics.NewUnloadedshard(class.Class)
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
-			promMetrics: promMetrics,
-
+			promMetrics:      promMetrics,
 			name:             shardName,
 			index:            index,
 			class:            class,
@@ -160,7 +160,12 @@ func (l *LazyLoadShard) ObjectCount() int {
 }
 
 func (l *LazyLoadShard) ObjectCountAsync() int {
-	l.mustLoad()
+	l.mutex.Lock()
+	if !l.loaded {
+		l.mutex.Unlock()
+		return 0
+	}
+	l.mutex.Unlock()
 	return l.shard.ObjectCountAsync()
 }
 
@@ -216,6 +221,13 @@ func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated sch
 		return err
 	}
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
+}
+
+func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
@@ -311,7 +323,7 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 	return l.shard.addTimestampProperties(ctx)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *errgroup.Group) {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
 	l.mustLoad()
 	l.shard.createPropertyIndex(ctx, prop, eg)
 }
@@ -415,6 +427,11 @@ func (l *LazyLoadShard) VectorIndex() VectorIndex {
 func (l *LazyLoadShard) VectorIndexes() map[string]VectorIndex {
 	l.mustLoad()
 	return l.shard.VectorIndexes()
+}
+
+func (l *LazyLoadShard) hasTargetVectors() bool {
+	l.mustLoad()
+	return l.shard.hasTargetVectors()
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {

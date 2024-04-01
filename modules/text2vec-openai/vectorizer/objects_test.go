@@ -13,14 +13,16 @@ package vectorizer
 
 import (
 	"context"
-	"fmt"
 	"testing"
+
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+
+	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // These are mostly copy/pasted (with minimal additions) from the
@@ -39,29 +41,7 @@ func TestVectorizingObjects(t *testing.T) {
 		openAIModel         string
 		openAIModelVersion  string
 	}
-
-	propsSchema := []*models.Property{
-		{
-			Name:     "brand",
-			DataType: schema.DataTypeText.PropString(),
-		},
-		{
-			Name:     "power",
-			DataType: schema.DataTypeInt.PropString(),
-		},
-		{
-			Name:     "review",
-			DataType: schema.DataTypeText.PropString(),
-		},
-		{
-			Name:     "brandOfTheCar",
-			DataType: schema.DataTypeText.PropString(),
-		},
-		{
-			Name:     "reviews",
-			DataType: schema.DataTypeTextArray.PropString(),
-		},
-	}
+	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -204,9 +184,9 @@ func TestVectorizingObjects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, logger)
 
-			cfg := &fakeClassConfig{
+			cfg := &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"vectorizeClassName": test.excludedClass != "Car",
 					"type":               test.openAIType,
@@ -217,14 +197,15 @@ func TestVectorizingObjects(t *testing.T) {
 				skippedProperty:       test.noindex,
 				excludedProperty:      test.excludedProperty,
 			}
-			comp := moduletools.NewVectorizablePropsComparatorDummy(propsSchema, test.input.Properties)
-			vector, _, err := v.Object(context.Background(), test.input, comp, cfg)
+			icheck := ent.NewClassSettings(cfg)
+			vector, _, err := v.Object(context.Background(), test.input, cfg, icheck)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
-			assert.Equal(t, test.expectedOpenAIType, client.lastConfig.Type)
-			assert.Equal(t, test.expectedOpenAIModel, client.lastConfig.Model)
+			conf := ent.NewClassSettings(client.lastConfig)
+			assert.Equal(t, test.expectedOpenAIType, conf.Type())
+			assert.Equal(t, test.expectedOpenAIModel, conf.Model())
 		})
 	}
 }
@@ -236,13 +217,13 @@ func TestClassSettings(t *testing.T) {
 	}
 	tests := []testCase{
 		{
-			cfg: fakeClassConfig{
+			cfg: FakeClassConfig{
 				classConfig: make(map[string]interface{}),
 			},
-			expectedBaseURL: DefaultBaseURL,
+			expectedBaseURL: ent.DefaultBaseURL,
 		},
 		{
-			cfg: fakeClassConfig{
+			cfg: FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"baseURL": "https://proxy.weaviate.dev",
 				},
@@ -252,229 +233,24 @@ func TestClassSettings(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		ic := NewClassSettings(tt.cfg)
+		ic := ent.NewClassSettings(tt.cfg)
 		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
-	}
-}
-
-func TestVectorizingObjectWithDiff(t *testing.T) {
-	type testCase struct {
-		name              string
-		input             *models.Object
-		skipped           string
-		comp              moduletools.VectorizablePropsComparator
-		expectedVectorize bool
-	}
-
-	propsSchema := []*models.Property{
-		{
-			Name:     "brand",
-			DataType: schema.DataTypeText.PropString(),
-		},
-		{
-			Name:     "power",
-			DataType: schema.DataTypeInt.PropString(),
-		},
-		{
-			Name:     "description",
-			DataType: schema.DataTypeText.PropString(),
-		},
-		{
-			Name:     "reviews",
-			DataType: schema.DataTypeTextArray.PropString(),
-		},
-	}
-	props := map[string]interface{}{
-		"brand":       "best brand",
-		"power":       300,
-		"description": "a very great car",
-		"reviews": []string{
-			"a very great car",
-			"you should consider buying one",
-		},
-	}
-	vector := []float32{0, 0, 0, 0}
-	var vectors models.Vectors
-
-	tests := []testCase{
-		{
-			name: "noop comp",
-			input: &models.Object{
-				Class:      "Car",
-				Properties: props,
-			},
-			comp:              moduletools.NewVectorizablePropsComparatorDummy(propsSchema, props),
-			expectedVectorize: true,
-		},
-		{
-			name: "all props unchanged",
-			input: &models.Object{
-				Class:      "Car",
-				Properties: props,
-			},
-			comp:              moduletools.NewVectorizablePropsComparator(propsSchema, props, props, vector, vectors),
-			expectedVectorize: false,
-		},
-		{
-			name: "one vectorizable prop changed (1)",
-			input: &models.Object{
-				Class:      "Car",
-				Properties: props,
-			},
-			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
-				"brand":       "old best brand",
-				"power":       300,
-				"description": "a very great car",
-				"reviews": []string{
-					"a very great car",
-					"you should consider buying one",
-				},
-			}, vector, vectors),
-			expectedVectorize: true,
-		},
-		{
-			name: "one vectorizable prop changed (2)",
-			input: &models.Object{
-				Class:      "Car",
-				Properties: props,
-			},
-			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
-				"brand":       "best brand",
-				"power":       300,
-				"description": "old a very great car",
-				"reviews": []string{
-					"a very great car",
-					"you should consider buying one",
-				},
-			}, vector, vectors),
-			expectedVectorize: true,
-		},
-		{
-			name: "one vectorizable prop changed (3)",
-			input: &models.Object{
-				Class:      "Car",
-				Properties: props,
-			},
-			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
-				"brand":       "best brand",
-				"power":       300,
-				"description": "a very great car",
-				"reviews": []string{
-					"old a very great car",
-					"you should consider buying one",
-				},
-			}, vector, vectors),
-			expectedVectorize: true,
-		},
-		{
-			name:    "all non-vectorizable props changed",
-			skipped: "description",
-			input: &models.Object{
-				Class:      "Car",
-				Properties: props,
-			},
-			comp: moduletools.NewVectorizablePropsComparator(propsSchema, props, map[string]interface{}{
-				"brand":       "best brand",
-				"power":       123,
-				"description": "old a very great car",
-				"reviews": []string{
-					"a very great car",
-					"you should consider buying one",
-				},
-			}, vector, vectors),
-			expectedVectorize: false,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := &fakeClassConfig{
-				skippedProperty: test.skipped,
-			}
-
-			client := &fakeClient{}
-			v := New(client)
-
-			vector, _, err := v.Object(context.Background(), test.input, test.comp, cfg)
-
-			require.Nil(t, err)
-			if test.expectedVectorize {
-				assert.Equal(t, []float32{0, 1, 2, 3}, vector)
-				assert.NotEmpty(t, client.lastInput)
-			} else {
-				assert.Equal(t, []float32{0, 0, 0, 0}, vector)
-				assert.Empty(t, client.lastInput)
-			}
-		})
-	}
-}
-
-func TestValidateModelVersion(t *testing.T) {
-	type test struct {
-		model    string
-		docType  string
-		version  string
-		possible bool
-	}
-
-	tests := []test{
-		// 001 models
-		{"ada", "text", "001", true},
-		{"ada", "code", "001", true},
-		{"babbage", "text", "001", true},
-		{"babbage", "code", "001", true},
-		{"curie", "text", "001", true},
-		{"curie", "code", "001", true},
-		{"davinci", "text", "001", true},
-		{"davinci", "code", "001", true},
-
-		// 002 models
-		{"ada", "text", "002", true},
-		{"davinci", "text", "002", true},
-		{"ada", "code", "002", false},
-		{"babbage", "text", "002", false},
-		{"babbage", "code", "002", false},
-		{"curie", "text", "002", false},
-		{"curie", "code", "002", false},
-		{"davinci", "code", "002", false},
-
-		// 003
-		{"davinci", "text", "003", true},
-		{"ada", "text", "003", false},
-		{"babbage", "text", "003", false},
-
-		// 004
-		{"davinci", "text", "004", false},
-		{"ada", "text", "004", false},
-		{"babbage", "text", "004", false},
-	}
-
-	for _, test := range tests {
-		name := fmt.Sprintf("model=%s docType=%s version=%s", test.model, test.docType, test.version)
-		t.Run(name, func(t *testing.T) {
-			err := (&classSettings{}).validateModelVersion(test.version, test.model, test.docType)
-			if test.possible {
-				assert.Nil(t, err, "this combination should be possible")
-			} else {
-				assert.NotNil(t, err, "this combination should not be possible")
-			}
-		})
 	}
 }
 
 func TestPickDefaultModelVersion(t *testing.T) {
 	t.Run("ada with text", func(t *testing.T) {
-		version := PickDefaultModelVersion("ada", "text")
+		version := ent.PickDefaultModelVersion("ada", "text")
 		assert.Equal(t, "002", version)
 	})
 
 	t.Run("ada with code", func(t *testing.T) {
-		version := PickDefaultModelVersion("ada", "code")
+		version := ent.PickDefaultModelVersion("ada", "code")
 		assert.Equal(t, "001", version)
 	})
 
 	t.Run("with curie", func(t *testing.T) {
-		version := PickDefaultModelVersion("curie", "text")
+		version := ent.PickDefaultModelVersion("curie", "text")
 		assert.Equal(t, "001", version)
 	})
 }

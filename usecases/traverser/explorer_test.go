@@ -93,7 +93,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts1", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -659,7 +659,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts2", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -720,7 +720,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts3", func(t *testing.T) {
 			require.Len(t, res, 1)
 		})
 	})
@@ -831,7 +831,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts4", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -912,7 +912,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts5", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -1188,7 +1188,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			searcher.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts6", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -1295,7 +1295,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			searcher.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts7", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -2052,7 +2052,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			searcher.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts8", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -2165,7 +2165,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts9", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -2495,7 +2495,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts10", func(t *testing.T) {
 			require.Len(t, res, 1)
 
 			resMap := res[0].(map[string]interface{})
@@ -2565,7 +2565,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts11", func(t *testing.T) {
 			require.Len(t, res, 1)
 
 			resMap := res[0].(map[string]interface{})
@@ -2693,13 +2693,12 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			searcher.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts", func(t *testing.T) {
+		t.Run("response must contain concepts 12", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Foo",
 					"_additional": map[string]interface{}{
-						"vector": []float32(nil),
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
 								{
@@ -2724,7 +2723,6 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				map[string]interface{}{
 					"name": "Bar",
 					"_additional": map[string]interface{}{
-						"vector": []float32(nil),
 						"semanticPath": &SemanticPath{
 							Path: []*SemanticPathElement{
 								{

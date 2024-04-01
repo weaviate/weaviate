@@ -69,7 +69,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
 	n.repo, err = db.New(logger, db.Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -200,7 +200,11 @@ type nodeResolver struct {
 }
 
 func (r nodeResolver) AllNames() []string {
-	panic("node resolving not implemented yet")
+	xs := []string{}
+	for _, n := range *r.nodes {
+		xs = append(xs, n.name)
+	}
+	return xs
 }
 
 func (r nodeResolver) Candidates() []string {

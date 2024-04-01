@@ -27,6 +27,7 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
+	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
@@ -34,6 +35,7 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
+	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 )
 
 const (
@@ -88,6 +90,8 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
+	withMulti2VecPaLM             bool
+	withPaLMApiKey                string
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
@@ -178,6 +182,13 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
+	d.withMulti2VecPaLM = true
+	d.withPaLMApiKey = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecBind() *Compose {
 	d.withBind = true
 	d.enableModules = append(d.enableModules, Multi2VecBind)
@@ -203,6 +214,11 @@ func (d *Compose) WithText2VecOpenAI() *Compose {
 
 func (d *Compose) WithText2VecCohere() *Compose {
 	d.enableModules = append(d.enableModules, modcohere.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecVoyageAI() *Compose {
+	d.enableModules = append(d.enableModules, modvoyageai.Name)
 	return d
 }
 
@@ -420,6 +436,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
+	}
+	if d.withMulti2VecPaLM {
+		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)

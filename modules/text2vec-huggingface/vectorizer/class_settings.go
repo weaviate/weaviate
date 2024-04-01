@@ -175,16 +175,7 @@ func (cs *classSettings) getOptionOrDefault(option string, defaultValue bool) bo
 }
 
 func (cs *classSettings) getProperty(name string) string {
-	if cs.cfg != nil {
-		model, ok := cs.cfg.Class()[name]
-		if ok {
-			asString, ok := model.(string)
-			if ok {
-				return asString
-			}
-		}
-	}
-	return ""
+	return cs.BaseClassSettings.GetPropertyAsString(name, "")
 }
 
 func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

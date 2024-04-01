@@ -21,13 +21,14 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -212,6 +213,8 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
 	defer func() {
 		err := recover()
 		if err != nil {
@@ -243,6 +246,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	} else if !ok {
 		return executed, nil
 	}
+	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -310,7 +314,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	g, ctx := errgroup.WithContext(h.shutdownCtx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	ch := make(chan uint64)
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
@@ -329,7 +333,9 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 						continue
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
-					h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+					if h.getEntrypoint() != deletedID {
+						h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+					}
 				}
 			}
 		})
@@ -379,7 +385,7 @@ func (h *hnsw) reassignNeighbor(
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
+		compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}

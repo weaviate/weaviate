@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -117,7 +119,7 @@ func (s *Shard) initDimensionTracking() {
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics()
 		// start tracking vector dimensions goroutine only when tracking is enabled
-		go func() {
+		f := func() {
 			t := time.NewTicker(5 * time.Minute)
 			defer t.Stop()
 			for {
@@ -128,7 +130,8 @@ func (s *Shard) initDimensionTracking() {
 					s.publishDimensionMetrics()
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, s.index.logger)
 	}
 }
 
@@ -136,35 +139,50 @@ func (s *Shard) publishDimensionMetrics() {
 	if s.promMetrics != nil {
 		className := s.index.Config.ClassName.String()
 
-		switch category, segments := getDimensionCategory(s.index.vectorIndexUserConfig); category {
-		case DimensionCategoryPQ:
-			count := s.QuantizedDimensions(segments)
-			sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
-			sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
-		case DimensionCategoryBQ:
-			count := s.Dimensions() / 8 // BQ has a flat 8x reduction in the dimensions metric
-			sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
-			sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
-		default:
-			count := s.Dimensions()
-			sendVectorDimensionsMetric(s.promMetrics, className, s.name, count)
+		if !s.hasTargetVectors() {
+			// send stats for legacy vector only
+			switch category, segments := getDimensionCategory(s.index.vectorIndexUserConfig); category {
+			case DimensionCategoryPQ:
+				count := s.QuantizedDimensions(segments)
+				sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
+				sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
+			case DimensionCategoryBQ:
+				count := s.Dimensions() / 8 // BQ has a flat 8x reduction in the dimensions metric
+				sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
+				sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
+			default:
+				count := s.Dimensions()
+				sendVectorDimensionsMetric(s.promMetrics, className, s.name, count)
+			}
+			return
 		}
 
+		sumSegments := 0
+		sumDimensions := 0
+
+		// send stats for each target vector
 		for vecName, vecCfg := range s.index.vectorIndexUserConfigs {
 			switch category, segments := getDimensionCategory(vecCfg); category {
 			case DimensionCategoryPQ:
 				count := s.QuantizedDimensionsForVec(segments, vecName)
+				sumSegments += count
 				sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, count, vecName)
 				sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, 0, vecName)
 			case DimensionCategoryBQ:
 				count := s.DimensionsForVec(vecName) / 8 // BQ has a flat 8x reduction in the dimensions metric
+				sumSegments += count
 				sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, count, vecName)
 				sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, 0, vecName)
 			default:
 				count := s.DimensionsForVec(vecName)
+				sumDimensions += count
 				sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, count, vecName)
 			}
 		}
+
+		// send sum stats for all target vectors
+		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
+		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
 	}
 }
 
@@ -178,14 +196,19 @@ func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
 	cfg schema.VectorIndexConfig, targetCfgs map[string]schema.VectorIndexConfig,
 ) {
 	if promMetrics != nil {
-		switch category, _ := getDimensionCategory(cfg); category {
-		case DimensionCategoryPQ, DimensionCategoryBQ:
-			sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
-			sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
-		default:
-			sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+		if !hasTargetVectors(cfg, targetCfgs) {
+			// send stats for legacy vector only
+			switch category, _ := getDimensionCategory(cfg); category {
+			case DimensionCategoryPQ, DimensionCategoryBQ:
+				sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+				sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
+			default:
+				sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+			}
+			return
 		}
 
+		// send stats for each target vector
 		for vecName, vecCfg := range targetCfgs {
 			switch category, _ := getDimensionCategory(vecCfg); category {
 			case DimensionCategoryPQ, DimensionCategoryBQ:
@@ -195,6 +218,10 @@ func clearDimensionMetrics(promMetrics *monitoring.PrometheusMetrics,
 				sendVectorDimensionsForVecMetric(promMetrics, className, shardName, 0, vecName)
 			}
 		}
+
+		// send sum stats for all target vectors
+		sendVectorDimensionsMetric(promMetrics, className, shardName, 0)
+		sendVectorSegmentsMetric(promMetrics, className, shardName, 0)
 	}
 }
 
