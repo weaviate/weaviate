@@ -15,6 +15,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -25,8 +27,9 @@ import (
 func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should answer", func(t *testing.T) {
 		// given
+		logger, _ := test.NewNullLogger()
 		openaiClient := &fakeOpenAIClient{}
-		answerProvider := New(openaiClient)
+		answerProvider := New(openaiClient, logger)
 		in := []search.Result{
 			{
 				ID: "some-uuid",

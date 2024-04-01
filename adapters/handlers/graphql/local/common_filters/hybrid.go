@@ -34,9 +34,29 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 			subsearches = append(subsearches, operandMap)
 		}
 	}
+	var args searchparams.HybridSearch
+	namedSearchesI := source["searches"]
+	if namedSearchesI != nil {
+		namedSearchess := namedSearchesI.([]interface{})
+		namedSearches := namedSearchess[0].(map[string]interface{})
+		// TODO: add bm25 here too
+		if namedSearches["nearText"] != nil {
+			nearText := namedSearches["nearText"].(map[string]interface{})
+			arguments, _ := ExtractNearText(nearText)
+
+			args.NearTextParams = &arguments
+		}
+
+		if namedSearches["nearVector"] != nil {
+			nearVector := namedSearches["nearVector"].(map[string]interface{})
+			arguments, _ := ExtractNearVector(nearVector)
+			args.NearVectorParams = &arguments
+
+		}
+	}
 
 	var weightedSearchResults []searchparams.WeightedSearchResult
-	var args searchparams.HybridSearch
+
 	for _, ss := range subsearches {
 		subsearch := ss.(map[string]interface{})
 		switch {

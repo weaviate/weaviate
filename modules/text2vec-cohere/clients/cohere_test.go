@@ -20,12 +20,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 )
 
 func TestClient(t *testing.T) {
@@ -41,15 +42,12 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		expected := &ent.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
-			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model: "large",
-			})
+		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -70,7 +68,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -91,8 +89,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{})
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to Cohere failed with status: 500 error: nope, not gonna happen")
@@ -113,15 +110,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Cohere-Api-Key", []string{"some-key"})
 
-		expected := &ent.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
-			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model: "large",
-			})
+		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "large", "baseURL": server.URL}})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -142,7 +136,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Cohere API Key: no api key found "+
@@ -165,10 +159,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Cohere-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model: "large",
-			})
+		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Cohere API Key: no api key found "+
@@ -198,6 +189,27 @@ func TestClient(t *testing.T) {
 
 		buildURL = c.getCohereUrl(context.TODO(), baseURL)
 		assert.Equal(t, "http://default-url.com/v1/embed", buildURL)
+	})
+
+	t.Run("pass rate limit headers requests", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &cohereUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/embed",
+			},
+			logger: nullLogger(),
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Cohere-Ratelimit-RequestPM-Embedding", []string{"50"})
+
+		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		assert.Equal(t, 50, rl.LimitRequests)
+		assert.Equal(t, 50, rl.RemainingRequests)
 	})
 }
 

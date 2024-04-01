@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -32,24 +34,13 @@ func New() *TransformersModule {
 }
 
 type TransformersModule struct {
-	vectorizer                   textVectorizer
-	metaProvider                 metaProvider
+	vectorizer                   text2vecbase.TextVectorizer
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-}
-
-type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
-	Texts(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) ([]float32, error)
-}
-
-type metaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *TransformersModule) Name() string {
@@ -142,9 +133,31 @@ func (m *TransformersModule) RootHandler() http.Handler {
 }
 
 func (m *TransformersModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+// VectorizeBatch is _slower_ if many requests are done in parallel. So do all objects sequentially
+func (m *TransformersModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs := make([][]float32, len(objs))
+	addProps := make([]models.AdditionalProperties, len(objs))
+	// error should be the exception so dont preallocate
+	errs := make(map[int]error, 0)
+	for i, obj := range objs {
+		if skipObject[i] {
+			continue
+		}
+		vec, addProp, err := m.vectorizer.Object(ctx, obj, cfg)
+		if err != nil {
+			errs[i] = err
+			continue
+		}
+		addProps[i] = addProp
+		vecs[i] = vec
+	}
+
+	return vecs, addProps, errs
 }
 
 func (m *TransformersModule) MetaInfo() (map[string]interface{}, error) {
@@ -159,6 +172,10 @@ func (m *TransformersModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *TransformersModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 // verify we implement the modules.Module interface

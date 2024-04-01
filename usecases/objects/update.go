@@ -18,7 +18,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 // UpdateObject updates object of class.
@@ -92,11 +91,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	compFactory := func() (moduletools.VectorizablePropsComparator, error) {
-		return moduletools.NewVectorizablePropsComparator(class.Properties, updates.Properties,
-			prevObj.Properties, prevObj.Vector, prevObj.Vectors), nil
-	}
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, compFactory, m.findObject, m.logger)
+
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}

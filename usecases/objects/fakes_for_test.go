@@ -341,7 +341,7 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 }
 
 func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-	compFactory moduletools.PropsComparatorFactory, findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
 	args := p.Called(object, findObjFn)
 	switch vec := args.Get(0).(type) {
@@ -354,6 +354,25 @@ func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.O
 	default:
 		return args.Error(1)
 	}
+}
+
+func (p *fakeModulesProvider) BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+	findObjectFn modulecapabilities.FindObjectFn,
+	logger logrus.FieldLogger,
+) (map[int]error, error) {
+	args := p.Called()
+
+	for _, obj := range objects {
+		switch vec := args.Get(0).(type) {
+		case models.C11yVector:
+			obj.Vector = vec
+		case []float32:
+			obj.Vector = vec
+		default:
+		}
+	}
+
+	return nil, nil
 }
 
 func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {

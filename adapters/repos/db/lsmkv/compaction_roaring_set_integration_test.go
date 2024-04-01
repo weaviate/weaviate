@@ -40,7 +40,7 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 	instr := generateRandomInstructions(r, maxID, maxElement, iterations, deleteRatio)
 	control := controlFromInstructions(instr, maxID)
 
-	b, err := NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
+	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 
@@ -334,7 +334,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -462,7 +462,7 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -556,7 +556,7 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+				b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 

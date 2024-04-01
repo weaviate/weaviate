@@ -24,9 +24,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -38,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -51,7 +53,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -85,14 +86,14 @@ func (m *shardMap) Range(f func(name string, shard ShardLike) error) (err error)
 // RangeConcurrently calls f for each key and value present in the map with at
 // most _NUMCPU executors running in parallel. As opposed to [Range] it does
 // not guarantee an exit on the first error.
-func (m *shardMap) RangeConcurrently(f func(name string, shard ShardLike) error) (err error) {
-	eg := errgroup.Group{}
+func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name string, shard ShardLike) error) (err error) {
+	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 	(*sync.Map)(m).Range(func(key, value any) bool {
 		name, shard := key.(string), value.(ShardLike)
 		eg.Go(func() error {
 			return f(name, shard)
-		})
+		}, name, shard)
 		return true
 	})
 
@@ -185,6 +186,10 @@ type Index struct {
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
 	closingCancel context.CancelFunc
+
+	// always true if lazy shard loading is off, in the case of lazy shard
+	// loading will be set to true once the last shard was loaded.
+	allShardsReady atomic.Bool
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -260,9 +265,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
-	eg := errgroup.Group{}
-	eg.SetLimit(_NUMCPU)
-
 	if err := os.MkdirAll(index.path(), os.ModePerm); err != nil {
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
@@ -281,7 +283,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
-		eg := errgroup.Group{}
+
+		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
 		for _, shardName := range shardState.AllLocalPhysicalShards() {
@@ -300,10 +303,15 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 
 				i.shards.Store(shardName, shard)
 				return nil
-			})
+			}, shardName)
 		}
 
-		return eg.Wait()
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+
+		i.allShardsReady.Store(true)
+		return nil
 	}
 
 	for _, shardName := range shardState.AllLocalPhysicalShards() {
@@ -317,10 +325,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		i.shards.Store(shardName, shard)
 	}
 
-	go func() {
+	f := func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-
+		defer i.allShardsReady.Store(true)
 		i.ForEachShard(func(name string, shard ShardLike) error {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
@@ -340,7 +348,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 				}
 			}
 		})
-	}()
+	}
+	enterrors.GoWrapper(f, i.logger)
 
 	return nil
 }
@@ -387,7 +396,7 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
-	return i.shards.RangeConcurrently(f)
+	return i.shards.RangeConcurrently(i.logger, f)
 }
 
 // Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -398,7 +407,7 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 }
 
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
@@ -464,6 +473,29 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) updateVectorIndexConfigs(ctx context.Context,
+	updated map[string]schema.VectorIndexConfig,
+) error {
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateVectorIndexConfigs(ctx, updated); err != nil {
+			return fmt.Errorf("shard %q: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	for targetName, targetCfg := range updated {
+		i.vectorIndexUserConfigs[targetName] = targetCfg
+	}
+
+	return nil
+}
+
 func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
@@ -488,7 +520,7 @@ type IndexConfig struct {
 	QueryMaximumResults       int64
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
@@ -727,8 +759,10 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 
 	wg := &sync.WaitGroup{}
 	for shardName, group := range byShard {
+		shardName := shardName
+		group := group
 		wg.Add(1)
-		go func(shardName string, group objsAndPos) {
+		f := func() {
 			defer wg.Done()
 
 			defer func() {
@@ -761,7 +795,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				desiredPos := group.pos[i]
 				out[desiredPos] = err
 			}
-		}(shardName, group)
+		}
+		enterrors.GoWrapper(f, i.logger)
 	}
 
 	wg.Wait()
@@ -1202,7 +1237,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
 	shardResultLock := sync.Mutex{}
 	for _, shardName := range shards {
@@ -1243,11 +1278,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			shardResultLock.Unlock()
 
 			return nil
-		})
+		}, shardName)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
+
 	if len(resultObjects) == len(resultScores) {
 
 		// Force a stable sort order by UUID
@@ -1374,7 +1410,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		shardCap = len(shardNames) * limit
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 	m := &sync.Mutex{}
 
@@ -1416,7 +1452,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			m.Unlock()
 
 			return nil
-		})
+		}, shardName)
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -1648,7 +1684,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 func (i *Index) drop() error {
 	i.closingCancel()
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(name string, shard ShardLike) error {
@@ -1710,7 +1746,7 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 		}
 	}
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	commit = func(success bool) {
 		if !success {
@@ -1731,7 +1767,7 @@ func (i *Index) dropShards(names []string) (commit func(success bool), err error
 						WithField("shard", shard.ID()).Error(err)
 				}
 				return nil
-			})
+			}, shard)
 		}
 	}
 
@@ -1801,7 +1837,13 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			if shard == nil {
 				err = errors.Errorf("shard %s does not exist", shardName)
 			} else {
-				size = shard.Queue().Size()
+				if shard.hasTargetVectors() {
+					for _, queue := range shard.Queues() {
+						size += queue.Size()
+					}
+				} else {
+					size = shard.Queue().Size()
+				}
 			}
 		}
 		if err != nil {
@@ -1819,7 +1861,14 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	if shard == nil {
 		return 0, errShardNotFound
 	}
-	return shard.Queue().Size(), nil
+	if !shard.hasTargetVectors() {
+		return shard.Queue().Size(), nil
+	}
+	size := int64(0)
+	for _, queue := range shard.Queues() {
+		size += queue.Size()
+	}
+	return size, nil
 }
 
 func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]string, error) {
@@ -1947,8 +1996,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 	ch := make(chan result, len(shardUUIDs))
 	for shardName, uuids := range shardUUIDs {
 		uuids := uuids
+		shardName := shardName
 		wg.Add(1)
-		go func(shardName string, uuids []strfmt.UUID) {
+		f := func() {
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
@@ -1968,7 +2018,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 				})
 			}
 			ch <- result{objs}
-		}(shardName, uuids)
+		}
+		enterrors.GoWrapper(f, i.logger)
 	}
 
 	wg.Wait()
@@ -2043,7 +2094,18 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 	return nil
 }
 
-func convertVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
+func convertToVectorIndexConfig(config interface{}) schema.VectorIndexConfig {
+	if config == nil {
+		return nil
+	}
+	// in case legacy vector config was set as an empty map/object instead of nil
+	if empty, ok := config.(map[string]interface{}); ok && len(empty) == 0 {
+		return nil
+	}
+	return config.(schema.VectorIndexConfig)
+}
+
+func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[string]schema.VectorIndexConfig {
 	if len(configs) > 0 {
 		vectorIndexConfigs := make(map[string]schema.VectorIndexConfig)
 		for targetVector, vectorConfig := range configs {

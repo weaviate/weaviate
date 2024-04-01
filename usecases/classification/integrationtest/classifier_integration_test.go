@@ -46,7 +46,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	}
 
 	vrepo, err := db.New(logger, db.Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,

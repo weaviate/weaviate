@@ -45,7 +45,7 @@ type Traverser struct {
 	explorer                explorer
 	schemaGetter            schema.SchemaGetter
 	nearParamsVector        *nearParamsVector
-	targetVectorParamHelper *targetVectorParamHelper
+	targetVectorParamHelper *TargetVectorParamHelper
 	metrics                 *Metrics
 	ratelimiter             *ratelimiter.Limiter
 }
@@ -81,7 +81,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 		explorer:                explorer,
 		schemaGetter:            schemaGetter,
 		nearParamsVector:        newNearParamsVector(modulesProvider, vectorSearcher),
-		targetVectorParamHelper: newTargetParamHelper(),
+		targetVectorParamHelper: NewTargetParamHelper(),
 		metrics:                 metrics,
 		ratelimiter:             ratelimiter.New(maxGetRequests),
 	}

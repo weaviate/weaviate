@@ -19,6 +19,8 @@ import (
 	"os"
 	"path"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -406,10 +408,10 @@ func (r *store) load(ctx context.Context) <-chan ucs.ClassPayload {
 		}
 		return nil
 	}
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer close(ch)
 		r.db.View(f)
-	}()
+	}, r.log)
 	return ch
 }
 

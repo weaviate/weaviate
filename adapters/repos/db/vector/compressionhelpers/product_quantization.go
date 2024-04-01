@@ -17,6 +17,8 @@ import (
 	"math"
 	"sync"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -162,6 +164,7 @@ type ProductQuantizer struct {
 	dlutPool            *DLUTPool
 	trainingLimit       int
 	globalDistances     []float32
+	logger              logrus.FieldLogger
 }
 
 type PQData struct {
@@ -183,7 +186,7 @@ type PQEncoder interface {
 	ExposeDataForRestore() []byte
 }
 
-func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int) (*ProductQuantizer, error) {
+func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensions int, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	if cfg.Segments <= 0 {
 		return nil, errors.New("segments cannot be 0 nor negative")
 	}
@@ -212,14 +215,15 @@ func NewProductQuantizer(cfg ent.PQConfig, distance distancer.Provider, dimensio
 		encoderType:         encoderType,
 		encoderDistribution: encoderDistribution,
 		dlutPool:            NewDLUTPool(),
+		logger:              logger,
 	}
 
 	return pq, nil
 }
 
-func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []PQEncoder) (*ProductQuantizer, error) {
+func NewProductQuantizerWithEncoders(cfg ent.PQConfig, distance distancer.Provider, dimensions int, encoders []PQEncoder, logger logrus.FieldLogger) (*ProductQuantizer, error) {
 	cfg.Segments = len(encoders)
-	pq, err := NewProductQuantizer(cfg, distance, dimensions)
+	pq, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -291,6 +295,10 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
+	if len(x) != pq.m || len(y) != pq.m {
+		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
+	}
+
 	dist := float32(0)
 
 	for i := 0; i < pq.m; i++ {
@@ -346,6 +354,9 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 		dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
 		return dist, err == nil, err
 	}
+	if len(x) != d.pq.m {
+		return 0, false, fmt.Errorf("inconsistent compressed vector length")
+	}
 	return d.pq.Distance(x, d.lut), true, nil
 }
 
@@ -358,35 +369,52 @@ func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 	return dist, err == nil, err
 }
 
-func (pq *ProductQuantizer) Fit(data [][]float32) {
+func (pq *ProductQuantizer) Fit(data [][]float32) error {
 	if pq.trainingLimit > 0 && len(data) > pq.trainingLimit {
 		data = data[:pq.trainingLimit]
 	}
 	switch pq.encoderType {
 	case UseTileEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
-		Concurrently(uint64(pq.m), func(i uint64) {
+		err := ConcurrentlyWithError(pq.logger, uint64(pq.m), func(i uint64) error {
 			pq.kms[i] = NewTileEncoder(int(math.Log2(float64(pq.ks))), int(i), pq.encoderDistribution)
 			for j := 0; j < len(data); j++ {
 				pq.kms[i].Add(data[j])
 			}
-			pq.kms[i].Fit(data)
+			return pq.kms[i].Fit(data)
 		})
+		if err != nil {
+			return err
+		}
 	case UseKMeansEncoder:
+		mutex := sync.Mutex{}
+		var errorResult error = nil
 		pq.kms = make([]PQEncoder, pq.m)
-		Concurrently(uint64(pq.m), func(i uint64) {
+		Concurrently(pq.logger, uint64(pq.m), func(i uint64) {
+			mutex.Lock()
+			if errorResult != nil {
+				mutex.Unlock()
+				return
+			}
+			mutex.Unlock()
 			pq.kms[i] = NewKMeans(
 				pq.ks,
 				pq.ds,
 				int(i),
 			)
 			err := pq.kms[i].Fit(data)
-			if err != nil {
-				panic(err)
+			mutex.Lock()
+			if errorResult == nil && err != nil {
+				errorResult = err
 			}
+			mutex.Unlock()
 		})
+		if errorResult != nil {
+			return errorResult
+		}
 	}
 	pq.buildGlobalDistances()
+	return nil
 }
 
 func (pq *ProductQuantizer) Encode(vec []float32) []byte {

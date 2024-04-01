@@ -3,8 +3,8 @@ name: Tests
 on:
   push:
     branches:
-      - '**'        # run on ever branch except master (is covered by PR)
-      - '!master'
+      - '**'        # run on ever branch except main (is covered by PR)
+      - '!main'
 jobs:
   Unit-Tests:
     name: unit-tests
