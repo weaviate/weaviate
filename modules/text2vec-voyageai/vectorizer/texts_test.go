@@ -15,6 +15,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,6 +30,7 @@ func TestVectorizingTexts(t *testing.T) {
 		expectedVoyageAIModel string
 		voyageaiModel         string
 	}
+	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -77,7 +81,7 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, logger)
 
 			settings := &fakeClassConfig{
 				voyageaiModel: test.voyageaiModel,
@@ -87,7 +91,8 @@ func TestVectorizingTexts(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			assert.Equal(t, test.expectedVoyageAIModel, client.lastConfig.Model)
+			config := ent.NewClassSettings(client.lastConfig)
+			assert.Equal(t, test.expectedVoyageAIModel, config.Model())
 		})
 	}
 }
