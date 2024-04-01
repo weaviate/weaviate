@@ -928,6 +928,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	}
 	return &http.Client{Transport: t}
 }
+
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 	if config.Profiling.Disabled {
 		return
