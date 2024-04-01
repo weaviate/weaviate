@@ -121,14 +121,6 @@ func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.
 	return s.GetClass(schema.ClassName(className)), nil
 }
 
-func (m *Manager) getClassByName(className string) *models.Class {
-	class, err := m.GetObjectClassFromName(context.Background(), nil, className)
-	if err != nil {
-		return nil
-	}
-	return class
-}
-
 func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt.UUID,
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
