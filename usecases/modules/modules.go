@@ -531,9 +531,9 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 
 // GetObjectAdditionalExtend extends rest api get queries with additional properties
 func (p *Provider) GetObjectAdditionalExtend(ctx context.Context,
-	in *search.Result, moduleParams map[string]interface{}, class *models.Class,
+	in *search.Result, moduleParams map[string]interface{},
 ) (*search.Result, error) {
-	resArray, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil, class)
+	resArray, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, nil, "ObjectGet", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -542,9 +542,9 @@ func (p *Provider) GetObjectAdditionalExtend(ctx context.Context,
 
 // ListObjectsAdditionalExtend extends rest api list queries with additional properties
 func (p *Provider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}, class *models.Class,
+	in search.Results, moduleParams map[string]interface{},
 ) (search.Results, error) {
-	return p.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil, class)
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ObjectList", nil)
 }
 
 // GetExploreAdditionalExtend extends graphql api get queries with additional properties
@@ -552,17 +552,22 @@ func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.R
 	moduleParams map[string]interface{}, searchVector []float32,
 	argumentModuleParams map[string]interface{}, class *models.Class,
 ) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, class)
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams)
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
 func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams, class)
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
-func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector []float32, capability string, argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error) {
+func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector []float32, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
+		class, err := p.getClassFromSearchResult(toBeExtended)
+		if err != nil {
+			return nil, err
+		}
+
 		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 		for _, module := range p.GetAll() {
 			if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
@@ -600,6 +605,13 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 		}
 	}
 	return toBeExtended, nil
+}
+
+func (p *Provider) getClassFromSearchResult(in []search.Result) (*models.Class, error) {
+	if len(in) > 0 {
+		return p.getClass(in[0].ClassName)
+	}
+	return nil, errors.Errorf("unknown class")
 }
 
 func (p *Provider) checkCapabilities(additionalProperties map[string]modulecapabilities.AdditionalProperty,

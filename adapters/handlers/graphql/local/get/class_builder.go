@@ -19,7 +19,6 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -332,7 +331,7 @@ func (b *classBuilder) additionalGroupField(classProperties graphql.Fields, clas
 	for name, field := range classProperties {
 		hitsFields[name] = field
 	}
-	
+
 	return &graphql.Field{
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sAdditionalGroup", class.Class),

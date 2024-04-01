@@ -151,7 +151,7 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	}
 
 	if m.modulesProvider != nil {
-		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams, m.getClassByName(res.ClassName))
+		res, err = m.modulesProvider.GetObjectAdditionalExtend(ctx, res, adds.ModuleParams)
 		if err != nil {
 			return nil, fmt.Errorf("get extend: %v", err)
 		}
@@ -178,7 +178,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 	}
 
 	if m.modulesProvider != nil {
-		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams, m.getClassByName(res[0].ClassName))
+		res, err = m.modulesProvider.ListObjectsAdditionalExtend(ctx, res, additional.ModuleParams)
 		if err != nil {
 			return nil, NewErrInternal("list extend: %v", err)
 		}

@@ -320,7 +320,7 @@ type fakeModulesProvider struct {
 }
 
 func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
-	in *search.Result, moduleParams map[string]interface{}, class *models.Class,
+	in *search.Result, moduleParams map[string]interface{},
 ) (*search.Result, error) {
 	res, err := p.additionalExtend(ctx, search.Results{*in}, moduleParams, "ObjectGet")
 	if err != nil {
@@ -330,7 +330,7 @@ func (p *fakeModulesProvider) GetObjectAdditionalExtend(ctx context.Context,
 }
 
 func (p *fakeModulesProvider) ListObjectsAdditionalExtend(ctx context.Context,
-	in search.Results, moduleParams map[string]interface{}, class *models.Class,
+	in search.Results, moduleParams map[string]interface{},
 ) (search.Results, error) {
 	return p.additionalExtend(ctx, in, moduleParams, "ObjectList")
 }
