@@ -178,48 +178,6 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	}
 }
 
-func groupedByProperty(class *models.Class) *graphql.Object {
-	classProperties := graphql.Fields{
-		"path": &graphql.Field{
-			Description: descriptions.AggregateGroupedByGroupedByPath,
-			Type:        graphql.NewList(graphql.String),
-			Resolve:     groupedByResolver(func(g *GroupedBy) interface{} { return g.Path }),
-		},
-		"value": &graphql.Field{
-			Description: descriptions.AggregateGroupedByGroupedByValue,
-			Type:        graphql.String,
-			Resolve:     groupedByResolver(func(g *GroupedBy) interface{} { return g.Value }),
-		},
-	}
-
-	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Get%sGroupedByObj", class.Class),
-		Fields:      classProperties,
-		Description: descriptions.AggregateGroupedByObj,
-	})
-
-	return classPropertiesObj
-}
-
-type groupedByExtractorFunc func(*GroupedBy) interface{}
-
-func groupedByResolver(extractor groupedByExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
-	return func(p graphql.ResolveParams) (interface{}, error) {
-		groupedBy, ok := p.Source.(*GroupedBy)
-		if !ok {
-			return nil, fmt.Errorf("groupedBy: %s: expected aggregation.GroupedBy, but got %T",
-				p.Info.FieldName, p.Source)
-		}
-
-		return extractor(groupedBy), nil
-	}
-}
-
-type GroupedBy struct {
-	Value interface{} `json:"value"`
-	Path  []string    `json:"path"`
-}
-
 func (b *classBuilder) additionalIDField() *graphql.Field {
 	return &graphql.Field{
 		Description: descriptions.GetClassUUID,
