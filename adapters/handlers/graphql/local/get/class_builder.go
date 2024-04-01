@@ -19,6 +19,7 @@ import (
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -175,6 +176,21 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 			Name:   fmt.Sprintf("%sAdditional", class.Class),
 			Fields: additionalProperties,
 		}),
+	}
+
+	classProperties["groupedBy"] = &graphql.Field{
+		Description: descriptions.AggregateGroupedBy,
+		Type:        groupedByProperty(class),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			switch typed := p.Source.(type) {
+			case aggregation.Group:
+				return typed.GroupedBy, nil
+			case map[string]interface{}:
+				return typed["groupedBy"], nil
+			default:
+				return nil, fmt.Errorf("groupedBy: unsupported type %T", p.Source)
+			}
+		},
 	}
 }
 
