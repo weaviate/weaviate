@@ -65,7 +65,7 @@ type ModulesProvider interface {
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{}, searchVector []float32,
-		argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error)
+		argumentModuleParams map[string]interface{}) ([]search.Result, error)
 	ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 		moduleParams map[string]interface{},
 		argumentModuleParams map[string]interface{}, class *models.Class) ([]search.Result, error)
@@ -188,7 +188,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 	}
 
 	if e.modulesProvider != nil {
-		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams, e.GetClassByName(params.ClassName))
+		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
 		if err != nil {
 			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
@@ -253,7 +253,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams, e.GetClassByName(params.ClassName))
+			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 		if err != nil {
 			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}

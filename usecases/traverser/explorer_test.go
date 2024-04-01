@@ -2793,21 +2793,21 @@ func (p *fakeModulesProvider) ValidateSearchParam(name string, value interface{}
 
 func (p *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{}, searchVector []float32,
-	argumentModuleParams map[string]interface{}, class *models.Class,
+	argumentModuleParams map[string]interface{},
 ) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", class)
+	return p.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet")
 }
 
 func (p *fakeModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
 	moduleParams map[string]interface{},
 	argumentModuleParams map[string]interface{}, class *models.Class,
 ) ([]search.Result, error) {
-	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", class)
+	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList")
 }
 
 func (p *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string, class *models.Class,
+	searchVector []float32, capability string,
 ) (search.Results, error) {
 	txt2vec := p.getFakeT2Vec()
 	if additionalProperties := txt2vec.AdditionalProperties(); len(additionalProperties) > 0 {
