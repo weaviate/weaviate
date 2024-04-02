@@ -53,12 +53,6 @@ func (p *Path) SliceInterface() []interface{} {
 	return out
 }
 
-// TODO: This is now identical with Slice(), so it can be removed once all
-// callers have been adopted
-func (p *Path) SliceNonTitleized() []string {
-	return appendNestedPath(p, true)
-}
-
 func appendNestedPath(p *Path, omitClass bool) []string {
 	result := []string{}
 	if !omitClass {

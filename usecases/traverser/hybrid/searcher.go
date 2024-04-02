@@ -184,6 +184,16 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 // Search combines the result sets using Reciprocal Rank Fusion or Relative Score Fusion
 func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
+	if params.Vector != nil && params.NearVectorParams != nil {
+		return nil, fmt.Errorf("hybrid search: cannot have both vector and nearVectorParams")
+	}
+	if params.Vector != nil && params.NearTextParams != nil {
+		return nil, fmt.Errorf("hybrid search: cannot have both vector and nearTextParams")
+	}
+	if params.NearTextParams != nil && params.NearVectorParams != nil {
+		return nil, fmt.Errorf("hybrid search: cannot have both nearTextParams and nearVectorParams")
+	}
+
 	if len(weights) != len(resultSet) {
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(resultSet))
 	}
@@ -214,6 +224,7 @@ func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.
 		}
 		fused = newResults
 	}
+
 	if params.Autocut > 0 {
 		scores := make([]float32, len(fused))
 		for i := range fused {

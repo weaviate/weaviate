@@ -131,6 +131,7 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, duplicatesClassName)
 	deleteObjectClass(t, noPropsClassName)
 	deleteObjectClass(t, "CursorClass")
+	deleteObjectClass(t, "CompanyGroup")
 
 	// only run after everything else is deleted, this way, we can also run an
 	// all-class Explore since all vectors which are now left have the same
@@ -144,11 +145,14 @@ func testGraphQL(t *testing.T) {
 
 
 func TestAggregateHybrid(t *testing.T) {
+
 	t.Run("setup test schema", addTestSchema)
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
+
 	t.Run("aggregate hybrid nearText", aggregateHybridNearText)
+
 
 
 	deleteObjectClass(t, "Person")
@@ -168,7 +172,47 @@ func TestAggregateHybrid(t *testing.T) {
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
+  
 
+func TestGroupBy(t *testing.T) {
+
+	t.Run("setup test schema", addTestSchema)
+
+	t.Run("import test data (company groups)", addTestDataCompanyGroups)
+	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
+
+
+	t.Run("groupBy objects with bm25", groupByBm25)
+	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
+	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
+
+	t.Run("conflicting subsearches", conflictingSubSearches)
+	t.Run("vector and nearText", vectorNearText)
+
+	t.Run("0 alpha no query", twoVector)
+
+
+	deleteObjectClass(t, "Person")
+	deleteObjectClass(t, "Pizza")
+	deleteObjectClass(t, "Country")
+	deleteObjectClass(t, "City")
+	deleteObjectClass(t, "Airport")
+	deleteObjectClass(t, "Company")
+	deleteObjectClass(t, "RansomNote")
+	deleteObjectClass(t, "MultiShard")
+	deleteObjectClass(t, "HasDateField")
+	deleteObjectClass(t, arrayClassName)
+	deleteObjectClass(t, duplicatesClassName)
+	deleteObjectClass(t, noPropsClassName)
+	deleteObjectClass(t, "CursorClass")
+	deleteObjectClass(t, "CompanyGroup")
+	deleteObjectClass(t, "CustomVectorClass")
+}
+  
+  
+func boolRef(a bool) *bool {
+	return &a
+}
 
 func addTestSchema(t *testing.T) {
 	createObjectClass(t, &models.Class{
@@ -360,6 +404,41 @@ func addTestSchema(t *testing.T) {
 			{
 				Name:     "inCity",
 				DataType: []string{"City"},
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
+		},
+	})
+
+	createObjectClass(t, &models.Class{
+		Class: "CompanyGroup",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-contextionary": map[string]interface{}{
+				"vectorizeClassName": false,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:            "name",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: boolRef(true),
+				IndexSearchable: boolRef(true),
+				ModuleConfig: map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
+						"vectorizePropertyName": false,
+					},
+				},
+			},
+			{
+				Name:            "city",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationField,
+				IndexFilterable: boolRef(true),
+				IndexSearchable: boolRef(true),
 				ModuleConfig: map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{
 						"vectorizePropertyName": false,
@@ -785,7 +864,6 @@ func addTestDataCompanies(t *testing.T) {
 					"beacon": crossref.NewLocalhost("City", c).String(),
 				})
 		}
-
 		createObject(t, &models.Object{
 			Class: "Company",
 			ID:    company.id,
@@ -794,6 +872,54 @@ func addTestDataCompanies(t *testing.T) {
 				"name":   company.name,
 			},
 		})
+	}
+
+	assertGetObjectEventually(t, companies[len(companies)-1].id)
+}
+
+func addTestDataCompanyGroups(t *testing.T) {
+	var (
+		microsoft1 strfmt.UUID = "1fa3b21e-ca4f-4db7-a432-7fc6a23c534d"
+		microsoft2 strfmt.UUID = "1f75ed97-39dd-4294-bff7-ecabd7923062"
+		microsoft3 strfmt.UUID = "1343f51d-7e05-4084-bd66-d504db3b6bec"
+		apple1     strfmt.UUID = "177fec91-1292-4928-8f53-f0ff49c76900"
+		apple2     strfmt.UUID = "1b2cfdba-d4ba-4cf8-abda-e719ef35ac33"
+		apple3     strfmt.UUID = "171d2b4c-3da1-4684-9c5e-aabd2a4f2998"
+		google1    strfmt.UUID = "1c2e21fc-46fe-4999-b41c-a800595129af"
+		google2    strfmt.UUID = "12b969c6-f184-4be0-8c40-7470af417cfc"
+		google3    strfmt.UUID = "17829929-2037-4420-acbc-a433269feb93"
+	)
+
+	type companyTemplate struct {
+		id     strfmt.UUID
+		name   string
+		inCity string
+	}
+
+	companies := []companyTemplate{
+		{id: microsoft1, name: "Microsoft Inc.", inCity: "dusseldorf"},
+		{id: microsoft2, name: "Microsoft Incorporated", inCity: "amsterdam"},
+		{id: microsoft3, name: "Microsoft", inCity: "berlin"},
+		{id: apple1, name: "Apple Inc.", inCity: "berlin"},
+		{id: apple2, name: "Apple Incorporated", inCity: "dusseldorf"},
+		{id: apple3, name: "Apple", inCity: "amsterdam"},
+		{id: google1, name: "Google Inc.", inCity: "amsterdam"},
+		{id: google2, name: "Google Incorporated", inCity: "berlin"},
+		{id: google3, name: "Google", inCity: "dusseldorf"},
+	}
+
+	// companies
+	for _, company := range companies {
+
+		createObject(t, &models.Object{
+			Class: "CompanyGroup",
+			ID:    company.id,
+			Properties: map[string]interface{}{
+				"city": company.inCity,
+				"name": company.name,
+			},
+		})
+		fmt.Printf("created company  %s\n", company.name)
 	}
 
 	assertGetObjectEventually(t, companies[len(companies)-1].id)
