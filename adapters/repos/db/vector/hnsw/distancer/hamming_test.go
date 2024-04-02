@@ -82,8 +82,28 @@ func TestHammingDistancer(t *testing.T) {
 
 func TestHammingDistancerStepbyStep(t *testing.T) {
 	t.Run("step by step equals SingleDist", func(t *testing.T) {
-		vec1 := []float32{10, 11, 15, 25, 31}
-		vec2 := []float32{10, 15, 16, 25, 30}
+		vec1 := []float32{10, 11, 15.3, 25, 31}
+		vec2 := []float32{10, 15.3, 16, 25, 31.2}
+
+		expectedDistance, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		distanceProvider := NewHammingProvider()
+		sum := float32(0.0)
+		for i := range vec1 {
+			sum += distanceProvider.Step([]float32{vec1[i]}, []float32{vec2[i]})
+		}
+		control := distanceProvider.Wrap(sum)
+
+		assert.Equal(t, control, expectedDistance)
+	})
+}
+
+func TestHammingDistancerLongVectors(t *testing.T) {
+	t.Run("very loooong vectors", func(t *testing.T) {
+		vec1 := []float32{10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31,10, 11, 15.3, 25, 31}
+		vec2 := []float32{10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,10, 15.3, 16, 25, 31.2,}
 
 		expectedDistance, ok, err := NewHammingProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
