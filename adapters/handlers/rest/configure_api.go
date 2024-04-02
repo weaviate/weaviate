@@ -327,8 +327,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// TODO-RAFT START
 	enterrors.GoWrapper(func() {
-		err := appState.CloudService.Open(ctx, executor)
-		if err != nil {
+		if err := appState.CloudService.Open(ctx, executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
@@ -336,7 +335,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}, appState.Logger)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Second)
 	// TODO-RAFT END
 
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
