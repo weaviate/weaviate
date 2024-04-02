@@ -121,8 +121,8 @@ func groupByObjects(t *testing.T) {
 
 
 
-func groupByHybridBm25(t *testing.T) {
-	t.Run("group by: companies by city hybrid bm25", func(t *testing.T) {
+func aggregateHybridNearText(t *testing.T) {
+	t.Run("aggregate hybrid nearText", func(t *testing.T) {
 		getGroup := func(value interface{}) map[string]interface{} {
 			group := value.(map[string]interface{})["_additional"].(map[string]interface{})["group"].(map[string]interface{})
 			return group
@@ -141,40 +141,29 @@ func groupByHybridBm25(t *testing.T) {
 
 		query := `
 		{
-			Get{
-				CompanyGroup(
-					hybrid:{
-						query:"Inc Apple Microsoft"
-					}
-					groupBy:{
-						path:["city"]
-						groups:4
-						objectsPerGroup: 10
-					}
-				){
-					_additional{
-						group{
-							id
-							groupedBy{value path}
-							count
-							maxDistance
-							minDistance
-							hits {
-								name city
-								_additional {
-									id
-									distance
-								}
-							}
-						}
-					}
+			Aggregate {
+			  CompanyGroup(hybrid: {
+				alpha: 0.45, 
+				query: "Apple",
+				searches:{
+				  nearText: {
+					concepts: ["computer"]
+				  }
 				}
+			  }) {
+				meta {
+				  count
+				}
+				text {
+				  count
+				}
+			  }
 			}
-		}
+		  }
 		`
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		groups := result.Get("Get", "CompanyGroup").AsSlice()
-		fmt.Printf("groups: %+v\n", groups)
+
 
 		require.Len(t, groups, 3)
 

@@ -148,7 +148,7 @@ func TestAggregateHybrid(t *testing.T) {
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
-
+	t.Run("aggregate hybrid nearText", aggregateHybridNearText)
 
 
 	deleteObjectClass(t, "Person")
