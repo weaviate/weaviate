@@ -182,7 +182,7 @@ func TestBatchTimeouts(t *testing.T) {
 		{batchTime: 1 * time.Second, expectedErrors: 0},
 	}
 	for _, tt := range cases {
-		t.Run("BatchTimeouts", func(t *testing.T) {
+		t.Run(fmt.Sprint("BatchTimeouts", tt.batchTime), func(t *testing.T) {
 			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
@@ -215,7 +215,7 @@ func TestBatchRequestLimit(t *testing.T) {
 		{batchTime: 2 * time.Second, expectedErrors: 0},
 	}
 	for _, tt := range cases {
-		t.Run("BatchRequestLimit", func(t *testing.T) {
+		t.Run(fmt.Sprint("Test request limit with", tt.batchTime), func(t *testing.T) {
 			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
@@ -237,14 +237,15 @@ func TestBatchMaxTokens(t *testing.T) {
 	texts, tokenCounts := generateTokens(objs)
 
 	cases := []struct {
+		name           string
 		maxTokens      func(cfg moduletools.ClassConfig) int
 		expectedErrors int
 	}{
-		{maxTokens: func(cfg moduletools.ClassConfig) int { return 20 }, expectedErrors: 1},
-		{maxTokens: func(cfg moduletools.ClassConfig) int { return 100 }, expectedErrors: 0},
+		{name: "20", maxTokens: func(cfg moduletools.ClassConfig) int { return 20 }, expectedErrors: 1},
+		{name: "100", maxTokens: func(cfg moduletools.ClassConfig) int { return 100 }, expectedErrors: 0},
 	}
 	for _, tt := range cases {
-		t.Run("Max tokens", func(t *testing.T) {
+		t.Run(fmt.Sprint("Max tokens", tt.name), func(t *testing.T) {
 			v := NewBatchVectorizer(client, time.Second, 2000, tt.maxTokens, 2000.0, logger) // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
