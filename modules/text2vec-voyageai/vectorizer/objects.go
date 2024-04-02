@@ -13,32 +13,65 @@ package vectorizer
 
 import (
 	"context"
-	"fmt"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/tiktoken-go"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-type Vectorizer struct {
-	client           Client
-	objectVectorizer *objectsvectorizer.ObjectVectorizer
-}
+const (
+	MaxObjectsPerBatch    = 128 // https://docs.voyageai.com/docs/embeddings#python-api
+	OpenAIMaxTimePerBatch = float64(10)
+)
 
-func New(client Client) *Vectorizer {
-	return &Vectorizer{
-		client:           client,
-		objectVectorizer: objectsvectorizer.New(),
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
+	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+		texts := make([]string, len(objects))
+		tokenCounts := make([]int, len(objects))
+		icheck := ent.NewClassSettings(cfg)
+
+		// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
+		// However, it is close to the OpenAI encoding and with a small margin, we can use the OpenAI token count
+		// https://docs.voyageai.com/docs/tokenization
+		tke, err := tiktoken.EncodingForModel("text-embedding-ada-002")
+		if err != nil { // fail all objects as they all have the same model
+			return nil, nil, false, err
+		}
+
+		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+		skipAll := true
+		for i := range texts {
+			if skipObject[i] {
+				continue
+			}
+			skipAll = false
+			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			texts[i] = text
+			tokenCounts[i] = int(float32(clients.GetTokensCount(icheck.Model(), text, tke)) * 1.3)
+		}
+		return texts, tokenCounts, skipAll, nil
 	}
-}
 
-type Client interface {
-	Vectorize(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	// there does not seem to be a limit
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int {
+		model := ent.NewClassSettings(cfg).Model()
+		if model == "voyage-2" {
+			return 320000
+		} else if model == "voyage-large-2" || model == "voyage-code-2" {
+			return 120000
+		}
+		return 120000 // unknown model, use the smallest limit
+	}
+
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -49,38 +82,4 @@ type ClassSettings interface {
 	Model() string
 	Truncate() bool
 	BaseURL() string
-}
-
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object, cfg)
-	return vec, nil, err
-}
-
-func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	icheck := NewClassSettings(cfg)
-	text := v.objectVectorizer.Texts(ctx, object, icheck)
-	// vectorize text
-	res, err := v.client.Vectorize(ctx, []string{text}, v.getVectorizationConfig(cfg))
-	if err != nil {
-		return nil, err
-	}
-	if len(res.Vectors) == 0 {
-		return nil, fmt.Errorf("no vectors generated")
-	}
-
-	if len(res.Vectors) > 1 {
-		return libvectorizer.CombineVectors(res.Vectors), nil
-	}
-	return res.Vectors[0], nil
-}
-
-func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
-	settings := NewClassSettings(cfg)
-	return ent.VectorizationConfig{
-		Model:    settings.Model(),
-		BaseURL:  settings.BaseURL(),
-		Truncate: settings.Truncate(),
-	}
 }

@@ -125,7 +125,6 @@ func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 
 func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
-
 	return vecs, nil, errs
 }
 
