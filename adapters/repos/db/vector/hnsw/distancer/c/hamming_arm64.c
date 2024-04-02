@@ -38,25 +38,10 @@ void hamming(float *a, float *b, float *res, long *len)
         float32x4x4_t a4 = vld1q_f32_x4(a + i);
         float32x4x4_t b4 = vld1q_f32_x4(b + i);
 
-        imr_1 = vceqq_f32(a4.val[0], b4.val[0]);
-        imr_2 = vceqq_f32(a4.val[1], b4.val[1]);
-        imr_3 = vceqq_f32(a4.val[2], b4.val[2]);
-        imr_4 = vceqq_f32(a4.val[3], b4.val[3]);
-
-        // imr_1 = vmvnq_u32(imr_1);
-        // imr_2 = vmvnq_u32(imr_2);
-        // imr_3 = vmvnq_u32(imr_3);
-        // imr_4 = vmvnq_u32(imr_4);
-
-        res_vec0 += vshrq_n_u32(imr_1, 31);
-        res_vec1 += vshrq_n_u32(imr_2, 31);
-        res_vec2 += vshrq_n_u32(imr_3, 31);
-        res_vec3 += vshrq_n_u32(imr_4, 31);
-
-        // res_vec0 += vcvtq_f32_u32(imr_1);
-        // res_vec1 += vcvtq_f32_u32(imr_2);
-        // res_vec2 += vcvtq_f32_u32(imr_3);
-        // res_vec3 += vcvtq_f32_u32(imr_4);
+        res_vec0 -= vreinterpretq_s32_f32(vceqq_f32(a4.val[0], b4.val[0]));
+        res_vec1 -= vreinterpretq_s32_f32(vceqq_f32(a4.val[1], b4.val[1]));
+        res_vec2 -= vreinterpretq_s32_f32(vceqq_f32(a4.val[2], b4.val[2]));
+        res_vec3 -= vreinterpretq_s32_f32(vceqq_f32(a4.val[3], b4.val[3]));
 
         i += 16;
     }
@@ -65,11 +50,7 @@ void hamming(float *a, float *b, float *res, long *len)
     {
         float32x4_t a_vec = vld1q_f32(a + i);
         float32x4_t b_vec = vld1q_f32(b + i);
-        uint32x4_t comp_res = vceqq_f32(a_vec, b_vec);
-        // comp_res = vmvnq_u32(comp_res);
-        comp_res = vshrq_n_u32(comp_res, 31);
-
-        res_vec0 += comp_res;
+        res_vec0 -= vreinterpretq_s32_f32(vceqq_f32(a_vec, b_vec));
 
         i += 4;
     }
