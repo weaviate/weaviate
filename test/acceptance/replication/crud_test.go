@@ -337,7 +337,7 @@ func eventualReplicaCRUD(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	t.Run("stop node 1", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+		stopNodeAt(ctx, t, compose, 1)
 	})
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
@@ -367,7 +367,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("stop node 2", func(t *testing.T) {
-				stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+				stopNodeAt(ctx, t, compose, 2)
 			})
 
 			t.Run("assert object is patched on node 1", func(t *testing.T) {
@@ -391,7 +391,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("stop node 1", func(t *testing.T) {
-				stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+				stopNodeAt(ctx, t, compose, 1)
 			})
 
 			t.Run("assert object removed from node 2", func(t *testing.T) {
@@ -411,7 +411,7 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("stop node 2", func(t *testing.T) {
-				stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+				stopNodeAt(ctx, t, compose, 2)
 			})
 
 			t.Run("assert objects are removed from node 1", func(t *testing.T) {
@@ -443,11 +443,6 @@ func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompo
 	})
 	eg.Wait()
 	<-time.After(3 * time.Second) // wait for initialization
-}
-
-func stopNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, container string) {
-	require.Nil(t, compose.Stop(ctx, container, nil))
-	<-time.After(1 * time.Second) // give time for shutdown
 }
 
 func stopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {

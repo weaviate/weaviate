@@ -304,8 +304,9 @@ type Raft struct {
 	ElectionTimeout   time.Duration
 	SnapshotInterval  time.Duration
 
-	BootstrapTimeout time.Duration
-	BootstrapExpect  int
+	BootstrapTimeout       time.Duration
+	BootstrapExpect        int
+	IgnoreWaitingForLeader bool
 }
 
 func (r *Raft) Validate() error {

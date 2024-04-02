@@ -113,7 +113,8 @@ type Config struct {
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
-	IsLocalHost bool
+	IsLocalHost            bool
+	IgnoreWaitingForLeader bool
 }
 
 type Store struct {
@@ -157,6 +158,11 @@ type Store struct {
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	loadLegacySchema LoadLegacySchema
+	// ignoreWaitingForLeader by default node won't report ready unless it has a leader
+	// this flag mostly needed for the nodes migration to RAFT in order to unblock nodes
+	// from waiting on each other to report ready by setting it to True, node will report
+	// ready once db is loaded without waiting for the election and Leader exists.
+	ignoreWaitingForLeader bool
 }
 
 func New(cfg Config) Store {
@@ -181,7 +187,8 @@ func New(cfg Config) Store {
 		logLevel:          cfg.LogLevel,
 
 		// loadLegacySchema is responsible for loading old schema from boltDB
-		loadLegacySchema: cfg.LoadLegacySchema,
+		loadLegacySchema:       cfg.LoadLegacySchema,
+		ignoreWaitingForLeader: cfg.IgnoreWaitingForLeader,
 	}
 }
 
@@ -357,7 +364,10 @@ func (st *Store) Close(ctx context.Context) (err error) {
 func (f *Store) SetDB(db Indexer) { f.db.SetIndexer(db) }
 
 func (f *Store) Ready() bool {
-	return f.open.Load() && f.dbLoaded.Load()
+	if f.ignoreWaitingForLeader {
+		return f.open.Load() && f.dbLoaded.Load()
+	}
+	return f.open.Load() && f.dbLoaded.Load() && f.Leader() != ""
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
@@ -375,6 +385,24 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 				return nil
 			} else {
 				st.log.Info("waiting for database to be restored")
+			}
+		}
+	}
+}
+
+func (st *Store) WaitForLeader(ctx context.Context, period time.Duration) {
+	deadline := time.After(period)
+	t := time.NewTicker(50 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+		case <-deadline:
+			return
+
+		case <-t.C:
+			if st.Leader() != "" {
+				return
 			}
 		}
 	}

@@ -455,6 +455,8 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.IgnoreWaitingForLeader = configbase.Enabled(os.Getenv("RAFT_IGNORE_WAITING_FOR_LEADER"))
+
 	return cfg, nil
 }
 
