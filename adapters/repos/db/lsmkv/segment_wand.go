@@ -73,28 +73,31 @@ type docPointerWithScore struct {
 type Term struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*Idf), if there
 	// is a boost for a queryTerm, simply apply it here once
-	Idf           float64
-	segment       segment
-	node          segmentindex.Node
-	IdPointer     uint64
-	IdBytes       []byte
-	PosPointer    uint64
-	IsTombstone   bool
-	offsetPointer uint64
-	actualStart   uint64
-	actualEnd     uint64
-	DocCount      uint64
-	FullTermCount uint64
-	HasTombstone  bool
-	Data          docPointerWithScore
-	Exhausted     bool
-	QueryTerm     string
-	PropertyBoost float64
-	values        []value
-	ColSize       uint64
+	Idf               float64
+	segment           segment
+	node              segmentindex.Node
+	IdPointer         uint64
+	IdBytes           []byte
+	PosPointer        uint64
+	IsTombstone       bool
+	offsetPointer     uint64
+	actualStart       uint64
+	actualEnd         uint64
+	DocCount          uint64
+	NonTombstoneCount uint64
+	TombstoneCount    uint64
+	FullTermCount     uint64
+	HasTombstone      bool
+	Data              docPointerWithScore
+	Exhausted         bool
+	QueryTerm         string
+	PropertyBoost     float64
+	values            []value
+	ColSize           uint64
+	FilterDocIds      helpers.AllowList
 }
 
-func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount uint64) error {
+func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
 	t.segment = curSegment
 	t.node = node
 	t.QueryTerm = queryTerm
@@ -108,27 +111,45 @@ func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, n
 	t.PropertyBoost = propertyBoost
 
 	if t.segment.mmapContents {
-		t.DocCount = binary.LittleEndian.Uint64(t.segment.contents[node.Start : node.Start+8])
+		t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[node.Start : node.Start+8])
+		byteSize := node.End - node.Start - uint64(8+4+len(key))
+		t.NonTombstoneCount = (byteSize - (21 * t.DocCount)) / 8
+		t.TombstoneCount = t.DocCount - t.NonTombstoneCount
+
 	} else {
 		var err error
 		t.values, err = t.segment.getCollection(key)
 		if err != nil {
 			return err
 		}
+		result := 0
+		for _, value := range t.values {
+			if !value.tombstone {
+				result++
+			}
+		}
+		t.NonTombstoneCount = uint64(result)
+		t.TombstoneCount = uint64(len(t.values)) - t.DocCount
 		t.DocCount = uint64(len(t.values))
 	}
 
-	t.FullTermCount = fullTermDocCount
+	t.FullTermCount = uint64(fullTermDocCount)
 	t.ColSize = uint64(N)
 
 	n := float64(t.FullTermCount)
 	t.Idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * duplicateTextBoost
 	t.actualEnd = node.End - 4 - uint64(len(node.Key))
 
-	actualLen := t.actualEnd - t.offsetPointer
-	t.HasTombstone = actualLen != t.DocCount*29
+	t.HasTombstone = t.TombstoneCount > 0
 
-	t.decode()
+	t.Exhausted = t.NonTombstoneCount == 0
+
+	if !t.Exhausted {
+		t.decode()
+		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.IdPointer)) {
+			t.advance()
+		}
+	}
 
 	return nil
 }
@@ -138,36 +159,37 @@ func (t *Term) ClearData() {
 }
 
 func (t *Term) decode() error {
-	if t.HasTombstone {
-		tombOffset := nodeOffset{t.offsetPointer, t.offsetPointer + 1}
-		tombReader, err := t.segment.newNodeReader(tombOffset)
-		if err != nil {
-			return err
-		}
-		var tombInt int8
-		if err := binary.Read(tombReader, binary.LittleEndian, &tombInt); err != nil {
-			return errors.Wrap(err, "read value length encoding")
-		}
-		if tombInt == 1 {
-			t.advance()
-			return nil
-		}
-	}
 	docIdOffsetStart := t.offsetPointer + 11
+	var isTombstone bool
+	if t.segment.mmapContents {
+		isTombstone = t.segment.contents[t.offsetPointer] == 1
+	} else {
+		isTombstone = t.values[t.PosPointer].value[0] == 1
+	}
 
+	t.IsTombstone = isTombstone
 	if t.segment.mmapContents {
 		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
 		// skip 2 extra bytes for fixed value length
-		freqOffsetStart := docIdOffsetStart + 10
+		if isTombstone {
+			t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+			return nil
+		}
 
+		freqOffsetStart := docIdOffsetStart + 10
 		// read two floats
 		t.Data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
 		propLengthOffsetStart := freqOffsetStart + 4
 		t.Data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
-
 	} else {
 		// read two floats
 		t.IdBytes = t.values[t.PosPointer].value[2:10]
+
+		if isTombstone {
+			t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+			return nil
+		}
+
 		t.Data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[12:16]))
 		t.Data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[16:20]))
 	}
@@ -179,28 +201,44 @@ func (t *Term) decodeIdOnly() {
 	docIdOffsetStart := t.offsetPointer + 11
 	if t.segment.mmapContents {
 		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
+		t.IsTombstone = t.segment.contents[t.offsetPointer] == 1
 	} else {
 		t.IdBytes = t.values[t.PosPointer].value[2:10]
+		t.IsTombstone = t.values[t.PosPointer].value[0] == 1
 	}
 }
 
 func (t *Term) advance() {
-	t.offsetPointer += 29
+	if !t.IsTombstone {
+		t.offsetPointer += 29
+	} else {
+		t.offsetPointer += 21
+	}
 	t.PosPointer++
 	if t.PosPointer >= t.DocCount {
 		t.Exhausted = true
 	} else {
 		t.decode()
+		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.IdPointer)) {
+			t.advance()
+		}
 	}
 }
 
 func (t *Term) advanceIdOnly() {
-	t.offsetPointer += 29
+	if !t.IsTombstone {
+		t.offsetPointer += 29
+	} else {
+		t.offsetPointer += 21
+	}
 	t.PosPointer++
 	if t.PosPointer >= t.DocCount {
 		t.Exhausted = true
 	} else {
 		t.decodeIdOnly()
+		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.IdPointer)) {
+			t.advanceIdOnly()
+		}
 	}
 }
 
@@ -639,7 +677,7 @@ func compareByteArrays(a, b []byte) bool {
 	return true
 }
 
-func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen uint64) (*Term, error) {
+func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (*Term, error) {
 	term := Term{}
 
 	node, err := s.index.Get(key)
@@ -647,7 +685,7 @@ func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, pro
 		return nil, err
 	}
 
-	term.init(N, duplicateTextBoost, s, node, key, string(key), propertyBoost, fullPropertyLen)
+	term.init(N, duplicateTextBoost, s, node, key, string(key), propertyBoost, fullPropertyLen, filterDocIds)
 	return &term, nil
 }
 
@@ -923,41 +961,79 @@ func (b *Bucket) GetSegments() []*segment {
 	return b.disk.segments
 }
 
-func (s segment) GetTermSize(key []byte) uint64 {
+func (s segment) TermHasTombstones(key []byte) (bool, error) {
+	_, tombstone, err := s.GetTermTombstoneNonTombstone(key)
+	if err != nil {
+		return false, err
+	}
+	return tombstone > 0, nil
+}
+
+func (s segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, error) {
 	if s.mmapContents {
 		node, err := s.index.Get(key)
 		if err != nil {
-			return 0
+			return 0, 0, err
 		}
-		return binary.LittleEndian.Uint64(s.contents[node.Start : node.Start+8])
+		count := binary.LittleEndian.Uint64(s.contents[node.Start : node.Start+8])
+		byteSize := node.End - node.Start - uint64(8+4+len(key))
+		nonTombstones := (byteSize - (21 * count)) / 8
+		tombstones := count - nonTombstones
+		return nonTombstones, tombstones, nil
 	} else {
 		var err error
 		values, err := s.getCollection(key)
 		if err != nil {
-			return 0
+			return 0, 0, err
 		}
-		return uint64(len(values))
+
+		docCount := uint64(len(values))
+		nonTombstoneCount := uint64(0)
+		for _, value := range values {
+			if !value.tombstone {
+				nonTombstoneCount++
+			}
+		}
+		tombstoneCount := docCount - nonTombstoneCount
+		return nonTombstoneCount, tombstoneCount, nil
 	}
 }
 
-func GetAllSegments(store *Store, propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[string]uint64, error) {
+func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[string]map[string]int64, bool, error) {
 	allSegments := make(map[*segment]string)
-	propertySizes := make(map[string]uint64)
+	propertySizes := make(map[string]map[string]int64, 100)
+	hasTombstones := false
 	for _, propNameTokens := range propNamesByTokenization {
 		for _, propName := range propNameTokens {
+
 			bucket := store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 			if bucket == nil {
-				return nil, nil, fmt.Errorf("could not find bucket for property %v", propName)
+				return nil, nil, false, fmt.Errorf("could not find bucket for property %v", propName)
 			}
+
+			propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 			segments := bucket.GetSegments()
 			for _, segment := range segments {
-				allSegments[segment] = propName
+				hasTerm := false
 				for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
-					propertySizes[term] += segment.GetTermSize([]byte(term))
+					nonTombstones, tombstones, err := segment.GetTermTombstoneNonTombstone([]byte(term))
+					// segment does not contain term
+					if err != nil {
+						continue
+					}
+					propertySizes[propName][term] += int64(nonTombstones)
+					propertySizes[propName][term] -= int64(tombstones)
+					if tombstones > 0 {
+						hasTombstones = true
+					}
+					hasTerm = true
+				}
+				if hasTerm {
+					allSegments[segment] = propName
 				}
 			}
 
 		}
 	}
-	return allSegments, propertySizes, nil
+	return allSegments, propertySizes, hasTombstones, nil
 }
