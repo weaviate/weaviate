@@ -153,8 +153,9 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
 	for i := range resBody.Data {
-		texts[i] = resBody.Data[i].Object
-		embeddings[i] = resBody.Data[i].Embedding
+		index := resBody.Data[i].Index
+		texts[index] = resBody.Data[i].Object
+		embeddings[index] = resBody.Data[i].Embedding
 	}
 
 	return &modulecomponents.VectorizationResult{
