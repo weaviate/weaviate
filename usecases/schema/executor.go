@@ -17,7 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/cluster"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -49,7 +49,7 @@ func (e *executor) Close(ctx context.Context) error {
 	return e.migrator.Shutdown(ctx)
 }
 
-func (e *executor) AddClass(pl cluster.AddClassRequest) error {
+func (e *executor) AddClass(pl api.AddClassRequest) error {
 	ctx := context.Background()
 	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
@@ -58,7 +58,7 @@ func (e *executor) AddClass(pl cluster.AddClassRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
+func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	className := req.Class.Class
 	ctx := context.Background()
 
@@ -81,7 +81,7 @@ func (e *executor) UpdateClass(req cluster.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) UpdateIndex(req cluster.UpdateClassRequest) error {
+func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 	ctx := context.Background()
 	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
 		return err
@@ -103,13 +103,13 @@ func (e *executor) DeleteClass(cls string) error {
 	return nil
 }
 
-func (e *executor) AddProperty(className string, req cluster.AddPropertyRequest) error {
+func (e *executor) AddProperty(className string, req api.AddPropertyRequest) error {
 	ctx := context.Background()
 	e.triggerSchemaUpdateCallbacks()
 	return e.migrator.AddProperty(ctx, className, req.Properties...)
 }
 
-func (e *executor) AddTenants(class string, req *cluster.AddTenantsRequest) error {
+func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 	if len(req.Tenants) == 0 {
 		return nil
 	}
@@ -133,7 +133,7 @@ func (e *executor) AddTenants(class string, req *cluster.AddTenantsRequest) erro
 	return nil
 }
 
-func (e *executor) UpdateTenants(class string, req *cluster.UpdateTenantsRequest) error {
+func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) error {
 	ctx := context.Background()
 	cls := e.store.ReadOnlyClass(class)
 	if cls == nil {
@@ -159,7 +159,7 @@ func (e *executor) UpdateTenants(class string, req *cluster.UpdateTenantsRequest
 	return nil
 }
 
-func (e *executor) DeleteTenants(class string, req *cluster.DeleteTenantsRequest) error {
+func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
 	ctx := context.Background()
 	commit, err := e.migrator.DeleteTenants(ctx, class, req.Tenants)
 	if err != nil {
@@ -172,7 +172,7 @@ func (e *executor) DeleteTenants(class string, req *cluster.DeleteTenantsRequest
 	return nil
 }
 
-func (e *executor) UpdateShardStatus(req *cluster.UpdateShardStatusRequest) error {
+func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	ctx := context.Background()
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status)
 }

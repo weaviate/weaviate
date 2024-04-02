@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package cluster
+package api
 
 import (
 	"github.com/weaviate/weaviate/entities/models"
