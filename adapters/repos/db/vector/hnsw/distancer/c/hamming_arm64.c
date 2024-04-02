@@ -43,10 +43,10 @@ void hamming(float *a, float *b, float *res, long *len)
         imr_3 = vceqq_f32(a4.val[2], b4.val[2]);
         imr_4 = vceqq_f32(a4.val[3], b4.val[3]);
 
-        imr_1 = vmvnq_u32(imr_1);
-        imr_2 = vmvnq_u32(imr_2);
-        imr_3 = vmvnq_u32(imr_3);
-        imr_4 = vmvnq_u32(imr_4);
+        // imr_1 = vmvnq_u32(imr_1);
+        // imr_2 = vmvnq_u32(imr_2);
+        // imr_3 = vmvnq_u32(imr_3);
+        // imr_4 = vmvnq_u32(imr_4);
 
         res_vec0 += vshrq_n_u32(imr_1, 31);
         res_vec1 += vshrq_n_u32(imr_2, 31);
@@ -66,7 +66,7 @@ void hamming(float *a, float *b, float *res, long *len)
         float32x4_t a_vec = vld1q_f32(a + i);
         float32x4_t b_vec = vld1q_f32(b + i);
         uint32x4_t comp_res = vceqq_f32(a_vec, b_vec);
-        comp_res = vmvnq_u32(comp_res);
+        // comp_res = vmvnq_u32(comp_res);
         comp_res = vshrq_n_u32(comp_res, 31);
 
         res_vec0 += comp_res;
@@ -75,15 +75,19 @@ void hamming(float *a, float *b, float *res, long *len)
     }
 
     // convert to f32 implicitly
-    float sum = vaddvq_u32(res_vec0);
-    sum += vaddvq_u32(res_vec1);
-    sum += vaddvq_u32(res_vec2);
-    sum += vaddvq_u32(res_vec3);
+    int32_t sum = size;
+    sum -= vaddvq_u32(res_vec0);
+    sum -= vaddvq_u32(res_vec1);
+    sum -= vaddvq_u32(res_vec2);
+    sum -= vaddvq_u32(res_vec3);
 
     // add the remaining vectors
     for (int i = l; i < size; i++)
     {
-        sum += a[i] != b[i] ? 1 : 0;
+        if (a[i] == b[i])
+        {
+            sum--;
+        }
     }
 
     res[0] = sum;
