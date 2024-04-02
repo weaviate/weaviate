@@ -113,8 +113,7 @@ type Config struct {
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
-	IsLocalHost            bool
-	IgnoreWaitingForLeader bool
+	IsLocalHost bool
 }
 
 type Store struct {
@@ -158,11 +157,6 @@ type Store struct {
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	loadLegacySchema LoadLegacySchema
-	// ignoreWaitingForLeader by default node won't report ready unless it has a leader
-	// this flag mostly needed for the nodes migration to RAFT in order to unblock nodes
-	// from waiting on each other to report ready by setting it to True, node will report
-	// ready once db is loaded without waiting for the election and Leader exists.
-	ignoreWaitingForLeader bool
 }
 
 func New(cfg Config) Store {
@@ -187,8 +181,7 @@ func New(cfg Config) Store {
 		logLevel:          cfg.LogLevel,
 
 		// loadLegacySchema is responsible for loading old schema from boltDB
-		loadLegacySchema:       cfg.LoadLegacySchema,
-		ignoreWaitingForLeader: cfg.IgnoreWaitingForLeader,
+		loadLegacySchema: cfg.LoadLegacySchema,
 	}
 }
 
