@@ -158,7 +158,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	if len(params.HybridSearch.NearTextParams.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
 	}
-	fmt.Println("targetVector", targetVector)
 
 	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
 	if err != nil {
