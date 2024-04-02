@@ -30,6 +30,7 @@ import (
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
@@ -269,6 +270,11 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 
 func (d *Compose) WithRerankerCohere() *Compose {
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerVoyageAI() *Compose {
+	d.enableModules = append(d.enableModules, modrerankervoyageai.Name)
 	return d
 }
 
