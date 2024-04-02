@@ -447,8 +447,8 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 							termIndex, queryTerm, len(result.data), res.ID)
 						continue
 					}
-					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndex].frequency
-					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndex].propLength
+					// obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndex].frequency
+					// obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndex].propLength
 				}
 			}
 		}
@@ -562,13 +562,13 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
 					continue
 				}
-				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
-				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+				// freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
+				// propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				docMapPairs = append(docMapPairs,
 					docPointerWithScore{
-						id:         binary.BigEndian.Uint64(val.Key),
-						frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
-						propLength: math.Float32frombits(propLenBits),
+						id:     binary.BigEndian.Uint64(val.Key),
+						datas:  [][]byte{val.Value},
+						boosts: []float32{propertyBoosts[propName]},
 					})
 				if includeIndicesForLastElement {
 					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
@@ -582,8 +582,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 				}
 				key := binary.BigEndian.Uint64(val.Key)
 				ind, ok := docMapPairsIndices[key]
-				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
-				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+
 				if ok {
 					if ind >= len(docMapPairs) {
 						// the index is not valid anymore, but the key is still in the map
@@ -594,15 +593,19 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
 						continue
 					}
+					docMapPairs[ind].datas = append(docMapPairs[ind].datas, val.Value)
+					docMapPairs[ind].boosts = append(docMapPairs[ind].boosts, propertyBoosts[propName])
 
-					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
-					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
+					datas := make([][]byte, 1, len(allMsAndProps))
+					datas[0] = val.Value
+					boosts := make([]float32, 1, len(allMsAndProps))
+					boosts[0] = propertyBoosts[propName]
 					docMapPairs = append(docMapPairs,
 						docPointerWithScore{
-							id:         binary.BigEndian.Uint64(val.Key),
-							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
-							propLength: math.Float32frombits(propLenBits),
+							id:     binary.BigEndian.Uint64(val.Key),
+							datas:  datas,
+							boosts: boosts,
 						})
 					if includeIndicesForLastElement {
 						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
@@ -652,8 +655,17 @@ type term struct {
 func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
-	freq := float64(pair.frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
+
+	freq := float64(0)
+	propLength := float64(0)
+	for i := range pair.datas {
+		freqBits := math.Float32frombits(binary.LittleEndian.Uint32(pair.datas[i][0:4]))
+		propLenBits := math.Float32frombits(binary.LittleEndian.Uint32(pair.datas[i][4:8]))
+		freq += float64(freqBits) * float64(pair.boosts[i])
+		propLength += float64(propLenBits)
+	}
+
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(propLength)/averagePropLength))
 
 	// advance
 	t.posPointer++
