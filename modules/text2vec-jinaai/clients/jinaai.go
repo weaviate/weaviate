@@ -33,7 +33,7 @@ import (
 
 const (
 	DefaultRPM = 100 * 60 // from https://jina.ai/embeddings/
-	DefaultTPM = 10000000 // no token limit used by cohere
+	DefaultTPM = 10000000 // no token limit used
 )
 
 type embeddingsRequest struct {
