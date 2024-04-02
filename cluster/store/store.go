@@ -364,9 +364,6 @@ func (st *Store) Close(ctx context.Context) (err error) {
 func (f *Store) SetDB(db Indexer) { f.db.SetIndexer(db) }
 
 func (f *Store) Ready() bool {
-	if f.ignoreWaitingForLeader {
-		return f.open.Load() && f.dbLoaded.Load()
-	}
 	return f.open.Load() && f.dbLoaded.Load() && f.Leader() != ""
 }
 
@@ -385,24 +382,6 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 				return nil
 			} else {
 				st.log.Info("waiting for database to be restored")
-			}
-		}
-	}
-}
-
-func (st *Store) WaitForLeader(ctx context.Context, period time.Duration) {
-	deadline := time.After(period)
-	t := time.NewTicker(50 * time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-		case <-deadline:
-			return
-
-		case <-t.C:
-			if st.Leader() != "" {
-				return
 			}
 		}
 	}

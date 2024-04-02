@@ -326,13 +326,17 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.Modules.SetSchemaGetter(schemaManager)
 
 	// TODO-RAFT START
-	if appState.ServerConfig.Config.Cluster.IgnoreStartupSchemaSync {
-		enterrors.GoWrapper(func() {
-			appState.CloudService.InitRaft(ctx, executor, appState.Logger)
-		}, appState.Logger)
-	} else {
-		appState.CloudService.InitRaft(ctx, executor, appState.Logger)
-	}
+	enterrors.GoWrapper(func() {
+		err := appState.CloudService.Open(ctx, executor)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+	}, appState.Logger)
+
+	time.Sleep(2 * time.Second)
 	// TODO-RAFT END
 
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,

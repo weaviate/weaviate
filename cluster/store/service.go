@@ -224,7 +224,7 @@ func (st *Service) Execute(req *cmd.ApplyRequest) error {
 	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
 		return ErrUnknownCommand
 	}
-	st.store.WaitForLeader(context.Background(), time.Duration(6*time.Second))
+
 	leader := st.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
@@ -268,10 +268,6 @@ func (s *Service) Stats() map[string]string {
 
 func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
 	return s.store.WaitToRestoreDB(ctx, period)
-}
-
-func (s *Service) WaitForLeader(ctx context.Context, period time.Duration) {
-	s.store.WaitForLeader(ctx, period)
 }
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
@@ -338,7 +334,6 @@ func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryR
 	if s.store.IsLeader() {
 		return s.store.Query(req)
 	}
-	s.store.WaitForLeader(ctx, time.Duration(6*time.Second))
 
 	leader := s.store.Leader()
 	if leader == "" {

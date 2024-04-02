@@ -83,7 +83,6 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
-	srv.WaitForLeader(ctx, time.Second*1)
 	assert.True(t, srv.Ready())
 	for i := 0; i < 20; i++ {
 		if srv.store.IsLeader() {
@@ -200,7 +199,6 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
-	srv.WaitForLeader(ctx, time.Second*1)
 	assert.True(t, srv.Ready())
 	for i := 0; i < 20; i++ {
 		if srv.store.IsLeader() {

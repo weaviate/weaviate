@@ -17,7 +17,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/cluster/transport"
 )
@@ -48,16 +47,6 @@ func New(cfg store.Config) *Service {
 		client:     cl,
 		rpcService: transport.New(&fsm, server, addr, cfg.Logger),
 		logger:     cfg.Logger,
-	}
-}
-
-func (c *Service) InitRaft(ctx context.Context, db store.Indexer, logger *logrus.Logger) {
-	err := c.Open(ctx, db)
-	if err != nil {
-		logger.
-			WithField("action", "startup").
-			WithError(err).
-			Fatal("could not open cloud meta store")
 	}
 }
 
