@@ -224,6 +224,7 @@ func (st *Service) Execute(req *cmd.ApplyRequest) error {
 	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
 		return ErrUnknownCommand
 	}
+
 	leader := st.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
@@ -334,11 +335,12 @@ func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryR
 		return s.store.Query(req)
 	}
 
-	leaderAddr := s.store.Leader()
-	if leaderAddr == "" {
+	leader := s.store.Leader()
+	if leader == "" {
 		return &cmd.QueryResponse{}, ErrLeaderNotFound
 	}
-	return s.cl.Query(ctx, leaderAddr, req)
+
+	return s.cl.Query(ctx, leader, req)
 }
 
 func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {

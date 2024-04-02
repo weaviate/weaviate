@@ -357,7 +357,7 @@ func (st *Store) Close(ctx context.Context) (err error) {
 func (f *Store) SetDB(db Indexer) { f.db.SetIndexer(db) }
 
 func (f *Store) Ready() bool {
-	return f.open.Load() && f.dbLoaded.Load()
+	return f.open.Load() && f.dbLoaded.Load() && f.Leader() != ""
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
