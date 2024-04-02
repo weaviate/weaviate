@@ -12,7 +12,7 @@
 package test
 
 import (
-	"fmt"
+
 	"testing"
 
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
