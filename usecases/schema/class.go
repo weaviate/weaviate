@@ -481,7 +481,7 @@ func (h *Handler) validateCanAddClass(
 	ctx context.Context, class *models.Class,
 	relaxCrossRefValidation bool,
 ) error {
-	if err := h.validateClassName(class.Class); err != nil {
+	if _, err := schema.ValidateClassName(class.Class); err != nil {
 		return err
 	}
 
@@ -507,22 +507,6 @@ func (h *Handler) validateCanAddClass(
 
 	// all is fine!
 	return nil
-}
-
-func (h *Handler) validateClassName(name string) error {
-	if _, err := schema.ValidateClassName(name); err != nil {
-		return err
-	}
-	existingName := h.metaReader.ClassEqual(name)
-	if existingName == "" {
-		return nil
-	}
-	if name != existingName {
-		return fmt.Errorf(
-			"class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
-			name, existingName)
-	}
-	return fmt.Errorf("class name %q already exists", name)
 }
 
 func (h *Handler) validatePropertyTokenization(tokenization string, propertyDataType schema.PropertyDataType) error {
