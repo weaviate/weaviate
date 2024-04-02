@@ -50,7 +50,6 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
-
 }
 
 func testGraphQL(t *testing.T) {
