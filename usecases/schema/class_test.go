@@ -73,28 +73,6 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "'' is not a valid class name")
 	})
 
-	t.Run("with permuted-casing class names", func(t *testing.T) {
-		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
-		fakeMetaHandler.countClassEqual = true
-
-		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		unset := fakeMetaHandler.On("ClassEqual", mock.Anything).Return("")
-		class1 := models.Class{Class: "NewClass", Vectorizer: "none"}
-		err := handler.AddClass(ctx, nil, &class1)
-		require.Nil(t, err)
-		assert.Nil(t, err)
-
-		unset.Unset()
-
-		fakeMetaHandler.On("ClassEqual", mock.Anything).Return("NewClass")
-		class2 := models.Class{Class: "NewCLASS", Vectorizer: "none"}
-		err = handler.AddClass(ctx, nil, &class2)
-		assert.EqualError(t, err,
-			`class name "NewCLASS" already exists as a permutation of: "NewClass". `+
-				`class names must be unique when lowercased`)
-		fakeMetaHandler.AssertExpectations(t)
-	})
-
 	t.Run("with default params", func(t *testing.T) {
 		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 		class := models.Class{

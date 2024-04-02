@@ -78,6 +78,7 @@ func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
 	if cls == nil || cls.Class == "" {
 		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
 	}
+
 	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {

@@ -389,6 +389,11 @@ func (f *Store) SchemaReader() retrySchema {
 	return retrySchema{f.db.Schema}
 }
 
+// FindSimilarClass returns the name of an existing class with a similar name, and "" otherwise
+func (f *Store) FindSimilarClass(name string) string {
+	return f.db.Schema.ClassEqual(name)
+}
+
 func (st *Store) Stats() map[string]string { return st.raft.Stats() }
 
 // Leader is used to return the current leader address.
@@ -411,6 +416,13 @@ func (st *Store) Execute(req *api.ApplyRequest) error {
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
 		st.log.Info("class already restored", "class", req.Class)
 		return nil
+	}
+	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
+		if other := st.FindSimilarClass(req.Class); other == req.Class {
+			return errClassExists
+		} else if other != "" {
+			return fmt.Errorf("%w: found similar class %q", errClassExists, other)
+		}
 	}
 
 	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
