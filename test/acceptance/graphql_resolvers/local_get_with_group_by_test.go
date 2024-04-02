@@ -408,3 +408,38 @@ func vectorNearText(t *testing.T) {
 	})
 }
 
+
+
+func aggregateGroupBy(t *testing.T) {
+	t.Run("default vector and nearText subsearch", func(t *testing.T) {
+		query := `
+
+		{
+			Aggregate {
+			  CompanyGroup (hybrid: {
+				alpha: 1.0
+				searches:{
+				  nearText: {
+					concepts: ["Apple"]
+				  }
+				}
+			  }
+				groupBy:["city"]) {
+				meta {
+				  count
+				}
+				
+				groupedBy {
+				  value
+				  path
+				}
+			  }
+			}
+		  }
+`
+		errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
+		require.Len(t, errors, 1)
+		require.Equal(t, "hybrid search: cannot have both vector and nearTextParams", errors[0].Message)
+	})
+}
+
