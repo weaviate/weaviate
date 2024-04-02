@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -187,19 +186,14 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 }
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
-	rpm := DefaultRPM
+	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Cohere", DefaultRPM, 0)
 
-	if rpmS := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Ratelimit-RequestPM-Embedding"); rpmS != "" {
-		s, err := strconv.Atoi(rpmS)
-		if err == nil {
-			rpm = s
-		}
-	}
-
-	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
 		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
-			limits.RemainingRequests -= 1
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
 			return
 		}
 
@@ -215,7 +209,7 @@ func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponen
 	}
 
 	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
-	initialRL.ResetAfterRequestFunction() // set initial values
+	initialRL.ResetAfterRequestFunction(0) // set initial values
 
 	return initialRL
 }

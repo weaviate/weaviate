@@ -50,6 +50,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
+	testGroupBy(t)
 }
 
 func testGraphQL(t *testing.T) {
@@ -143,7 +144,7 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
-func TestGroupBy(t *testing.T) {
+func testGroupBy(t *testing.T) {
 	t.Run("setup test schema", addTestSchema)
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)

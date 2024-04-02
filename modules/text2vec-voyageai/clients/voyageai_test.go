@@ -20,12 +20,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 )
 
 func TestClient(t *testing.T) {
@@ -41,16 +42,12 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		expected := &ent.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
-			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model:   "voyage-2",
-				BaseURL: server.URL,
-			})
+		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2", "baseURL": server.URL}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -71,9 +68,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
-			Model: "voyage-2",
-		})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2"}})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -94,11 +89,7 @@ func TestClient(t *testing.T) {
 			},
 			logger: nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model:   "voyage-2",
-				BaseURL: server.URL,
-			})
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2", "baseURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to VoyageAI failed with status: 500 error: nope, not gonna happen")
@@ -119,15 +110,12 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Voyageai-Api-Key", []string{"some-key"})
 
-		expected := &ent.VectorizationResult{
+		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
-			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model: "voyage-2",
-			})
+		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2", "baseURL": server.URL}})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -148,9 +136,7 @@ func TestClient(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
 
-		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{
-			Model: "voyage-2",
-		})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2"}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "VoyageAI API Key: no api key found "+
@@ -173,10 +159,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-VoyageAI-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
-			ent.VectorizationConfig{
-				Model: "voyage-2",
-			})
+		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "voyage-2"}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "VoyageAI API Key: no api key found "+
