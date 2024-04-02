@@ -142,6 +142,41 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
+
+func TestAggregateHybrid(t *testing.T) {
+	t.Run("setup test schema", addTestSchema)
+
+	t.Run("import test data (company groups)", addTestDataCompanyGroups)
+	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
+
+	t.Run("groupBy objects with bm25", groupByBm25)
+	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
+	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
+
+	t.Run("conflicting subsearches", conflictingSubSearches)
+	t.Run("vector and nearText", vectorNearText)
+
+	t.Run("0 alpha no query", twoVector)
+
+	deleteObjectClass(t, "Person")
+	deleteObjectClass(t, "Pizza")
+	deleteObjectClass(t, "Country")
+	deleteObjectClass(t, "City")
+	deleteObjectClass(t, "Airport")
+	deleteObjectClass(t, "Company")
+	deleteObjectClass(t, "RansomNote")
+	deleteObjectClass(t, "MultiShard")
+	deleteObjectClass(t, "HasDateField")
+	deleteObjectClass(t, arrayClassName)
+	deleteObjectClass(t, duplicatesClassName)
+	deleteObjectClass(t, noPropsClassName)
+	deleteObjectClass(t, "CursorClass")
+	deleteObjectClass(t, "CompanyGroup")
+	deleteObjectClass(t, "CustomVectorClass")
+}
+
+
+
 func addTestSchema(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class: "Country",
