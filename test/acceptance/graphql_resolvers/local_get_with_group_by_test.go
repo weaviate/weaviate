@@ -173,7 +173,6 @@ func groupByBm25(t *testing.T) {
 		`
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		groups := result.Get("Get", "CompanyGroup").AsSlice()
-		fmt.Printf("groups: %+v\n", groups)
 
 		require.Len(t, groups, 3)
 
@@ -258,7 +257,6 @@ func groupByHybridBm25(t *testing.T) {
 		`
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 		groups := result.Get("Get", "CompanyGroup").AsSlice()
-		fmt.Printf("groups: %+v\n", groups)
 
 		require.Len(t, groups, 3)
 
