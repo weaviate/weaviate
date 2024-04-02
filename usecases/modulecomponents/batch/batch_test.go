@@ -182,7 +182,7 @@ func TestBatchTimeouts(t *testing.T) {
 		{batchTime: 1 * time.Second, expectedErrors: 0},
 	}
 	for _, tt := range cases {
-		t.Run("", func(t *testing.T) {
+		t.Run("BatchTimeouts", func(t *testing.T) {
 			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
@@ -215,7 +215,7 @@ func TestBatchRequestLimit(t *testing.T) {
 		{batchTime: 2 * time.Second, expectedErrors: 0},
 	}
 	for _, tt := range cases {
-		t.Run("", func(t *testing.T) {
+		t.Run("BatchRequestLimit", func(t *testing.T) {
 			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
@@ -244,7 +244,7 @@ func TestBatchMaxTokens(t *testing.T) {
 		{maxTokens: func(cfg moduletools.ClassConfig) int { return 100 }, expectedErrors: 0},
 	}
 	for _, tt := range cases {
-		t.Run("", func(t *testing.T) {
+		t.Run("Max tokens", func(t *testing.T) {
 			v := NewBatchVectorizer(client, time.Second, 2000, tt.maxTokens, 2000.0, logger) // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
