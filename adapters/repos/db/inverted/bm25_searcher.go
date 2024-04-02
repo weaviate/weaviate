@@ -301,7 +301,7 @@ func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]stri
 	*/
 
 	// 100 is a reasonable expected capacity for the total number of terms to query.
-	results := make(terms, 0, 100)
+	results := make([]term, 0, 100)
 	indices := make([]map[uint64]int, 0, 100)
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
@@ -350,10 +350,14 @@ func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]stri
 	// startTime = float64(time.Now().UnixNano()) / 1e6
 
 	// the results are needed in the original order to be able to locate frequency/property length for the top-results
-	resultsOriginalOrder := make(terms, len(results))
-	copy(resultsOriginalOrder, results)
+	resultsOriginalOrder := Terms{}
+	resultsOriginalOrder.list = make([]term, len(results))
+	copy(resultsOriginalOrder.list, results)
 
-	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
+	resultsTerms := Terms{}
+	resultsTerms.list = results
+
+	topKHeap := b.getTopKHeap(limit, resultsTerms, averagePropLength)
 
 	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
 	// wandTimesId++
@@ -395,7 +399,7 @@ WordLoop:
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
-	results terms, indices []map[uint64]int, additionalExplanations bool,
+	results Terms, indices []map[uint64]int, additionalExplanations bool,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
@@ -434,7 +438,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			if obj.AdditionalProperties() == nil {
 				obj.Object.Additional = make(map[string]interface{})
 			}
-			for j, result := range results {
+			for j, result := range results.list {
 				if termIndex, ok := indices[j][res.ID]; ok {
 					queryTerm := result.queryTerm
 					if len(result.data) <= termIndex {
@@ -455,7 +459,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64,
+func (b *BM25Searcher) getTopKHeap(limit int, results Terms, averagePropLength float64,
 ) *priorityqueue.Queue[any] {
 	topKHeap := priorityqueue.NewMinScoreAndId[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
@@ -673,18 +677,20 @@ func (t *term) advanceAtLeast(minID uint64) {
 	}
 }
 
-type terms []term
+type Terms struct {
+	list []term
+}
 
-func (t terms) completelyExhausted() bool {
-	for i := range t {
-		if !t[i].exhausted {
+func (t Terms) completelyExhausted() bool {
+	for i := range t.list {
+		if !t.list[i].exhausted {
 			return false
 		}
 	}
 	return true
 }
 
-func (t terms) pivot(minScore float64) bool {
+func (t Terms) pivot(minScore float64) bool {
 	minID, pivotPoint, abort := t.findMinID(minScore)
 	if abort {
 		return true
@@ -698,16 +704,16 @@ func (t terms) pivot(minScore float64) bool {
 	return false
 }
 
-func (t terms) advanceAllAtLeast(minID uint64) {
-	for i := range t {
-		t[i].advanceAtLeast(minID)
+func (t Terms) advanceAllAtLeast(minID uint64) {
+	for i := range t.list {
+		t.list[i].advanceAtLeast(minID)
 	}
 }
 
-func (t terms) findMinID(minScore float64) (uint64, int, bool) {
+func (t Terms) findMinID(minScore float64) (uint64, int, bool) {
 	cumScore := float64(0)
 
-	for i, term := range t {
+	for i, term := range t.list {
 		if term.exhausted {
 			continue
 		}
@@ -720,9 +726,9 @@ func (t terms) findMinID(minScore float64) (uint64, int, bool) {
 	return 0, 0, true
 }
 
-func (t terms) findFirstNonExhausted() (int, bool) {
-	for i := range t {
-		if !t[i].exhausted {
+func (t Terms) findFirstNonExhausted() (int, bool) {
+	for i := range t.list {
+		if !t.list[i].exhausted {
 			return i, true
 		}
 	}
@@ -730,20 +736,20 @@ func (t terms) findFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t Terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	pos, ok := t.findFirstNonExhausted()
 	if !ok {
 		// done, nothing left to score
 		return 0, 0
 	}
 
-	id := t[pos].idPointer
+	id := t.list[pos].idPointer
 	var cumScore float64
-	for i := pos; i < len(t); i++ {
-		if t[i].idPointer != id || t[i].exhausted {
+	for i := pos; i < len(t.list); i++ {
+		if t.list[i].idPointer != id || t.list[i].exhausted {
 			continue
 		}
-		_, score := t[i].scoreAndAdvance(averagePropLength, config)
+		_, score := t.list[i].scoreAndAdvance(averagePropLength, config)
 		cumScore += score
 	}
 
@@ -753,16 +759,16 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 }
 
 // provide sort interface
-func (t terms) Len() int {
-	return len(t)
+func (t Terms) Len() int {
+	return len(t.list)
 }
 
-func (t terms) Less(i, j int) bool {
-	return t[i].idPointer < t[j].idPointer
+func (t Terms) Less(i, j int) bool {
+	return t.list[i].idPointer < t.list[j].idPointer
 }
 
-func (t terms) Swap(i, j int) {
-	t[i], t[j] = t[j], t[i]
+func (t Terms) Swap(i, j int) {
+	t.list[i], t.list[j] = t.list[j], t.list[i]
 }
 
 type MapPairsAndPropName struct {
