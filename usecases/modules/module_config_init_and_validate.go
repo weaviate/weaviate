@@ -267,19 +267,28 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 		return errors.Wrapf(err, "module '%s'", moduleName)
 	}
 
-	// props need to be a string array
-	if class.VectorConfig != nil {
-		props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
-		if ok {
-			propsTyped := make([]string, len(props.([]interface{})))
-			for i, v := range props.([]interface{}) {
-				propsTyped[i] = v.(string) // was validated by the module
-			}
-			class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
-		}
-	}
+	p.validateVectorConfig(class, moduleName, targetVector)
 
 	return nil
+}
+
+func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, targetVector string) {
+	mod := p.GetByName(moduleName)
+
+	_, okVec := mod.(modulecapabilities.Vectorizer)
+	if class.VectorConfig == nil || !okVec {
+		return
+	}
+
+	// named vector props need to be a string array
+	props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
+	if ok {
+		propsTyped := make([]string, len(props.([]interface{})))
+		for i, v := range props.([]interface{}) {
+			propsTyped[i] = v.(string) // was validated by the module
+		}
+		class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
+	}
 }
 
 func hasTargetVectors(class *models.Class) bool {

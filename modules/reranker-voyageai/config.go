@@ -9,12 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modvoyageai
+package modrerankervoyageai
 
 import (
 	"context"
-
-	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -22,26 +20,20 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *VoyageAIModule) ClassConfigDefaults() map[string]interface{} {
-	return map[string]interface{}{
-		"vectorizeClassName": ent.DefaultVectorizeClassName,
-	}
+func (m *ReRankerVoyageAIModule) ClassConfigDefaults() map[string]interface{} {
+	return map[string]interface{}{}
 }
 
-func (m *VoyageAIModule) PropertyConfigDefaults(
+func (m *ReRankerVoyageAIModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
-	return map[string]interface{}{
-		"skip":                  !ent.DefaultPropertyIndexed,
-		"vectorizePropertyName": ent.DefaultVectorizePropertyName,
-	}
+	return map[string]interface{}{}
 }
 
-func (m *VoyageAIModule) ValidateClass(ctx context.Context,
+func (m *ReRankerVoyageAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	settings := ent.NewClassSettings(cfg)
-	return settings.Validate(class)
+	return nil
 }
 
 var _ = modulecapabilities.ClassConfigurator(New())

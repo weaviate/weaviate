@@ -244,25 +244,6 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 	return v.openAIOrganization
 }
 
-func (v *client) getRateLimit(ctx context.Context) (int, int) {
-	returnRPM := 0
-	returnTPM := 0
-	if rpmS := modulecomponents.GetValueFromContext(ctx, "X-Openai-Ratelimit-RequestPM-Embedding"); rpmS != "" {
-		s, err := strconv.Atoi(rpmS)
-		if err == nil {
-			returnRPM = s
-		}
-	}
-	if tpmS := modulecomponents.GetValueFromContext(ctx, "X-Openai-Ratelimit-TokenPM-Embedding"); tpmS != "" {
-		s, err := strconv.Atoi(tpmS)
-		if err == nil {
-			returnTPM = s
-		}
-	}
-
-	return returnRPM, returnTPM
-}
-
 func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
 	config := v.getVectorizationConfig(cfg)
 
@@ -274,7 +255,7 @@ func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig)
 }
 
 func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
-	rpm, tpm := v.getRateLimit(ctx)
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Openai", 0, 0)
 	return &modulecomponents.RateLimits{
 		RemainingTokens:   tpm,
 		LimitTokens:       tpm,
