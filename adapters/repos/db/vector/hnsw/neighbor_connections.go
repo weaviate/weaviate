@@ -247,7 +247,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	// set all outgoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
-	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
+	}
 
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
