@@ -327,7 +327,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// TODO-RAFT START
 	enterrors.GoWrapper(func() {
-		if err := appState.CloudService.Open(ctx, executor); err != nil {
+		if err := appState.CloudService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
