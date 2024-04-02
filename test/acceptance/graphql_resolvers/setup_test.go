@@ -50,7 +50,6 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
-	TestGroupBy(t)
 }
 
 func testGraphQL(t *testing.T) {
@@ -153,6 +152,10 @@ func TestGroupBy(t *testing.T) {
 	t.Run("groupBy objects with bm25", groupByBm25)
 	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
 	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
+
+	t.Run("conflicting subsearches", conflictingSubSearches)
+
+	t.Run("0 alpha no query", twoVector)
 
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
