@@ -13,6 +13,7 @@ package modulecomponents
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -48,13 +49,13 @@ func GetValueFromContext(ctx context.Context, key string) string {
 func GetRateLimitFromContext(ctx context.Context, moduleName string, defaultRPM, defaultTPM int) (int, int) {
 	returnRPM := defaultRPM
 	returnTPM := defaultTPM
-	if rpmS := GetValueFromContext(ctx, "X-"+moduleName+"-Ratelimit-RequestPM-Embedding"); rpmS != "" {
+	if rpmS := GetValueFromContext(ctx, fmt.Sprintf("X-%s-Ratelimit-RequestPM-Embedding", moduleName)); rpmS != "" {
 		s, err := strconv.Atoi(rpmS)
 		if err == nil {
 			returnRPM = s
 		}
 	}
-	if tpmS := GetValueFromContext(ctx, "X-"+moduleName+"-Ratelimit-TokenPM-Embedding"); tpmS != "" {
+	if tpmS := GetValueFromContext(ctx, fmt.Sprintf("X-%s-Ratelimit-TokenPM-Embedding", moduleName)); tpmS != "" {
 		s, err := strconv.Atoi(tpmS)
 		if err == nil {
 			returnTPM = s
