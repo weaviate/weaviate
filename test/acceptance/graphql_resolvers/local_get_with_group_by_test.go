@@ -321,8 +321,6 @@ func groupByHybridNearVector(t *testing.T) {
 	})
 }
 
-
-
 func conflictingSubSearches(t *testing.T) {
 	t.Run("conflicting subsearches disallowed", func(t *testing.T) {
 		query := `
@@ -354,7 +352,6 @@ func conflictingSubSearches(t *testing.T) {
 		require.Equal(t, "hybrid search cannot have both nearText and nearVector parameters", errors[0].Message)
 	})
 }
-
 
 func twoVector(t *testing.T) {
 	t.Run("vectors in subsearch and default fields", func(t *testing.T) {
@@ -389,7 +386,6 @@ func twoVector(t *testing.T) {
 		require.Equal(t, "hybrid search: cannot have both vector and nearVectorParams", errors[0].Message)
 	})
 }
-
 
 func vectorNearText(t *testing.T) {
 	t.Run("default vector and nearText subsearch", func(t *testing.T) {
