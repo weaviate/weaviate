@@ -154,7 +154,9 @@ func testGroupBy(t *testing.T) {
 	t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
 	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
 
+
 	t.Run("conflicting subsearches", conflictingSubSearches)
+	t.Run("vector and nearText", vectorNearText)
 
 	t.Run("0 alpha no query", twoVector)
 
