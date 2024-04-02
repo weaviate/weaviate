@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	MaxObjectsPerBatch = 96 // https://docs.cohere.com/reference/embed
+	MaxObjectsPerBatch = 2048 // Info from jina
 	MaxTimePerBatch    = float64(10)
 )
 
@@ -48,7 +48,8 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		}
 		return texts, tokenCounts, skipAll, nil
 	}
-	// there does not seem to be a limit
+	// There is a limit of 8192 tokens per batch, however we cannot easily precompute how many tokens an object will.
+	// Therefore, we use a dummy value and let the jina API fail in case of a too large input object.
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
 	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
 }
