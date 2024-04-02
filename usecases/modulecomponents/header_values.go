@@ -13,6 +13,8 @@ package modulecomponents
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 
 	"google.golang.org/grpc/metadata"
@@ -42,4 +44,23 @@ func GetValueFromContext(ctx context.Context, key string) string {
 	}
 
 	return ""
+}
+
+func GetRateLimitFromContext(ctx context.Context, moduleName string, defaultRPM, defaultTPM int) (int, int) {
+	returnRPM := defaultRPM
+	returnTPM := defaultTPM
+	if rpmS := GetValueFromContext(ctx, fmt.Sprintf("X-%s-Ratelimit-RequestPM-Embedding", moduleName)); rpmS != "" {
+		s, err := strconv.Atoi(rpmS)
+		if err == nil {
+			returnRPM = s
+		}
+	}
+	if tpmS := GetValueFromContext(ctx, fmt.Sprintf("X-%s-Ratelimit-TokenPM-Embedding", moduleName)); tpmS != "" {
+		s, err := strconv.Atoi(tpmS)
+		if err == nil {
+			returnTPM = s
+		}
+	}
+
+	return returnRPM, returnTPM
 }

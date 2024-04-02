@@ -9,10 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package ent
+package clients
 
-type VectorizationResult struct {
-	Text       []string
-	Dimensions int
-	Vectors    [][]float32
+func (s *client) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "Reranker - VoyageAI",
+		"documentationHref": "https://docs.voyageai.com/reference/reranker-api",
+	}, nil
 }
