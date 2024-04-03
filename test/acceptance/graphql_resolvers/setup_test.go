@@ -115,8 +115,8 @@ func testGraphQL(t *testing.T) {
 	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
-	//FIXME
-	//t.Run("metrics count is stable when more classes are added", metricsCount)
+
+	t.Run("metrics count is stable when more classes are added", metricsCount)
 
 	// tear down
 	deleteObjectClass(t, "Person")
@@ -151,7 +151,6 @@ func TestAggregateHybrid(t *testing.T) {
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
-	//t.Run("aggregate hybrid nearText", aggregateHybridNearText)
 	t.Run("aggregate hybrid groupby", aggregateHybridGroupBy)
 
 	deleteObjectClass(t, "Person")
