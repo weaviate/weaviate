@@ -66,6 +66,7 @@ func aggregationWithHybridSearch(t *testing.T) {
 				{
 					name {
         				topOccurrences {
+							limit: 3
           					value
         				}
       				}
