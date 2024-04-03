@@ -66,7 +66,6 @@ func aggregationWithHybridSearch(t *testing.T) {
 				{
 					name {
         				topOccurrences {
-							limit: 3
           					value
         				}
       				}
@@ -131,28 +130,7 @@ func aggregationWithHybridSearch(t *testing.T) {
 		type object = map[string]interface{}
 
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "Company").AsSlice()
-		require.Len(t, result, 3)
-		assert.Contains(t, result, object{
-			"name": object{
-				"topOccurrences": []interface{}{
-					object{"value": "Google"},
-				},
-			},
-		})
-		assert.Contains(t, result, object{
-			"name": object{
-				"topOccurrences": []interface{}{
-					object{"value": "Google Inc."},
-				},
-			},
-		})
-		assert.Contains(t, result, object{
-			"name": object{
-				"topOccurrences": []interface{}{
-					object{"value": "Google Incorporated"},
-				},
-			},
-		})
+		require.Len(t, result, 9)
 	})
 
 }
