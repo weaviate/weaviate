@@ -17,6 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // ManagerWithConsistency expose the same interface as Manager but with the consistency flag.
@@ -61,4 +62,41 @@ func (m *ManagerWithConsistency) GetSchema(principal *models.Principal, consiste
 			Objects: &consistentSchema,
 		}, nil
 	}
+}
+
+func (m *ManagerWithConsistency) GetTenants(ctx context.Context, principal *models.Principal, class string, consistency bool) ([]*models.Tenant, error) {
+	if err := m.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+		return nil, err
+	}
+
+	if consistency {
+		return m.metaWriter.QueryGetTenants(class)
+	}
+
+	// If non consistent, fallback to the default implementation
+
+	// validation
+	info, err := m.multiTenancy(class)
+	if err != nil || info.Tenants == 0 {
+		return nil, err
+	}
+
+	ts := make([]*models.Tenant, info.Tenants)
+	f := func(_ *models.Class, ss *sharding.State) error {
+		if N := len(ss.Physical); N > len(ts) {
+			ts = make([]*models.Tenant, N)
+		} else if N < len(ts) {
+			ts = ts[:N]
+		}
+		i := 0
+		for tenant := range ss.Physical {
+			ts[i] = &models.Tenant{
+				Name:           tenant,
+				ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
+			}
+			i++
+		}
+		return nil
+	}
+	return ts, m.metaReader.Read(class, f)
 }

@@ -304,7 +304,7 @@ func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
 	resp := cmd.QueryReadOnlyClassResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return &models.Class{}, fmt.Errorf("failed to nmarshal query result: %w", err)
+		return &models.Class{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Class, nil
 }
@@ -324,9 +324,37 @@ func (s *Service) QueryGetSchema() (models.Schema, error) {
 	resp := cmd.QueryGetSchemaResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return models.Schema{}, fmt.Errorf("failed to nmarshal query result: %w", err)
+		return models.Schema{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Schema, nil
+}
+
+// QueryGetTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
+// will read the class with strong consistency
+func (s *Service) QueryGetTenants(class string) ([]*models.Tenant, error) {
+	// Build the query and execute it
+	req := cmd.QueryGetTenantsRequest{Class: class}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return []*models.Tenant{}, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_TENANTS,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return []*models.Tenant{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryGetTenantsResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return []*models.Tenant{}, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return resp.Tenants, nil
 }
 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
