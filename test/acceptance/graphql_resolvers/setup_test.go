@@ -151,8 +151,9 @@ func TestAggregateHybrid(t *testing.T) {
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
-	t.Run("aggregate hybrid nearText", aggregateHybridNearText)
-	t.Run("aggregate groupby", 	aggregateGroupBy)
+	//t.Run("aggregate hybrid nearText", aggregateHybridNearText)
+	t.Run("aggregate hybrid groupby", 	aggregateHybridGroupBy)
+	t.Run("aggregate bm25 groupby", 	aggregateBm25GroupBy)
 
 
 

@@ -335,7 +335,7 @@ func vectorNearText(t *testing.T) {
 
 
 
-func aggregateGroupBy(t *testing.T) {
+func aggregateHybridGroupBy(t *testing.T) {
 	t.Run("aggregate groupby", func(t *testing.T) {
 		query := `
 
@@ -364,9 +364,35 @@ func aggregateGroupBy(t *testing.T) {
 		  }
 `
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-		groups := result.Get("Get", "CompanyGroup").AsSlice()
+		groups := result.Get("Aggregate", "CompanyGroup").AsSlice()
 
 		require.Len(t, groups, 3)
 	})
 }
 
+func aggregateBm25GroupBy(t *testing.T) {
+	t.Run("aggregate groupby", func(t *testing.T) {
+		query := `
+
+		{
+			Aggregate {
+			  CompanyGroup (bm25: {query: "Apple"}
+				groupBy:["city"]) {
+				   meta {
+				  count
+				}
+				
+				groupedBy {
+				  value
+				  path
+				}
+			  }
+			}
+		  }
+`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		groups := result.Get("Aggregate", "CompanyGroup").AsSlice()
+
+		require.Len(t, groups, 3)
+	})
+}
