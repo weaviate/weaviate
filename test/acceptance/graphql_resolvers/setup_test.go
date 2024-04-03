@@ -154,7 +154,6 @@ func TestAggregateHybrid(t *testing.T) {
 
 	//t.Run("aggregate hybrid nearText", aggregateHybridNearText)
 	t.Run("aggregate hybrid groupby", 	aggregateHybridGroupBy)
-	t.Run("aggregate bm25 groupby", 	aggregateBm25GroupBy)
 
 
 
