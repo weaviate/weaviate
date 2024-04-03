@@ -144,7 +144,6 @@ func testGraphQL(t *testing.T) {
 }
 
 func TestAggregateHybrid(t *testing.T) {
-
 	t.Run("setup test schema", addTestSchema)
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
@@ -170,14 +169,12 @@ func TestAggregateHybrid(t *testing.T) {
 }
 
 func TestGroupBy(t *testing.T) {
-
 	t.Run("setup test schema", addTestSchema)
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
 	t.Run("groupBy objects with bm25", groupByBm25)
-	//t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
 	t.Run("groupBy objects with hybrid nearvector", groupByHybridNearVector)
 
 	t.Run("conflicting subsearches", conflictingSubSearches)
