@@ -446,8 +446,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		// here we label the main vector index as such.
 		vecIdxID := s.vectorIndexID(targetVector)
 
-		s.index.logger.Error(s.path(), vecIdxID, s.index.Config.ClassName.String())
-
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                   vecIdxID,
 			TargetVector:         targetVector,

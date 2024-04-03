@@ -390,6 +390,7 @@ func (q *IndexQueue) indexer() {
 		case <-t.C:
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				q.checkCompressionSettings()
 				continue
 			}
 			if q.paused.Load() {
