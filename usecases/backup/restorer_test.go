@@ -374,7 +374,10 @@ func TestManagerRestoreBackup(t *testing.T) {
 		assert.Equal(t, resp1, want1)
 		lastStatus := m.restorer.waitForCompletion(req1.Backend, req1.ID, 10, 50)
 		assert.Nil(t, err)
-		assert.Equal(t, backup.Failed, lastStatus.Status)
+		// It's possible that another node in the cluster is restoring the class.
+		// Raft applies the first restore and ignores all subsequent restores because
+		// each node restores the same class.
+		assert.Equal(t, backup.Success, lastStatus.Status)
 	})
 
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {

@@ -164,9 +164,10 @@ func (r *restorer) restoreOne(ctx context.Context,
 		defer timer.ObserveDuration()
 	}
 
-	if r.sourcer.ClassExists(desc.Name) {
-		return fmt.Errorf("already exists")
-	}
+	// It's possible that another node in the cluster is restoring the class.
+	// Raft applies the first restore and ignores all subsequent restores because
+	// each node restores the same class.
+
 	fw := newFileWriter(r.sourcer, store, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
