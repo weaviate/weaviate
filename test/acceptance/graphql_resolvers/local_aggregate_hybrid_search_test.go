@@ -100,7 +100,6 @@ func aggregationWithHybridSearch(t *testing.T) {
 		})
 	})
 
-
 	t.Run("with grouping, sparse search and nearText", func(t *testing.T) {
 		query := `
 		{

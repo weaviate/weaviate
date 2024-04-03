@@ -12,7 +12,6 @@
 package test
 
 import (
-
 	"testing"
 
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -333,8 +332,6 @@ func vectorNearText(t *testing.T) {
 	})
 }
 
-
-
 func aggregateHybridGroupBy(t *testing.T) {
 	t.Run("aggregate groupby", func(t *testing.T) {
 		query := `
@@ -369,4 +366,3 @@ func aggregateHybridGroupBy(t *testing.T) {
 		require.Len(t, groups, 3)
 	})
 }
-

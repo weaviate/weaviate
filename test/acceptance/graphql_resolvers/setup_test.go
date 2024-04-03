@@ -144,7 +144,6 @@ func testGraphQL(t *testing.T) {
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
-
 func TestAggregateHybrid(t *testing.T) {
 
 	t.Run("setup test schema", addTestSchema)
@@ -153,10 +152,7 @@ func TestAggregateHybrid(t *testing.T) {
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
 
 	//t.Run("aggregate hybrid nearText", aggregateHybridNearText)
-	t.Run("aggregate hybrid groupby", 	aggregateHybridGroupBy)
-
-
-
+	t.Run("aggregate hybrid groupby", aggregateHybridGroupBy)
 
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
@@ -175,15 +171,12 @@ func TestAggregateHybrid(t *testing.T) {
 	deleteObjectClass(t, "CustomVectorClass")
 }
 
-  
-
 func TestGroupBy(t *testing.T) {
 
 	t.Run("setup test schema", addTestSchema)
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
 	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
-
 
 	t.Run("groupBy objects with bm25", groupByBm25)
 	//t.Run("groupBy objects with hybrid bm25", groupByHybridBm25)
@@ -194,7 +187,6 @@ func TestGroupBy(t *testing.T) {
 
 	t.Run("0 alpha no query", twoVector)
 
-
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
 	deleteObjectClass(t, "Country")
@@ -211,8 +203,7 @@ func TestGroupBy(t *testing.T) {
 	deleteObjectClass(t, "CompanyGroup")
 	deleteObjectClass(t, "CustomVectorClass")
 }
-  
-  
+
 func boolRef(a bool) *bool {
 	return &a
 }
@@ -880,7 +871,6 @@ func addTestDataCompanies(t *testing.T) {
 	assertGetObjectEventually(t, companies[len(companies)-1].id)
 }
 
-
 func addTestDataPersons(t *testing.T) {
 	var (
 		alice strfmt.UUID = "5d0fa6ee-21c4-4b46-a735-f0208717837d"
@@ -940,7 +930,6 @@ func addTestDataPersons(t *testing.T) {
 
 	assertGetObjectEventually(t, persons[len(persons)-1].id)
 }
-
 
 func addTestDataCompanyGroups(t *testing.T) {
 	var (
