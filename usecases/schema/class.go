@@ -42,6 +42,18 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
 	return h.metaReader.ReadOnlyClass(name), nil
 }
 
+func (m *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
+	name string, consistency bool,
+) (*models.Class, error) {
+	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+		return nil, err
+	}
+	if consistency {
+		return m.metaWriter.QueryReadOnlyClass(name)
+	}
+	return m.metaReader.ReadOnlyClass(name), nil
+}
+
 // AddClass to the schema
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,

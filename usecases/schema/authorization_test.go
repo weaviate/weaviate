@@ -46,8 +46,20 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		{
+			methodName:       "GetConsistentSchema",
+			expectedVerb:     "list",
+			additionalArgs:   []interface{}{false},
+			expectedResource: "schema/*",
+		},
+		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{"classname"},
+			expectedVerb:     "list",
+			expectedResource: "schema/*",
+		},
+		{
+			methodName:       "GetConsistentClass",
+			additionalArgs:   []interface{}{"classname", false},
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
@@ -157,7 +169,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
 
 				var args []interface{}
-				if test.methodName == "GetSchema" {
+				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {
 					// no context on this method
 					args = append([]interface{}{principal}, test.additionalArgs...)
 				} else {

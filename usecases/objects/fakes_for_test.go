@@ -68,6 +68,10 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
+func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	return f.GetSchema(principal)
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) { return "", nil }
 func (f *fakeSchemaManager) TenantShard(class, tenant string) string        { return tenant }
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }
@@ -84,6 +88,12 @@ func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Prin
 		}
 	}
 	return nil, f.GetschemaErr
+}
+
+func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *models.Principal,
+	name string, consistency bool,
+) (*models.Class, error) {
+	return f.GetClass(ctx, principal, name)
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {

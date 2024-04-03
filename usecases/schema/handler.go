@@ -139,6 +139,25 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 	return h.getSchema(), nil
 }
 
+// GetSchema retrieves a locally cached copy of the schema
+func (m *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+		return schema.Schema{}, err
+	}
+
+	if !consistency {
+		return m.getSchema(), nil
+	}
+
+	if consistentSchema, err := m.metaWriter.QueryGetSchema(); err != nil {
+		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
+	} else {
+		return schema.Schema{
+			Objects: &consistentSchema,
+		}, nil
+	}
+}
+
 // GetSchemaSkipAuth can never be used as a response to a user request as it
 // could leak the schema to an unauthorized user, is intended to be used for
 // non-user triggered processes, such as regular updates / maintenance / etc
