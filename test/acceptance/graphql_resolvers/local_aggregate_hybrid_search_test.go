@@ -110,8 +110,10 @@ func aggregationWithHybridSearch(t *testing.T) {
 				  	hybrid: {
 						alpha: 0.5
         				query: "Google"
-						nearText: {
-							concepts: ["Google"]
+						searches: {
+							nearText: {
+								concepts: ["Google"]
+							}
 						}
 					}
     			)
@@ -151,4 +153,5 @@ func aggregationWithHybridSearch(t *testing.T) {
 			},
 		})
 	})
+
 }
