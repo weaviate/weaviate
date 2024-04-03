@@ -126,7 +126,7 @@ func aggregationWithHybridSearch(t *testing.T) {
 				}
 			}
 		}`
-		
+
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "Company").AsSlice()
 		require.Len(t, result, 9)
 	})
