@@ -65,6 +65,7 @@ message QueryRequest {
     TYPE_UNSPECIFIED = 0;
     TYPE_GET_CLASS = 1;
     TYPE_GET_SCHEMA = 2;
+    TYPE_GET_TENANTS = 3;
   }
 
   Type type = 1;

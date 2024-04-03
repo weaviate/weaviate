@@ -125,6 +125,12 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
 
+	// QueryGetTenants
+	getTenants, err := srv.QueryGetTenants(cls.Class)
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenants)
+	assert.Equal(t, []*models.Tenant{{Name: "T0", ActivityStatus: models.TenantActivityStatusHOT}}, getTenants)
+
 	// UpdateClass
 	info := ClassInfo{
 		Exists:            true,

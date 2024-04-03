@@ -47,6 +47,14 @@ type QueryReadOnlyClassResponse struct {
 	State *sharding.State
 }
 
+type QueryGetTenantsRequest struct {
+	Class string
+}
+
+type QueryGetTenantsResponse struct {
+	Tenants []*models.Tenant
+}
+
 type QueryGetSchemaResponse struct {
 	Schema models.Schema
 }

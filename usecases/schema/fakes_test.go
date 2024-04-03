@@ -119,6 +119,11 @@ func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, error
 	return model.(*models.Class), nil
 }
 
+func (f *fakeMetaHandler) QueryGetTenants(class string) ([]*models.Tenant, error) {
+	args := f.Called(class)
+	return nil, args.Error(0)
+}
+
 func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
 	args := f.Called(class)
 	model := args.Get(0)

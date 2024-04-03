@@ -13,11 +13,13 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -265,6 +267,40 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 	}
 
 	return meta.UpdateTenants(s.nodeID, req)
+}
+
+func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
+	s.RLock()
+	// To avoid races between checking that multi tenancy is enabled and reading from the class itself,
+	// ensure we fetch both using the same lock.
+	// We will then read the tenants from the class using the more specific meta lock
+	info := s.ClassInfo(class)
+	meta := s.metaClass(class)
+	s.RUnlock()
+
+	// Check that the class exists, and that multi tenancy is enabled
+	if meta == nil {
+		return []*models.Tenant{}, errClassNotFound
+	}
+	if !info.MultiTenancy.Enabled {
+		return []*models.Tenant{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+
+	// Read tenants using the meta lock guard
+	var res []*models.Tenant
+	f := func(_ *models.Class, ss *sharding.State) error {
+		res = make([]*models.Tenant, len(ss.Physical))
+		i := 0
+		for tenant := range ss.Physical {
+			res[i] = &models.Tenant{
+				Name:           tenant,
+				ActivityStatus: entSchema.ActivityStatus(ss.Physical[tenant].Status),
+			}
+			i++
+		}
+		return nil
+	}
+	return res, meta.RLockGuard(f)
 }
 
 func (s *schema) clear() {
