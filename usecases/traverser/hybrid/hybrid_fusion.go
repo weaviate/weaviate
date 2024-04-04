@@ -85,7 +85,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
 func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names []string) []*search.Result {
-	if len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
+	if len(resultSets) == 0 || len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
 		return []*search.Result{}
 	}
 

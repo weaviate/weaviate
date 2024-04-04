@@ -99,4 +99,35 @@ func aggregationWithHybridSearch(t *testing.T) {
 			},
 		})
 	})
+
+	t.Run("with grouping, sparse search and nearText", func(t *testing.T) {
+		query := `
+		{
+			Aggregate {
+				Company
+    			(
+				  	groupBy: "name"
+				  	hybrid: {
+						alpha: 0.5
+        				query: "Google"
+						searches: {
+							nearText: {
+								concepts: ["Google"]
+							}
+						}
+					}
+    			)
+				{
+					name {
+        				topOccurrences {
+          					value
+        				}
+      				}
+				}
+			}
+		}`
+
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query).Get("Aggregate", "Company").AsSlice()
+		require.Len(t, result, 9)
+	})
 }

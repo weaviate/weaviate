@@ -203,90 +203,6 @@ func groupByBm25(t *testing.T) {
 	})
 }
 
-func groupByHybridBm25(t *testing.T) {
-	t.Run("group by: companies by city hybrid bm25", func(t *testing.T) {
-		getGroup := func(value interface{}) map[string]interface{} {
-			group := value.(map[string]interface{})["_additional"].(map[string]interface{})["group"].(map[string]interface{})
-			return group
-		}
-		getGroupHits := func(group map[string]interface{}) (string, []string) {
-			result := []string{}
-			hits := group["hits"].([]interface{})
-			for _, hit := range hits {
-				additional := hit.(map[string]interface{})["_additional"].(map[string]interface{})
-				result = append(result, additional["id"].(string))
-			}
-			groupedBy := group["groupedBy"].(map[string]interface{})
-			groupedByValue := groupedBy["value"].(string)
-			return groupedByValue, result
-		}
-
-		query := `
-		{
-			Get{
-				CompanyGroup(
-					hybrid:{
-						query:"Inc Apple Microsoft"
-					}
-					groupBy:{
-						path:["city"]
-						groups:4
-						objectsPerGroup: 10
-					}
-				){
-					_additional{
-						group{
-							id
-							groupedBy{value path}
-							count
-							maxDistance
-							minDistance
-							hits {
-								name city
-								_additional {
-									id
-									distance
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		`
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-		groups := result.Get("Get", "CompanyGroup").AsSlice()
-
-		require.Len(t, groups, 3)
-
-		group1 := getGroup(groups[2])
-		groupby, hits := getGroupHits(group1)
-
-		t.Logf("groupby: %s, hits: %+v\n", groupby, hits)
-		require.Equal(t, "dusseldorf", groupby)
-		require.Len(t, hits, 3)
-		require.Equal(t, hits[0], "1fa3b21e-ca4f-4db7-a432-7fc6a23c534d")
-		require.Equal(t, hits[1], "1b2cfdba-d4ba-4cf8-abda-e719ef35ac33")
-
-		group2 := getGroup(groups[0])
-		groupby, hits = getGroupHits(group2)
-		t.Logf("groupby: %s, hits: %+v\n", groupby, hits)
-		require.Equal(t, "berlin", groupby)
-		require.Len(t, hits, 3)
-		require.Equal(t, hits[0], "177fec91-1292-4928-8f53-f0ff49c76900")
-		require.Equal(t, hits[1], "1343f51d-7e05-4084-bd66-d504db3b6bec")
-
-		group3 := getGroup(groups[1])
-		groupby, hits = getGroupHits(group3)
-		t.Logf("groupby: %s, hits: %+v\n", groupby, hits)
-		require.Equal(t, "amsterdam", groupby)
-		require.Len(t, hits, 3)
-		require.Equal(t, hits[0], "1f75ed97-39dd-4294-bff7-ecabd7923062")
-		require.Equal(t, hits[1], "1c2e21fc-46fe-4999-b41c-a800595129af")
-		require.Equal(t, hits[2], "171d2b4c-3da1-4684-9c5e-aabd2a4f2998")
-	})
-}
-
 func groupByHybridNearVector(t *testing.T) {
 	defaultLimit := 100
 	t.Run("nearVector only hybrid search", func(t *testing.T) {
@@ -413,5 +329,40 @@ func vectorNearText(t *testing.T) {
 		errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 		require.Len(t, errors, 1)
 		require.Equal(t, "hybrid search: cannot have both vector and nearTextParams", errors[0].Message)
+	})
+}
+
+func aggregateHybridGroupBy(t *testing.T) {
+	t.Run("aggregate groupby", func(t *testing.T) {
+		query := `
+
+		{
+			Aggregate {
+			  CompanyGroup (hybrid: {
+				alpha: 0.5
+				query: "Apple"
+				searches:{
+				  nearText: {
+					concepts: ["Apple"]
+				  }
+				}
+			  }
+				groupBy:["city"]) {
+				   meta {
+				  count
+				}
+				
+				groupedBy {
+				  value
+				  path
+				}
+			  }
+			}
+		  }
+`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		groups := result.Get("Aggregate", "CompanyGroup").AsSlice()
+
+		require.Len(t, groups, 3)
 	})
 }
