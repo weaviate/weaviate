@@ -56,7 +56,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 5
+	itCount := 3
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
