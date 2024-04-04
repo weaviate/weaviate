@@ -219,22 +219,18 @@ func Benchmark_L2Byte(b *testing.B) {
 			}
 
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				// L2BytePureGo(x, y)
-				asm.L2ByteAVX256(x, y)
-			}
 
-			// b.Run("pure go", func(b *testing.B) {
-			// 	for i := 0; i < b.N; i++ {
-			// 		L2BytePureGo(x, y)
-			// 	}
-			// })
+			b.Run("pure go", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					L2BytePureGo(x, y)
+				}
+			})
 
-			// b.Run("asm AVX", func(b *testing.B) {
-			// 	for i := 0; i < b.N; i++ {
-			// 		asm.L2ByteAVX256(x, y)
-			// 	}
-			// })
+			b.Run("asm AVX", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2ByteAVX256(x, y)
+				}
+			})
 		})
 	}
 }
