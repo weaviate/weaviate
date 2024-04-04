@@ -34,6 +34,7 @@ import (
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -95,6 +96,7 @@ type Compose struct {
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
+	withOllamaVectorizer          bool
 	weaviateEnvs                  map[string]string
 }
 
@@ -131,6 +133,12 @@ func (d *Compose) WithText2VecContextionary() *Compose {
 	d.withContextionary = true
 	d.enableModules = append(d.enableModules, Text2VecContextionary)
 	d.defaultVectorizerModule = Text2VecContextionary
+	return d
+}
+
+func (d *Compose) WithText2VecOllama() *Compose {
+	d.withOllamaVectorizer = true
+	d.enableModules = append(d.enableModules, modollama.Name)
 	return d
 }
 
@@ -284,6 +292,11 @@ func (d *Compose) WithRerankerTransformers() *Compose {
 	return d
 }
 
+func (d *Compose) WithOllamaVectorizer() *Compose {
+	d.withOllamaVectorizer = true
+	return d
+}
+
 func (d *Compose) WithWeaviate() *Compose {
 	d.withWeaviate = true
 	return d
@@ -404,6 +417,16 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startT2VContextionary(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", Text2VecContextionary)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withOllamaVectorizer {
+		container, err := startOllamaVectorizer(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", OllamaVectorizer)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v
