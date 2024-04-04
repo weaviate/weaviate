@@ -34,6 +34,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_TENANTS:
+		payload, err = st.QueryGetTenants(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenants: %w", err)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -69,6 +74,28 @@ func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
 func (st *Store) QueryGetSchema() ([]byte, error) {
 	// Build the response, marshal and return
 	response := cmd.QueryGetSchemaResponse{Schema: st.db.Schema.ReadOnlySchema()}
+	payload, err := json.Marshal(&response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (st *Store) QueryGetTenants(req *cmd.QueryRequest) ([]byte, error) {
+	// Validate that the subcommand is the correct type
+	subCommand := cmd.QueryGetTenantsRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
+	}
+
+	// Read the tenants
+	tenants, err := st.db.Schema.getTenants(subCommand.Class)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not get tenants: %w", err)
+	}
+
+	// Build the response, marshal and return
+	response := cmd.QueryGetTenantsResponse{Tenants: tenants}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)

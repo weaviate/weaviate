@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewTenantsGetParams creates a new TenantsGetParams object,
@@ -75,6 +76,14 @@ type TenantsGetParams struct {
 	// ClassName.
 	ClassName string
 
+	/* Consistency.
+
+	   If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+
+	   Default: true
+	*/
+	Consistency *bool
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -92,7 +101,18 @@ func (o *TenantsGetParams) WithDefaults() *TenantsGetParams {
 //
 // All values with no default are reset to their zero value.
 func (o *TenantsGetParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		consistencyDefault = bool(true)
+	)
+
+	val := TenantsGetParams{
+		Consistency: &consistencyDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the tenants get params
@@ -139,6 +159,17 @@ func (o *TenantsGetParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistency adds the consistency to the tenants get params
+func (o *TenantsGetParams) WithConsistency(consistency *bool) *TenantsGetParams {
+	o.SetConsistency(consistency)
+	return o
+}
+
+// SetConsistency adds the consistency to the tenants get params
+func (o *TenantsGetParams) SetConsistency(consistency *bool) {
+	o.Consistency = consistency
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -150,6 +181,14 @@ func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.Consistency != nil {
+
+		// header param consistency
+		if err := r.SetHeaderParam("consistency", swag.FormatBool(*o.Consistency)); err != nil {
+			return err
+		}
 	}
 
 	if len(res) > 0 {

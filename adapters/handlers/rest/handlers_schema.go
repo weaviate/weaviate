@@ -12,7 +12,6 @@
 package rest
 
 import (
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -78,7 +77,6 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
-	spew.Dump(err)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -292,7 +290,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName)
+	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
