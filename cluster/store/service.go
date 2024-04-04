@@ -218,19 +218,19 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) err
 	return s.Execute(command)
 }
 
-func (st *Service) Execute(req *cmd.ApplyRequest) error {
-	if st.store.IsLeader() {
-		return st.store.Execute(req)
+func (s *Service) Execute(req *cmd.ApplyRequest) error {
+	if s.store.IsLeader() {
+		return s.store.Execute(req)
 	}
 	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
 		return ErrUnknownCommand
 	}
 
-	leader := st.store.Leader()
+	leader := s.store.Leader()
 	if leader == "" {
 		return ErrLeaderNotFound
 	}
-	_, err := st.cl.Apply(leader, req)
+	_, err := s.cl.Apply(leader, req)
 	return err
 }
 

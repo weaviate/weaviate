@@ -59,12 +59,12 @@ func (a *addrResolver) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
 // this resolver to resolve addresses based on server IDs.
 // This is particularly crucial as K8s assigns new IPs on each node restart.
-func (r *addrResolver) NewTCPTransport(
+func (a *addrResolver) NewTCPTransport(
 	bindAddr string, advertise net.Addr,
 	maxPool int, timeout time.Duration,
 ) (*raft.NetworkTransport, error) {
 	cfg := &raft.NetworkTransportConfig{
-		ServerAddressProvider: r,
+		ServerAddressProvider: a,
 		MaxPool:               tcpMaxPool,
 		Timeout:               tcpTimeout,
 	}

@@ -55,37 +55,37 @@ func New(ms members, ex executor, address string, l *slog.Logger) *Service {
 	}
 }
 
-func (c *Service) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	err := c.members.Join(req.Id, req.Address, req.Voter)
+func (s *Service) JoinPeer(_ context.Context, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
+	err := s.members.Join(req.Id, req.Address, req.Voter)
 	if err == nil {
 		return &cmd.JoinPeerResponse{}, nil
 	}
 
-	return &cmd.JoinPeerResponse{Leader: c.members.Leader()}, toRPCError(err)
+	return &cmd.JoinPeerResponse{Leader: s.members.Leader()}, toRPCError(err)
 }
 
-func (c *Service) RemovePeer(_ context.Context, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	err := c.members.Remove(req.Id)
+func (s *Service) RemovePeer(_ context.Context, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
+	err := s.members.Remove(req.Id)
 	if err == nil {
 		return &cmd.RemovePeerResponse{}, nil
 	}
-	return &cmd.RemovePeerResponse{Leader: c.members.Leader()}, toRPCError(err)
+	return &cmd.RemovePeerResponse{Leader: s.members.Leader()}, toRPCError(err)
 }
 
-func (c *Service) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
-	return &cmd.NotifyPeerResponse{}, toRPCError(c.members.Notify(req.Id, req.Address))
+func (s *Service) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
+	return &cmd.NotifyPeerResponse{}, toRPCError(s.members.Notify(req.Id, req.Address))
 }
 
-func (c *Service) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	err := c.executor.Execute(req)
+func (s *Service) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+	err := s.executor.Execute(req)
 	if err == nil {
 		return &cmd.ApplyResponse{}, nil
 	}
-	return &cmd.ApplyResponse{Leader: c.members.Leader()}, toRPCError(err)
+	return &cmd.ApplyResponse{Leader: s.members.Leader()}, toRPCError(err)
 }
 
-func (c *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
-	resp, err := c.executor.Query(ctx, req)
+func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	resp, err := s.executor.Query(ctx, req)
 	if err != nil {
 		return &cmd.QueryResponse{}, toRPCError(err)
 	}
@@ -93,35 +93,35 @@ func (c *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryR
 	return resp, nil
 }
 
-func (c *Service) Leader() string {
-	return c.members.Leader()
+func (s *Service) Leader() string {
+	return s.members.Leader()
 }
 
-func (c *Service) Open() error {
-	c.log.Info("starting cloud rpc server ...", "address", c.address)
-	if c.address == "" {
+func (s *Service) Open() error {
+	s.log.Info("starting cloud rpc server ...", "address", s.address)
+	if s.address == "" {
 		return fmt.Errorf("address of rpc server cannot be empty")
 	}
-	ln, err := net.Listen("tcp", c.address)
+	ln, err := net.Listen("tcp", s.address)
 	if err != nil {
 		return fmt.Errorf("server tcp net.listen: %w", err)
 	}
 
-	c.ln = ln
-	c.grpcServer = grpc.NewServer()
-	cmd.RegisterClusterServiceServer(c.grpcServer, c)
+	s.ln = ln
+	s.grpcServer = grpc.NewServer()
+	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	go func() {
-		if err := c.grpcServer.Serve(c.ln); err != nil {
-			c.log.Error("serving incoming requests: " + err.Error())
+		if err := s.grpcServer.Serve(s.ln); err != nil {
+			s.log.Error("serving incoming requests: " + err.Error())
 			panic("error accepting incoming requests")
 		}
 	}()
 	return nil
 }
 
-func (c *Service) Close() {
-	if c.grpcServer != nil {
-		c.grpcServer.Stop()
+func (s *Service) Close() {
+	if s.grpcServer != nil {
+		s.grpcServer.Stop()
 	}
 }
 
