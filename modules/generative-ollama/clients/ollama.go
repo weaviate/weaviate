@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/qna-openai/config"
+	"github.com/weaviate/weaviate/modules/generative-ollama/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
@@ -34,14 +34,12 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 type ollama struct {
-	origin     string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
 
-func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *ollama {
+func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	return &ollama{
-		origin: origin,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -68,10 +66,9 @@ func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	// Marcin! Please take a look at this part!
-	ollamaUrl := v.getOllamaUrl(ctx, settings.BaseURL())
+	ollamaUrl := v.getOllamaUrl(ctx, settings.ApiEndpoint())
 	input := generateInput{
-		Model:  settings.Model(),
+		Model:  settings.ModelID(),
 		Prompt: prompt,
 		Stream: false,
 	}
@@ -104,11 +101,12 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("connection to Ollama API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
-		}
-		return nil, errors.Errorf("connection to Ollama API failed with status: %d", res.StatusCode)
+	if resBody.Error != "" {
+		return nil, errors.Errorf("connection to Ollama API failed with error: %s", resBody.Error)
+	}
+
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("connection to Ollama API failed with status: %d", res.StatusCode)
 	}
 
 	textResponse := resBody.Response
@@ -120,15 +118,10 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Ollama-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Ollama-BaseURL"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return fmt.Sprintf("%s/api/generate", passedBaseURL)
-}
-
-func (v *ollama) getOllamaModel(ctx context.Context) string {
-	model := v.getValueFromContext(ctx, "X-Ollama-Model")
-	return model
 }
 
 func (v *ollama) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
@@ -156,16 +149,7 @@ func (v *ollama) generateForPrompt(textProperties map[string]string, prompt stri
 }
 
 func (v *ollama) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
+	return modulecomponents.GetValueFromContext(ctx, key)
 }
 
 type generateInput struct {
@@ -176,19 +160,15 @@ type generateInput struct {
 
 // The entire response for an error ends up looking different, may want to add omitempty everywhere.
 type generateResponse struct {
-	Model              string          `json:"model"`
-	CreatedAt          string          `json:"created_at"`
-	Response           string          `json:"response"`
-	Done               bool            `json:"done"`
-	Context            []int           `json:"context"`
-	TotalDuration      int             `json:"total_duration"`
-	LoadDuration       int             `json:"load_duration"`
-	PromptEvalDuration int             `json:"prompt_eval_duration"`
-	EvalCount          int             `json:"eval_count"`
-	EvalDuration       int             `json:"eval_duration"`
-	Error              *ollamaApiError `json:"error,omitempty"`
-}
-
-type ollamaApiError struct {
-	Message string `json:"error"`
+	Model              string `json:"model,omitempty"`
+	CreatedAt          string `json:"created_at,omitempty"`
+	Response           string `json:"response,omitempty"`
+	Done               bool   `json:"done,omitempty"`
+	Context            []int  `json:"context,omitempty"`
+	TotalDuration      int    `json:"total_duration,omitempty"`
+	LoadDuration       int    `json:"load_duration,omitempty"`
+	PromptEvalDuration int    `json:"prompt_eval_duration,omitempty"`
+	EvalCount          int    `json:"eval_count,omitempty"`
+	EvalDuration       int    `json:"eval_duration,omitempty"`
+	Error              string `json:"error,omitempty"`
 }

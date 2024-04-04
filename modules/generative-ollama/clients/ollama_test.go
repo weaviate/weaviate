@@ -44,21 +44,18 @@ func TestGetAnswer(t *testing.T) {
 			name: "when the server has a successful aner",
 			answer: generateResponse{
 				Response: "Test test",
-				Error:    nil,
 			},
-			expectedResult: "John",
+			expectedResult: "Test test",
 		},
 		{
 			name: "when the server has a an error",
 			answer: generateResponse{
-				Error: &ollamaApiError{
-					Message: "some error from the server",
-				},
+				Error: "some error from the server",
 			},
 		},
 		{
 			name:    "when the server does not respond in time",
-			answer:  generateResponse{Error: &ollamaApiError{Message: "context deadline exceeded"}},
+			answer:  generateResponse{Error: "context deadline exceeded"},
 			timeout: time.Second,
 		},
 	}
@@ -72,13 +69,13 @@ func TestGetAnswer(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
-			c := New("localhost", test.timeout, nullLogger())
+			c := New(test.timeout, nullLogger())
 
-			settings := &fakeClassConfig{baseURL: server.URL}
+			settings := &fakeClassConfig{apiEndpoint: server.URL}
 			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)
 
-			if test.answer.Error != nil {
-				assert.Contains(t, err.Error(), test.answer.Error.Message)
+			if test.answer.Error != "" {
+				assert.Contains(t, err.Error(), test.answer.Error)
 			} else {
 				assert.Equal(t, test.expectedResult, *res.Result)
 			}
@@ -94,12 +91,12 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/chat/completions", r.URL.String())
+	assert.Equal(f.t, "/api/generate", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
 
-	if f.answer.Error != nil && f.answer.Error.Message != "" {
+	if f.answer.Error != "" {
 		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
 
@@ -122,7 +119,7 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type fakeClassConfig struct {
-	baseURL string
+	apiEndpoint string
 }
 
 func (cfg *fakeClassConfig) Tenant() string {
@@ -135,11 +132,15 @@ func (cfg *fakeClassConfig) Class() map[string]interface{} {
 
 func (cfg *fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	settings := map[string]interface{}{
-		"baseURL": cfg.baseURL,
+		"apiEndpoint": cfg.apiEndpoint,
 	}
 	return settings
 }
 
 func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
+}
+
+func (cfg *fakeClassConfig) TargetVector() string {
+	return ""
 }

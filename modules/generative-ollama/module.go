@@ -14,7 +14,6 @@ package modgenerativeollama
 import (
 	"context"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/pkg/errors"
@@ -65,16 +64,11 @@ func (m *GenerativeOllamaModule) Init(ctx context.Context,
 func (m *GenerativeOllamaModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	uri := os.Getenv("OLLAMA_INFERENCE_API")
-	if uri == "" {
-		return errors.Errorf("required variable OLLAMA_INFERENCE_API is not set.")
-	}
-
-	client := ollama.New(uri, timeout, logger)
+	client := ollama.New(timeout, logger)
 
 	m.generative = client
 
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(client)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(client, logger)
 	return nil
 }
 

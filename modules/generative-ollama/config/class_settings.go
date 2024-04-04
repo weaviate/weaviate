@@ -15,27 +15,44 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
-	modelProperty = "model"
+	apiEndpointProperty = "apiEndpoint"
+	modelIDProperty     = "modelId"
+)
+
+const (
+	DefaultApiEndpoint = "http://localhost:11434"
+	DefaultModelID     = "llama2"
 )
 
 var availableOllamaModels = []string{
-	"mistarl", "mixtral", "llama2", "codellama", "orca-mini",
+	DefaultModelID,
+	"mistral",
+	"dolphin-phi",
+	"phi",
+	"neural-chat",
+	"starling-lm",
+	"codellama",
+	"llama2-uncensored",
+	"llama2:13b",
+	"llama2:70b",
+	"orca-mini",
+	"vicuna",
+	"llava",
+	"gemma:2b",
+	"gemma:7b",
 }
 
-// note we might want to separate the baseURL and completions URL in the future. Fine-tuned models also use this URL. 12/3/23
-var (
-	DefaultOllamaModel = "mistral"
-)
-
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-ollama")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -43,38 +60,26 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultOllamaModel)
-	if model == nil || !ic.validateModel(*model) {
+	if ic.ApiEndpoint() == "" {
+		return errors.New("apiEndpoint cannot be empty")
+	}
+	model := ic.ModelID()
+	if model == "" || !contains(availableOllamaModels, model) {
 		return errors.Errorf("wrong Ollama model name, available model names are: %v", availableOllamaModels)
 	}
-
 	return nil
 }
 
-func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("generative-ollama")[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			return &asString
-		}
-		var empty string
-		return &empty
-	}
-	return &defaultValue
+func (ic *classSettings) getStringProperty(name, defaultValue string) string {
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, name, defaultValue)
 }
 
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableOllamaModels, model)
+func (ic *classSettings) ApiEndpoint() string {
+	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }
 
-func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultOllamaModel)
+func (ic *classSettings) ModelID() string {
+	return ic.getStringProperty(modelIDProperty, DefaultModelID)
 }
 
 func contains[T comparable](s []T, e T) bool {

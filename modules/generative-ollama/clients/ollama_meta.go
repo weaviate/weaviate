@@ -16,6 +16,6 @@ func (v *ollama) MetaInfo() (map[string]interface{}, error) {
 	// Needs to be to get the model path
 	return map[string]interface{}{
 		"name":              "Generative Search - Ollama",
-		"documentationHref": "https://docs.ollama.com/endpoints/overview",
+		"documentationHref": "https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-completion",
 	}, nil
 }
