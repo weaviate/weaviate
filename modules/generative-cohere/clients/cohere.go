@@ -74,13 +74,12 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
 	input := generateInput{
-		Prompt:            prompt,
-		Model:             settings.Model(),
-		MaxTokens:         settings.MaxTokens(),
-		Temperature:       settings.Temperature(),
-		K:                 settings.K(),
-		StopSequences:     settings.StopSequences(),
-		ReturnLikelihoods: settings.ReturnLikelihoods(),
+		Message:       prompt,
+		Model:         settings.Model(),
+		MaxTokens:     settings.MaxTokens(),
+		Temperature:   settings.Temperature(),
+		K:             settings.K(),
+		StopSequences: settings.StopSequences(),
 	}
 
 	body, err := json.Marshal(input)
@@ -117,14 +116,14 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+	if res.StatusCode != 200 {
+		if resBody.Message != "" {
+			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Message)
 		}
 		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
 	}
 
-	textResponse := resBody.Generations[0].Text
+	textResponse := resBody.Text
 
 	return &generativemodels.GenerateResponse{
 		Result: &textResponse,
@@ -136,7 +135,7 @@ func (v *cohere) getCohereUrl(ctx context.Context, baseURL string) (string, erro
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return url.JoinPath(passedBaseURL, "/v1/generate")
+	return url.JoinPath(passedBaseURL, "/v1/chat")
 }
 
 func (v *cohere) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
@@ -189,26 +188,23 @@ func (v *cohere) getApiKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Prompt            string   `json:"prompt"`
-	Model             string   `json:"model"`
-	MaxTokens         int      `json:"max_tokens"`
-	Temperature       int      `json:"temperature"`
-	K                 int      `json:"k"`
-	StopSequences     []string `json:"stop_sequences"`
-	ReturnLikelihoods string   `json:"return_likelihoods"`
+	ChatHistory   []message `json:"chat_history,omitempty"`
+	Message       string    `json:"message"`
+	Model         string    `json:"model"`
+	MaxTokens     int       `json:"max_tokens"`
+	Temperature   int       `json:"temperature"`
+	K             int       `json:"k"`
+	StopSequences []string  `json:"stop_sequences"`
+}
+
+type message struct {
+	Role    string `json:"role"`
+	Message string `json:"message"`
 }
 
 type generateResponse struct {
-	Generations []generation
-	Error       *cohereApiError `json:"error,omitempty"`
-}
-
-type generation struct {
 	Text string `json:"text"`
-}
-
-// need to check this
-// I think you just get message
-type cohereApiError struct {
+	// When an error occurs then the error message object is being returned with an error message
+	// https://docs.cohere.com/reference/errors
 	Message string `json:"message"`
 }
