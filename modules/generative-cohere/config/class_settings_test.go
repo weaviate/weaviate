@@ -21,51 +21,47 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name                  string
-		cfg                   moduletools.ClassConfig
-		wantModel             string
-		wantMaxTokens         int
-		wantTemperature       int
-		wantK                 int
-		wantStopSequences     []string
-		wantReturnLikelihoods string
-		wantBaseURL           string
-		wantErr               error
+		name              string
+		cfg               moduletools.ClassConfig
+		wantModel         string
+		wantMaxTokens     int
+		wantTemperature   int
+		wantK             int
+		wantStopSequences []string
+		wantBaseURL       string
+		wantErr           error
 	}{
 		{
 			name: "default settings",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:             "command-nightly",
-			wantMaxTokens:         2048,
-			wantTemperature:       0,
-			wantK:                 0,
-			wantStopSequences:     []string{},
-			wantReturnLikelihoods: "NONE",
-			wantBaseURL:           "https://api.cohere.ai",
-			wantErr:               nil,
+			wantModel:         "command-r",
+			wantMaxTokens:     2048,
+			wantTemperature:   0,
+			wantK:             0,
+			wantStopSequences: []string{},
+			wantBaseURL:       "https://api.cohere.ai",
+			wantErr:           nil,
 		},
 		{
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":             "command-xlarge",
-					"maxTokens":         2048,
-					"temperature":       1,
-					"k":                 2,
-					"stopSequences":     []string{"stop1", "stop2"},
-					"returnLikelihoods": "NONE",
+					"model":         "command-xlarge",
+					"maxTokens":     2048,
+					"temperature":   1,
+					"k":             2,
+					"stopSequences": []string{"stop1", "stop2"},
 				},
 			},
-			wantModel:             "command-xlarge",
-			wantMaxTokens:         2048,
-			wantTemperature:       1,
-			wantK:                 2,
-			wantStopSequences:     []string{"stop1", "stop2"},
-			wantReturnLikelihoods: "NONE",
-			wantBaseURL:           "https://api.cohere.ai",
-			wantErr:               nil,
+			wantModel:         "command-xlarge",
+			wantMaxTokens:     2048,
+			wantTemperature:   1,
+			wantK:             2,
+			wantStopSequences: []string{"stop1", "stop2"},
+			wantBaseURL:       "https://api.cohere.ai",
+			wantErr:           nil,
 		},
 		{
 			name: "wrong model configured",
@@ -75,7 +71,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("wrong Cohere model name, available model names are: " +
-				"[command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
+				"[command-r command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
 				"command-medium-nightly xlarge medium command command-light command-nightly command-light-nightly base base-light]"),
 		},
 		{
@@ -85,14 +81,13 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model": "command-light-nightly",
 				},
 			},
-			wantModel:             "command-light-nightly",
-			wantMaxTokens:         2048,
-			wantTemperature:       0,
-			wantK:                 0,
-			wantStopSequences:     []string{},
-			wantReturnLikelihoods: "NONE",
-			wantBaseURL:           "https://api.cohere.ai",
-			wantErr:               nil,
+			wantModel:         "command-light-nightly",
+			wantMaxTokens:     2048,
+			wantTemperature:   0,
+			wantK:             0,
+			wantStopSequences: []string{},
+			wantBaseURL:       "https://api.cohere.ai",
+			wantErr:           nil,
 		},
 		{
 			name: "default settings with command-light-nightly and baseURL",
@@ -102,14 +97,13 @@ func Test_classSettings_Validate(t *testing.T) {
 					"baseURL": "http://custom-url.com",
 				},
 			},
-			wantModel:             "command-light-nightly",
-			wantMaxTokens:         2048,
-			wantTemperature:       0,
-			wantK:                 0,
-			wantStopSequences:     []string{},
-			wantReturnLikelihoods: "NONE",
-			wantBaseURL:           "http://custom-url.com",
-			wantErr:               nil,
+			wantModel:         "command-light-nightly",
+			wantMaxTokens:     2048,
+			wantTemperature:   0,
+			wantK:             0,
+			wantStopSequences: []string{},
+			wantBaseURL:       "http://custom-url.com",
+			wantErr:           nil,
 		},
 	}
 	for _, tt := range tests {
@@ -123,7 +117,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantK, ic.K())
 				assert.Equal(t, tt.wantStopSequences, ic.StopSequences())
-				assert.Equal(t, tt.wantReturnLikelihoods, ic.ReturnLikelihoods())
 			}
 		})
 	}
