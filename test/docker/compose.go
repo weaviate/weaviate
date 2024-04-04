@@ -91,7 +91,6 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
-	withMulti2VecPaLM             bool
 	withPaLMApiKey                string
 	withBind                      bool
 	withImg2Vec                   bool
@@ -184,7 +183,6 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 }
 
 func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
-	d.withMulti2VecPaLM = true
 	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
 	return d
@@ -223,7 +221,8 @@ func (d *Compose) WithText2VecVoyageAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecPaLM() *Compose {
+func (d *Compose) WithText2VecPaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modpalm.Name)
 	return d
 }
@@ -253,7 +252,8 @@ func (d *Compose) WithGenerativeCohere() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativePaLM() *Compose {
+func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
 	return d
 }
@@ -443,7 +443,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withMulti2VecPaLM {
+	if d.withPaLMApiKey != "" {
 		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
 	}
 	if d.withBind {
