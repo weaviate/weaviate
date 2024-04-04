@@ -95,27 +95,7 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 }
 
 func Test_L2_Byte_DistanceImplementation(t *testing.T) {
-	lengths := []int{1, 4, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777}
-
-	for _, length := range lengths {
-		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
-			x := make([]uint8, length)
-			y := make([]uint8, length)
-			for i := range x {
-				x[i] = uint8(rand.Uint32() % 256)
-				y[i] = uint8(rand.Uint32() % 256)
-			}
-
-			control := L2BytePureGo(x, y)
-
-			asmResult := asm.L2ByteAVX256(x, y)
-			require.Equal(t, int(control), int(asmResult))
-		})
-	}
-}
-
-func Test_L2_Byte_DistanceImplementation_OneNegativeValue(t *testing.T) {
-	lengths := []int{1, 4, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777}
+	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
 
 	for _, length := range lengths {
 		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
