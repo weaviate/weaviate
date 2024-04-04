@@ -25,6 +25,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
@@ -97,6 +98,7 @@ type Compose struct {
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
+	withOllamaGenerative          bool
 	weaviateEnvs                  map[string]string
 }
 
@@ -271,6 +273,12 @@ func (d *Compose) WithGenerativeAnyscale() *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeOllama() *Compose {
+	d.withOllamaGenerative = true
+	d.enableModules = append(d.enableModules, modgenerativeollama.Name)
+	return d
+}
+
 func (d *Compose) WithQnAOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modqnaopenai.Name)
 	return d
@@ -294,6 +302,11 @@ func (d *Compose) WithRerankerTransformers() *Compose {
 
 func (d *Compose) WithOllamaVectorizer() *Compose {
 	d.withOllamaVectorizer = true
+	return d
+}
+
+func (d *Compose) WithOllamaGenerative() *Compose {
+	d.withOllamaGenerative = true
 	return d
 }
 
@@ -427,6 +440,16 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		container, err := startOllamaVectorizer(ctx, networkName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", OllamaVectorizer)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withOllamaGenerative {
+		container, err := startOllamaGenerative(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", OllamaGenerative)
 		}
 		for k, v := range container.envSettings {
 			envSettings[k] = v
