@@ -1013,14 +1013,20 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 }
 
 func (m *mockBatchIndexer) ShouldUpgrade() (bool, int) {
+	m.Lock()
+	defer m.Unlock()
 	return m.shouldCompress, m.threshold
 }
 
 func (m *mockBatchIndexer) Upgraded() bool {
+	m.Lock()
+	defer m.Unlock()
 	return m.compressed
 }
 
 func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
+	m.Lock()
+	defer m.Unlock()
 	return m.alreadyIndexed
 }
 
