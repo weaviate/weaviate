@@ -655,6 +655,42 @@ func TestIndexQueue(t *testing.T) {
 		<-indexed
 	})
 
+	t.Run("compression occurs even when the threshold is hit after clearing the queue", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.shouldCompress = true
+		idx.threshold = 3
+		idx.alreadyIndexed = 0
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			go func() {
+				time.Sleep(1000 * time.Millisecond)
+				idx.alreadyIndexed += uint64(len(id))
+			}()
+			return nil
+		}
+
+		release := make(chan int)
+		idx.onCompressionTurnedOn = func(callback func()) error {
+			release <- 1
+			idx.compressed = true
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := 0; i < 4; i++ {
+			pushVector(t, ctx, q, uint64(i), []float32{1, 2, 3})
+		}
+
+		<-release
+		close(release)
+		require.True(t, idx.compressed)
+	})
+
 	t.Run("compression does not occur at the indexing if async is enabled", func(t *testing.T) {
 		vectors := [][]float32{{0, 1, 3, 4, 5, 6}, {0, 1, 3, 4, 5, 6}, {0, 1, 3, 4, 5, 6}}
 		distancer := distancer.NewL2SquaredProvider()
