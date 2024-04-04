@@ -15,55 +15,22 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
 func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		companies := []struct {
-			id                strfmt.UUID
-			name, description string
-		}{
-			{
-				id:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-				name: "OpenAI",
-				description: `
-					OpenAI is a research organization and AI development company that focuses on artificial intelligence (AI) and machine learning (ML).
-					Founded in December 2015, OpenAI's mission is to ensure that artificial general intelligence (AGI) benefits all of humanity.
-					The organization has been at the forefront of AI research, producing cutting-edge advancements in natural language processing,
-					reinforcement learning, robotics, and other AI-related fields.
-
-					OpenAI has garnered attention for its work on various projects, including the development of the GPT (Generative Pre-trained Transformer)
-					series of models, such as GPT-2 and GPT-3, which have demonstrated remarkable capabilities in generating human-like text.
-					Additionally, OpenAI has contributed to advancements in reinforcement learning through projects like OpenAI Five, an AI system
-					capable of playing the complex strategy game Dota 2 at a high level.
-				`,
-			},
-			{
-				id:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
-				name: "SpaceX",
-				description: `
-					SpaceX, short for Space Exploration Technologies Corp., is an American aerospace manufacturer and space transportation company
-					founded by Elon Musk in 2002. The company's primary goal is to reduce space transportation costs and enable the colonization of Mars,
-					among other ambitious objectives.
-
-					SpaceX has made significant strides in the aerospace industry by developing advanced rocket technology, spacecraft,
-					and satellite systems. The company is best known for its Falcon series of rockets, including the Falcon 1, Falcon 9, 
-					and Falcon Heavy, which have been designed with reusability in mind. Reusability has been a key innovation pioneered by SpaceX,
-					aiming to drastically reduce the cost of space travel by reusing rocket components multiple times.
-				`,
-			},
-		}
+		companies := companies.Companies()
 		// Define class
-		className := "BooksGenerativeTest"
+		className := "CompaniesGenerativeTest"
 		class := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -113,10 +80,10 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 					for _, company := range companies {
 						obj := &models.Object{
 							Class: class.Class,
-							ID:    company.id,
+							ID:    company.ID,
 							Properties: map[string]interface{}{
-								"name":        company.name,
-								"description": company.description,
+								"name":        company.Name,
+								"description": company.Description,
 							},
 						}
 						helper.CreateObject(t, obj)
@@ -125,8 +92,8 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				})
 				t.Run("check objects existence", func(t *testing.T) {
 					for _, company := range companies {
-						t.Run(company.id.String(), func(t *testing.T) {
-							obj, err := helper.GetObject(t, class.Class, company.id, "vector")
+						t.Run(company.ID.String(), func(t *testing.T) {
+							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
