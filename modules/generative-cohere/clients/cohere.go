@@ -116,9 +116,9 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		if resBody.Error != nil {
-			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)
+	if res.StatusCode != 200 {
+		if resBody.Message != "" {
+			return nil, errors.Errorf("connection to Cohere API failed with status: %d error: %v", res.StatusCode, resBody.Message)
 		}
 		return nil, errors.Errorf("connection to Cohere API failed with status: %d", res.StatusCode)
 	}
@@ -203,12 +203,8 @@ type message struct {
 }
 
 type generateResponse struct {
-	Text  string          `json:"text"`
-	Error *cohereApiError `json:"error,omitempty"`
-}
-
-// need to check this
-// I think you just get message
-type cohereApiError struct {
+	Text string `json:"text"`
+	// When an error occurs then the error message object is being returned with an error message
+	// https://docs.cohere.com/reference/errors
 	Message string `json:"message"`
 }
