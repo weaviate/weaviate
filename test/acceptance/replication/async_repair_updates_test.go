@@ -95,6 +95,8 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		})
 	}
 
+	time.Sleep(1 * time.Second)
+
 	for n := 1; n <= clusterSize; n++ {
 		t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", n), func(t *testing.T) {
 			count := countObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
