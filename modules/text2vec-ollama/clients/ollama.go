@@ -93,11 +93,11 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 	}
 
 	if resBody.Error != "" {
-		return nil, errors.Errorf("ollama error: %s", resBody.Error)
+		return nil, errors.Errorf("connection to Ollama API failed with error: %s", resBody.Error)
 	}
 
 	if statusCode != 200 {
-		return nil, fmt.Errorf("connection to Ollama failed with status: %d", statusCode)
+		return nil, fmt.Errorf("connection to Ollama API failed with status: %d", statusCode)
 	}
 
 	if len(resBody.Embedding) == 0 {
