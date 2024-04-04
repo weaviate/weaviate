@@ -304,6 +304,8 @@ func NewSQCompressor(
 	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
 		quantizer:       quantizer,
 		compressedStore: store,
+		storeId:         binary.BigEndian.PutUint64,
+		loadId:          binary.BigEndian.Uint64,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
