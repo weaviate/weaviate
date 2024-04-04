@@ -202,7 +202,7 @@ func createClassTargetVectors(t *testing.T, client *wvt.Client, className string
 
 	err := client.Schema().ClassCreator().
 		WithClass(class).
-		Do(ctx)
+		Do(context.Background())
 
 	// TODO shall be removed with the DB is idempotent
 	// delete class before trying to create in case it was existing.
