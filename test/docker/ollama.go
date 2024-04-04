@@ -31,7 +31,7 @@ func startOllamaVectorizer(ctx context.Context, networkName string) (*DockerCont
 }
 
 func startOllamaGenerative(ctx context.Context, networkName string) (*DockerContainer, error) {
-	return startOllama(ctx, networkName, OllamaGenerative, "gemma:2b")
+	return startOllama(ctx, networkName, OllamaGenerative, "tinyllama")
 }
 
 func startOllama(ctx context.Context, networkName, hostname, model string) (*DockerContainer, error) {

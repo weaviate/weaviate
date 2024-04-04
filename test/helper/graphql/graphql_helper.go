@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/require"
@@ -41,9 +42,31 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 	return response.Payload, nil
 }
 
+// Perform a GraphQL request with timeout
+func QueryGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}, timeout time.Duration) (*models.GraphQLResponse, error) {
+	var vars interface{} = variables
+	params := graphql_client.NewGraphqlPostParamsWithTimeout(timeout).WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
+	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Payload, nil
+}
+
 // Perform a GraphQL request and call fatal on failure
 func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
 	response, err := QueryGraphQL(t, auth, operation, query, variables)
+	return getGraphQLResponseOrFatal(t, response, err)
+}
+
+// Perform a GraphQL request and call fatal on failure with timeout
+func QueryGraphQLOrFatalWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}, timeout time.Duration) *models.GraphQLResponse {
+	response, err := QueryGraphQLWithTimeout(t, auth, operation, query, variables, timeout)
+	return getGraphQLResponseOrFatal(t, response, err)
+}
+
+func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, err error) *models.GraphQLResponse {
 	if err != nil {
 		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
 		if !ok {
@@ -57,7 +80,16 @@ func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, op
 // Perform a query and assert that it is successful
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
 	response := QueryGraphQLOrFatal(t, auth, "", query, nil)
+	return getGraphQLResult(t, response)
+}
 
+// Perform a query and assert that it is successful with timeout
+func AssertGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, timeout time.Duration, query string) *GraphQLResult {
+	response := QueryGraphQLOrFatalWithTimeout(t, auth, "", query, nil, timeout)
+	return getGraphQLResult(t, response)
+}
+
+func getGraphQLResult(t *testing.T, response *models.GraphQLResponse) *GraphQLResult {
 	if len(response.Errors) != 0 {
 		j, _ := json.Marshal(response.Errors)
 		t.Fatal("GraphQL resolved to an error:", string(j))

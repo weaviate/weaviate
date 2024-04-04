@@ -14,6 +14,7 @@ package tests
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,8 +59,8 @@ func testGenerativeOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 			generativeModel string
 		}{
 			{
-				name:            "gemma:2b",
-				generativeModel: "gemma:2b",
+				name:            "tinyllama",
+				generativeModel: "tinyllama",
 			},
 		}
 		for _, tt := range tests {
@@ -123,7 +124,8 @@ func testGenerativeOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 							}
 						}
 					`, class.Class, prompt)
-					result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+					timeout := 60 * time.Second
+					result := graphqlhelper.AssertGraphQLWithTimeout(t, helper.RootAuth, timeout, query)
 					objs := result.Get("Get", class.Class).AsSlice()
 					require.Len(t, objs, 2)
 					for _, obj := range objs {
