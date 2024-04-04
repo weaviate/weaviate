@@ -354,10 +354,10 @@ func (st *Store) Close(ctx context.Context) (err error) {
 	return
 }
 
-func (f *Store) SetDB(db Indexer) { f.db.SetIndexer(db) }
+func (st *Store) SetDB(db Indexer) { st.db.SetIndexer(db) }
 
-func (f *Store) Ready() bool {
-	return f.open.Load() && f.dbLoaded.Load() && f.Leader() != ""
+func (st *Store) Ready() bool {
+	return st.open.Load() && st.dbLoaded.Load() && st.Leader() != ""
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
@@ -385,8 +385,8 @@ func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
 }
 
-func (f *Store) SchemaReader() retrySchema {
-	return retrySchema{f.db.Schema}
+func (st *Store) SchemaReader() retrySchema {
+	return retrySchema{st.db.Schema}
 }
 
 // FindSimilarClass returns the name of an existing class with a similar name, and "" otherwise

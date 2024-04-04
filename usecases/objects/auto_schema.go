@@ -52,7 +52,7 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 }
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, allowCreateClass bool,
+	allowCreateClass bool, objects ...*models.Object,
 ) error {
 	if !m.config.Enabled {
 		return nil
@@ -60,36 +60,43 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	if object == nil {
-		return fmt.Errorf(validation.ErrorMissingObject)
-	}
 
-	if len(object.Class) == 0 {
-		// stop performing auto schema
-		return fmt.Errorf(validation.ErrorMissingClass)
-	}
+	for _, object := range objects {
+		if object == nil {
+			return fmt.Errorf(validation.ErrorMissingObject)
+		}
 
-	object.Class = schema.UppercaseClassName(object.Class)
+		if len(object.Class) == 0 {
+			// stop performing auto schema
+			return fmt.Errorf(validation.ErrorMissingClass)
+		}
 
-	// Batch together the GetClass and subsequent createClass or updateClass to ensure we will retry if the schema changes
-	// have not yet propagated back to the follower node.
-	return backoff.Retry(func() error {
-		schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+		object.Class = schema.UppercaseClassName(object.Class)
+
+		// Batch together the GetClass and subsequent createClass or updateClass to ensure we will retry if the schema changes
+		// have not yet propagated back to the follower node.
+		err := backoff.Retry(func() error {
+			schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+			if err != nil {
+				return err
+			}
+			if schemaClass == nil && !allowCreateClass {
+				return fmt.Errorf("given class does not exist")
+			}
+			properties, err := m.getProperties(object)
+			if err != nil {
+				return err
+			}
+			if schemaClass == nil {
+				return m.createClass(ctx, principal, object.Class, properties)
+			}
+			return m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...)
+		}, utils.NewBackoff())
 		if err != nil {
 			return err
 		}
-		if schemaClass == nil && !allowCreateClass {
-			return fmt.Errorf("given class does not exist")
-		}
-		properties, err := m.getProperties(object)
-		if err != nil {
-			return err
-		}
-		if schemaClass == nil {
-			return m.createClass(ctx, principal, object.Class, properties)
-		}
-		return m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...)
-	}, utils.NewBackoff())
+	}
+	return nil
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
