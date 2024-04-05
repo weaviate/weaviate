@@ -24,7 +24,7 @@ import (
 )
 
 type schemaHandlers struct {
-	manager             *schemaUC.ManagerWithConsistency
+	manager             *schemaUC.Manager
 	metricRequestsTotal restApiRequestsTotal
 }
 
@@ -76,7 +76,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
+	class, err := s.manager.GetConsistentClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -136,7 +136,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetSchema(principal, *params.Consistency)
+	dbSchema, err := s.manager.GetConsistentSchema(principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -290,7 +290,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
+	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -327,8 +327,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
-	schemaManagerWithConsistency := schemaUC.NewManagerWithConsistency(manager)
-	h := &schemaHandlers{&schemaManagerWithConsistency, newSchemaRequestsTotal(metrics, logger)}
+	h := &schemaHandlers{manager, newSchemaRequestsTotal(metrics, logger)}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.
 		SchemaObjectsCreateHandlerFunc(h.addClass)

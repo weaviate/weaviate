@@ -23,23 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
-type schemaManager interface {
-	AddClass(ctx context.Context, principal *models.Principal,
-		class *models.Class) error
-	AddTenants(ctx context.Context, principal *models.Principal,
-		class string, tenants []*models.Tenant) (err error)
-	GetClass(ctx context.Context, principal *models.Principal,
-		name string,
-	) (*models.Class, error)
-	// ReadOnlyClass return class model.
-	ReadOnlyClass(name string) *models.Class
-	// AddClassProperty it is upsert operation. it adds properties to a class and updates
-	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal,
-		class *models.Class, merge bool, prop ...*models.Property) error
-	MultiTenancy(class string) models.MultiTenancyConfig
-}
-
 // AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,

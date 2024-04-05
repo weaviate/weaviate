@@ -213,7 +213,23 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
-	// validation
+	return h.getTenants(class)
+}
+
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool) ([]*models.Tenant, error) {
+	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+		return nil, err
+	}
+
+	if consistency {
+		return h.metaWriter.QueryGetTenants(class)
+	}
+
+	// If non consistent, fallback to the default implementation
+	return h.getTenants(class)
+}
+
+func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
