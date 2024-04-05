@@ -224,11 +224,8 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {}
 
 func pqDotImpl(uncompressed []float32, compressed []byte, codebook []float32, dimsPerSegment, codesPerSegment int) float32 {
 	sum := float32(0)
-	for i := 0; i < len(compressed); i++ {
-		base := i*codesPerSegment*dimsPerSegment + int(compressed[i])*dimsPerSegment
-		for j := 0; j < dimsPerSegment; j++ {
-			sum += uncompressed[i*dimsPerSegment+j] * codebook[base+j]
-		}
+	for i := 0; i < len(compressed)*dimsPerSegment; i++ {
+		sum += uncompressed[i] * codebook[i/dimsPerSegment*codesPerSegment*dimsPerSegment+int(compressed[i/dimsPerSegment])*dimsPerSegment+i%dimsPerSegment]
 	}
 	return sum
 }
