@@ -21,10 +21,17 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const OllamaVectorizer = "ollamavectorizer"
+const (
+	OllamaVectorizer = "ollamavectorizer"
+	OllamaGenerative = "ollamagenerative"
+)
 
 func startOllamaVectorizer(ctx context.Context, networkName string) (*DockerContainer, error) {
 	return startOllama(ctx, networkName, OllamaVectorizer, "nomic-embed-text")
+}
+
+func startOllamaGenerative(ctx context.Context, networkName string) (*DockerContainer, error) {
+	return startOllama(ctx, networkName, OllamaGenerative, "tinyllama")
 }
 
 func startOllama(ctx context.Context, networkName, hostname, model string) (*DockerContainer, error) {
@@ -48,13 +55,16 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 	if err != nil {
 		return nil, err
 	}
-	_, _, err = container.Exec(ctx, []string{"ollama", "pull", model})
-	if err != nil {
-		return nil, fmt.Errorf("failed to pull model %s: %s", model, err)
-	}
-	_, _, err = container.Exec(ctx, []string{"ollama", "run", model})
-	if err != nil {
-		return nil, fmt.Errorf("failed to run model %s: %s", model, err)
+	if model != "" {
+		// pull a given model
+		_, _, err = container.Exec(ctx, []string{"ollama", "pull", model})
+		if err != nil {
+			return nil, fmt.Errorf("failed to pull model %s: %s", model, err)
+		}
+		_, _, err = container.Exec(ctx, []string{"ollama", "run", model})
+		if err != nil {
+			return nil, fmt.Errorf("failed to run model %s: %s", model, err)
+		}
 	}
 	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {

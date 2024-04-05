@@ -97,7 +97,8 @@ jobs:
           "--only-module-reranker-transformers",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
-          "--only-module-text2vec-ollama"
+          "--only-module-text2vec-ollama",
+          "--only-module-generative-ollama"
         ]
     steps:
       - uses: actions/checkout@v4

@@ -91,7 +91,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, "ollama error: nope, not gonna happen")
+		assert.EqualError(t, err, "connection to Ollama API failed with error: nope, not gonna happen")
 	})
 }
 
