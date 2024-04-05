@@ -79,7 +79,7 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
@@ -88,7 +88,7 @@ func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string,
 		}
 
 		path := "openai/deployments/" + deploymentID + "/embeddings"
-		queryParam := "api-version=2022-12-01"
+		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
 
@@ -102,7 +102,7 @@ type vectorizer struct {
 	openAIOrganization string
 	azureApiKey        string
 	httpClient         *http.Client
-	buildUrlFn         func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error)
+	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
 }
 
@@ -192,11 +192,11 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 }
 
 func (v *vectorizer) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	baseURL, resourceName, deploymentID, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure
+	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
-	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, isAzure)
 }
 
 func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {

@@ -51,6 +51,7 @@ type ClassSettings interface {
 	ResourceName() string
 	DeploymentID() string
 	BaseURL() string
+	ApiVersion() string
 	IsAzure() bool
 }
 
@@ -89,6 +90,7 @@ func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 		ModelVersion: settings.ModelVersion(),
 		ResourceName: settings.ResourceName(),
 		DeploymentID: settings.DeploymentID(),
+		ApiVersion:   settings.ApiVersion(),
 		BaseURL:      settings.BaseURL(),
 		IsAzure:      settings.IsAzure(),
 		Dimensions:   settings.Dimensions(),
