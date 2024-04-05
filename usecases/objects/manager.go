@@ -27,10 +27,40 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+type schemaManager interface {
+	AddClass(ctx context.Context, principal *models.Principal,
+		class *models.Class) error
+	AddTenants(ctx context.Context, principal *models.Principal,
+		class string, tenants []*models.Tenant) (err error)
+	GetClass(ctx context.Context, principal *models.Principal,
+		name string,
+	) (*models.Class, error)
+	// ReadOnlyClass return class model.
+	ReadOnlyClass(name string) *models.Class
+	// AddClassProperty it is upsert operation. it adds properties to a class and updates
+	// existing properties if the merge bool passed true.
+	AddClassProperty(ctx context.Context, principal *models.Principal,
+		class *models.Class, merge bool, prop ...*models.Property) error
+	MultiTenancy(class string) models.MultiTenancyConfig
+
+	// Consistent methods with the consistency flag.
+	// This is used to ensure that internal users will not miss-use the flag and it doesn't need to be set to a default
+	// value everytime we use the Manager.
+
+	// GetConsistentClass overrides the default implementation to consider the consistency flag
+	GetConsistentClass(ctx context.Context, principal *models.Principal,
+		name string, consistency bool,
+	) (*models.Class, error)
+
+	// GetConsistentSchema retrieves a locally cached copy of the schema
+	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
+}
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
