@@ -209,7 +209,7 @@ func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
 		"indexing")
 }
 
-func (s *BaseClassSettings) Validate(class *models.Class) error {
+func (s *BaseClassSettings) ValidateClassSettings(class *models.Class) error {
 	if s.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")

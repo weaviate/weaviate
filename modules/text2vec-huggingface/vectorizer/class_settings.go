@@ -71,7 +71,7 @@ func (cs *classSettings) OptionUseCache() bool {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	return cs.BaseClassSettings.Validate(class)
+	return cs.BaseClassSettings.ValidateClassSettings(class)
 }
 
 func (cs *classSettings) validateClassSettings() error {
