@@ -224,10 +224,10 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {}
 
 func pqDotImpl(uncompressed []float32, compressed []byte, codebook []float32, dimsPerSegment, codesPerSegment int) float32 {
 	sum := float32(0)
-	for i := 0; i < len(uncompressed); i += dimsPerSegment {
-		base := int(compressed[i])
+	for i := 0; i < len(compressed); i++ {
+		base := i*codesPerSegment*dimsPerSegment + int(compressed[i])*dimsPerSegment
 		for j := 0; j < dimsPerSegment; j++ {
-			sum += uncompressed[i+j] * codebook[base*dimsPerSegment+j]
+			sum += uncompressed[i*dimsPerSegment+j] * codebook[base+j]
 		}
 	}
 	return sum
@@ -241,7 +241,7 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	if len(x) != d.pq.m {
 		return 0, false, fmt.Errorf("inconsistent compressed vector length")
 	}
-	return pqDotImpl(d.x, x, d.pq.codeBook, d.pq.ds, d.pq.ks), true, nil
+	return -pqDotImpl(d.x, x, d.pq.codeBook, d.pq.ds, d.pq.ks), true, nil
 }
 
 func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
