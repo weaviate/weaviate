@@ -14,7 +14,6 @@ package helper
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -75,7 +74,7 @@ func CreateObject(t *testing.T, object *models.Object) {
 func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
 	t.Helper()
 	cls := string(cl)
-	params := objects.NewObjectsCreateParamsWithTimeout(60 * time.Second).WithBody(object).WithConsistencyLevel(&cls)
+	params := objects.NewObjectsCreateParams().WithBody(object).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
@@ -112,7 +111,7 @@ func UpdateObject(t *testing.T, object *models.Object) {
 func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
 	t.Helper()
 	cls := string(cl)
-	params := objects.NewObjectsClassPutParamsWithTimeout(60 * time.Second).WithClassName(object.Class).
+	params := objects.NewObjectsClassPutParams().WithClassName(object.Class).
 		WithID(object.ID).WithBody(object).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassPut(params, nil)
 	AssertRequestOk(t, resp, err, nil)
