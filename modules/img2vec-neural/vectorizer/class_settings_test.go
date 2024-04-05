@@ -85,7 +85,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: tt.fields.cfg,
 			}
 			if err := ic.Validate(); (err != nil) != tt.wantErr {
-				t.Errorf("classSettings.ValidateBase() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("classSettings.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
