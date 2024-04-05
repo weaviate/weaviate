@@ -81,7 +81,6 @@ func graphqlSearch(t *testing.T) {
 
 	t.Run("stop node 2", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
-		time.Sleep(5 * time.Second)
 	})
 
 	t.Run("get consistent search results with ONE (1/2 nodes up)", func(t *testing.T) {
