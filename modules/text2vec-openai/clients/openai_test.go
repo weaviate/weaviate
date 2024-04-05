@@ -36,10 +36,11 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "",
 			DeploymentID: "",
+			ApiVersion:   "2022-12-01",
 			BaseURL:      "https://api.openai.com",
 			IsAzure:      false,
 		}
-		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/embeddings", url)
 	})
@@ -50,12 +51,29 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "resourceID",
 			DeploymentID: "deploymentID",
+			ApiVersion:   "2022-12-01",
 			BaseURL:      "",
 			IsAzure:      true,
 		}
-		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
+	})
+
+	t.Run("buildUrlFn returns Azure Client with custom API Version", func(t *testing.T) {
+		config := ent.VectorizationConfig{
+			Type:         "",
+			Model:        "",
+			ModelVersion: "",
+			ResourceName: "resourceID",
+			DeploymentID: "deploymentID",
+			ApiVersion:   "2024-02-01",
+			BaseURL:      "",
+			IsAzure:      true,
+		}
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
+		assert.Nil(t, err)
+		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/embeddings?api-version=2024-02-01", url)
 	})
 
 	t.Run("buildUrlFn returns Azure client with BaseUrl set", func(t *testing.T) {
@@ -65,10 +83,11 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "resourceID",
 			DeploymentID: "deploymentID",
+			ApiVersion:   "2022-12-01",
 			BaseURL:      "https://foobar.some.proxy",
 			IsAzure:      true,
 		}
-		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/openai/deployments/deploymentID/embeddings?api-version=2022-12-01", url)
 	})
@@ -80,10 +99,11 @@ func TestBuildUrlFn(t *testing.T) {
 			ModelVersion: "",
 			ResourceName: "resourceID",
 			DeploymentID: "deploymentID",
+			ApiVersion:   "2022-12-01",
 			BaseURL:      "https://foobar.some.proxy",
 			IsAzure:      false,
 		}
-		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure)
+		url, err := buildUrl(config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/embeddings", url)
 	})
@@ -95,7 +115,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -118,7 +138,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -138,7 +158,7 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := New("apiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -153,7 +173,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -179,7 +199,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
@@ -198,7 +218,7 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 			return server.URL, nil
 		}
 
