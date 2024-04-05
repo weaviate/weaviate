@@ -156,11 +156,6 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
-
-	for i, obj := range objs {
-		fmt.Printf("Object %v: %v\n", obj.ID(), scores[i])
-	}
-
 	return objs, scores, nil
 }
 

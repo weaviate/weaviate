@@ -999,16 +999,17 @@ func (s segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, error
 	}
 }
 
-func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[string]map[string]int64, bool, error) {
+func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[string]map[string]int64, bool, bool, error) {
 	allSegments := make(map[*segment]string)
 	propertySizes := make(map[string]map[string]int64, 100)
 	hasTombstones := false
+	hasMemtableWithData := false
 	for _, propNameTokens := range propNamesByTokenization {
 		for _, propName := range propNameTokens {
 
 			bucket := store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 			if bucket == nil {
-				return nil, nil, false, fmt.Errorf("could not find bucket for property %v", propName)
+				return nil, nil, false, false, fmt.Errorf("could not find bucket for property %v", propName)
 			}
 
 			propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
@@ -1032,8 +1033,11 @@ func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]
 					allSegments[segment] = propName
 				}
 			}
-
+			memtableSizes := bucket.active.Size() + bucket.flushing.Size()
+			if memtableSizes > 0 {
+				hasMemtableWithData = true
+			}
 		}
 	}
-	return allSegments, propertySizes, hasTombstones, nil
+	return allSegments, propertySizes, hasTombstones, hasMemtableWithData, nil
 }

@@ -89,7 +89,7 @@ func (b *BM25Searcher) wandDiskMem(
 		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
-	_, _, hasTombstones, err := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+	_, _, hasTombstones, hasMemtableWithData, err := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -99,10 +99,17 @@ func (b *BM25Searcher) wandDiskMem(
 		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
+	if hasMemtableWithData && !useWandDiskForced {
+		b.logger.Debug("BM25 search: found Memtable with data in bucket, falling back to memory search")
+		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
+	}
+
 	if hasTombstones {
 		b.logger.Debug("BM25 search: found tombstones in inverted index, using disk search as useWandDiskForced is set to true")
 	} else if hasMultipleProperties {
 		b.logger.Debug("BM25 search: multiple properties requested, using disk search as useWandDiskForced is set to true")
+	} else if hasMemtableWithData {
+		b.logger.Debug("BM25 search: found Memtable with data in bucket, using disk search as useWandDiskForced is set to true")
 	}
 
 	// wandDiskTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
@@ -112,7 +119,7 @@ func (b *BM25Searcher) wandDiskMem(
 }
 
 func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
-	allSegments, propertySizes, _, err := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+	allSegments, propertySizes, _, _, _ := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 
 	allObjects := make([][]*storobj.Object, len(allSegments))
 	allScores := make([][]float32, len(allSegments))
@@ -163,7 +170,7 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 		})
 	}
 
-	err = eg.Wait()
+	err := eg.Wait()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -299,18 +306,19 @@ func (b *BM25Searcher) rankMultiBucket(allObjects [][]*storobj.Object, allScores
 	return mergedObjects, mergedScores
 }
 
+/*
 func (b *BM25Searcher) rankMultiBucketWithDuplicates(allObjects [][]*storobj.Object, allScores [][]float32, limit int) ([]*storobj.Object, []float32) {
 	if len(allObjects) == 1 {
 		return allObjects[0], allScores[0]
 	}
 
-	/*
-		for i := range allObjects {
-			for j := range allObjects[i] {
-				fmt.Printf("DISK,%v,%v,%v,%v\n", i, j, allObjects[i][j].ID(), allScores[i][j])
-			}
-		}
-	*/
+
+	// for i := range allObjects {
+	// 	for j := range allObjects[i] {
+	// 		fmt.Printf("DISK,%v,%v,%v,%v\n", i, j, allObjects[i][j].ID(), allScores[i][j])
+	// 	}
+	// }
+
 
 	// allObjects and allScores are ordered by reverse score already
 	// we need to merge them and keep the top K
@@ -399,3 +407,4 @@ func (b *BM25Searcher) rankMultiBucketWithDuplicates(allObjects [][]*storobj.Obj
 
 	return mergedObjects, mergedScores
 }
+*/
