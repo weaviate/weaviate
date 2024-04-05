@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package ollama
 
 import (
 	"context"
@@ -43,19 +43,19 @@ func TestGetAnswer(t *testing.T) {
 		{
 			name: "when the server has a successful aner",
 			answer: generateResponse{
-				Text: "John",
+				Response: "Test test",
 			},
-			expectedResult: "John",
+			expectedResult: "Test test",
 		},
 		{
 			name: "when the server has a an error",
 			answer: generateResponse{
-				Message: "some error from the server",
+				Error: "some error from the server",
 			},
 		},
 		{
 			name:    "when the server does not respond in time",
-			answer:  generateResponse{Message: "context deadline exceeded"},
+			answer:  generateResponse{Error: "context deadline exceeded"},
 			timeout: time.Second,
 		},
 	}
@@ -69,34 +69,18 @@ func TestGetAnswer(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
 
-			c := New("apiKey", test.timeout, nullLogger())
+			c := New(test.timeout, nullLogger())
 
-			settings := &fakeClassConfig{baseURL: server.URL}
+			settings := &fakeClassConfig{apiEndpoint: server.URL}
 			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)
 
-			if test.answer.Message != "" {
-				assert.Contains(t, err.Error(), test.answer.Message)
+			if test.answer.Error != "" {
+				assert.Contains(t, err.Error(), test.answer.Error)
 			} else {
 				assert.Equal(t, test.expectedResult, *res.Result)
 			}
 		})
 	}
-
-	t.Run("when X-Cohere-BaseURL header is passed", func(t *testing.T) {
-		c := New("apiKey", 5*time.Second, nullLogger())
-
-		baseURL := "http://default-url.com"
-		ctxWithValue := context.WithValue(context.Background(),
-			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
-
-		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
-		require.NoError(t, err)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat", buildURL)
-
-		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
-		require.NoError(t, err)
-		assert.Equal(t, "http://default-url.com/v1/chat", buildURL)
-	})
 }
 
 type testAnswerHandler struct {
@@ -107,12 +91,12 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/chat", r.URL.String())
+	assert.Equal(f.t, "/api/generate", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
 
-	if f.answer.Message != "" {
+	if f.answer.Error != "" {
 		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
 
@@ -135,7 +119,7 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type fakeClassConfig struct {
-	baseURL string
+	apiEndpoint string
 }
 
 func (cfg *fakeClassConfig) Tenant() string {
@@ -148,7 +132,7 @@ func (cfg *fakeClassConfig) Class() map[string]interface{} {
 
 func (cfg *fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
 	settings := map[string]interface{}{
-		"baseURL": cfg.baseURL,
+		"apiEndpoint": cfg.apiEndpoint,
 	}
 	return settings
 }
@@ -157,6 +141,6 @@ func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
 }
 
-func (f fakeClassConfig) TargetVector() string {
+func (cfg *fakeClassConfig) TargetVector() string {
 	return ""
 }

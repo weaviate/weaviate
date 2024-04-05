@@ -9,18 +9,17 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package test
+package tests
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func Test_ManyModules_SingleNode(t *testing.T) {
+func TestText2VecOllama_SingleNode(t *testing.T) {
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx)
 	require.NoError(t, err)
@@ -28,11 +27,12 @@ func Test_ManyModules_SingleNode(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("many modules", manyModulesTests(endpoint))
-	t.Run("create schema with specific text2vec-openai settings", createSchemaOpenAISanityChecks(endpoint))
+	ollamaApiEndpoint := compose.GetOllamaVectorizer().GetEndpoint("apiEndpoint")
+
+	t.Run("tests", testText2VecOllama(endpoint, ollamaApiEndpoint))
 }
 
-func Test_ManyModules_Cluster(t *testing.T) {
+func TestText2VecOllama_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := createClusterEnvironment(ctx)
 	require.NoError(t, err)
@@ -40,8 +40,9 @@ func Test_ManyModules_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("many modules", manyModulesTests(endpoint))
-	t.Run("create schema with specific text2vec-openai settings", createSchemaOpenAISanityChecks(endpoint))
+	ollamaApiEndpoint := compose.GetOllamaVectorizer().GetEndpoint("apiEndpoint")
+
+	t.Run("tests", testText2VecOllama(endpoint, ollamaApiEndpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
@@ -59,22 +60,6 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 }
 
 func composeModules() (composeModules *docker.Compose) {
-	composeModules = docker.New().
-		WithText2VecContextionary().
-		WithText2VecTransformers().
-		WithText2VecOpenAI().
-		WithText2VecCohere().
-		WithText2VecVoyageAI().
-		WithText2VecPaLM(os.Getenv("PALM_APIKEY")).
-		WithText2VecHuggingFace().
-		WithText2VecAWS().
-		WithGenerativeOpenAI().
-		WithGenerativeCohere().
-		WithGenerativePaLM(os.Getenv("PALM_APIKEY")).
-		WithGenerativeAWS().
-		WithGenerativeAnyscale().
-		WithQnAOpenAI().
-		WithRerankerCohere().
-		WithRerankerVoyageAI()
+	composeModules = docker.New().WithText2VecOllama()
 	return
 }

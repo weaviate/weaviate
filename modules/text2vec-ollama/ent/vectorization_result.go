@@ -9,11 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package ent
 
-func (v *cohere) MetaInfo() (map[string]interface{}, error) {
-	return map[string]interface{}{
-		"name":              "Generative Search - Cohere",
-		"documentationHref": "https://docs.cohere.com/reference/chat",
-	}, nil
+type VectorizationResult struct {
+	Text       string
+	Dimensions int
+	Vector     []float32
 }
