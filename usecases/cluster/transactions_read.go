@@ -13,9 +13,12 @@ package cluster
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func (c *TxManager) CloseReadTransaction(ctx context.Context,
@@ -34,6 +37,15 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 	defer func() {
 		c.Lock()
 		c.currentTransaction = nil
+		monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
+			"ownership": "coordinator",
+			"status":    "close_read",
+		}).Inc()
+		took := time.Since(c.currentTransactionBegin)
+		monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
+			"ownership": "coordinator",
+			"status":    "close_read",
+		}).Observe(took.Seconds())
 		c.Unlock()
 	}()
 
@@ -43,12 +55,12 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 
 		if err := c.remote.BroadcastAbortTransaction(ctx, tx); err != nil {
 			c.logger.WithFields(logrus.Fields{
-				"action": "broadcast_abort_transaction",
+				"action": "broadcast_abort_read_transaction",
 				"id":     tx.ID,
-			}).WithError(err).Errorf("broadcast tx abort failed")
+			}).WithError(err).Errorf("broadcast tx (read-only) abort failed")
 		}
 
-		return errors.Wrap(err, "broadcast commit transaction")
+		return errors.Wrap(err, "broadcast commit read transaction")
 	}
 
 	return nil
