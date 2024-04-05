@@ -215,7 +215,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 			if i != 0 {
 				msg.WriteString(", ")
 			}
-			msg.WriteString(err.Error())
+			errorMessage := fmt.Sprintf("%v", err)
+			msg.WriteString(errorMessage)
 		}
 		return nil, errors.New(msg.String())
 	}
