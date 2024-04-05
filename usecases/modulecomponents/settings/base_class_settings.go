@@ -121,7 +121,7 @@ func (s *BaseClassSettings) Properties() []string {
 	return nil
 }
 
-func (s *BaseClassSettings) ValidateBase() error {
+func (s *BaseClassSettings) ValidateClassSettings() error {
 	if s.cfg != nil && len(s.cfg.Class()) > 0 {
 		if field, ok := s.cfg.Class()["properties"]; ok {
 			fieldsArray, fieldsArrayOk := field.([]interface{})
@@ -209,13 +209,13 @@ func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
 		"indexing")
 }
 
-func (s *BaseClassSettings) ValidateClassSettings(class *models.Class) error {
+func (s *BaseClassSettings) Validate(class *models.Class) error {
 	if s.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
 
-	if err := s.ValidateBase(); err != nil {
+	if err := s.ValidateClassSettings(); err != nil {
 		return err
 	}
 

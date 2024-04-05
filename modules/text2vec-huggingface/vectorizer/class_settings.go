@@ -71,11 +71,11 @@ func (cs *classSettings) OptionUseCache() bool {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	return cs.BaseClassSettings.ValidateClassSettings(class)
+	return cs.BaseClassSettings.Validate(class)
 }
 
 func (cs *classSettings) validateClassSettings() error {
-	if err := cs.BaseClassSettings.ValidateBase(); err != nil {
+	if err := cs.BaseClassSettings.ValidateClassSettings(); err != nil {
 		return err
 	}
 
