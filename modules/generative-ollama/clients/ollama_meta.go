@@ -9,11 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package clients
+package ollama
 
-func (v *cohere) MetaInfo() (map[string]interface{}, error) {
+func (v *ollama) MetaInfo() (map[string]interface{}, error) {
+	// Or this could be attached to the container
+	// Needs to be to get the model path
 	return map[string]interface{}{
-		"name":              "Generative Search - Cohere",
-		"documentationHref": "https://docs.cohere.com/reference/chat",
+		"name":              "Generative Search - Ollama",
+		"documentationHref": "https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-completion",
 	}, nil
 }
