@@ -190,26 +190,6 @@ func parseArray[T float64 | bool | string](v interface{}, dt schema.DataType) ([
 	return val, nil
 }
 
-// NewList constructs a ListValue from a general-purpose Go slice.
-// The slice elements are converted using NewValue.
-// func (m *Mapping) newPrimitiveList(v []interface{}, dt schema.DataType) (*pb.ListValue, error) {
-// 	var err error
-// 	// x := &pb.ListValue{Values: make([]*pb.Value, len(v))}
-// 	x := make([]*pb.Value, len(v))
-// 	for i, v := range v {
-// 		x[i], err = m.NewPrimitiveValue(v, dt)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 	}
-// 	if m.uses125ListValue {
-// 		return &pb.ListValue{
-// 			Kind
-// 		}
-// 	}
-// 	return x, nil
-// }
-
 func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	if _, ok := v.([]interface{}); ok {
