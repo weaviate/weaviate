@@ -11,7 +11,7 @@
 
 package asm
 
-//go:generate goat ../c/hamming_avx256_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
+//go:generate goat ../c/hamming_avx256_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq  -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 //go:generate goat ../c/hamming_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 
 import "unsafe"

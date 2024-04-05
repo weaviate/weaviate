@@ -32,15 +32,6 @@ void hamming_256(float *a, float *b, float *res, long *len)
         return;
     }
 
-    __mmask16 mask0 = 0;
-    __mmask16 mask1 = 0;
-    __mmask16 mask2 = 0;
-    __mmask16 mask3 = 0;
-    __mmask16 mask4 = 0;
-    __mmask16 mask5 = 0;
-    __mmask16 mask6 = 0;
-    __mmask16 mask7 = 0;
-
     // Create 4 registers to store the results
     __m256i acc[4];
     acc[0] = _mm256_setzero_si256();
@@ -56,10 +47,15 @@ void hamming_256(float *a, float *b, float *res, long *len)
     __m256i blend3_256 = _mm256_setzero_si256();
     __m256i blend4_256 = _mm256_setzero_si256();
 
-    __mmask8 mask0_256 = 0;
-    __mmask8 mask1_256 = 0;
-    __mmask8 mask2_256 = 0;
-    __mmask8 mask3_256 = 0;
+    __m256 cmp_result_1 = _mm256_setzero_ps();
+    __m256 cmp_result_2 = _mm256_setzero_ps();
+    __m256 cmp_result_3 = _mm256_setzero_ps();
+    __m256 cmp_result_4 = _mm256_setzero_ps();
+
+    __m256i cmp_result_i_1 = _mm256_setzero_si256();
+    __m256i cmp_result_i_2 = _mm256_setzero_si256();
+    __m256i cmp_result_i_3 = _mm256_setzero_si256();
+    __m256i cmp_result_i_4 = _mm256_setzero_si256();
 
     while (n >= 32)
     {
@@ -74,15 +70,20 @@ void hamming_256(float *a, float *b, float *res, long *len)
         __m256 b_vec2 = _mm256_loadu_ps(b + 16);
         __m256 b_vec3 = _mm256_loadu_ps(b + 24);
 
-        mask0 = _mm256_cmp_ps_mask(a_vec0, b_vec0, _CMP_NEQ_OQ);
-        mask1 = _mm256_cmp_ps_mask(a_vec1, b_vec1, _CMP_NEQ_OQ);
-        mask2 = _mm256_cmp_ps_mask(a_vec2, b_vec2, _CMP_NEQ_OQ);
-        mask3 = _mm256_cmp_ps_mask(a_vec3, b_vec3, _CMP_NEQ_OQ);
+        cmp_result_1 = _mm256_cmp_ps(a_vec0, b_vec0, _CMP_NEQ_OQ);
+        cmp_result_2 = _mm256_cmp_ps(a_vec1, b_vec1, _CMP_NEQ_OQ);
+        cmp_result_3 = _mm256_cmp_ps(a_vec2, b_vec2, _CMP_NEQ_OQ);
+        cmp_result_4 = _mm256_cmp_ps(a_vec3, b_vec3, _CMP_NEQ_OQ);
 
-        blend1_256 = _mm256_mask_blend_epi32(mask0, zeros_256, ones_256);
-        blend2_256 = _mm256_mask_blend_epi32(mask1, zeros_256, ones_256);
-        blend3_256 = _mm256_mask_blend_epi32(mask2, zeros_256, ones_256);
-        blend4_256 = _mm256_mask_blend_epi32(mask3, zeros_256, ones_256);
+        cmp_result_i_1 = _mm256_castps_si256(cmp_result_1);
+        cmp_result_i_2 = _mm256_castps_si256(cmp_result_2);
+        cmp_result_i_3 = _mm256_castps_si256(cmp_result_3);
+        cmp_result_i_4 = _mm256_castps_si256(cmp_result_4);
+
+        blend1_256 = _mm256_blendv_epi8(zeros_256, ones_256, cmp_result_i_1);
+        blend2_256 = _mm256_blendv_epi8(zeros_256, ones_256, cmp_result_i_2);
+        blend3_256 = _mm256_blendv_epi8(zeros_256, ones_256, cmp_result_i_3);
+        blend4_256 = _mm256_blendv_epi8(zeros_256, ones_256, cmp_result_i_4);
 
         acc[0] = _mm256_add_epi32(acc[0], blend1_256);
         acc[1] = _mm256_add_epi32(acc[1], blend2_256);
@@ -100,9 +101,17 @@ void hamming_256(float *a, float *b, float *res, long *len)
         __m256 a_vec0 = _mm256_loadu_ps(a);
         __m256 b_vec0 = _mm256_loadu_ps(b);
 
-        mask0 = _mm256_cmp_ps_mask(a_vec0, b_vec0, _CMP_NEQ_OQ);
+        // Perform comparison. _CMP_NEQ_OQ checks for not-equal (ordered, non-signaling)
+        cmp_result_1 = _mm256_cmp_ps(a_vec0, b_vec0, _CMP_NEQ_OQ);
 
-        blend1_256 = _mm256_mask_blend_epi32(mask0, zeros_256, ones_256);
+        // Cast the comparison result to integer type to use with blendv
+        cmp_result_i_1 = _mm256_castps_si256(cmp_result_1);
+
+        // Blend based on the comparison result. Note that blendv uses the MSB of each byte.
+        blend1_256 = _mm256_blendv_epi8(zeros_256, ones_256, cmp_result_i_1);
+
+        // Accumulate the result
+
         acc[0] = _mm256_add_epi32(acc[0], blend1_256);
 
         n -= 8;
