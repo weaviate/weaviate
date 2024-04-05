@@ -12,9 +12,6 @@
 #include <immintrin.h>
 #include <stdint.h>
 
-#include <immintrin.h>
-#include <stdint.h>
-
 void l2_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, long *len)
 {
     int n = *len;
