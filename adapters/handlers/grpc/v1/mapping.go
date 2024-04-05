@@ -28,21 +28,6 @@ func NewMapping(uses125 bool) *Mapper {
 	return &Mapper{uses125: uses125}
 }
 
-// func parseArray[T float64 | bool | string](v interface{}, innerDt schema.DataType) (*pb.Value, error) {
-// 	if _, ok := v.([]interface{}); ok {
-// 		return &pb.Value{Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{Values: []*pb.Value{}}}}, nil
-// 	}
-// 	val, ok := v.([]T)
-// 	if !ok {
-// 		return nil, protoimpl.X.NewError("invalid type: %T when serializing %v", v, innerDt.String())
-// 	}
-// 	list, err := newPrimitiveList(val, innerDt)
-// 	if err != nil {
-// 		return nil, errors.Wrapf(err, "serializing array with type %v", innerDt)
-// 	}
-// 	return newListValue(list), nil
-// }
-
 func (m *Mapper) NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error) {
 	if v == nil {
 		return m.NewNilValue(), nil
@@ -432,8 +417,6 @@ func (m *Mapper) parsePrimitiveArray(v interface{}, dt, innerDt schema.DataType)
 	}
 }
 
-// NewList constructs a ListValue from a general-purpose Go slice.
-// The slice elements are converted using NewValue.
 func (m *Mapper) newObjectList123(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
 	if !selectProp.IsObject {
 		return nil, errors.New("select property is not an object")
@@ -452,8 +435,6 @@ func (m *Mapper) newObjectList123(v []interface{}, parent schema.PropertyInterfa
 	return x, nil
 }
 
-// NewList constructs a ListValue from a general-purpose Go slice.
-// The slice elements are converted using NewValue.
 func (m *Mapper) newObjectList125(v []interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.ListValue, error) {
 	if !selectProp.IsObject {
 		return nil, errors.New("select property is not an object")
