@@ -35,15 +35,16 @@ const serviceConfig = `
 				}
 			],
 			"retryPolicy": {
-				"MaxAttempts": 4,
+				"MaxAttempts": 5,
 				"BackoffMultiplier": 2,
 				"InitialBackoff": "0.5s",
-				"MaxBackoff": "2s",
+				"MaxBackoff": "3s",
 				"RetryableStatusCodes": [
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
 					"INTERNAL",
-					"UNAVAILABLE"
+					"UNAVAILABLE",
+					"NOT_FOUND"
 				]
 			}
 		}
@@ -72,7 +73,7 @@ func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeer
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
@@ -88,7 +89,7 @@ func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerR
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
@@ -105,7 +106,7 @@ func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.Rem
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
@@ -121,7 +122,8 @@ func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyRes
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(
+	conn, err := grpc.DialContext(
+		ctx,
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
@@ -140,7 +142,8 @@ func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.Quer
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(
+	conn, err := grpc.DialContext(
+		ctx,
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
