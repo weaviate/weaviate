@@ -29,9 +29,9 @@ import (
 func L2(x []float32, y []float32) float32 {
 	switch len(x) {
 	case 2:
-		return l22(x, y)
+		return l22[float32, float32](x, y)
 	case 4:
-		return l24(x, y)
+		return l24[float32, float32](x, y)
 	case 6:
 		// manually inlined l26(x, y)
 		diff := x[5] - y[5]
@@ -40,7 +40,7 @@ func L2(x []float32, y []float32) float32 {
 		diff = x[4] - y[4]
 		sum += diff * diff
 
-		return l24(x, y) + sum
+		return l24[float32, float32](x, y) + sum
 	case 8:
 		// manually inlined l28(x, y)
 		diff := x[7] - y[7]
@@ -55,11 +55,11 @@ func L2(x []float32, y []float32) float32 {
 		diff = x[4] - y[4]
 		sum += diff * diff
 
-		return l24(x, y) + sum
+		return l24[float32, float32](x, y) + sum
 	case 10:
-		return l210(x, y)
+		return l210[float32, float32](x, y)
 	case 12:
-		return l212(x, y)
+		return l212[float32, float32](x, y)
 	}
 
 	// deal with odd lengths and lengths 13, 14, 15
