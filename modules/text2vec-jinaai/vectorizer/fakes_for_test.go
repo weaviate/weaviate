@@ -14,36 +14,45 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
+	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 type fakeClient struct {
 	lastInput  []string
-	lastConfig ent.VectorizationConfig
+	lastConfig moduletools.ClassConfig
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	c.lastInput = []string{text}
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Vector:     [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
-		Text:       []string{text},
-	}, nil
+		Text:       text,
+	}, nil, nil
 }
 
 func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	text []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
 		Text:       text,
 	}, nil
+}
+
+func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	return &modulecomponents.RateLimits{}
+}
+
+func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	return [32]byte{}
 }
 
 type fakeClassConfig struct {

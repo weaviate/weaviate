@@ -178,7 +178,6 @@ func (b *Batch) batchWorker() {
 
 			start := time.Now()
 			_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, tokensInCurrentBatch)
-
 			batchTookInS = time.Since(start).Seconds()
 			if tokensInCurrentBatch > 0 {
 				timePerToken = batchTookInS / float64(tokensInCurrentBatch)

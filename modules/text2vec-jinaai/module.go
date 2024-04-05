@@ -17,9 +17,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,7 +38,7 @@ func New() *JinaAIModule {
 }
 
 type JinaAIModule struct {
-	vectorizer                   text2vecbase.TextVectorizer
+	vectorizer                   text2vecbase.TextVectorizerBatch
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
@@ -96,7 +96,7 @@ func (m *JinaAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(jinaAIApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
 
 	return nil
@@ -115,7 +115,7 @@ func (m *JinaAIModule) RootHandler() http.Handler {
 func (m *JinaAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
 func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
@@ -123,7 +123,8 @@ func (m *JinaAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 }
 
 func (m *JinaAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+	return vecs, nil, errs
 }
 
 func (m *JinaAIModule) MetaInfo() (map[string]interface{}, error) {
