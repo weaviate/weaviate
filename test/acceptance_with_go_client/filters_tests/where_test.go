@@ -14,6 +14,7 @@ package filters_tests
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
@@ -34,6 +35,8 @@ func TestWhereFilter_Cluster(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
+
+	time.Sleep(5 * time.Second)
 
 	endpoint := compose.GetWeaviate().URI()
 

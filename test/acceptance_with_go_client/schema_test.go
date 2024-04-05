@@ -98,11 +98,10 @@ func checkDuplicateClassErrors(t *testing.T, err error, tt testCase) {
 		require.Nil(t, json.Unmarshal([]byte(rawError.Msg), &clientErr))
 		require.Len(t, clientErr.Error, 1)
 		if tt.className1 == tt.className2 {
-			require.Equal(t, fmt.Sprintf("class name %q already exists", tt.className2), clientErr.Error[0].Message)
+			require.Equal(t, "class already exists", clientErr.Error[0].Message)
 		} else {
 			require.Equal(t,
-				fmt.Sprintf("class name %q already exists as a permutation of: %q. class names must be unique when lowercased",
-					tt.className2, tt.className1), clientErr.Error[0].Message)
+				fmt.Sprintf("class already exists: found similar class %q", tt.className1), clientErr.Error[0].Message)
 		}
 	} else {
 		t.Fatalf("unexpected error: %v", err)

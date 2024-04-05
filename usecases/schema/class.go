@@ -170,6 +170,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
+
 	initial := h.metaReader.ReadOnlyClass(className)
 
 	// first layer of defense is basic validation if class already exits
@@ -186,7 +187,6 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
 		}
-
 	}
 
 	return h.metaWriter.UpdateClass(updated, nil)

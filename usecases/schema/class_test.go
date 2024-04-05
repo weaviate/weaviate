@@ -1240,11 +1240,7 @@ func Test_UpdateClass(t *testing.T) {
 				ctx := context.Background()
 
 				fakeMetaHandler.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
-				if len(test.initial.Properties) > 0 {
-					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
-				}
 				assert.Nil(t, handler.AddClass(ctx, nil, test.initial))
 				store.AddClass(test.initial)
 
@@ -1256,6 +1252,7 @@ func Test_UpdateClass(t *testing.T) {
 
 				if test.expectedError == nil {
 					assert.Nil(t, err)
+					mock.AssertExpectationsForObjects(t, fakeMetaHandler)
 				} else {
 					require.NotNil(t, err, "update must error")
 					assert.Contains(t, err.Error(), test.expectedError.Error())
