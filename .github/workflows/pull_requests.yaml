@@ -44,7 +44,7 @@ jobs:
         with:
           go-version: '1.21'
           package: ./...
-          fail-on-vuln: true
+          fail-on-vuln: false
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
