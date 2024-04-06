@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/errors"
 )
 
 func newTxSlowLog(logger logrus.FieldLogger) *txSlowLog {
@@ -112,12 +113,12 @@ func (txsl *txSlowLog) Close(status string) {
 
 func (txsl *txSlowLog) StartWatching() {
 	t := time.Tick(500 * time.Millisecond)
-	go func() {
+	errors.GoWrapper(func() {
 		for {
 			<-t
 			txsl.log()
 		}
-	}()
+	}, txsl.logger)
 }
 
 func (txsl *txSlowLog) log() {
