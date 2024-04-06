@@ -264,6 +264,7 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 				"ownership": "n/a",
 				"status":    "expire",
 			}).Observe(took.Seconds())
+			c.slowLog.Close("expired")
 		}
 	}
 	enterrors.GoWrapper(f, c.logger)
