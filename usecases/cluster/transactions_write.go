@@ -85,7 +85,6 @@ type TxManager struct {
 
 	persistence Persistence
 
-	metrics monitoring.PrometheusMetrics
 	slowLog *txSlowLog
 }
 
