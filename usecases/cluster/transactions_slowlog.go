@@ -84,7 +84,7 @@ func (txsl *txSlowLog) Close(status string) {
 	txsl.Lock()
 	defer txsl.Unlock()
 
-	txsl.status = "status"
+	txsl.status = status
 	txsl.lastChange = time.Now()
 
 	// there are two situations where we need to log the end of the transaction:
@@ -111,16 +111,16 @@ func (txsl *txSlowLog) Close(status string) {
 }
 
 func (txsl *txSlowLog) StartWatching() {
-	t := time.Tick(250 * time.Millisecond)
+	t := time.Tick(500 * time.Millisecond)
 	go func() {
 		for {
 			<-t
-			txsl.observe()
+			txsl.log()
 		}
 	}()
 }
 
-func (txsl *txSlowLog) observe() {
+func (txsl *txSlowLog) log() {
 	txsl.Lock()
 	defer txsl.Unlock()
 
