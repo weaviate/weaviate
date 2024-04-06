@@ -31,6 +31,7 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 	}
 
 	c.Unlock()
+	c.slowLog.Update("close_read_started")
 
 	// now that we know we are dealing with a valid transaction: no  matter the
 	// outcome, after this call, we should not have a local transaction anymore
@@ -46,6 +47,7 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 			"ownership": "coordinator",
 			"status":    "close_read",
 		}).Observe(took.Seconds())
+		c.slowLog.Close("closed_read")
 		c.Unlock()
 	}()
 
