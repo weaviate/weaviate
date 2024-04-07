@@ -634,7 +634,7 @@ func TestIndexQueue(t *testing.T) {
 		require.True(t, q.paused.Load())
 
 		// release the compression
-		idx.compressed = true
+		idx.compressed.Store(true)
 		close(release)
 
 		// indexing should be resumed eventually
@@ -671,7 +671,7 @@ func TestIndexQueue(t *testing.T) {
 		release := make(chan int)
 		idx.onCompressionTurnedOn = func(callback func()) error {
 			release <- 1
-			idx.compressed = true
+			idx.compressed.Store(true)
 			return nil
 		}
 
@@ -688,7 +688,7 @@ func TestIndexQueue(t *testing.T) {
 
 		<-release
 		close(release)
-		require.True(t, idx.compressed)
+		require.True(t, idx.compressed.Load())
 	})
 
 	t.Run("compression does not occur at the indexing if async is enabled", func(t *testing.T) {
@@ -832,7 +832,7 @@ type mockBatchIndexer struct {
 	distancerProvider     distancer.Provider
 	shouldCompress        bool
 	threshold             int
-	compressed            bool
+	compressed            atomic.Bool
 	alreadyIndexed        uint64
 	onCompressionTurnedOn func(func()) error
 }
@@ -1019,9 +1019,7 @@ func (m *mockBatchIndexer) ShouldUpgrade() (bool, int) {
 }
 
 func (m *mockBatchIndexer) Upgraded() bool {
-	m.Lock()
-	defer m.Unlock()
-	return m.compressed
+	return m.compressed.Load()
 }
 
 func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
