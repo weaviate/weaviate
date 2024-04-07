@@ -604,7 +604,7 @@ func TestIndexQueue(t *testing.T) {
 		called := make(chan struct{})
 		idx.shouldCompress = true
 		idx.threshold = 4
-		idx.alreadyIndexed = 6
+		idx.alreadyIndexed.Store(6)
 
 		release := make(chan struct{})
 		idx.onCompressionTurnedOn = func(callback func()) error {
@@ -659,11 +659,11 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 		idx.shouldCompress = true
 		idx.threshold = 3
-		idx.alreadyIndexed = 0
+		idx.alreadyIndexed.Store(0)
 		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
 			go func() {
 				time.Sleep(1000 * time.Millisecond)
-				idx.alreadyIndexed += uint64(len(id))
+				idx.alreadyIndexed.Add(uint64(len(id)))
 			}()
 			return nil
 		}
@@ -833,7 +833,7 @@ type mockBatchIndexer struct {
 	shouldCompress        bool
 	threshold             int
 	compressed            atomic.Bool
-	alreadyIndexed        uint64
+	alreadyIndexed        atomic.Uint64
 	onCompressionTurnedOn func(func()) error
 }
 
@@ -1013,8 +1013,6 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 }
 
 func (m *mockBatchIndexer) ShouldUpgrade() (bool, int) {
-	m.Lock()
-	defer m.Unlock()
 	return m.shouldCompress, m.threshold
 }
 
@@ -1023,9 +1021,7 @@ func (m *mockBatchIndexer) Upgraded() bool {
 }
 
 func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
-	m.Lock()
-	defer m.Unlock()
-	return m.alreadyIndexed
+	return m.alreadyIndexed.Load()
 }
 
 func (m *mockBatchIndexer) Upgrade(callback func()) error {
