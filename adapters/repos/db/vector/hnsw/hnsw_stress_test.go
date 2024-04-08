@@ -24,6 +24,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -393,4 +398,74 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 	}
 
 	return vectors
+}
+
+func TestConcurrentDelete(t *testing.T) {
+	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
+	_, err2 := os.Stat(siftFile)
+	if _, err := os.Stat(siftFile); err != nil || err2 != nil {
+		if !*download {
+			t.Skip(`Sift data needs to be present.
+Run test with -download to automatically download the dataset.
+Ex: go test -v -run TestHnswStress . -download
+`)
+		}
+		downloadDatasetFile(t, siftFile)
+	}
+	vectors := readSiftFloat(siftFile, 100)
+
+	for n := 0; n < 5; n++ { // increase if you don't want to reread SIFT for every run
+		store := testinghelpers.NewDummyStore(t)
+
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        128,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+
+		numGoroutines := 5
+
+		for j := 0; j < 10; j++ {
+			var wg sync.WaitGroup
+			for i := 0; i < numGoroutines; i++ {
+				wg.Add(1)
+				goroutineIndex := i * numGoroutines
+				go func() {
+					defer wg.Done()
+					for j := 0; j < 10; j++ {
+						require.Nil(t, index.Add(uint64(goroutineIndex+j), vectors[goroutineIndex+j]))
+					}
+				}()
+			}
+
+			for i := 0; i < numGoroutines; i++ {
+				wg.Add(1)
+				goroutineIndex := i * numGoroutines
+				go func() {
+					defer wg.Done()
+					for j := 0; j < 10; j++ {
+						require.Nil(t, index.Delete(uint64(goroutineIndex+j)))
+					}
+				}()
+			}
+
+			for i := 0; i < numGoroutines; i++ {
+				for i := 0; i < 10; i++ {
+					err := index.CleanUpTombstonedNodes(neverStop)
+					require.Nil(t, err)
+				}
+			}
+			wg.Wait()
+		}
+	}
 }
