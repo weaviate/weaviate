@@ -435,12 +435,9 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return errors.Wrap(err, "upgrade")
 	}
 
-	buf := make([]byte, 1)
-	buf[0] = 1
-
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put([]byte{0}, buf)
+		return b.Put([]byte{0}, []byte{1})
 	})
 	if err != nil {
 		return errors.Wrap(err, "update dynamic")
