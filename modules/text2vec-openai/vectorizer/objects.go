@@ -77,5 +77,6 @@ type ClassSettings interface {
 	ResourceName() string
 	DeploymentID() string
 	BaseURL() string
+	ApiVersion() string
 	IsAzure() bool
 }

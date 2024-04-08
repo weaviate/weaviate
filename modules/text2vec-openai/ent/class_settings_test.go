@@ -140,6 +140,19 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.New("properties field needs to be of array type, got: string"),
 		},
+		{
+			name: "wrong apiVersion",
+			cfg: &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"resourceName": "resource",
+					"deploymentId": "deploymentId",
+					"apiVersion":   "wrong-api-version",
+				},
+			},
+			wantErr: errors.New("wrong Azure OpenAI apiVersion setting, available api versions are: " +
+				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview 2023-08-01-preview " +
+				"2023-09-01-preview 2023-12-01-preview 2024-02-15-preview 2024-03-01-preview 2024-02-01]"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
