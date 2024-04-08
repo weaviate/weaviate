@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"gopkg.in/yaml.v2"
 )
 
@@ -88,7 +89,7 @@ type Config struct {
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
 	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                          Monitoring               `json:"monitoring" yaml:"monitoring"`
+	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
 	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
 	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
@@ -175,13 +176,6 @@ const DefaultQueryDefaultsLimit int64 = 10
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
-}
-
-type Monitoring struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
-	Group   bool   `json:"group_classes" yaml:"group_classes"`
 }
 
 // Support independent TLS credentials for gRPC
