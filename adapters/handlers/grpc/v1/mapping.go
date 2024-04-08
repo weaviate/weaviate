@@ -298,32 +298,6 @@ func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
 }
 
-func (m *Mapper) newListValueString(v interface{}) (*pb.Value, error) {
-	var listValue *pb.ListValue
-	if _, ok := v.([]interface{}); ok {
-		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: []string{}}}}
-		} else {
-			listValue = &pb.ListValue{Values: []*pb.Value{}}
-		}
-	} else {
-		values, err := parseArray[string](v, schema.DataTypeStringArray)
-		if err != nil {
-			return nil, err
-		}
-		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: values}}}
-		} else {
-			x := make([]*pb.Value, len(values))
-			for i, v := range values {
-				x[i] = NewStringValue(v)
-			}
-			listValue = &pb.ListValue{Values: x}
-		}
-	}
-	return &pb.Value{Kind: &pb.Value_ListValue{ListValue: listValue}}, nil
-}
-
 func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	if _, ok := v.([]interface{}); ok {
@@ -387,7 +361,7 @@ func (m *Mapper) parsePrimitiveArray(v interface{}, dt, innerDt schema.DataType)
 	case schema.DataTypeIntArray:
 		return m.newListValueInt(v)
 	case schema.DataTypeStringArray:
-		return m.newListValueString(v)
+		return m.newListValueText(v)
 	case schema.DataTypeTextArray:
 		return m.newListValueText(v)
 	case schema.DataTypeUUIDArray:
