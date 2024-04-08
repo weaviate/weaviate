@@ -71,7 +71,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("wrong Cohere model name, available model names are: " +
-				"[command-r command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
+				"[command-r-plus command-r command-xlarge-beta command-xlarge command-medium command-xlarge-nightly " +
 				"command-medium-nightly xlarge medium command command-light command-nightly command-light-nightly base base-light]"),
 		},
 		{
