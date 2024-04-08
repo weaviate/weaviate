@@ -30,6 +30,7 @@ type ErrorGroupWrapper struct {
 	variables   []interface{}
 	logger      logrus.FieldLogger
 	deferFunc   func(localVars ...interface{})
+	cancelCtx   func()
 }
 
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
@@ -39,6 +40,10 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 		returnError: nil,
 		variables:   vars,
 		logger:      logger,
+
+		// this dummy func makes it safe to call cancelCtx even if a wrapper without a
+		// context is used. Avoids a nil check later on.
+		cancelCtx: func() {},
 	}
 	egw.setDeferFunc()
 	return egw
@@ -46,12 +51,14 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 
 // NewErrorGroupWithContextWrapper creates a new ErrorGroupWrapper
 func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
 	egw := &ErrorGroupWrapper{
 		Group:       eg,
 		returnError: nil,
 		variables:   vars,
 		logger:      logger,
+		cancelCtx:   cancel,
 	}
 	egw.setDeferFunc()
 
@@ -66,6 +73,7 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
 				egw.returnError = fmt.Errorf("panic occurred: %v", r)
+				egw.cancelCtx()
 			}
 		}
 	} else {
