@@ -103,7 +103,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+	class, err := m.schemaManager.GetConsistentClass(ctx, principal, object.Class, true)
 	if err != nil {
 		return nil, err
 	}
