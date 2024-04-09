@@ -13,10 +13,12 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -308,13 +310,21 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 func (m *Manager) TenantShard(class, tenant string) (string, string) {
 	tenants, err := m.metaWriter.QueryGetTenants(class)
 	if err != nil {
-		return "", ""
+		switch {
+		// given it's read requests serve from local if leader is not found
+		case errors.Is(err, store.ErrLeaderNotFound):
+			return m.metaReader.TenantShard(class, tenant)
+		default:
+			return "", ""
+		}
+	}
+	if err != nil && errors.Is(err, store.ErrLeaderNotFound) {
+		return m.metaReader.TenantShard(class, tenant)
 	}
 
 	for _, t := range tenants {
 		if t.Name == tenant {
 			return t.Name, t.ActivityStatus
-
 		}
 	}
 	return "", ""
@@ -323,7 +333,13 @@ func (m *Manager) TenantShard(class, tenant string) (string, string) {
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
 	owner, err := m.metaWriter.QueryGetShardOwner(class, shard)
 	if err != nil {
-		return "", err
+		switch {
+		// given it's read requests serve from local if leader is not found
+		case errors.Is(err, store.ErrLeaderNotFound):
+			return m.metaReader.ShardOwner(class, shard)
+		default:
+			return "", err
+		}
 	}
 	return owner, nil
 }
