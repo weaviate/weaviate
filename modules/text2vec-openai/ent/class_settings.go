@@ -28,6 +28,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultBaseURL               = "https://api.openai.com"
+	DefaultApiVersion            = "2024-02-01"
 )
 
 const (
@@ -58,6 +59,20 @@ var availableOpenAIModels = []string{
 	"babbage", // only supports 001
 	"curie",   // only supports 001
 	"davinci", // only supports 001
+}
+
+var availableApiVersions = []string{
+	"2022-12-01",
+	"2023-03-15-preview",
+	"2023-05-15",
+	"2023-06-01-preview",
+	"2023-07-01-preview",
+	"2023-08-01-preview",
+	"2023-09-01-preview",
+	"2023-12-01-preview",
+	"2024-02-15-preview",
+	"2024-03-01-preview",
+	"2024-02-01",
 }
 
 type classSettings struct {
@@ -92,6 +107,10 @@ func (cs *classSettings) BaseURL() string {
 
 func (cs *classSettings) DeploymentID() string {
 	return cs.BaseClassSettings.GetPropertyAsString("deploymentId", "")
+}
+
+func (cs *classSettings) ApiVersion() string {
+	return cs.BaseClassSettings.GetPropertyAsString("apiVersion", DefaultApiVersion)
 }
 
 func (cs *classSettings) IsAzure() bool {
@@ -135,7 +154,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID())
+	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
 	if err != nil {
 		return err
 	}
@@ -179,9 +198,12 @@ func (cs *classSettings) validateModelVersion(version, model, docType string) er
 	return nil
 }
 
-func (cs *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
+func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVersion string) error {
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	if !basesettings.ValidateSetting[string](apiVersion, availableApiVersions) {
+		return errors.Errorf("wrong Azure OpenAI apiVersion setting, available api versions are: %v", availableApiVersions)
 	}
 	return nil
 }
