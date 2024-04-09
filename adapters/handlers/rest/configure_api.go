@@ -263,9 +263,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	nodeName := appState.Cluster.LocalName()
 	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
 	addrs := strings.Split(nodeAddr, ":")
+	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	rConfig := rStore.Config{
-		WorkDir:            filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "raft"),
+		WorkDir:            filepath.Join(dataPath, "raft"),
 		NodeID:             nodeName,
 		Host:               addrs[0],
 		RaftPort:           appState.ServerConfig.Config.Raft.Port,
@@ -294,8 +295,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.CloudService = rCluster.New(rConfig)
-	executor := schema.NewExecutor(migrator, appState.CloudService.SchemaReader(), appState.Logger)
-
+	executor := schema.NewExecutor(migrator,
+		appState.CloudService.SchemaReader(),
+		appState.Logger, backup.RestoreClassDir(dataPath),
+	)
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.CloudService.Service,
 		appState.CloudService.SchemaReader(),
@@ -477,7 +480,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
 		appState.DB, appState.Modules,
-		appState.Cluster,
+		membership{appState.Cluster, appState.CloudService},
+		appState.SchemaManager,
 		appState.Logger)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
@@ -1116,4 +1120,14 @@ func limitResources(appState *state.State) {
 
 func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
+}
+
+type membership struct {
+	*cluster.State
+	raft *rCluster.Service
+}
+
+func (m membership) LeaderID() string {
+	_, id := m.raft.LeaderWithID()
+	return id
 }

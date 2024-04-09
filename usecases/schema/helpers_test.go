@@ -81,6 +81,10 @@ func (f *fakeDB) AddClass(cmd command.AddClassRequest) error {
 	return nil
 }
 
+func (f *fakeDB) RestoreClassDir(class string) error {
+	return nil
+}
+
 func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
 	return nil
 }

@@ -95,7 +95,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
@@ -231,6 +231,13 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+func (r nodeResolver) LeaderID() string {
+	if r.nodes != nil && len(*r.nodes) > 0 {
+		return (*r.nodes)[0].name
+	}
+	return ""
 }
 
 func newFakeBackupBackendProvider(backupsPath string) *fakeBackupBackendProvider {
