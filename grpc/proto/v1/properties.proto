@@ -44,14 +44,26 @@ message ListValue {
 }
 
 message NumberValues {
+  /**
+    * The values are stored as a byte array, where each 8 bytes represent a single float64 value.
+    * The byte array is stored in little-endian order using uint64 encoding.
+    */
   bytes values = 1;
 }
 
 message TextValues {
+  /**
+    * The values are stored as a byte array, where each byte contains a single UTF-8 character.
+    * Individual text values are delimited by a ',' character within the overall byte array.
+    */
   bytes values = 1;
 }
 
 message BoolValues {
+  /**
+    * The values are stored as a byte array, where each byte represents a single boolean value.
+    * The byte array is stored in little-endian order using uint64 encoding.
+    */
   bytes values = 1;
 }
 
@@ -60,14 +72,26 @@ message ObjectValues {
 }
 
 message DateValues {
+  /**
+    * The values are stored as a byte array, where each byte contains a single UTF-8 character.
+    * Individual date values are delimited by a ',' character within the overall byte array.
+    */
   bytes values = 1;
 }
 
 message UuidValues {
+  /**
+    * The values are stored as a byte array, where each byte contains a single UTF-8 character.
+    * Individual uuid values are delimited by a ',' character within the overall byte array.
+    */
   bytes values = 1;
 }
 
 message IntValues {
+  /**
+    * The values are stored as a byte array, where each 8 bytes represent a single int64 value.
+    * The byte array is stored in little-endian order using uint64 encoding.
+    */
   bytes values = 1;
 }
 
