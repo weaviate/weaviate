@@ -13,6 +13,7 @@ package errors
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"testing"
 
@@ -55,4 +56,57 @@ func TestErrorGroupWrapper(t *testing.T) {
 			assert.Contains(t, err.Error(), "index out of range")
 		})
 	}
+}
+
+// The assumption is that the context returned by the group will be cancelled
+// as soon as one goroutine panics
+func TestErrorGroupWrapperWithContext_Panics(t *testing.T) {
+	var buf bytes.Buffer
+	log := logrus.New()
+	log.SetOutput(&buf)
+	defer func() {
+		log.SetOutput(os.Stderr)
+	}()
+
+	ctx := context.Background()
+	eg, ctx := NewErrorGroupWithContextWrapper(log, ctx)
+
+	eg.Go(func() error {
+		slice := make([]string, 0)
+		slice[0] = "test"
+		return nil
+	})
+
+	// if the wrapper wouldn't cancel the context this line would block forever
+	<-ctx.Done()
+	assert.NotNil(t, ctx.Err())
+
+	err := eg.Wait()
+	assert.Contains(t, buf.String(), "Recovered from panic")
+	assert.Contains(t, err.Error(), "index out of range")
+}
+
+// The assumption is that when the goroutine doesn't panic, the context
+// does not get canceled
+func TestErrorGroupWrapperWithContext_DoesNotPanic(t *testing.T) {
+	var buf bytes.Buffer
+	log := logrus.New()
+	log.SetOutput(&buf)
+	defer func() {
+		log.SetOutput(os.Stderr)
+	}()
+
+	ctx := context.Background()
+	eg, ctx := NewErrorGroupWithContextWrapper(log, ctx)
+
+	eg.Go(func() error {
+		slice := make([]string, 1)
+		slice[0] = "test"
+		return nil
+	})
+
+	assert.Nil(t, ctx.Err())
+	err := eg.Wait()
+	assert.Nil(t, err)
+	assert.NotContains(t, buf.String(), "Recovered from panic")
 }

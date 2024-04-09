@@ -128,6 +128,14 @@ func (d *DockerCompose) GetQnATransformers() *DockerContainer {
 	return d.getContainerByName(QnATransformers)
 }
 
+func (d *DockerCompose) GetOllamaVectorizer() *DockerContainer {
+	return d.getContainerByName(OllamaVectorizer)
+}
+
+func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
+	return d.getContainerByName(OllamaGenerative)
+}
+
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	for _, c := range d.containers {
 		if c.name == name {

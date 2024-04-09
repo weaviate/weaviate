@@ -51,32 +51,17 @@ func BenchmarkDotInlineVsLoop(b *testing.B) {
 				case 2:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						dot2(x, y)
+						dot2[float32, float32](x, y)
 					}
 				case 4:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						dot4(x, y)
+						dot4[float32, float32](x, y)
 					}
 				case 6:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						dot6(x, y)
-					}
-				case 8:
-					b.ResetTimer()
-					for i := 0; i < b.N; i++ {
-						dot8(x, y)
-					}
-				case 10:
-					b.ResetTimer()
-					for i := 0; i < b.N; i++ {
-						dot10(x, y)
-					}
-				case 12:
-					b.ResetTimer()
-					for i := 0; i < b.N; i++ {
-						dot12(x, y)
+						dot6[float32, float32](x, y)
 					}
 				default:
 					panic("unsupported length")

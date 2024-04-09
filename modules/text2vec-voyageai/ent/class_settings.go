@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
 	"fmt"
@@ -74,7 +74,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong VoyageAI model name, available model names are: %v", availableVoyageAIModels)
 	}
 
-	err := cs.validateIndexState(class, cs)
+	err := cs.validateIndexState(class, cs.VectorizeClassName(), cs.PropertyIndexed)
 	if err != nil {
 		return err
 	}
@@ -99,8 +99,8 @@ func (cs *classSettings) getBoolProperty(name string, defaultValue bool) bool {
 	return cs.BaseClassSettings.GetPropertyAsBool(name, defaultValue)
 }
 
-func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {
-	if settings.VectorizeClassName() {
+func (cs *classSettings) validateIndexState(class *models.Class, vectorizeClassName bool, propIndexed func(string) bool) error {
+	if vectorizeClassName {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
 
@@ -120,7 +120,7 @@ func (cs *classSettings) validateIndexState(class *models.Class, settings ClassS
 			continue
 		}
 
-		if settings.PropertyIndexed(prop.Name) {
+		if propIndexed(prop.Name) {
 			// found at least one, this is a valid schema
 			return nil
 		}

@@ -53,7 +53,7 @@ func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
 		url, err := buildUrlFn(false, "resourceID", "deploymentID", "", config.DefaultApiVersion)
 		assert.Nil(t, err)
-		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2023-05-15", url)
+		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2024-02-01", url)
 	})
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
 		url, err := buildUrlFn(false, "", "", "https://foobar.some.proxy", config.DefaultApiVersion)
@@ -64,7 +64,7 @@ func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns Azure Client with custom baseURL", func(t *testing.T) {
 		url, err := buildUrlFn(false, "resourceID", "deploymentID", "customBaseURL", config.DefaultApiVersion)
 		assert.Nil(t, err)
-		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2023-05-15", url)
+		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2024-02-01", url)
 	})
 }
 

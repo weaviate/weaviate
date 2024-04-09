@@ -25,14 +25,17 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -90,11 +93,12 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
-	withMulti2VecPaLM             bool
 	withPaLMApiKey                string
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
+	withOllamaVectorizer          bool
+	withOllamaGenerative          bool
 	weaviateEnvs                  map[string]string
 }
 
@@ -131,6 +135,12 @@ func (d *Compose) WithText2VecContextionary() *Compose {
 	d.withContextionary = true
 	d.enableModules = append(d.enableModules, Text2VecContextionary)
 	d.defaultVectorizerModule = Text2VecContextionary
+	return d
+}
+
+func (d *Compose) WithText2VecOllama() *Compose {
+	d.withOllamaVectorizer = true
+	d.enableModules = append(d.enableModules, modollama.Name)
 	return d
 }
 
@@ -183,7 +193,6 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 }
 
 func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
-	d.withMulti2VecPaLM = true
 	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
 	return d
@@ -222,7 +231,8 @@ func (d *Compose) WithText2VecVoyageAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecPaLM() *Compose {
+func (d *Compose) WithText2VecPaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modpalm.Name)
 	return d
 }
@@ -252,13 +262,20 @@ func (d *Compose) WithGenerativeCohere() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativePaLM() *Compose {
+func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
 	return d
 }
 
 func (d *Compose) WithGenerativeAnyscale() *Compose {
 	d.enableModules = append(d.enableModules, modgenerativeanyscale.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeOllama() *Compose {
+	d.withOllamaGenerative = true
+	d.enableModules = append(d.enableModules, modgenerativeollama.Name)
 	return d
 }
 
@@ -272,9 +289,24 @@ func (d *Compose) WithRerankerCohere() *Compose {
 	return d
 }
 
+func (d *Compose) WithRerankerVoyageAI() *Compose {
+	d.enableModules = append(d.enableModules, modrerankervoyageai.Name)
+	return d
+}
+
 func (d *Compose) WithRerankerTransformers() *Compose {
 	d.withRerankerTransformers = true
 	d.enableModules = append(d.enableModules, RerankerTransformers)
+	return d
+}
+
+func (d *Compose) WithOllamaVectorizer() *Compose {
+	d.withOllamaVectorizer = true
+	return d
+}
+
+func (d *Compose) WithOllamaGenerative() *Compose {
+	d.withOllamaGenerative = true
 	return d
 }
 
@@ -404,6 +436,26 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
+	if d.withOllamaVectorizer {
+		container, err := startOllamaVectorizer(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", OllamaVectorizer)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
+	if d.withOllamaGenerative {
+		container, err := startOllamaGenerative(ctx, networkName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", OllamaGenerative)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
 	if d.withQnATransformers {
 		image := os.Getenv(envTestQnATransformersImage)
 		container, err := startQnATransformers(ctx, networkName, image)
@@ -437,7 +489,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withMulti2VecPaLM {
+	if d.withPaLMApiKey != "" {
 		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
 	}
 	if d.withBind {

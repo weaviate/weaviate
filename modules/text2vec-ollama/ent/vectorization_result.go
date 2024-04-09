@@ -12,7 +12,7 @@
 package ent
 
 type VectorizationResult struct {
-	Text       []string
+	Text       string
 	Dimensions int
-	Vectors    [][]float32
+	Vector     []float32
 }
