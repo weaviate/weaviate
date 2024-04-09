@@ -208,6 +208,26 @@ func Float64ToByteVector(floats []float64) []byte {
 	return vector
 }
 
+func Float32FromByteVector(vector []byte) []float32 {
+	floats := make([]float32, len(vector)/uint32Len)
+
+	for i := 0; i < len(floats); i++ {
+		asUint := binary.LittleEndian.Uint32(vector[i*uint32Len : (i+1)*uint32Len])
+		floats[i] = math.Float32frombits(asUint)
+	}
+	return floats
+}
+
+func Float64FromByteVector(vector []byte) []float64 {
+	floats := make([]float64, len(vector)/uint64Len)
+
+	for i := 0; i < len(floats); i++ {
+		asUint := binary.LittleEndian.Uint64(vector[i*uint64Len : (i+1)*uint64Len])
+		floats[i] = math.Float64frombits(asUint)
+	}
+	return floats
+}
+
 func BoolsToByteVector(bools []bool) []byte {
 	vector := make([]byte, len(bools))
 	for i, val := range bools {
@@ -249,24 +269,4 @@ func IntsToByteVector(ints []float64) []byte {
 		binary.LittleEndian.PutUint64(vector[i*uint64Len:(i+1)*uint64Len], uint64(intVal))
 	}
 	return vector
-}
-
-func Float32FromByteVector(vector []byte) []float32 {
-	floats := make([]float32, len(vector)/uint32Len)
-
-	for i := 0; i < len(vector); i++ {
-		asUint := binary.LittleEndian.Uint32(vector[i*uint32Len : (i+1)*uint32Len])
-		floats[i] = math.Float32frombits(asUint)
-	}
-	return floats
-}
-
-func Float64FromByteVector(vector []byte) []float64 {
-	floats := make([]float64, len(vector)/uint64Len)
-
-	for i := 0; i < len(vector); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*uint64Len : (i+1)*uint64Len])
-		floats[i] = math.Float64frombits(asUint)
-	}
-	return floats
 }
