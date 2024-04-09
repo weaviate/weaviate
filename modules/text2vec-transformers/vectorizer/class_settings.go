@@ -56,7 +56,7 @@ func (ic *classSettings) getSetting(property string) string {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := ic.BaseClassSettings.Validate(); err != nil {
+	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
 		return err
 	}
 	if ic.InferenceURL() != "" && (ic.PassageInferenceURL() != "" || ic.QueryInferenceURL() != "") {
@@ -68,5 +68,5 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.PassageInferenceURL() != "" && ic.QueryInferenceURL() == "" {
 		return errors.New("passageInferenceUrl is set but queryInferenceUrl is empty, both needs to be set")
 	}
-	return ic.BaseClassSettings.Validate()
+	return nil
 }
