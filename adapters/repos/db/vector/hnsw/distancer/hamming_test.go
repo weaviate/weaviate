@@ -137,7 +137,6 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-
 			r := getRandomSeed()
 			count := 1
 			countFailed := 0
@@ -166,7 +165,6 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 			for i := 0; i < count; i++ {
 
 				res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
-
 				if err != nil {
 					panic(err)
 				}
@@ -189,7 +187,6 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 
 			}
 			fmt.Printf("total failed: %d\n", countFailed)
-
 		})
 	}
 }
