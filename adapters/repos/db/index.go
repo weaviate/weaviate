@@ -753,7 +753,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			out[pos] = err
 			continue
 		}
-
+		// sleep to handle eventual consistency
+		time.Sleep(time.Millisecond)
 		group := byShard[shardName]
 		group.objects = append(group.objects, obj)
 		group.pos = append(group.pos, pos)
