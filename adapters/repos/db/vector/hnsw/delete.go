@@ -441,7 +441,6 @@ func (h *hnsw) reassignNeighbor(
 
 		alternative, level, err := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 			entryPointID)
-
 		if err != nil {
 			return false, errors.Wrap(err, "find new local entrypoint")
 		}
