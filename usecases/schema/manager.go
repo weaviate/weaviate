@@ -318,9 +318,6 @@ func (m *Manager) TenantShard(class, tenant string) (string, string) {
 			return "", ""
 		}
 	}
-	if err != nil && errors.Is(err, store.ErrLeaderNotFound) {
-		return m.metaReader.TenantShard(class, tenant)
-	}
 
 	for _, t := range tenants {
 		if t.Name == tenant {
