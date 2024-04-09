@@ -30,7 +30,7 @@ func benchmarkDotGo(b *testing.B, dims int) {
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		DotProductGo(vec1, vec2)
+		DotProductFloatGo(vec1, vec2)
 	}
 }
 
