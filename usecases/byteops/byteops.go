@@ -240,6 +240,18 @@ func BoolsToByteVector(bools []bool) []byte {
 	return vector
 }
 
+func BoolsFromByteVector(vector []byte) []bool {
+	bools := make([]bool, len(vector))
+	for i, val := range vector {
+		if val == 1 {
+			bools[i] = true
+		} else {
+			bools[i] = false
+		}
+	}
+	return bools
+}
+
 func StringsToByteVector(strings []string) []byte {
 	var vector []byte
 	delimiter := []byte{','}
@@ -269,4 +281,13 @@ func IntsToByteVector(ints []float64) []byte {
 		binary.LittleEndian.PutUint64(vector[i*uint64Len:(i+1)*uint64Len], uint64(intVal))
 	}
 	return vector
+}
+
+func IntsFromByteVector(vector []byte) []int64 {
+	ints := make([]int64, len(vector)/uint64Len)
+	for i := 0; i < len(ints); i++ {
+		asUint := binary.LittleEndian.Uint64(vector[i*uint64Len : (i+1)*uint64Len])
+		ints[i] = int64(asUint)
+	}
+	return ints
 }
