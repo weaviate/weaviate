@@ -32,7 +32,7 @@ var (
 
 func newMockExecutor(m *fakeMigrator, s *fakeMetaHandler) *executor {
 	logger, _ := test.NewNullLogger()
-	x := NewExecutor(m, s, logger)
+	x := NewExecutor(m, s, logger, func(string) error { return nil })
 	x.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {})
 	return x
 }

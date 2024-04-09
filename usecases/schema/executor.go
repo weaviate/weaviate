@@ -24,20 +24,22 @@ import (
 )
 
 type executor struct {
-	store     metaReader
-	migrator  Migrator
-	callbacks []func(updatedSchema schema.Schema)
-	logger    logrus.FieldLogger
+	store           metaReader
+	migrator        Migrator
+	callbacks       []func(updatedSchema schema.Schema)
+	logger          logrus.FieldLogger
+	restoreClassDir func(string) error
 }
 
 // NewManager creates a new manager
 func NewExecutor(migrator Migrator, mr metaReader,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {
 	return &executor{
-		migrator: migrator,
-		logger:   logger,
-		store:    mr,
+		migrator:        migrator,
+		logger:          logger,
+		store:           mr,
+		restoreClassDir: classBackupDir,
 	}
 }
 
@@ -56,6 +58,12 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 	}
 	e.triggerSchemaUpdateCallbacks()
 	return nil
+}
+
+// RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
+// This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
+func (e *executor) RestoreClassDir(class string) error {
+	return e.restoreClassDir(class)
 }
 
 func (e *executor) UpdateClass(req api.UpdateClassRequest) error {

@@ -46,6 +46,7 @@ func TestServiceEndpoints(t *testing.T) {
 	m.indexer.On("Open", Anything).Return(nil)
 	m.indexer.On("Close", Anything).Return(nil)
 	m.indexer.On("AddClass", Anything).Return(nil)
+	m.indexer.On("RestoreClassDir", Anything).Return(nil)
 	m.indexer.On("UpdateClass", Anything).Return(nil)
 	m.indexer.On("DeleteClass", Anything).Return(nil)
 	m.indexer.On("AddProperty", Anything, Anything).Return(nil)
@@ -376,7 +377,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
-				m.store.db.Schema.addClass(cls, ss)
+				m.indexer.On("RestoreClassDir", cls.Class).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				_, ok := ms.store.db.Schema.Classes["C1"]
@@ -785,6 +786,11 @@ type MockIndexer struct {
 
 func (m *MockIndexer) AddClass(req cmd.AddClassRequest) error {
 	args := m.Called(req)
+	return args.Error(0)
+}
+
+func (m *MockIndexer) RestoreClassDir(class string) error {
+	args := m.Called(class)
 	return args.Error(0)
 }
 

@@ -172,7 +172,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 	initial := h.metaReader.ReadOnlyClass(className)
 
-	// first layer of defense is basic validation if class already exits
+	// first layer of defense is basic validation if class already exists
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
 		if err != nil {
