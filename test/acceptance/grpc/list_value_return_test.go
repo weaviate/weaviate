@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -152,27 +153,27 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 
 		texts := nonRefProps.GetFields()["texts"].GetListValue().GetTextValues()
 		require.NotNil(t, texts)
-		require.Equal(t, []string{"text1", "text2"}, texts.GetValues())
+		require.Equal(t, []string{"text1", "text2"}, byteops.StringsFromByteVector(texts.GetValues()))
 
 		ints := nonRefProps.GetFields()["ints"].GetListValue().GetIntValues()
 		require.NotNil(t, ints)
-		require.Equal(t, []int64{1, 2}, ints.GetValues())
+		require.Equal(t, []int64{1, 2}, byteops.IntsFromByteVector(ints.GetValues()))
 
 		bools := nonRefProps.GetFields()["bools"].GetListValue().GetBoolValues()
 		require.NotNil(t, bools)
-		require.Equal(t, []bool{true, false}, bools.GetValues())
+		require.Equal(t, []bool{true, false}, byteops.BoolsFromByteVector(bools.GetValues()))
 
 		numbers := nonRefProps.GetFields()["numbers"].GetListValue().GetNumberValues()
 		require.NotNil(t, numbers)
-		require.Equal(t, []float64{1.1, 2.2}, numbers.GetValues())
+		require.Equal(t, []float64{1.1, 2.2}, byteops.Float64FromByteVector(numbers.GetValues()))
 
 		uuids := nonRefProps.GetFields()["uuids"].GetListValue().GetUuidValues()
 		require.NotNil(t, uuids)
-		require.Equal(t, []string{uuid1, uuid2}, uuids.GetValues())
+		require.Equal(t, []string{uuid1, uuid2}, byteops.StringsFromByteVector(uuids.GetValues()))
 
 		dates := nonRefProps.GetFields()["dates"].GetListValue().GetDateValues()
 		require.NotNil(t, dates)
-		require.Equal(t, []string{"2020-01-01T00:00:00Z"}, dates.GetValues())
+		require.Equal(t, []string{"2020-01-01T00:00:00Z"}, byteops.StringsFromByteVector(dates.GetValues()))
 
 		objects := nonRefProps.GetFields()["objects"].GetListValue().GetObjectValues()
 		require.NotNil(t, objects)
@@ -181,7 +182,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 		require.NotNil(t, object)
 		texts = object.GetFields()["texts"].GetListValue().GetTextValues()
 		require.NotNil(t, texts)
-		require.Equal(t, []string{"text1", "text2"}, texts.GetValues())
+		require.Equal(t, []string{"text1", "text2"}, byteops.StringsFromByteVector(texts.GetValues()))
 	})
 
 	t.Run("ListValueReturn using <1.25 API", func(t *testing.T) {
