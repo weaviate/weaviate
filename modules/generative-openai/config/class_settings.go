@@ -53,7 +53,7 @@ var (
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
 	DefaultOpenAIBaseURL          = "https://api.openai.com"
-	DefaultApiVersion             = "2023-05-15"
+	DefaultApiVersion             = "2024-02-01"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
@@ -77,6 +77,9 @@ var availableApiVersions = []string{
 	"2023-08-01-preview",
 	"2023-09-01-preview",
 	"2023-12-01-preview",
+	"2024-02-15-preview",
+	"2024-03-01-preview",
+	"2024-02-01",
 }
 
 type ClassSettings interface {

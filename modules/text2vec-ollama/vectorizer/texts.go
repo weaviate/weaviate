@@ -16,15 +16,25 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	res, err := v.client.VectorizeQuery(ctx, inputs, v.getVectorizationConfig(cfg))
-	if err != nil {
-		return nil, errors.Wrap(err, "remote client vectorize")
+	settings := NewClassSettings(cfg)
+	vectors := make([][]float32, len(inputs))
+	for i := range inputs {
+		res, err := v.client.Vectorize(ctx, inputs[i], ent.VectorizationConfig{
+			ApiEndpoint: settings.ApiEndpoint(),
+			Model:       settings.ModelID(),
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "remote client vectorize")
+		}
+		vectors[i] = res.Vector
 	}
-	return libvectorizer.CombineVectors(res.Vectors), nil
+
+	return libvectorizer.CombineVectors(vectors), nil
 }

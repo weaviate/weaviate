@@ -60,7 +60,10 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		return texts, tokenCounts, skipAll, nil
 	}
 
-	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
+	// there does not seem to be a limit
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
+
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -74,5 +77,6 @@ type ClassSettings interface {
 	ResourceName() string
 	DeploymentID() string
 	BaseURL() string
+	ApiVersion() string
 	IsAzure() bool
 }

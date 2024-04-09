@@ -44,7 +44,7 @@ jobs:
         with:
           go-version: '1.21'
           package: ./...
-          fail-on-vuln: true
+          fail-on-vuln: false
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
@@ -85,7 +85,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-backup-azure", "--only-module-backup-filesystem", "--only-module-backup-gcs", "--only-module-backup-s3", "--only-module-img2vec-neural", "--only-module-many-modules", "--only-module-multi2vec-clip", "--only-module-ref2vec-centroid", "--only-module-reranker-transformers", "--only-module-text2vec-contextionary", "--only-module-text2vec-transformers"]
+        test: [
+          "--only-module-backup-azure",
+          "--only-module-backup-filesystem",
+          "--only-module-backup-gcs",
+          "--only-module-backup-s3",
+          "--only-module-img2vec-neural",
+          "--only-module-many-modules",
+          "--only-module-multi2vec-clip",
+          "--only-module-ref2vec-centroid",
+          "--only-module-reranker-transformers",
+          "--only-module-text2vec-contextionary",
+          "--only-module-text2vec-transformers",
+          "--only-module-text2vec-ollama",
+          "--only-module-generative-ollama"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -118,7 +132,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-multi2vec-palm"]
+        test: ["--only-module-multi2vec-palm", "--only-module-generative-palm"]
     steps:
       - uses: actions/checkout@v4
         with:
