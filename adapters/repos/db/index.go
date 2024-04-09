@@ -753,6 +753,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			out[pos] = err
 			continue
 		}
+		// TODO-RAFT: remove and fix eventual consistency when batch add
+		// is RAFT ready from followers prospective
 		// sleep to handle eventual consistency
 		time.Sleep(time.Millisecond)
 		group := byShard[shardName]
