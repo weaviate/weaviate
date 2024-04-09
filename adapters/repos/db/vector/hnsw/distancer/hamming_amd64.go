@@ -18,10 +18,8 @@ import (
 
 func init() {
 	if cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512 {
-		println("using avx512")
 		hammingImpl = asm.HammingAVX512
 	} else if cpu.X86.HasAVX2 {
-		println("using avx256")
 		hammingImpl = asm.HammingAVX256
 	}
 }
