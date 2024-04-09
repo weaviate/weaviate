@@ -93,9 +93,11 @@ func (u *UserConfig) SetDefaults() {
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
 		},
+		RescoreLimit: DefaultPQRescoreLimit,
 	}
 	u.BQ = BQConfig{
-		Enabled: DefaultBQEnabled,
+		Enabled:      DefaultBQEnabled,
+		RescoreLimit: DefaultBQRescoreLimit,
 	}
 	u.SQ = SQConfig{
 		Enabled:       DefaultSQEnabled,

@@ -32,6 +32,7 @@ const (
 	DefaultPQEncoderDistribution = PQEncoderDistributionLogNormal
 	DefaultPQCentroids           = 256
 	DefaultPQTrainingLimit       = 100000
+	DefaultPQRescoreLimit        = 1000
 )
 
 // Product Quantization encoder configuration
@@ -48,6 +49,7 @@ type PQConfig struct {
 	Centroids      int       `json:"centroids"`
 	TrainingLimit  int       `json:"trainingLimit"`
 	Encoder        PQEncoder `json:"encoder"`
+	RescoreLimit   int       `json:"rescoreLimit"`
 }
 
 func validEncoder(v string) error {
@@ -188,6 +190,12 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 
 	if err := encoderDistributionFromMap(pqEncoderMap, func(v string) {
 		pq.Encoder.Distribution = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(pqConfigMap, "rescoreLimit", func(v int) {
+		pq.RescoreLimit = v
 	}); err != nil {
 		return err
 	}

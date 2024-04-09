@@ -52,6 +52,8 @@ func OptionalIntFromMap(in map[string]interface{}, name string,
 		asInt64, err = typed.Int64()
 	case float64:
 		asInt64 = int64(typed)
+	case int:
+		asInt64 = int64(typed)
 	}
 	if err != nil {
 		// try to recover from error

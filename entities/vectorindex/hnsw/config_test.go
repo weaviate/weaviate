@@ -56,6 +56,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -92,6 +97,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -139,6 +149,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -186,6 +201,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -234,6 +254,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -279,6 +304,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -333,6 +363,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         "tile",
 						Distribution: "normal",
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -364,6 +399,7 @@ func Test_UserConfig(t *testing.T) {
 					"encoder": map[string]interface{}{
 						"type": PQEncoderTypeKMeans,
 					},
+					"rescoreLimit": int(DefaultPQRescoreLimit),
 				},
 			},
 			expected: UserConfig{
@@ -386,6 +422,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -459,6 +500,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -505,6 +551,57 @@ func Test_UserConfig(t *testing.T) {
 				"with a minimum of 4",
 		},
 		{
+			name: "with pq and rescoreLimit",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(11),
+				"maxConnections":         float64(12),
+				"efConstruction":         float64(13),
+				"vectorCacheMaxObjects":  float64(14),
+				"ef":                     float64(15),
+				"flatSearchCutoff":       float64(16),
+				"dynamicEfMin":           float64(17),
+				"dynamicEfMax":           float64(18),
+				"dynamicEfFactor":        float64(19),
+				"pq": map[string]interface{}{
+					"enabled":       true,
+					"segments":      float64(64),
+					"centroids":     float64(DefaultPQCentroids),
+					"trainingLimit": float64(DefaultPQTrainingLimit),
+					"encoder": map[string]interface{}{
+						"type": PQEncoderTypeKMeans,
+					},
+					"rescoreLimit": int(10),
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+				EF:                     15,
+				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:       true,
+					Segments:      64,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+					RescoreLimit: 10,
+				},
+				BQ: BQConfig{
+					Enabled:      false,
+					RescoreLimit: DefaultBQRescoreLimit,
+				},
+			},
+		},
+		{
 			name: "with bq",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": float64(11),
@@ -517,7 +614,8 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           float64(18),
 				"dynamicEfFactor":        float64(19),
 				"bq": map[string]interface{}{
-					"enabled": true,
+					"enabled":      true,
+					"rescoreLimit": int(DefaultBQRescoreLimit),
 				},
 			},
 			expected: UserConfig{
@@ -540,9 +638,56 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+					RescoreLimit: DefaultPQRescoreLimit,
 				},
 				BQ: BQConfig{
-					Enabled: true,
+					Enabled:      true,
+					RescoreLimit: DefaultBQRescoreLimit,
+				},
+			},
+		},
+		{
+			name: "with bq and rescoreLimit",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(11),
+				"maxConnections":         float64(12),
+				"efConstruction":         float64(13),
+				"vectorCacheMaxObjects":  float64(14),
+				"ef":                     float64(15),
+				"flatSearchCutoff":       float64(16),
+				"dynamicEfMin":           float64(17),
+				"dynamicEfMax":           float64(18),
+				"dynamicEfFactor":        float64(19),
+				"bq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": int(10),
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+				EF:                     15,
+				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:       false,
+					Segments:      0,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+					RescoreLimit: DefaultPQRescoreLimit,
+				},
+				BQ: BQConfig{
+					Enabled:      true,
+					RescoreLimit: 10,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,

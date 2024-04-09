@@ -101,6 +101,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if err != nil {
 			return err
 		}
+		h.rescoreLimit = cfg.BQ.RescoreLimit
 	}
 	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 		func(index uint64) {
