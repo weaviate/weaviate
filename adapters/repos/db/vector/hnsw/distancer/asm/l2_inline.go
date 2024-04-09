@@ -18,98 +18,112 @@ package asm
 // - it allows l22 and l24 to be inlined (the other ones are too large)
 // See go tool compile -d=ssa/check_bce/debug=1 -m l2_inline.go
 
-func l22(x []float32, y []float32) float32 {
-	diff := x[1] - y[1]
+func l22[T number, U number](x []T, y []T) U {
+	diff := U(x[1]) - U(y[1])
 	sum := diff * diff
 
-	diff = x[0] - y[0]
+	diff = U(x[0]) - U(y[0])
 	sum += diff * diff
 
 	return sum
 }
 
-func l24(x []float32, y []float32) float32 {
-	diff := x[3] - y[3]
+func l23[T number, U number](x []T, y []T) U {
+	diff := U(x[2]) - U(y[2])
 	sum := diff * diff
 
-	diff = x[2] - y[2]
-	sum += diff * diff
-
-	return l22(x, y) + sum
+	return l22[T, U](x, y) + sum
 }
 
-func l26(x []float32, y []float32) float32 {
-	diff := x[5] - y[5]
+func l24[T number, U number](x []T, y []T) U {
+	diff := U(x[3]) - U(y[3])
 	sum := diff * diff
 
-	diff = x[4] - y[4]
+	diff = U(x[2]) - U(y[2])
 	sum += diff * diff
 
-	return l24(x, y) + sum
+	return l22[T, U](x, y) + sum
 }
 
-func l28(x []float32, y []float32) float32 {
-	diff := x[7] - y[7]
+func l25[T number, U number](x []T, y []T) U {
+	diff := U(x[4]) - U(y[4])
 	sum := diff * diff
 
-	diff = x[6] - y[6]
-	sum += diff * diff
-
-	diff = x[5] - y[5]
-	sum += diff * diff
-
-	diff = x[4] - y[4]
-	sum += diff * diff
-
-	return l24(x, y) + sum
+	return l24[T, U](x, y) + sum
 }
 
-func l210(x []float32, y []float32) float32 {
-	diff := x[9] - y[9]
+func l26[T number, U number](x []T, y []T) U {
+	diff := U(x[5]) - U(y[5])
 	sum := diff * diff
 
-	diff = x[8] - y[8]
+	diff = U(x[4]) - U(y[4])
 	sum += diff * diff
 
-	diff = x[7] - y[7]
-	sum += diff * diff
-
-	diff = x[6] - y[6]
-	sum += diff * diff
-
-	diff = x[5] - y[5]
-	sum += diff * diff
-
-	diff = x[4] - y[4]
-	sum += diff * diff
-
-	return l24(x, y) + sum
+	return l24[T, U](x, y) + sum
 }
 
-func l212(x []float32, y []float32) float32 {
-	diff := x[11] - y[11]
+func l28[T number, U number](x []T, y []T) U {
+	diff := U(x[7]) - U(y[7])
 	sum := diff * diff
 
-	diff = x[10] - y[10]
+	diff = U(x[6]) - U(y[6])
 	sum += diff * diff
 
-	diff = x[9] - y[9]
+	diff = U(x[5]) - U(y[5])
 	sum += diff * diff
 
-	diff = x[8] - y[8]
+	diff = U(x[4]) - U(y[4])
 	sum += diff * diff
 
-	diff = x[7] - y[7]
+	return l24[T, U](x, y) + sum
+}
+
+func l210[T number, U number](x []T, y []T) U {
+	diff := U(x[9]) - U(y[9])
+	sum := diff * diff
+
+	diff = U(x[8]) - U(y[8])
 	sum += diff * diff
 
-	diff = x[6] - y[6]
+	diff = U(x[7]) - U(y[7])
 	sum += diff * diff
 
-	diff = x[5] - y[5]
+	diff = U(x[6]) - U(y[6])
 	sum += diff * diff
 
-	diff = x[4] - y[4]
+	diff = U(x[5]) - U(y[5])
 	sum += diff * diff
 
-	return l24(x, y) + sum
+	diff = U(x[4]) - U(y[4])
+	sum += diff * diff
+
+	return l24[T, U](x, y) + sum
+}
+
+func l212[T number, U number](x []T, y []T) U {
+	diff := U(x[11]) - U(y[11])
+	sum := diff * diff
+
+	diff = U(x[10]) - U(y[10])
+	sum += diff * diff
+
+	diff = U(x[9]) - U(y[9])
+	sum += diff * diff
+
+	diff = U(x[8]) - U(y[8])
+	sum += diff * diff
+
+	diff = U(x[7]) - U(y[7])
+	sum += diff * diff
+
+	diff = U(x[6]) - U(y[6])
+	sum += diff * diff
+
+	diff = U(x[5]) - U(y[5])
+	sum += diff * diff
+
+	diff = U(x[4]) - U(y[4])
+	sum += diff * diff
+
+	return l24[T, U](x, y) + sum
 }
