@@ -94,3 +94,9 @@ func (c *Service) Close(ctx context.Context) (err error) {
 func (c *Service) Ready() bool {
 	return c.Service.Ready()
 }
+
+// LeaderWithID is used to return the current leader address and ID of the cluster.
+// It may return empty strings if there is no current leader or the leader is unknown.
+func (c *Service) LeaderWithID() (string, string) {
+	return c.Service.LeaderWithID()
+}

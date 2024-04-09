@@ -61,6 +61,31 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 		schemaOnly)
 }
 
+func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+	req := command.AddClassRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", errBadRequest, err)
+	}
+	if req.State == nil {
+		return fmt.Errorf("%w: nil sharding state", errBadRequest)
+	}
+	if err := db.parser.ParseClass(req.Class); err != nil {
+		return fmt.Errorf("%w: parsing class: %w", errBadRequest, err)
+	}
+	req.State.SetLocalName(nodeID)
+
+	if err := db.store.RestoreClassDir(cmd.Class); err != nil {
+		db.log.Error("restore class directory from backup %s: "+err.Error(), "class", cmd.Class)
+		// continue since we need to add class to the schema anyway
+	}
+
+	return db.apply(
+		cmd.GetType().String(),
+		func() error { return db.Schema.addClass(req.Class, req.State) },
+		func() error { return db.store.AddClass(req) },
+		schemaOnly)
+}
+
 // UpdateClass modifies the vectors and inverted indexes associated with a class
 // Other class properties are handled by separate functions
 func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
