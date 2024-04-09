@@ -566,6 +566,10 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		return 0, 0, false
 	}
 
+	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
+		return 0, 0, false
+	}
+
 	// we made it through the entire graph and didn't find a new entrypoint all
 	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected. This situation should have been prevented by the deleteLock.
@@ -644,7 +648,7 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 
 func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
+		if node == nil || node.id == needle.id || denyList.Contains(node.id) || len(node.connections) == 0 {
 			continue
 		}
 		return false
