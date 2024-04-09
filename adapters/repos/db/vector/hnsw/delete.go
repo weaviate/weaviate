@@ -439,8 +439,13 @@ func (h *hnsw) reassignNeighbor(
 		tmpDenyList := deleteList.DeepCopy()
 		tmpDenyList.Insert(entryPointID)
 
-		alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
+		alternative, level, err := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 			entryPointID)
+
+		if err != nil {
+			return false, errors.Wrap(err, "find new local entrypoint")
+		}
+
 		if level > neighborLevel {
 			neighborNode.Lock()
 			// reset connections according to level
@@ -558,6 +563,10 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		}
 	}
 
+	if h.isEmpty() {
+		return 0, 0, false
+	}
+
 	// we made it through the entire graph and didn't find a new entrypoint all
 	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected. This situation should have been prevented by the deleteLock.
@@ -569,13 +578,13 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel int,
 	oldEntrypoint uint64,
-) (uint64, int) {
+) (uint64, int, error) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// the current global entrypoint is different from our local entrypoint, so
 		// we can just use the global one, as the global one is guaranteed to be
 		// present on every level, i.e. it is always chosen from the highest
 		// currently available level
-		return h.getEntrypoint(), h.currentMaximumLayer
+		return h.getEntrypoint(), h.currentMaximumLayer, nil
 	}
 
 	h.RLock()
@@ -610,13 +619,19 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 			}
 
 			// we have a node that matches
-			return uint64(i), l
+			return uint64(i), l, nil
 		}
 	}
 
-	panic(fmt.Sprintf(
-		"class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph",
-		h.className, h.shardName))
+	if h.isEmpty() {
+		return 0, 0, nil
+	}
+
+	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
+		return 0, 0, nil
+	}
+
+	return 0, 0, fmt.Errorf("class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph", h.className, h.shardName)
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
