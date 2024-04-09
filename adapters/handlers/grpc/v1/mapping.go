@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"google.golang.org/protobuf/runtime/protoimpl"
 )
 
@@ -192,9 +193,12 @@ func parseArray[T float64 | bool | string](v interface{}, dt schema.DataType) ([
 
 func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
+	makeListValue := func(v []bool) *pb.ListValue {
+		return &pb.ListValue{Kind: &pb.ListValue_BoolValues{BoolValues: &pb.BoolValues{Values: byteops.BoolsToByteVector(v)}}}
+	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_BoolValues{BoolValues: &pb.BoolValues{Values: []bool{}}}}
+			listValue = makeListValue([]bool{})
 		} else {
 			listValue = &pb.ListValue{Values: []*pb.Value{}}
 		}
@@ -204,7 +208,7 @@ func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 			return nil, err
 		}
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_BoolValues{BoolValues: &pb.BoolValues{Values: values}}}
+			listValue = makeListValue(values)
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
@@ -218,9 +222,12 @@ func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 
 func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
+	makeListValue := func(v []string) *pb.ListValue {
+		return &pb.ListValue{Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: byteops.StringsToByteVector(v)}}}
+	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: []string{}}}}
+			listValue = makeListValue([]string{})
 		} else {
 			listValue = &pb.ListValue{Values: []*pb.Value{}}
 		}
@@ -230,7 +237,7 @@ func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 			return nil, err
 		}
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: values}}}
+			listValue = makeListValue(values)
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
@@ -244,9 +251,12 @@ func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 
 func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
+	makeListValue := func(v []float64) *pb.ListValue {
+		return &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: byteops.Float64ToByteVector(v)}}}
+	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: []float64{}}}}
+			listValue = makeListValue([]float64{})
 		} else {
 			listValue = &pb.ListValue{Values: []*pb.Value{}}
 		}
@@ -256,7 +266,7 @@ func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 			return nil, err
 		}
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_NumberValues{NumberValues: &pb.NumberValues{Values: values}}}
+			listValue = makeListValue(values)
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
@@ -270,9 +280,12 @@ func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 
 func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
+	makeListValue := func(v []float64) *pb.ListValue {
+		return &pb.ListValue{Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector((v))}}}
+	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: []int64{}}}}
+			listValue = makeListValue([]float64{})
 		} else {
 			listValue = &pb.ListValue{Values: []*pb.Value{}}
 		}
@@ -282,11 +295,7 @@ func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 			return nil, err
 		}
 		if m.uses125 {
-			parsedValues := make([]int64, len(values))
-			for i, v := range values {
-				parsedValues[i] = int64(v)
-			}
-			listValue = &pb.ListValue{Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: parsedValues}}}
+			listValue = makeListValue(values)
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
@@ -300,9 +309,12 @@ func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 
 func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
+	makeListValue := func(v []string) *pb.ListValue {
+		return &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: byteops.StringsToByteVector((v))}}}
+	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: []string{}}}}
+			listValue = makeListValue([]string{})
 		} else {
 			listValue = &pb.ListValue{Values: []*pb.Value{}}
 		}
@@ -312,7 +324,7 @@ func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 			return nil, err
 		}
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: values}}}
+			listValue = makeListValue(values)
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
@@ -326,9 +338,12 @@ func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 
 func (m *Mapper) newListValueUuid(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
+	makeListValue := func(v []string) *pb.ListValue {
+		return &pb.ListValue{Kind: &pb.ListValue_UuidValues{UuidValues: &pb.UuidValues{Values: byteops.StringsToByteVector(v)}}}
+	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_UuidValues{UuidValues: &pb.UuidValues{Values: []string{}}}}
+			listValue = makeListValue([]string{})
 		} else {
 			listValue = &pb.ListValue{Values: []*pb.Value{}}
 		}
@@ -338,7 +353,7 @@ func (m *Mapper) newListValueUuid(v interface{}) (*pb.Value, error) {
 			return nil, err
 		}
 		if m.uses125 {
-			listValue = &pb.ListValue{Kind: &pb.ListValue_UuidValues{UuidValues: &pb.UuidValues{Values: values}}}
+			listValue = makeListValue(values)
 		} else {
 			x := make([]*pb.Value, len(values))
 			for i, v := range values {
