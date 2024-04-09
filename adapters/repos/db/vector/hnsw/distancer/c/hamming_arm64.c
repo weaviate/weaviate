@@ -11,7 +11,7 @@
 
 #include <arm_neon.h>
 
-// dot only works with length >= 16
+// hamming only works with length >= 16
 void hamming(float *a, float *b, float *res, long *len)
 {
     int size = *len;

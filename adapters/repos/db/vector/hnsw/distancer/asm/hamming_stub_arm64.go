@@ -21,7 +21,7 @@ import (
 	"unsafe"
 )
 
-// Dot calculates the dot product between two vectors
+// Hamming calculates the hamming distance between two vectors
 // using SIMD instructions.
 func Hamming(x []float32, y []float32) float32 {
 	switch len(x) {
@@ -32,7 +32,7 @@ func Hamming(x []float32, y []float32) float32 {
 	case 6:
 		return hamming6(x, y)
 	case 8:
-		// manually inlined dot8(x, y)
+		// manually inlined hamming8(x, y)
 		sum := float32(0)
 
 		if x[7] != y[7] {
@@ -43,7 +43,7 @@ func Hamming(x []float32, y []float32) float32 {
 		}
 		return hamming6(x, y) + sum
 	case 10:
-		// manually inlined dot10(x, y)
+		// manually inlined hamming10(x, y)
 		sum := float32(0)
 
 		if x[9] != y[9] {
@@ -62,7 +62,7 @@ func Hamming(x []float32, y []float32) float32 {
 		}
 		return hamming6(x, y) + sum
 	case 12:
-		// manually inlined dot12(x, y)
+		// manually inlined hamming12(x, y)
 		sum := float32(0)
 
 		if x[11] != y[11] {
