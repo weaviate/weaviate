@@ -59,3 +59,46 @@ func BenchmarkDot(b *testing.B) {
 		})
 	}
 }
+
+
+func benchmarkHammingGo(b *testing.B, dims int) {
+	r := getRandomSeed()
+
+	vec1 := make([]float32, dims)
+	vec2 := make([]float32, dims)
+	for i := range vec1 {
+		vec1[i] = r.Float32()
+		vec2[i] = r.Float32()
+	}
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		HammingDistanceGo(vec1, vec2)
+	}
+}
+
+func benchmarkHammingNeon(b *testing.B, dims int) {
+	r := getRandomSeed()
+
+	vec1 := make([]float32, dims)
+	vec2 := make([]float32, dims)
+	for i := range vec1 {
+		vec1[i] = r.Float32()
+		vec2[i] = r.Float32()
+	}
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		asm.Hamming(vec1, vec2)
+	}
+}
+
+func BenchmarkHamming(b *testing.B) {
+	dims := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	for _, dim := range dims {
+		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
+			b.Run("pure go", func(b *testing.B) { benchmarkHammingGo(b, dim) })
+			b.Run("avx", func(b *testing.B) { benchmarkHammingNeon(b, dim) })
+		})
+	}
+}
