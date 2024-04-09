@@ -23,10 +23,10 @@ func hamming2(x []float32, y []float32) float32 {
 	sum := float32(0)
 
 	if x[1] != y[1] {
-		sum = sum + 1;
+		sum = sum + 1
 	}
 	if x[0] != y[0] {
-		sum = sum + 1;
+		sum = sum + 1
 	}
 
 	return sum
@@ -36,10 +36,10 @@ func hamming4(x []float32, y []float32) float32 {
 	sum := float32(0)
 
 	if x[3] != y[3] {
-		sum = sum + 1;
+		sum = sum + 1
 	}
 	if x[2] != y[2] {
-		sum = sum + 1;
+		sum = sum + 1
 	}
 
 	return hamming2(x, y) + sum
@@ -49,12 +49,11 @@ func hamming6(x []float32, y []float32) float32 {
 	sum := float32(0)
 
 	if x[5] != y[5] {
-		sum = sum + 1.0;
+		sum = sum + 1.0
 	}
 	if x[4] != y[4] {
-		sum = sum + 1.0;
+		sum = sum + 1.0
 	}
 
 	return hamming4(x, y) + sum
 }
-

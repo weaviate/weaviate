@@ -50,7 +50,6 @@ func HammingDistanceGo(a, b []float32) float32 {
 	return sum
 }
 
-
 type HammingProvider struct{}
 
 func NewHammingProvider() HammingProvider {

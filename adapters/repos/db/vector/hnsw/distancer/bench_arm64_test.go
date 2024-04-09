@@ -60,7 +60,6 @@ func BenchmarkDot(b *testing.B) {
 	}
 }
 
-
 func benchmarkHammingGo(b *testing.B, dims int) {
 	r := getRandomSeed()
 

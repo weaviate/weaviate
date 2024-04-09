@@ -102,7 +102,6 @@ func TestHammingDistancerStepbyStep(t *testing.T) {
 	})
 }
 
-
 func TestCompareHammingDistanceImplementations(t *testing.T) {
 	sizes := []uint{
 		1,
@@ -140,59 +139,57 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
 
 			r := getRandomSeed()
-	count := 1
-	countFailed := 0
+			count := 1
+			countFailed := 0
 
-	vec1s := make([][]float32, count)
-	vec2s := make([][]float32, count)
+			vec1s := make([][]float32, count)
+			vec2s := make([][]float32, count)
 
-	for i := 0; i < count; i++ {
-		vec1 := make([]float32, size)
-		vec2 := make([]float32, size)
-		for j := range vec1 {
-			equal := r.Float32() < 0.5
-			if equal {
-				randomValue := r.Float32()
-				vec1[j] = randomValue
-				vec2[j] = randomValue
-			} else {
-				vec1[j] = r.Float32()
-				vec2[j] = r.Float32() + 10
+			for i := 0; i < count; i++ {
+				vec1 := make([]float32, size)
+				vec2 := make([]float32, size)
+				for j := range vec1 {
+					equal := r.Float32() < 0.5
+					if equal {
+						randomValue := r.Float32()
+						vec1[j] = randomValue
+						vec2[j] = randomValue
+					} else {
+						vec1[j] = r.Float32()
+						vec2[j] = r.Float32() + 10
+					}
+				}
+				vec1s[i] = vec1
+				vec2s[i] = vec2
 			}
-		}
-		vec1s[i] = vec1
-		vec2s[i] = vec2
-	}
 
-	for i := 0; i < count; i++ {
+			for i := 0; i < count; i++ {
 
-		res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
+				res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
 
-		
+				if err != nil {
+					panic(err)
+				}
 
-		if err != nil {
-			panic(err)
-		}
+				if !ok {
+					panic("not ok")
+				}
 
-		if !ok {
-			panic("not ok")
-		}
+				resControl := HammingDistanceGo(vec1s[i], vec2s[i])
 
-		resControl := HammingDistanceGo(vec1s[i], vec2s[i])
+				delta := float64(0.01)
+				diff := float64(resControl) - float64(res)
+				if diff < -delta || diff > delta {
+					countFailed++
 
-		delta := float64(0.01)
-		diff := float64(resControl) - float64(res)
-		if diff < -delta || diff > delta {
-			countFailed++
+					fmt.Printf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
 
-			fmt.Printf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
+					t.Fail()
+				}
 
-			t.Fail()
-		}
+			}
+			fmt.Printf("total failed: %d\n", countFailed)
 
-	}
-	fmt.Printf("total failed: %d\n", countFailed)
-			
 		})
 	}
 }
