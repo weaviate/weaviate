@@ -17,7 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -51,6 +53,7 @@ type TxManager struct {
 
 	currentTransaction        *Transaction
 	currentTransactionContext context.Context
+	currentTransactionBegin   time.Time
 	clearTransaction          func()
 
 	// any time we start working on a commit, we need to add to this WaitGroup.
@@ -81,6 +84,8 @@ type TxManager struct {
 	expiredTxIDs []string
 
 	persistence Persistence
+
+	slowLog *txSlowLog
 }
 
 func newDummyCommitResponseFn() func(ctx context.Context, tx *Transaction) error {
@@ -98,7 +103,7 @@ func newDummyResponseFn() func(ctx context.Context, tx *Transaction) ([]byte, er
 func NewTxManager(remote Remote, persistence Persistence,
 	logger logrus.FieldLogger,
 ) *TxManager {
-	return &TxManager{
+	txm := &TxManager{
 		remote: remote,
 
 		// by setting dummy fns that do nothing on default it is possible to run
@@ -114,7 +119,11 @@ func NewTxManager(remote Remote, persistence Persistence,
 
 		// ready to serve incoming requests
 		acceptIncoming: false,
+		slowLog:        newTxSlowLog(logger),
 	}
+
+	txm.slowLog.StartWatching()
+	return txm
 }
 
 func (c *TxManager) StartAcceptIncoming() {
@@ -245,6 +254,16 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 			}
 
 			c.clearTransaction()
+			monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
+				"ownership": "n/a",
+				"status":    "expire",
+			}).Inc()
+			took := time.Since(c.currentTransactionBegin)
+			monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
+				"ownership": "n/a",
+				"status":    "expire",
+			}).Observe(took.Seconds())
+			c.slowLog.Close("expired")
 		}
 	}
 	enterrors.GoWrapper(f, c.logger)
@@ -330,7 +349,13 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 		tx.Deadline = time.UnixMilli(0)
 	}
 	c.currentTransaction = tx
+	c.currentTransactionBegin = time.Now()
+	c.slowLog.Start(tx.ID, true, !tolerateNodeFailures)
 	c.Unlock()
+
+	monitoring.GetMetrics().SchemaTxOpened.With(prometheus.Labels{
+		"ownership": "coordinator",
+	}).Inc()
 
 	c.resetTxExpiry(ttl, c.currentTransaction.ID)
 
@@ -357,6 +382,16 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 
 		c.Lock()
 		c.clearTransaction()
+		monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
+			"ownership": "coordinator",
+			"status":    "abort",
+		}).Inc()
+		took := time.Since(c.currentTransactionBegin)
+		monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
+			"ownership": "coordinator",
+			"status":    "abort",
+		}).Observe(took.Seconds())
+		c.slowLog.Close("abort_on_open")
 		c.Unlock()
 
 		return nil, errors.Wrap(err, "broadcast open transaction")
@@ -364,6 +399,7 @@ func (c *TxManager) beginTransaction(ctx context.Context, trType TransactionType
 
 	c.Lock()
 	defer c.Unlock()
+	c.slowLog.Update("begin_tx_completed")
 	return c.currentTransaction, nil
 }
 
@@ -387,12 +423,23 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 	}
 
 	c.Unlock()
+	c.slowLog.Update("commit_started")
 
 	// now that we know we are dealing with a valid transaction: no  matter the
 	// outcome, after this call, we should not have a local transaction anymore
 	defer func() {
 		c.Lock()
 		c.clearTransaction()
+		monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
+			"ownership": "coordinator",
+			"status":    "commit",
+		}).Inc()
+		took := time.Since(c.currentTransactionBegin)
+		monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
+			"ownership": "coordinator",
+			"status":    "commit",
+		}).Observe(took.Seconds())
+		c.slowLog.Close("committed")
 		c.Unlock()
 	}()
 
@@ -408,6 +455,10 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 		// figure out itself how to get back to the correct state (e.g. by
 		// recovering from a persisted tx), don't jeopardize all the other nodes as
 		// a result!
+		c.logger.WithFields(logrus.Fields{
+			"action": "broadcast_commit_transaction",
+			"id":     tx.ID,
+		}).WithError(err).Errorf("broadcast tx commit failed")
 		return errors.Wrap(err, "broadcast commit transaction")
 	}
 
@@ -428,20 +479,31 @@ func (c *TxManager) IncomingBeginTransaction(ctx context.Context,
 		return nil, ErrConcurrentTransaction
 	}
 
+	writable := !slices.Contains(c.allowUnready, tx.Type)
+	c.slowLog.Start(tx.ID, false, writable)
+
 	if err := c.persistence.StoreTx(ctx, tx); err != nil {
 		return nil, fmt.Errorf("make tx durable: %w", err)
 	}
 
 	c.currentTransaction = tx
+	c.currentTransactionBegin = time.Now()
 	data, err := c.responseFn(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
+
+	monitoring.GetMetrics().SchemaTxOpened.With(prometheus.Labels{
+		"ownership": "participant",
+	}).Inc()
+
 	var ttl time.Duration
 	if tx.Deadline.UnixMilli() != 0 {
 		ttl = time.Until(tx.Deadline)
 	}
 	c.resetTxExpiry(ttl, tx.ID)
+
+	c.slowLog.Update("incoming_begin_tx_completed")
 
 	return data, nil
 }
@@ -458,6 +520,17 @@ func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
 	}
 
 	c.currentTransaction = nil
+	monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
+		"ownership": "participant",
+		"status":    "abort",
+	}).Inc()
+	took := time.Since(c.currentTransactionBegin)
+	monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
+		"ownership": "participant",
+		"status":    "abort",
+	}).Observe(took.Seconds())
+	c.slowLog.Close("abort_request_received")
+
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
 		c.logger.WithError(err).Errorf("abort tx: %s", err)
 	}
@@ -474,6 +547,8 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 	if err != nil {
 		return err
 	}
+
+	c.slowLog.Update("commit_request_received")
 
 	// cannot use locking because of risk of deadlock, see comment inside method
 	if err := c.incomingTxCommitApplyCommitFn(ctx, txCopy); err != nil {
@@ -533,6 +608,17 @@ func (c *TxManager) incomingTxCommitCleanup(
 	c.Lock()
 	defer c.Unlock()
 	c.currentTransaction = nil
+
+	monitoring.GetMetrics().SchemaTxClosed.With(prometheus.Labels{
+		"ownership": "participant",
+		"status":    "commit",
+	}).Inc()
+	took := time.Since(c.currentTransactionBegin)
+	monitoring.GetMetrics().SchemaTxDuration.With(prometheus.Labels{
+		"ownership": "participant",
+		"status":    "commit",
+	}).Observe(took.Seconds())
+	c.slowLog.Close("committed")
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
 		return fmt.Errorf("close tx on disk: %w", err)

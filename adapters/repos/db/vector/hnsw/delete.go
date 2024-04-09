@@ -346,6 +346,9 @@ LOOP:
 		select {
 		case ch <- uint64(i):
 		case <-ctx.Done():
+			// before https://github.com/weaviate/weaviate/issues/4615 the context
+			// would not be canceled if a routine panicked. However, with the fix, it is
+			// now valid to wait for a cancelation – even if a panic occurs.
 			break LOOP
 		}
 	}

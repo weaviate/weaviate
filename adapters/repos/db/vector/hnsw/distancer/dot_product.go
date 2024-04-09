@@ -13,7 +13,6 @@ package distancer
 
 import (
 	"github.com/pkg/errors"
-	"golang.org/x/exp/constraints"
 )
 
 // can be set depending on architecture, e.g. pure go, AVX-enabled assembly, etc.
@@ -30,12 +29,19 @@ var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32)
 	return sum
 }
 
-func DotProductGo[T constraints.Integer | constraints.Float](a, b []T) T {
+func DotProductFloatGo(a, b []float32) float32 {
+	return -dotProductGo[float32, float32](a, b)
+}
+
+func DotProductByteGo(a, b []uint8) uint32 {
+	return dotProductGo[uint8, uint32](a, b)
+}
+
+func dotProductGo[C uint8 | float32, T uint32 | float32](a, b []C) T {
 	var sum T
 	for i := range a {
-		sum += a[i] * b[i]
+		sum += T(a[i]) * T(b[i])
 	}
-
 	return sum
 }
 

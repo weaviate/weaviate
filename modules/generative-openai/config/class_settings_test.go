@@ -49,7 +49,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.0,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 		},
 		{
 			name: "Everything non default configured",
@@ -71,7 +71,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 		},
 		{
 			name: "OpenAI Proxy",
@@ -87,7 +87,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantBaseURL:          "https://proxy.weaviate.dev/",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 			wantModel:            "gpt-3.5-turbo",
 			wantMaxTokens:        4097,
 			wantTemperature:      0.5,
@@ -116,7 +116,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 		},
 		{
 			name: "Azure OpenAI config",
@@ -142,7 +142,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 		},
 		{
 			name: "Azure OpenAI config with baseURL",
@@ -169,7 +169,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "some-base-url",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 		},
 		{
 			name: "With gpt-3.5-turbo-16k model",
@@ -191,7 +191,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2023-05-15",
+			wantApiVersion:       "2024-02-01",
 		},
 		{
 			name: "Wrong maxTokens configured",
@@ -265,7 +265,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
 				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
-				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview]"),
+				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview " +
+				"2024-03-01-preview 2024-02-01]"),
 		},
 	}
 	for _, tt := range tests {
