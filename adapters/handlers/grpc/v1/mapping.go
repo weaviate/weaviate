@@ -152,7 +152,7 @@ func NewNestedValue[P schema.PropertyInterface](v interface{}, dt schema.DataTyp
 	}
 }
 
-// NewStruct constructs a Struct from a general-purpose Go map.
+// NewObject constructs a Object from a general-purpose Go map.
 // The map keys must be valid UTF-8.
 // The map values are converted using NewValue.
 func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, selectProp search.SelectProperty) (*pb.Properties, error) {
@@ -192,7 +192,7 @@ func NewObject[P schema.PropertyInterface](v map[string]interface{}, parent P, s
 	return x, nil
 }
 
-// NewList constructs a ListValue from a general-purpose Go slice.
+// NewPrimitiveList constructs a ListValue from a general-purpose Go slice.
 // The slice elements are converted using NewValue.
 func NewPrimitiveList[T bool | float64 | string](v []T, dt schema.DataType) (*pb.ListValue, error) {
 	var err error
@@ -206,7 +206,7 @@ func NewPrimitiveList[T bool | float64 | string](v []T, dt schema.DataType) (*pb
 	return x, nil
 }
 
-// NewList constructs a ListValue from a general-purpose Go slice.
+// NewObjectList constructs a ListValue from a general-purpose Go slice.
 // The slice elements are converted using NewValue.
 func NewObjectList[P schema.PropertyInterface](v []interface{}, parent P, selectProp search.SelectProperty) (*pb.ListValue, error) {
 	if !selectProp.IsObject {
