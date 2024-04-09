@@ -30,20 +30,18 @@ var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32)
 }
 
 func DotProductFloatGo(a, b []float32) float32 {
-	var sum float32
-	for i := range a {
-		sum += a[i] * b[i]
-	}
-
-	return -sum
+	return -dotProductGo[float32, float32](a, b)
 }
 
 func DotProductByteGo(a, b []uint8) uint32 {
-	var sum uint32
-	for i := range a {
-		sum += uint32(a[i]) * uint32(b[i])
-	}
+	return dotProductGo[uint8, uint32](a, b)
+}
 
+func dotProductGo[C uint8 | float32, T uint32 | float32](a, b []C) T {
+	var sum T
+	for i := range a {
+		sum += T(a[i]) * T(b[i])
+	}
 	return sum
 }
 
