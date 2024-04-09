@@ -119,6 +119,10 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		return nil
 	}
 	n.graph.nodes[from].Lock()
+	if level >= len(n.graph.nodes[from].connections) {
+		n.graph.nodes[from].Unlock()
+		return nil
+	}
 	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
 	copy(connections, n.graph.nodes[from].connections[level])
 	n.graph.nodes[from].Unlock()
