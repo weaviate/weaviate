@@ -556,6 +556,14 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() {
+		cap := h.rescoreLimit
+		if cap < k {
+			cap = k
+		}
+		for res.Len() > cap {
+			res.Pop()
+		}
+
 		ids := make([]uint64, res.Len())
 		i := len(ids) - 1
 		for res.Len() > 0 {

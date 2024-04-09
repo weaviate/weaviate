@@ -86,6 +86,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if err != nil {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}
+		h.rescoreLimit = cfg.PQ.RescoreLimit
 		h.commitLog.AddPQ(h.compressor.ExposeFields())
 	} else {
 		var err error
@@ -94,6 +95,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if err != nil {
 			return err
 		}
+		h.rescoreLimit = cfg.BQ.RescoreLimit
 	}
 	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 		func(index uint64) {
