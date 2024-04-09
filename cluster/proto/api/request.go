@@ -58,3 +58,11 @@ type QueryGetTenantsResponse struct {
 type QueryGetSchemaResponse struct {
 	Schema models.Schema
 }
+
+type QueryGetShardOwnerRequest struct {
+	Class, Shard string
+}
+
+type QueryGetShardOwnerResponse struct {
+	Owner string
+}
