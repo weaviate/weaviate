@@ -19,7 +19,6 @@ void hamming_512(float *a, float *b, float *res, long *len)
     // fast path for small dimensions
     if (n < 8)
     {
-        // printf("small path\n");
         do
         {
             sum += a[0] != b[0] ? 1 : 0;
@@ -42,8 +41,9 @@ void hamming_512(float *a, float *b, float *res, long *len)
     __mmask16 mask7 = 0;
 
     __m512i ones = _mm512_set1_epi32(1);
-    __m512i zeros = _mm512_setzero_si512(); // Vector of zeros
-    // Use mask to blend 1s and 0s: 1s where comparison is true, 0s elsewhere
+    __m512i zeros = _mm512_setzero_si512();
+
+    __m512 blend0 = _mm512_setzero_ps();
     __m512 blend1 = _mm512_setzero_ps();
     __m512 blend2 = _mm512_setzero_ps();
     __m512 blend3 = _mm512_setzero_ps();
@@ -51,9 +51,6 @@ void hamming_512(float *a, float *b, float *res, long *len)
     __m512 blend5 = _mm512_setzero_ps();
     __m512 blend6 = _mm512_setzero_ps();
     __m512 blend7 = _mm512_setzero_ps();
-    __m512 blend8 = _mm512_setzero_ps();
-
-    ;
 
     // Create 4 registers to store the results
     __m256i acc[4];
@@ -64,8 +61,6 @@ void hamming_512(float *a, float *b, float *res, long *len)
 
     if (n >= 128)
     {
-
-        // create 8 registers
         __m512i acc5[8];
         acc5[0] = _mm512_setzero_si512();
         acc5[1] = _mm512_setzero_si512();
@@ -106,6 +101,7 @@ void hamming_512(float *a, float *b, float *res, long *len)
             mask6 = _mm512_cmp_ps_mask(a_vec6, b_vec6, _CMP_NEQ_OQ);
             mask7 = _mm512_cmp_ps_mask(a_vec7, b_vec7, _CMP_NEQ_OQ);
 
+            blend0 = _mm512_mask_blend_epi32(mask7, zeros, ones);
             blend1 = _mm512_mask_blend_epi32(mask0, zeros, ones);
             blend2 = _mm512_mask_blend_epi32(mask1, zeros, ones);
             blend3 = _mm512_mask_blend_epi32(mask2, zeros, ones);
@@ -113,8 +109,8 @@ void hamming_512(float *a, float *b, float *res, long *len)
             blend5 = _mm512_mask_blend_epi32(mask4, zeros, ones);
             blend6 = _mm512_mask_blend_epi32(mask5, zeros, ones);
             blend7 = _mm512_mask_blend_epi32(mask6, zeros, ones);
-            blend8 = _mm512_mask_blend_epi32(mask6, zeros, ones);
 
+            acc5[0] = _mm512_add_epi32(acc5[0], blend0);
             acc5[0] = _mm512_add_epi32(acc5[0], blend1);
             acc5[1] = _mm512_add_epi32(acc5[1], blend2);
             acc5[2] = _mm512_add_epi32(acc5[2], blend3);
@@ -122,7 +118,6 @@ void hamming_512(float *a, float *b, float *res, long *len)
             acc5[4] = _mm512_add_epi32(acc5[4], blend5);
             acc5[5] = _mm512_add_epi32(acc5[5], blend6);
             acc5[6] = _mm512_add_epi32(acc5[6], blend7);
-            acc5[7] = _mm512_add_epi32(acc5[7], blend8);
 
             n -= 128;
             a += 128;
@@ -161,18 +156,13 @@ void hamming_512(float *a, float *b, float *res, long *len)
         }
     }
 
-    __m256i ones_256 = _mm256_set1_epi32(1.0f);
+    __m256i ones_256 = _mm256_set1_epi32(1);
     __m256i zeros_256 = _mm256_setzero_si256(); // Vector of zeros
     // Use mask to blend 1s and 0s: 1s where comparison is true, 0s elsewhere
+    __m256i blend0_256 = _mm256_setzero_si256();
     __m256i blend1_256 = _mm256_setzero_si256();
     __m256i blend2_256 = _mm256_setzero_si256();
     __m256i blend3_256 = _mm256_setzero_si256();
-    __m256i blend4_256 = _mm256_setzero_si256();
-
-    __mmask8 mask0_256 = 0;
-    __mmask8 mask1_256 = 0;
-    __mmask8 mask2_256 = 0;
-    __mmask8 mask3_256 = 0;
 
     while (n >= 32)
     {
@@ -192,15 +182,15 @@ void hamming_512(float *a, float *b, float *res, long *len)
         mask2 = _mm256_cmp_ps_mask(a_vec2, b_vec2, _CMP_NEQ_OQ);
         mask3 = _mm256_cmp_ps_mask(a_vec3, b_vec3, _CMP_NEQ_OQ);
 
-        blend1_256 = _mm256_mask_blend_epi32(mask0, zeros_256, ones_256);
-        blend2_256 = _mm256_mask_blend_epi32(mask1, zeros_256, ones_256);
-        blend3_256 = _mm256_mask_blend_epi32(mask2, zeros_256, ones_256);
-        blend4_256 = _mm256_mask_blend_epi32(mask3, zeros_256, ones_256);
+        blend0_256 = _mm256_mask_blend_epi32(mask0, zeros_256, ones_256);
+        blend1_256 = _mm256_mask_blend_epi32(mask1, zeros_256, ones_256);
+        blend2_256 = _mm256_mask_blend_epi32(mask2, zeros_256, ones_256);
+        blend3_256 = _mm256_mask_blend_epi32(mask3, zeros_256, ones_256);
 
-        acc[0] = _mm256_add_epi32(acc[0], blend1_256);
-        acc[1] = _mm256_add_epi32(acc[1], blend2_256);
-        acc[2] = _mm256_add_epi32(acc[2], blend3_256);
-        acc[3] = _mm256_add_epi32(acc[3], blend4_256);
+        acc[0] = _mm256_add_epi32(acc[0], blend0_256);
+        acc[1] = _mm256_add_epi32(acc[1], blend1_256);
+        acc[2] = _mm256_add_epi32(acc[2], blend2_256);
+        acc[3] = _mm256_add_epi32(acc[3], blend3_256);
 
         n -= 32;
         a += 32;
@@ -226,7 +216,6 @@ void hamming_512(float *a, float *b, float *res, long *len)
     // Tail
     while (n)
     {
-        // sum += ((a[0] != b[0]) ? 1.0 : 0.0);
         if (a[0] != b[0])
         {
             sum++;

@@ -201,59 +201,6 @@ func TestHammingDistancer129Vectors(t *testing.T) {
 	})
 }
 
-func testHammingDistanceRandomValues(t *testing.T, size uint) {
-	r := getRandomSeed()
-	count := 1
-	countFailed := 0
-
-	vec1s := make([][]float32, count)
-	vec2s := make([][]float32, count)
-
-	for i := 0; i < count; i++ {
-		vec1 := make([]float32, size)
-		vec2 := make([]float32, size)
-		for j := range vec1 {
-			equal := r.Float32() < 0.5
-			if equal {
-				randomValue := r.Float32()
-				vec1[j] = randomValue
-				vec2[j] = randomValue
-			} else {
-				vec1[j] = r.Float32()
-				vec2[j] = r.Float32() + 10
-			}
-		}
-		vec1s[i] = vec1
-		vec2s[i] = vec2
-	}
-
-	for i := 0; i < count; i++ {
-
-		res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
-		
-
-		if err != nil {
-			panic(err)
-		}
-
-		if !ok {
-			panic("not ok")
-		}
-
-		resControl := HammingDistanceGo(vec1s[i], vec2s[i])
-		delta := float64(0.01)
-		diff := float64(resControl) - float64(res)
-		if diff < -delta || diff > delta {
-			countFailed++
-
-			fmt.Printf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
-
-			t.Fail()
-		}
-
-	}
-	fmt.Printf("total failed: %d\n", countFailed)
-}
 
 func TestCompareHammingDistanceImplementations(t *testing.T) {
 	sizes := []uint{
@@ -291,7 +238,59 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
 
-			testHammingDistanceRandomValues(t, size)
+			r := getRandomSeed()
+	count := 1
+	countFailed := 0
+
+	vec1s := make([][]float32, count)
+	vec2s := make([][]float32, count)
+
+	for i := 0; i < count; i++ {
+		vec1 := make([]float32, size)
+		vec2 := make([]float32, size)
+		for j := range vec1 {
+			equal := r.Float32() < 0.5
+			if equal {
+				randomValue := r.Float32()
+				vec1[j] = randomValue
+				vec2[j] = randomValue
+			} else {
+				vec1[j] = r.Float32()
+				vec2[j] = r.Float32() + 10
+			}
+		}
+		vec1s[i] = vec1
+		vec2s[i] = vec2
+	}
+
+	for i := 0; i < count; i++ {
+
+		res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
+
+		
+
+		if err != nil {
+			panic(err)
+		}
+
+		if !ok {
+			panic("not ok")
+		}
+
+		resControl := HammingDistanceGo(vec1s[i], vec2s[i])
+
+		delta := float64(0.01)
+		diff := float64(resControl) - float64(res)
+		if diff < -delta || diff > delta {
+			countFailed++
+
+			fmt.Printf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
+
+			t.Fail()
+		}
+
+	}
+	fmt.Printf("total failed: %d\n", countFailed)
 			
 		})
 	}

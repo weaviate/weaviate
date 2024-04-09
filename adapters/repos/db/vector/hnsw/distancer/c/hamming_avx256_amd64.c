@@ -19,7 +19,6 @@ void hamming_256(float *a, float *b, float *res, long *len)
     // fast path for small dimensions
     if (n < 8)
     {
-        // printf("small path\n");
         do
         {
             sum += a[0] != b[0] ? 1 : 0;
@@ -122,7 +121,6 @@ void hamming_256(float *a, float *b, float *res, long *len)
     // Tail
     while (n)
     {
-        // sum += ((a[0] != b[0]) ? 1.0 : 0.0);
         if (a[0] != b[0])
         {
             sum++;
