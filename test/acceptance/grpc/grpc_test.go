@@ -22,6 +22,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -154,8 +155,7 @@ func TestGRPC(t *testing.T) {
 				tags := review.Fields["tags"].GetListValue().GetTextValues()
 				require.NotNil(t, tags)
 
-				txtTags := make([]string, len(tags.Values))
-				copy(txtTags, tags.Values)
+				txtTags := byteops.StringsFromByteVector(tags.Values)
 
 				expectedTitle := ""
 				expectedIsbn := ""

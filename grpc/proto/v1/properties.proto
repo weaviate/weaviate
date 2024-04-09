@@ -34,25 +34,25 @@ message ListValue {
   repeated Value values = 1 [deprecated = true];
   oneof kind {
     NumberValues number_values = 2;
-    TextValues text_values = 3;
-    BoolValues bool_values = 4;
-    ObjectValues object_values = 5;
-    DateValues date_values = 6;
-    UuidValues uuid_values = 7;
-    IntValues int_values = 8;
+    BoolValues bool_values = 3;
+    ObjectValues object_values = 4;
+    DateValues date_values = 5;
+    UuidValues uuid_values = 6;
+    IntValues int_values = 7;
+    TextValues text_values = 8;
   }
 }
 
 message NumberValues {
-  repeated double values = 1;
+  bytes values = 1;
 }
 
 message TextValues {
-  repeated string values = 1;
+  bytes values = 1;
 }
 
 message BoolValues {
-  repeated bool values = 1;
+  bytes values = 1;
 }
 
 message ObjectValues {
@@ -60,15 +60,15 @@ message ObjectValues {
 }
 
 message DateValues {
-  repeated string values = 1;
+  bytes values = 1;
 }
 
 message UuidValues {
-  repeated string values = 1;
+  bytes values = 1;
 }
 
 message IntValues {
-  repeated int64 values = 1;
+  bytes values = 1;
 }
 
 message GeoCoordinate {
