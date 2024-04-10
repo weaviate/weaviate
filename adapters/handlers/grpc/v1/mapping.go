@@ -194,7 +194,7 @@ func parseArray[T float64 | bool | string](v interface{}, dt schema.DataType) ([
 func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []bool) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_BoolValues{BoolValues: &pb.BoolValues{Values: byteops.BoolsToByteVector(v)}}}
+		return &pb.ListValue{Kind: &pb.ListValue_BoolValues{BoolValues: &pb.BoolValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
@@ -223,7 +223,7 @@ func (m *Mapper) newListValueBool(v interface{}) (*pb.Value, error) {
 func (m *Mapper) newListValueDate(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []string) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: byteops.StringsToByteVector(v)}}}
+		return &pb.ListValue{Kind: &pb.ListValue_DateValues{DateValues: &pb.DateValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
@@ -310,7 +310,7 @@ func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []string) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: byteops.StringsToByteVector((v))}}}
+		return &pb.ListValue{Kind: &pb.ListValue_TextValues{TextValues: &pb.TextValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
@@ -339,7 +339,7 @@ func (m *Mapper) newListValueText(v interface{}) (*pb.Value, error) {
 func (m *Mapper) newListValueUuid(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []string) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_UuidValues{UuidValues: &pb.UuidValues{Values: byteops.StringsToByteVector(v)}}}
+		return &pb.ListValue{Kind: &pb.ListValue_UuidValues{UuidValues: &pb.UuidValues{Values: v}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		if m.uses125 {
