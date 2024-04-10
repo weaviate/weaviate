@@ -159,6 +159,14 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
+	// If ConsistencyLevel is not All then replace the context with a background context. This is necessary because
+	// otherwise we will return to the client once we have one or quorum on the broadcast. Depending on the speed of the
+	// replication this might lead to the client closing the request and the original context getting canceled.
+	// That cancelation would lead to the replication requests to the other nodes to get cancelled as-well and
+	// replication failing, which results in dataloss.
+	if cl != All {
+		ctx = context.Background()
+	}
 	state, err := c.Resolver.State(c.Shard, cl, "")
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
