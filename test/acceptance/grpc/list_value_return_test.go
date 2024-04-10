@@ -153,7 +153,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 
 		texts := nonRefProps.GetFields()["texts"].GetListValue().GetTextValues()
 		require.NotNil(t, texts)
-		require.Equal(t, []string{"text1", "text2"}, byteops.StringsFromByteVector(texts.GetValues()))
+		require.Equal(t, []string{"text1", "text2"}, texts.GetValues())
 
 		ints := nonRefProps.GetFields()["ints"].GetListValue().GetIntValues()
 		require.NotNil(t, ints)
@@ -161,7 +161,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 
 		bools := nonRefProps.GetFields()["bools"].GetListValue().GetBoolValues()
 		require.NotNil(t, bools)
-		require.Equal(t, []bool{true, false}, byteops.BoolsFromByteVector(bools.GetValues()))
+		require.Equal(t, []bool{true, false}, bools.GetValues())
 
 		numbers := nonRefProps.GetFields()["numbers"].GetListValue().GetNumberValues()
 		require.NotNil(t, numbers)
@@ -169,11 +169,11 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 
 		uuids := nonRefProps.GetFields()["uuids"].GetListValue().GetUuidValues()
 		require.NotNil(t, uuids)
-		require.Equal(t, []string{uuid1, uuid2}, byteops.StringsFromByteVector(uuids.GetValues()))
+		require.Equal(t, []string{uuid1, uuid2}, uuids.GetValues())
 
 		dates := nonRefProps.GetFields()["dates"].GetListValue().GetDateValues()
 		require.NotNil(t, dates)
-		require.Equal(t, []string{"2020-01-01T00:00:00Z"}, byteops.StringsFromByteVector(dates.GetValues()))
+		require.Equal(t, []string{"2020-01-01T00:00:00Z"}, dates.GetValues())
 
 		objects := nonRefProps.GetFields()["objects"].GetListValue().GetObjectValues()
 		require.NotNil(t, objects)
@@ -182,7 +182,7 @@ func TestGRPC_ListValueReturn(t *testing.T) {
 		require.NotNil(t, object)
 		texts = object.GetFields()["texts"].GetListValue().GetTextValues()
 		require.NotNil(t, texts)
-		require.Equal(t, []string{"text1", "text2"}, byteops.StringsFromByteVector(texts.GetValues()))
+		require.Equal(t, []string{"text1", "text2"}, texts.GetValues())
 	})
 
 	t.Run("ListValueReturn using <1.25 API", func(t *testing.T) {

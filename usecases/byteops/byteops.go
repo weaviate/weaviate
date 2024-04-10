@@ -13,7 +13,6 @@
 package byteops
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"math"
@@ -226,66 +225,6 @@ func Float64FromByteVector(vector []byte) []float64 {
 		floats[i] = math.Float64frombits(asUint)
 	}
 	return floats
-}
-
-func BoolsToByteVector(bools []bool) []byte {
-	vector := make([]byte, len(bools))
-	for i, val := range bools {
-		if val {
-			vector[i] = 1
-		} else {
-			vector[i] = 0
-		}
-	}
-	return vector
-}
-
-func BoolsFromByteVector(vector []byte) []bool {
-	bools := make([]bool, len(vector))
-	for i, val := range vector {
-		if val == 1 {
-			bools[i] = true
-		} else {
-			bools[i] = false
-		}
-	}
-	return bools
-}
-
-func StringsToByteVector(strings []string) []byte {
-	var buffer bytes.Buffer
-
-	if len(strings) == 0 {
-		return []byte{}
-	}
-
-	for _, str := range strings {
-		lenBuf := make([]byte, binary.MaxVarintLen64)
-		n := binary.PutUvarint(lenBuf, uint64(len(str)))
-		buffer.Write(lenBuf[:n])
-		buffer.WriteString(str)
-	}
-
-	return buffer.Bytes()
-}
-
-func StringsFromByteVector(vector []byte) []string {
-	var strings []string
-	var i int
-
-	if len(vector) == 0 {
-		return []string{}
-	}
-
-	for i < len(vector) {
-		strLen, n := binary.Uvarint(vector[i:])
-		i += n
-		strEnd := i + int(strLen)
-		strings = append(strings, string(vector[i:strEnd]))
-		i = strEnd
-	}
-
-	return strings
 }
 
 func IntsToByteVector(ints []float64) []byte {

@@ -141,30 +141,6 @@ func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 	})
 }
 
-func TestStringsToByteVector(t *testing.T) {
-	t.Run("empty array", func(t *testing.T) {
-		bytes := StringsToByteVector([]string{})
-		assert.Equal(t, []byte{}, bytes)
-	})
-
-	t.Run("non-empty string", func(t *testing.T) {
-		bytes := StringsToByteVector([]string{"hello", "world"})
-		assert.Equal(t, []byte{0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x05, 0x77, 0x6f, 0x72, 0x6c, 0x64}, bytes)
-	})
-}
-
-func TestStringsFromByteVector(t *testing.T) {
-	t.Run("empty array", func(t *testing.T) {
-		strings := StringsFromByteVector([]byte{})
-		assert.Equal(t, []string{}, strings)
-	})
-
-	t.Run("non-empty string", func(t *testing.T) {
-		strings := StringsFromByteVector([]byte{0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x05, 0x77, 0x6f, 0x72, 0x6c, 0x64})
-		assert.Equal(t, []string{"hello", "world"}, strings)
-	})
-}
-
 func TestIntsToByteVector(t *testing.T) {
 	t.Run("empty array", func(t *testing.T) {
 		bytes := IntsToByteVector([]float64{})
@@ -220,30 +196,6 @@ func TestIntsFromByteVector(t *testing.T) {
 			9007199254740991,
 			9007199254740990,
 		}, ints)
-	})
-}
-
-func TestBoolsToByteVectors(t *testing.T) {
-	t.Run("empty array", func(t *testing.T) {
-		bytes := BoolsToByteVector([]bool{})
-		assert.Equal(t, []byte{}, bytes)
-	})
-
-	t.Run("non-empty array", func(t *testing.T) {
-		bytes := BoolsToByteVector([]bool{true, false, true})
-		assert.Equal(t, []byte{0x01, 0x00, 0x01}, bytes)
-	})
-}
-
-func TestBoolsFromByteVectors(t *testing.T) {
-	t.Run("empty array", func(t *testing.T) {
-		bools := BoolsFromByteVector([]byte{})
-		assert.Equal(t, []bool{}, bools)
-	})
-
-	t.Run("non-empty array", func(t *testing.T) {
-		bools := BoolsFromByteVector([]byte{0x01, 0x00, 0x01})
-		assert.Equal(t, []bool{true, false, true}, bools)
 	})
 }
 
