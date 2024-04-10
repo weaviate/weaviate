@@ -191,6 +191,12 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		}
 		matches += docIDsLength
 	}
+
+	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch delete object")
+		return objects.BatchDeleteResult{}, fmt.Errorf("cannot process batch delete object: %w", err)
+	}
+
 	// delete the DocIDs in given shards
 	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
 	if err != nil {

@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -42,6 +44,11 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectDeleteMemory()); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process delete object")
+		return fmt.Errorf("cannot process delete object: %w", err)
+	}
 
 	m.metrics.DeleteObjectInc()
 	defer m.metrics.DeleteObjectDec()

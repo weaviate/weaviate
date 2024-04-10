@@ -140,6 +140,13 @@ func EstimateObjectMemory(object *models.Object) int64 {
 	// However, in the meantime this should be a fairly reasonable estimate, as
 	// it's not meant to fail exactly on the last available byte, but rather
 	// prevent OOM crashes. Given the fuzziness and async style of the
-	// memtrackinga somewhat decent estimate should be good enough.
+	// memtracking somewhat decent estimate should be good enough.
 	return int64(len(object.Vector)*4 + 30)
+}
+
+func EstimateObjectDeleteMemory() int64 {
+	// When deleting an object we attach a tombstone to the object in the HNSW and a new segment in the Memtable and
+	// additional other temporary allocations.
+	// The total amount is hard to guess so we go with 100 bytes.
+	return 100
 }
