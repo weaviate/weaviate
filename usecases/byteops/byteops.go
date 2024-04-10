@@ -253,24 +253,38 @@ func BoolsFromByteVector(vector []byte) []bool {
 }
 
 func StringsToByteVector(strings []string) []byte {
-	var vector []byte
-	delimiter := []byte{','}
-	for i, s := range strings {
-		vector = append(vector, []byte(s)...)
-		if i < len(strings)-1 {
-			vector = append(vector, delimiter...)
-		}
+	var buffer bytes.Buffer
+
+	if len(strings) == 0 {
+		return []byte{}
 	}
-	return vector
+
+	for _, str := range strings {
+		lenBuf := make([]byte, binary.MaxVarintLen64)
+		n := binary.PutUvarint(lenBuf, uint64(len(str)))
+		buffer.Write(lenBuf[:n])
+		buffer.WriteString(str)
+	}
+
+	return buffer.Bytes()
 }
 
 func StringsFromByteVector(vector []byte) []string {
-	delimiter := []byte{','}
-	byteStrings := bytes.Split(vector, delimiter)
-	strings := make([]string, len(byteStrings))
-	for i, byteString := range byteStrings {
-		strings[i] = string(byteString)
+	var strings []string
+	var i int
+
+	if len(vector) == 0 {
+		return []string{}
 	}
+
+	for i < len(vector) {
+		strLen, n := binary.Uvarint(vector[i:])
+		i += n
+		strEnd := i + int(strLen)
+		strings = append(strings, string(vector[i:strEnd]))
+		i = strEnd
+	}
+
 	return strings
 }
 
