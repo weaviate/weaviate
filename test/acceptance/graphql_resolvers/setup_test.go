@@ -78,6 +78,8 @@ func testGraphQL(t *testing.T) {
 	t.Run("import test data (class without properties)", addTestDataNoProperties)
 	t.Run("import test data (cursor api)", addTestDataCursorSearch)
 
+	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
+
 	// explore tests
 	t.Run("expected explore failures with invalid conditions", exploreWithExpectedFailures)
 
@@ -112,7 +114,7 @@ func testGraphQL(t *testing.T) {
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
-	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
+
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	t.Run("metrics count is stable when more classes are added", metricsCount)

@@ -71,10 +71,7 @@ type targetVectorParamHelper interface {
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc,
-	denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider,
-	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
-) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider,	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]*search.Result, error) {
 	var (
 		found   [][]*search.Result
 		weights []float64
@@ -105,18 +102,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 			weights = append(weights, alpha)
 			names = append(names, "vector")
 		}
-	} else if params.Vector != nil {
-		// Perform a plain vector search, no keyword query provided
-		res, err := processDenseSearch(ctx, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
-		if err != nil {
-			return nil, err
-		}
-
-		found = append(found, res)
-		// weight is irrelevant here, we're doing vector search only
-		weights = append(weights, 1)
-		names = append(names, "vector")
-	} else if params.SubSearches != nil {
+	} else
 		ss := params.SubSearches
 
 		// To catch error if ss is empty
@@ -139,11 +125,6 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 			weights = append(weights, weight)
 			names = append(names, name)
 		}
-	} else {
-		// This should not happen, as it should be caught at the validation level,
-		// but just in case it does, we catch it here.
-		return nil, fmt.Errorf("no query, search vector, or sub-searches provided")
-	}
 	if len(weights) != len(found) {
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
 	}
