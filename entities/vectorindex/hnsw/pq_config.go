@@ -26,7 +26,6 @@ const (
 
 const (
 	DefaultPQEnabled             = false
-	DefaultPQBitCompression      = false
 	DefaultPQSegments            = 0
 	DefaultPQEncoderType         = PQEncoderTypeKMeans
 	DefaultPQEncoderDistribution = PQEncoderDistributionLogNormal
