@@ -64,6 +64,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		{
+			methodName:       "GetConsistentClassCached",
+			additionalArgs:   []interface{}{"classname"},
+			expectedVerb:     "list",
+			expectedResource: "schema/*",
+		},
+		{
 			methodName:       "AddClass",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",

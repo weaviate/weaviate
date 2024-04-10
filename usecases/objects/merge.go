@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -56,6 +57,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{path, StatusInternalServerError, err}
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch err.(type) {
@@ -147,7 +149,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	principal *models.Principal, prevVec, nextVec []float32,
 	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
-	class, _, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, err := m.schemaManager.GetConsistentClassCached(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}

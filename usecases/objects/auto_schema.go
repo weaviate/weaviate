@@ -71,7 +71,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		schemaClass, _, err := m.schemaManager.GetConsistentClass(ctx, principal, object.Class, true)
+		schemaClass, err := m.schemaManager.GetConsistentClassCached(ctx, principal, object.Class)
 		if err != nil {
 			return err
 		}
@@ -461,8 +461,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
 	for className, tenantNames := range classTenants {
-		// TODO AL replace with cached class
-		class, err := m.schemaManager.GetConsistentClass(ctx, principal, className, true)
+		class, err := m.schemaManager.GetConsistentClassCached(ctx, principal, className)
 		if err != nil || // invalid class
 			!schema.MultiTenancyEnabled(class) || // non-MT class
 			!class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation

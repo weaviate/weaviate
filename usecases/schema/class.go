@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -41,18 +42,38 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 	return cl, version, nil
 }
 
-func (m *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
+func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, 0, err
 	}
 	if consistency {
-		class, version, err := m.metaWriter.QueryReadOnlyClass(name)
+		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
 		return class, version, err
 	}
-	class, version := m.metaReader.ReadOnlyClassWithVersion(name, 0)
+	class, version := h.metaReader.ReadOnlyClassWithVersion(name, 0)
 	return class, version, nil
+}
+
+func (h *Handler) GetConsistentClassCached(ctxWithClassCache context.Context,
+	principal *models.Principal, name string,
+) (*models.Class, error) {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+		return nil, err
+	}
+
+	return classcache.ClassFromContext(ctxWithClassCache, name, func(name string) (*models.Class, error) {
+		class, _, err := h.metaWriter.QueryReadOnlyClass(name)
+		if err != nil {
+			return nil, err
+		}
+		err = h.parser.ParseClass(class)
+		if err != nil {
+			return nil, err
+		}
+		return class, nil
+	})
 }
 
 // AddClass to the schema

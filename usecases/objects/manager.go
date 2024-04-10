@@ -54,6 +54,9 @@ type schemaManager interface {
 		name string, consistency bool,
 	) (*models.Class, uint64, error)
 
+	GetConsistentClassCached(ctx context.Context, principal *models.Principal, name string,
+	) (*models.Class, error)
+
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
 }

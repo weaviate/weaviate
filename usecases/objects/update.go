@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -39,6 +40,8 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -92,7 +95,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, _, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, err := m.schemaManager.GetConsistentClassCached(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
