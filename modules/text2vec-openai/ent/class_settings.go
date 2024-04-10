@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -86,32 +85,32 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Model() string {
-	return cs.getProperty("model", DefaultOpenAIModel)
+	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultOpenAIModel)
 }
 
 func (cs *classSettings) Type() string {
-	return cs.getProperty("type", DefaultOpenAIDocumentType)
+	return cs.BaseClassSettings.GetPropertyAsString("type", DefaultOpenAIDocumentType)
 }
 
 func (cs *classSettings) ModelVersion() string {
 	defaultVersion := PickDefaultModelVersion(cs.Model(), cs.Type())
-	return cs.getProperty("modelVersion", defaultVersion)
+	return cs.BaseClassSettings.GetPropertyAsString("modelVersion", defaultVersion)
 }
 
 func (cs *classSettings) ResourceName() string {
-	return cs.getProperty("resourceName", "")
+	return cs.BaseClassSettings.GetPropertyAsString("resourceName", "")
 }
 
 func (cs *classSettings) BaseURL() string {
-	return cs.getProperty("baseURL", DefaultBaseURL)
+	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
 }
 
 func (cs *classSettings) DeploymentID() string {
-	return cs.getProperty("deploymentId", "")
+	return cs.BaseClassSettings.GetPropertyAsString("deploymentId", "")
 }
 
 func (cs *classSettings) ApiVersion() string {
-	return cs.getProperty("apiVersion", DefaultApiVersion)
+	return cs.BaseClassSettings.GetPropertyAsString("apiVersion", DefaultApiVersion)
 }
 
 func (cs *classSettings) IsAzure() bool {
@@ -120,37 +119,32 @@ func (cs *classSettings) IsAzure() bool {
 
 func (cs *classSettings) Dimensions() *int64 {
 	defaultValue := PickDefaultDimensions(cs.Model())
-	return cs.getPropertyAsInt("dimensions", defaultValue)
+	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return errors.New("empty config")
-	}
-
-	if err := cs.BaseClassSettings.Validate(); err != nil {
+	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
 
 	docType := cs.Type()
-	if !validateOpenAISetting[string](docType, availableOpenAITypes) {
+	if !basesettings.ValidateSetting[string](docType, availableOpenAITypes) {
 		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
 	}
 
 	availableModels := append(availableOpenAIModels, availableV3Models...)
 	model := cs.Model()
-	if !validateOpenAISetting[string](model, availableModels) {
+	if !basesettings.ValidateSetting[string](model, availableModels) {
 		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableModels)
 	}
 
 	dimensions := cs.Dimensions()
 	if dimensions != nil {
-		if !validateOpenAISetting[string](model, availableV3Models) {
+		if !basesettings.ValidateSetting[string](model, availableV3Models) {
 			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
 		}
 		availableDimensions := availableV3ModelsDimensions[model]
-		if !validateOpenAISetting[int64](*dimensions, availableDimensions) {
+		if !basesettings.ValidateSetting[int64](*dimensions, availableDimensions) {
 			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
 		}
 	}
@@ -161,11 +155,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
-	if err != nil {
-		return err
-	}
-
-	err = cs.validateIndexState(class, cs.VectorizeClassName(), cs.PropertyIndexed)
 	if err != nil {
 		return err
 	}
@@ -209,67 +198,14 @@ func (cs *classSettings) validateModelVersion(version, model, docType string) er
 	return nil
 }
 
-func (cs *classSettings) getProperty(name, defaultValue string) string {
-	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
-}
-
-func (cs *classSettings) getPropertyAsInt(name string, defaultValue *int64) *int64 {
-	return cs.BaseClassSettings.GetPropertyAsInt64(name, defaultValue)
-}
-
-func (cs *classSettings) validateIndexState(class *models.Class, vectorizeClassName bool, propIndexed func(string) bool) error {
-	if vectorizeClassName {
-		// if the user chooses to vectorize the classname, vector-building will
-		// always be possible, no need to investigate further
-
-		return nil
-	}
-
-	// search if there is at least one indexed, string/text prop. If found pass
-	// validation
-	for _, prop := range class.Properties {
-		if len(prop.DataType) < 1 {
-			return errors.Errorf("property %s must have at least one datatype: "+
-				"got %v", prop.Name, prop.DataType)
-		}
-
-		if prop.DataType[0] != string(schema.DataTypeText) {
-			// we can only vectorize text-like props
-			continue
-		}
-
-		if propIndexed(prop.Name) {
-			// found at least one, this is a valid schema
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid properties: didn't find a single property which is " +
-		"of type string or text and is not excluded from indexing. In addition the " +
-		"class name is excluded from vectorization as well, meaning that it cannot be " +
-		"used to determine the vector position. To fix this, set 'vectorizeClassName' " +
-		"to true if the class name is contextionary-valid. Alternatively add at least " +
-		"contextionary-valid text/string property which is not excluded from " +
-		"indexing.")
-}
-
 func (cs *classSettings) validateAzureConfig(resourceName, deploymentId, apiVersion string) error {
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
-	if !validateOpenAISetting[string](apiVersion, availableApiVersions) {
+	if !basesettings.ValidateSetting[string](apiVersion, availableApiVersions) {
 		return errors.Errorf("wrong Azure OpenAI apiVersion setting, available api versions are: %v", availableApiVersions)
 	}
 	return nil
-}
-
-func validateOpenAISetting[T string | int64](value T, availableValues []T) bool {
-	for i := range availableValues {
-		if value == availableValues[i] {
-			return true
-		}
-	}
-	return false
 }
 
 func PickDefaultModelVersion(model, docType string) string {
