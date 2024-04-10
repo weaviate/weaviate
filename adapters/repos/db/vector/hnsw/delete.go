@@ -240,6 +240,8 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
+	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
+
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -372,6 +374,8 @@ func (h *hnsw) reassignNeighbor(
 	if breakCleanUpTombstonedNodes() {
 		return false, nil
 	}
+
+	h.metrics.TombstoneReassignNeighbor()
 
 	h.RLock()
 	h.shardedNodeLocks.RLock(neighbor)
@@ -519,6 +523,8 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		return 0, 0, false
 	}
 
+	h.metrics.TombstoneFindGlobalEntrypoint()
+
 	for l := targetLevel; l >= 0; l-- {
 		// ideally we can find a new entrypoint at the same level of the
 		// to-be-deleted node. However, there is a chance it was the only node on
@@ -589,6 +595,8 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 		// currently available level
 		return h.getEntrypoint(), h.currentMaximumLayer, nil
 	}
+
+	h.metrics.TombstoneFindLocalEntrypoint()
 
 	h.RLock()
 	maxNodes := len(h.nodes)
