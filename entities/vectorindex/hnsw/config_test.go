@@ -101,7 +101,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -153,7 +153,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -205,7 +205,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -258,7 +258,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
@@ -308,7 +308,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 				SQ: SQConfig{
 					Enabled:       DefaultSQEnabled,
