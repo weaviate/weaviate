@@ -135,6 +135,9 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 ) (*DB, error) {
+	if memMonitor == nil {
+		memMonitor = memwatch.NewDummyMonitor()
+	}
 	db := &DB{
 		logger:                  logger,
 		config:                  config,

@@ -119,10 +119,15 @@ func (m *Monitor) updateLimit() {
 	m.limit = m.limitSetter(-1)
 }
 
-type DummyAllocChecker struct{}
-
-func (d DummyAllocChecker) CheckAlloc(sizeInBytes int64) error { return nil }
-func (d DummyAllocChecker) Refresh()                           {}
+func NewDummyMonitor() *Monitor {
+	m := &Monitor{
+		metricsReader: func() int64 { return 0 },
+		limitSetter:   func(size int64) int64 { return TiB },
+		maxRatio:      1,
+	}
+	m.Refresh()
+	return m
+}
 
 type metricsReader func() int64
 

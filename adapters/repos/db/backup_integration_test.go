@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -265,7 +267,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))

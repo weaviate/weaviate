@@ -48,7 +48,7 @@ type Manager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *autoSchemaManager
 	metrics           objectsMetrics
-	allocChecker      memwatch.AllocChecker
+	allocChecker      *memwatch.Monitor
 }
 
 type objectsMetrics interface {
@@ -130,10 +130,10 @@ type ModulesProvider interface {
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker memwatch.AllocChecker,
+	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
 ) *Manager {
 	if allocChecker == nil {
-		allocChecker = memwatch.DummyAllocChecker{}
+		allocChecker = memwatch.NewDummyMonitor()
 	}
 
 	return &Manager{

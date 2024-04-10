@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -41,7 +43,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

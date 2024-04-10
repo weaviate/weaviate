@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -73,7 +75,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nodesClient, replicaClient, nil)
+	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
 	if err != nil {
 		panic(err)
 	}
