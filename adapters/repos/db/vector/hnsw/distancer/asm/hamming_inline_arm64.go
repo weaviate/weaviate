@@ -17,9 +17,7 @@ package asm
 // - it eliminates the bounds check by reversing the iteration
 // - it allows dot2, dot4 and dot6 to be inlined (the other ones are too large)
 // See go tool compile -d=ssa/check_bce/debug=1 -m dot_inline.go
-
 func hamming2(x []float32, y []float32) float32 {
-	// sum := x[1]*y[1] + x[0]*y[0]
 	sum := float32(0)
 
 	if x[1] != y[1] {

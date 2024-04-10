@@ -93,7 +93,38 @@ func benchmarkHammingNeon(b *testing.B, dims int) {
 }
 
 func BenchmarkHamming(b *testing.B) {
-	dims := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	dims := []int{
+		1,
+		2,
+		3,
+		4,
+		5,
+		6,
+		8,
+		10,
+		12,
+		16,
+		24,
+		30,
+		31,
+		32,
+		64,
+		67,
+		128,
+		256,
+		260,
+		299,
+		300,
+		384,
+		390,
+		600,
+		768,
+		777,
+		784,
+		1024,
+		1536,
+	}
+
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingGo(b, dim) })
