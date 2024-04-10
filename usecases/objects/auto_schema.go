@@ -451,28 +451,32 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 ) error {
 	classTenants := make(map[string]map[string]struct{})
 
+	// group by tenants by class
 	for _, obj := range objects {
-		// TODO: track the classes we have already checked
-		//       before calling getClass again
-		if m.schemaManager.MultiTenancy(obj.Class).AutoTenantCreation {
-			cls, ok := classTenants[obj.Class]
-			if !ok {
-				classTenants[obj.Class] = map[string]struct{}{obj.Tenant: {}}
-				continue
-			}
-			cls[obj.Tenant] = struct{}{}
+		if _, ok := classTenants[obj.Class]; !ok {
+			classTenants[obj.Class] = map[string]struct{}{}
 		}
+		classTenants[obj.Class][obj.Tenant] = struct{}{}
 	}
 
-	for class, tenantNames := range classTenants {
+	// skip invalid classes, non-MT classes, no auto tenant creation classes
+	for className, tenantNames := range classTenants {
+		// TODO AL replace with cached class
+		class, err := m.schemaManager.GetConsistentClass(ctx, principal, className, true)
+		if err != nil || // invalid class
+			!schema.MultiTenancyEnabled(class) || // non-MT class
+			!class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
+			continue
+		}
+
 		tenants := make([]*models.Tenant, len(tenantNames))
 		i := 0
 		for name := range tenantNames {
 			tenants[i] = &models.Tenant{Name: name}
 			i++
 		}
-		if err := m.addTenants(ctx, principal, class, tenants); err != nil {
-			return fmt.Errorf("add tenants to class %q: %w", class, err)
+		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
+			return fmt.Errorf("add tenants to class %q: %w", className, err)
 		}
 	}
 	return nil
