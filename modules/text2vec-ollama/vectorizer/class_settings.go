@@ -42,7 +42,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
-	if err := ic.BaseClassSettings.Validate(); err != nil {
+	if err := ic.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
 	if ic.ApiEndpoint() == "" {
@@ -51,7 +51,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.ModelID() == "" {
 		return errors.New("modelId cannot be empty")
 	}
-	return ic.BaseClassSettings.Validate()
+	return nil
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {

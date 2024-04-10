@@ -12,27 +12,18 @@
 package ent
 
 import (
-	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
-	DefaultBaseURL               = "https://api.voyageai.com/v1"
-	DefaultVoyageAIModel         = "voyage-large-2"
-	DefaultTruncate              = true
+	DefaultJinaAIDocumentType    = "text"
+	DefaultJinaAIModel           = "jina-embeddings-v2-base-en"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
-)
-
-var (
-	availableVoyageAIModels = []string{
-		"voyage-large-2", "voyage-code-2", "voyage-2",
-	}
-	experimetnalVoyageAIModels = []string{}
+	DefaultBaseURL               = "https://api.jina.ai"
 )
 
 type classSettings struct {
@@ -45,11 +36,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Model() string {
-	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultVoyageAIModel)
-}
-
-func (cs *classSettings) Truncate() bool {
-	return cs.BaseClassSettings.GetPropertyAsBool("truncate", DefaultTruncate)
+	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultJinaAIModel)
 }
 
 func (cs *classSettings) BaseURL() string {
@@ -57,14 +44,5 @@ func (cs *classSettings) BaseURL() string {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	if err := cs.BaseClassSettings.Validate(class); err != nil {
-		return err
-	}
-
-	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, append(availableVoyageAIModels, experimetnalVoyageAIModels...)) {
-		return errors.Errorf("wrong VoyageAI model name, available model names are: %v", availableVoyageAIModels)
-	}
-
-	return nil
+	return cs.BaseClassSettings.Validate(class)
 }
