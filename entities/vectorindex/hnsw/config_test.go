@@ -93,7 +93,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -138,7 +138,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -183,7 +183,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -228,7 +228,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
@@ -271,7 +271,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				BQ: BQConfig{
 					Enabled:      false,
-					RescoreLimit: DefaultPQRescoreLimit,
+					RescoreLimit: DefaultBQRescoreLimit,
 				},
 			},
 		},
