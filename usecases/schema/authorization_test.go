@@ -138,16 +138,15 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		for _, method := range allExportedMethods(&Manager{}) {
 			switch method {
-			case "RegisterSchemaUpdateCallback",
-				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
-				"TryLock", "RLocker", "TryRLock", // introduced by sync.Mutex in go 1.18
-				"Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
-				"CopyShardingState", "TxManager", "RestoreClass",
-				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
-				"StartServing", "Shutdown": // internal methods to indicate readiness state
-				// don't require auth on methods which are exported because other
-				// packages need to call them for maintenance and other regular jobs,
-				// but aren't user facing
+			case "RegisterSchemaUpdateCallback", "UpdateMeta", "GetSchemaSkipAuth",
+				"IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock", "TryLock",
+				"RLocker", "TryRLock", "Nodes", "NodeName", "ClusterHealthScore",
+				"ClusterStatus", "ResolveParentNodes", "CopyShardingState", "TxManager",
+				"RestoreClass", "ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard",
+				"RLockGuard", "ShardReplicas", "StartServing", "Shutdown", "EqualEnough":
+				// internal methods to indicate readiness state don't require auth on
+				// methods which are exported because other packages need to call them
+				// for maintenance and other regular jobs, but aren't user facing
 				continue
 			}
 			assert.Contains(t, testedMethods, method)
