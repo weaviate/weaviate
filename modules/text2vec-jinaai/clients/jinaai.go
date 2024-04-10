@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,11 +22,18 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/moduletools"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-jinaai/ent"
+)
+
+const (
+	DefaultRPM = 100 * 60 // from https://jina.ai/embeddings/
+	DefaultTPM = 10000000 // no token limit used
 )
 
 type embeddingsRequest struct {
@@ -76,19 +84,30 @@ func New(jinaAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) 
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, []string{input}, config.Model, config)
+func (v *vectorizer) Vectorize(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, err := v.vectorize(ctx, input, config.Model, config)
+	return res, nil, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	config := v.getVectorizationConfig(cfg)
 	return v.vectorize(ctx, input, config.Model, config)
 }
 
-func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	icheck := ent.NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		Model:   icheck.Model(),
+		BaseURL: icheck.BaseURL(),
+	}
+}
+
+func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
@@ -134,11 +153,12 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
 	for i := range resBody.Data {
-		texts[i] = resBody.Data[i].Object
-		embeddings[i] = resBody.Data[i].Embedding
+		index := resBody.Data[i].Index
+		texts[index] = resBody.Data[i].Object
+		embeddings[index] = resBody.Data[i].Embedding
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
@@ -192,4 +212,41 @@ func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string
 	}
 
 	return ""
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	key, err := v.getApiKey(ctx)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Jinaai", DefaultRPM, 0)
+
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
+		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
+		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
+			return
+		}
+
+		limits.RemainingRequests = rpm
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
+		limits.LimitRequests = rpm
+		limits.LastOverwrite = time.Now()
+
+		// high dummy values
+		limits.RemainingTokens = DefaultTPM
+		limits.LimitTokens = DefaultTPM
+		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
+	}
+
+	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	initialRL.ResetAfterRequestFunction(0) // set initial values
+
+	return initialRL
 }
