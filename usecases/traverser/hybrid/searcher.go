@@ -78,10 +78,11 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		names   []string
 	)
 
-	if params.Query != "" {
+
 		alpha := params.Alpha
 
 		if alpha < 1 {
+			if params.Query != "" {
 			res, err := processSparseSearch(sparseSearch())
 			if err != nil {
 				return nil, err
@@ -91,6 +92,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 			weights = append(weights, 1-alpha)
 			names = append(names, "keyword")
 		}
+	}
 
 		if alpha > 0 {
 			res, err := processDenseSearch(ctx, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
