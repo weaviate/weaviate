@@ -550,13 +550,15 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 
 	c.slowLog.Update("commit_request_received")
 
-	// cannot use locking because of risk of deadlock, see comment inside method
+	// cleanup requires locking because it accesses c.currentTransaction
+	defer c.incomingTxCommitCleanup(ctx, tx)
+
+	// commit cannot use locking because of risk of deadlock, see comment inside method
 	if err := c.incomingTxCommitApplyCommitFn(ctx, txCopy); err != nil {
 		return err
 	}
 
-	// requires locking because it accesses c.currentTransaction
-	return c.incomingTxCommitCleanup(ctx, tx)
+	return nil
 }
 
 func (c *TxManager) incomingCommitTxValidate(
@@ -603,8 +605,7 @@ func (c *TxManager) incomingTxCommitApplyCommitFn(
 
 func (c *TxManager) incomingTxCommitCleanup(
 	ctx context.Context, tx *Transaction,
-) error {
-	// TODO: only clean up on success - does this make sense?
+) {
 	c.Lock()
 	defer c.Unlock()
 	c.currentTransaction = nil
@@ -621,10 +622,10 @@ func (c *TxManager) incomingTxCommitCleanup(
 	c.slowLog.Close("committed")
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
-		return fmt.Errorf("close tx on disk: %w", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"action": "incoming_tx_commit_cleanup",
+		}).Errorf("close tx on disk")
 	}
-
-	return nil
 }
 
 func (c *TxManager) Shutdown() {
