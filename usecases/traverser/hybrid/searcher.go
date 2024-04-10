@@ -106,25 +106,26 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 
 	ss := params.SubSearches
 
-	// To catch error if ss is empty
-	_, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-		res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules, schemaGetter, targetVectorParamHelper)
+	if ss != nil {
+		_, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
 		if err != nil {
 			return nil, err
 		}
 
-		if res == nil {
-			continue
-		}
+		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
+			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules, schemaGetter, targetVectorParamHelper)
+			if err != nil {
+				return nil, err
+			}
 
-		found = append(found, res)
-		weights = append(weights, weight)
-		names = append(names, name)
+			if res == nil {
+				continue
+			}
+
+			found = append(found, res)
+			weights = append(weights, weight)
+			names = append(names, name)
+		}
 	}
 	if len(weights) != len(found) {
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
@@ -165,7 +166,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 }
 
 // Search combines the result sets using Reciprocal Rank Fusion or Relative Score Fusion
-func HybridSubsearch(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
+func HybridCombiner(ctx context.Context, params *Params, resultSet [][]*search.Result, weights []float64, names []string, logger logrus.FieldLogger, postProc postProcFunc) ([]*search.Result, error) {
 	if params.Vector != nil && params.NearVectorParams != nil {
 		return nil, fmt.Errorf("hybrid search: cannot have both vector and nearVectorParams")
 	}

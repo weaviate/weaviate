@@ -319,7 +319,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return res, nil
 	}
 
-	res, err := hybrid.HybridSubsearch(ctx, &hybrid.Params{
+	res, err := hybrid.HybridCombiner(ctx, &hybrid.Params{
 		HybridSearch: origParams.HybridSearch,
 		Keyword:      origParams.KeywordRanking,
 		Class:        origParams.ClassName,
