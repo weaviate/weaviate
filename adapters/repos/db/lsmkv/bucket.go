@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Bucket struct {
@@ -104,6 +105,10 @@ type Bucket struct {
 	calcCountNetAdditions bool
 
 	forceCompaction bool
+
+	// optionally supplied to prevent starting memory-intensive
+	// processes when memory pressure is high
+	allocChecker memwatch.AllocChecker
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -162,7 +167,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 			forceCompaction:       b.forceCompaction,
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
-		})
+		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}

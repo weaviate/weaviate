@@ -118,3 +118,8 @@ func (m *Monitor) updateLimit() {
 }
 
 type metricsReader func() int64
+
+type AllocChecker interface {
+	CheckAlloc(sizeInBytes int64) error
+	Refresh()
+}
