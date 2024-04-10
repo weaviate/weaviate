@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -46,6 +48,7 @@ type Manager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *autoSchemaManager
 	metrics           objectsMetrics
+	allocChecker      memwatch.AllocChecker
 }
 
 type objectsMetrics interface {
@@ -127,8 +130,12 @@ type ModulesProvider interface {
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider, metrics objectsMetrics,
+	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker memwatch.AllocChecker,
 ) *Manager {
+	if allocChecker == nil {
+		allocChecker = memwatch.DummyAllocChecker{}
+	}
+
 	return &Manager{
 		config:            config,
 		locks:             locks,
@@ -140,6 +147,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		modulesProvider:   modulesProvider,
 		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
 		metrics:           metrics,
+		allocChecker:      allocChecker,
 	}
 }
 

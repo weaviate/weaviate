@@ -15,7 +15,6 @@ import (
 	"context"
 	"math"
 	"runtime"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -134,7 +133,7 @@ func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics,
+	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 ) (*DB, error) {
 	db := &DB{
 		logger:                  logger,
@@ -149,7 +148,7 @@ func New(logger logrus.FieldLogger, config Config,
 		asyncIndexRetryInterval: 5 * time.Second,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
-		memMonitor:              memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97),
+		memMonitor:              memMonitor,
 	}
 
 	// make sure allocChecker has an initial state

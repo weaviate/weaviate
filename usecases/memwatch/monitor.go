@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"runtime/metrics"
 	"sync"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const (
@@ -117,9 +119,27 @@ func (m *Monitor) updateLimit() {
 	m.limit = m.limitSetter(-1)
 }
 
+type DummyAllocChecker struct{}
+
+func (d DummyAllocChecker) CheckAlloc(sizeInBytes int64) error { return nil }
+func (d DummyAllocChecker) Refresh()                           {}
+
 type metricsReader func() int64
 
 type AllocChecker interface {
 	CheckAlloc(sizeInBytes int64) error
 	Refresh()
+}
+
+func EstimateObjectMemory(object *models.Object) int64 {
+	// Note: This is very much oversimplified. It assumes that we always need
+	// the footprint of the full vector and it assumes a fixed overhead of 30B
+	// per vector. In reality this depends on the HNSW settings - and possibly
+	// in the future we might have completely different index types.
+	//
+	// However, in the meantime this should be a fairly reasonable estimate, as
+	// it's not meant to fail exactly on the last available byte, but rather
+	// prevent OOM crashes. Given the fuzziness and async style of the
+	// memtrackinga somewhat decent estimate should be good enough.
+	return int64(len(object.Vector)*4 + 30)
 }

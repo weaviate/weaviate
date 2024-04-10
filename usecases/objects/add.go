@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -55,6 +57,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
+		return nil, fmt.Errorf("cannot process add object: %w", err)
+	}
 
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }

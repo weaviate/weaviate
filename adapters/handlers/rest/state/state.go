@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -67,6 +69,7 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
+	MemWatch           *memwatch.Monitor
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
