@@ -71,18 +71,17 @@ type targetVectorParamHelper interface {
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider,	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]*search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]*search.Result, error) {
 	var (
 		found   [][]*search.Result
 		weights []float64
 		names   []string
 	)
 
+	alpha := params.Alpha
 
-		alpha := params.Alpha
-
-		if alpha < 1 {
-			if params.Query != "" {
+	if alpha < 1 {
+		if params.Query != "" {
 			res, err := processSparseSearch(sparseSearch())
 			if err != nil {
 				return nil, err
@@ -94,39 +93,39 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 	}
 
-		if alpha > 0 {
-			res, err := processDenseSearch(ctx, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
-			if err != nil {
-				return nil, err
-			}
-
-			found = append(found, res)
-			weights = append(weights, alpha)
-			names = append(names, "vector")
-		}
-	} else
-		ss := params.SubSearches
-
-		// To catch error if ss is empty
-		_, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
+	if alpha > 0 {
+		res, err := processDenseSearch(ctx, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules, schemaGetter, targetVectorParamHelper)
-			if err != nil {
-				return nil, err
-			}
+		found = append(found, res)
+		weights = append(weights, alpha)
+		names = append(names, "vector")
+	}
 
-			if res == nil {
-				continue
-			}
+	ss := params.SubSearches
 
-			found = append(found, res)
-			weights = append(weights, weight)
-			names = append(names, name)
+	// To catch error if ss is empty
+	_, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
+		res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules, schemaGetter, targetVectorParamHelper)
+		if err != nil {
+			return nil, err
 		}
+
+		if res == nil {
+			continue
+		}
+
+		found = append(found, res)
+		weights = append(weights, weight)
+		names = append(names, name)
+	}
 	if len(weights) != len(found) {
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
 	}
