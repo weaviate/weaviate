@@ -4476,6 +4476,16 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "type": "string"
+          },
+          {
+              "name": "limit",
+              "in": "query",
+              "type": "integer"
           }
         ],
         "responses": {

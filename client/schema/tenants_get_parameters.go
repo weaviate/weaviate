@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewTenantsGetParams creates a new TenantsGetParams object,
@@ -72,8 +73,14 @@ TenantsGetParams contains all the parameters to send to the API endpoint
 */
 type TenantsGetParams struct {
 
+	// After.
+	After *string
+
 	// ClassName.
 	ClassName string
+
+	// Limit.
+	Limit *int64
 
 	timeout    time.Duration
 	Context    context.Context
@@ -128,6 +135,17 @@ func (o *TenantsGetParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithAfter adds the after to the tenants get params
+func (o *TenantsGetParams) WithAfter(after *string) *TenantsGetParams {
+	o.SetAfter(after)
+	return o
+}
+
+// SetAfter adds the after to the tenants get params
+func (o *TenantsGetParams) SetAfter(after *string) {
+	o.After = after
+}
+
 // WithClassName adds the className to the tenants get params
 func (o *TenantsGetParams) WithClassName(className string) *TenantsGetParams {
 	o.SetClassName(className)
@@ -139,6 +157,17 @@ func (o *TenantsGetParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithLimit adds the limit to the tenants get params
+func (o *TenantsGetParams) WithLimit(limit *int64) *TenantsGetParams {
+	o.SetLimit(limit)
+	return o
+}
+
+// SetLimit adds the limit to the tenants get params
+func (o *TenantsGetParams) SetLimit(limit *int64) {
+	o.Limit = limit
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -147,9 +176,43 @@ func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 	}
 	var res []error
 
+	if o.After != nil {
+
+		// query param after
+		var qrAfter string
+
+		if o.After != nil {
+			qrAfter = *o.After
+		}
+		qAfter := qrAfter
+		if qAfter != "" {
+
+			if err := r.SetQueryParam("after", qAfter); err != nil {
+				return err
+			}
+		}
+	}
+
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.Limit != nil {
+
+		// query param limit
+		var qrLimit int64
+
+		if o.Limit != nil {
+			qrLimit = *o.Limit
+		}
+		qLimit := swag.FormatInt64(qrLimit)
+		if qLimit != "" {
+
+			if err := r.SetQueryParam("limit", qLimit); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

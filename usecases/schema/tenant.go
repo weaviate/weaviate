@@ -426,7 +426,9 @@ func (m *Manager) onDeleteTenants(ctx context.Context, class *models.Class, req 
 // GetTenants is used to get tenants of a class.
 //
 // Class must exist and has partitioning enabled
-func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
+func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal,
+	class string, after *string, limit *int64,
+) ([]*models.Tenant, error) {
 	if err := m.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
@@ -440,20 +442,36 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 	}
 
 	var tenants []*models.Tenant
-	m.schemaCache.RLockGuard(func() error {
+	foundAfter := false
+	if after == nil {
+		foundAfter = true // if no after is specified, start from the beginning
+	}
+	count := int64(0)
+
+	err := m.schemaCache.RLockGuard(func() error {
 		if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
-			tenants = make([]*models.Tenant, len(ss.Physical))
-			i := 0
 			for tenant := range ss.Physical {
-				tenants[i] = &models.Tenant{
+				if !foundAfter {
+					if tenant == *after {
+						foundAfter = true
+					}
+					continue
+				}
+				if limit != nil && count == *limit {
+					break
+				}
+				tenants = append(tenants, &models.Tenant{
 					Name:           tenant,
 					ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
-				}
-				i++
+				})
+				count++
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("list tenants persistent storage: %v", err)
+	}
 
 	return tenants, nil
 }
@@ -462,7 +480,7 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 //
 // Class must exist and has partitioning enabled
 func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal, class string, tenant string) error {
-	tenants, err := m.GetTenants(ctx, principal, class)
+	tenants, err := m.GetTenants(ctx, principal, class, nil, nil)
 	if err != nil {
 		return err
 	}

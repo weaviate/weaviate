@@ -284,7 +284,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName)
+	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName, params.After, params.Limit)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {

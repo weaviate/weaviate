@@ -471,3 +471,106 @@ func TestDeleteTenants(t *testing.T) {
 
 	}
 }
+
+func TestGetTenants(t *testing.T) {
+	var (
+		ctx     = context.Background()
+		tenants = []*models.Tenant{
+			{Name: "USER1"},
+			{Name: "USER2"},
+			{Name: "USER3"},
+			{Name: "USER4"},
+		}
+		cls        = "C1"
+		properties = []*models.Property{
+			{
+				Name:     "uUID",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		}
+		repConfig = &models.ReplicationConfig{Factor: 1}
+	)
+
+	tests := []struct {
+		name       string
+		Class      string
+		tenants    []*models.Tenant
+		initial    *models.Class
+		limit      int64
+		expected   int
+		errMsg     string
+		addTenants bool
+	}{
+		{
+			name:    "ClassDoesNotExist",
+			Class:   "NonExistentClass",
+			tenants: tenants,
+			initial: &models.Class{
+				Class: cls, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:        properties,
+				ReplicationConfig: repConfig,
+			},
+			errMsg: "class \"NonExistentClass\": not found",
+		},
+		{
+			name:    "MultiTenancyNotEnabled",
+			Class:   cls,
+			tenants: tenants,
+			initial: &models.Class{
+				Class: cls, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+				Properties:        properties,
+				ReplicationConfig: repConfig,
+			},
+			errMsg: "multi-tenancy is not enabled for class \"C1\"",
+		},
+		{
+			name:    "NoTenants",
+			Class:   cls,
+			tenants: tenants,
+			initial: &models.Class{
+				Class: cls, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:        properties,
+				ReplicationConfig: repConfig,
+			},
+			expected:   0,
+			addTenants: false,
+		},
+		{
+			name:    "GetLimitedTenants",
+			Class:   cls,
+			tenants: tenants,
+			initial: &models.Class{
+				Class: cls, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties:        properties,
+				ReplicationConfig: repConfig,
+			},
+			limit:      2,
+			expected:   2,
+			addTenants: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm := newSchemaManager()
+			err := sm.AddClass(ctx, nil, tt.initial)
+			if err != nil {
+				t.Fatalf("%s: add class: %v", tt.name, err)
+			}
+			if tt.addTenants {
+				_, err = sm.AddTenants(ctx, nil, cls, tenants)
+				if err != nil {
+					t.Fatalf("%s: add tenants: %v", tt.name, err)
+				}
+			}
+			result, err := sm.GetTenants(ctx, nil, tt.Class, nil, &tt.limit)
+			if tt.errMsg == "" {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, len(result))
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			}
+		})
+	}
+}
