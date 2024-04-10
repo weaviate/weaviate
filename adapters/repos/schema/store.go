@@ -15,14 +15,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -192,7 +191,7 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 func (r *store) saveSchemaV1(schema ucs.State) error {
 	schemaJSON, err := json.Marshal(schema)
 	if err != nil {
-		return errors.Wrapf(err, "marshal schema state to json")
+		return fmt.Errorf("marshal schema state to json: %w", err)
 	}
 
 	return r.db.Update(func(tx *bolt.Tx) error {
@@ -217,7 +216,7 @@ func (r *store) loadSchemaV1() (*ucs.State, error) {
 	var state ucs.State
 	err := json.Unmarshal(schemaJSON, &state)
 	if err != nil {
-		return nil, errors.Wrapf(err, "parse schema state from JSON")
+		return nil, fmt.Errorf("parse schema state from JSON: %w", err)
 	}
 
 	return &state, nil
@@ -236,7 +235,7 @@ func (r *store) UpdateClass(_ context.Context, data ucs.ClassPayload) error {
 	return r.db.Update(f)
 }
 
-// NewClass creates a new class if it doesn't exists, otherwise return an error
+// NewClass creates a new class if it doesn't exist, otherwise return an error
 func (r *store) NewClass(_ context.Context, data ucs.ClassPayload) error {
 	classKey := encodeClassName(data.Name)
 	f := func(tx *bolt.Tx) error {
@@ -426,6 +425,23 @@ func (r *store) Save(ctx context.Context, ss ucs.State) error {
 		len(ss.ObjectSchema.Classes) == 0 ||
 		len(ss.ShardingState) == 0 {
 		return fmt.Errorf("inconsistent schema: missing required fields")
+	}
+
+	currState, err := r.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load existing schema state: %w", err)
+	}
+	// If the store already contains the same contents as the incoming
+	// schema state, we don't need to delete and re-put all schema contents.
+	// Doing so can cause a very high MTTR when the number of tenants is on
+	// the order of 100k+.
+	//
+	// Here we have to check equality with rough equivalency checks, because
+	// there is currently no way to make a comparison at the byte-level
+	//
+	// See: https://github.com/weaviate/weaviate/issues/4634
+	if currState.EqualEnough(&ss) {
+		return nil
 	}
 
 	f := func(tx *bolt.Tx) error {
