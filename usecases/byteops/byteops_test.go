@@ -174,9 +174,9 @@ func TestIntsToByteVector(t *testing.T) {
 	t.Run("non-empty array of u8s", func(t *testing.T) {
 		bytes := IntsToByteVector([]float64{1, 2, 3})
 		assert.Equal(t, []byte{
-			01, 00, 00, 00, 00, 00, 00, 00,
-			02, 00, 00, 00, 00, 00, 00, 00,
-			03, 00, 00, 00, 00, 00, 00, 00,
+			0o1, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o2, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o3, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
 		}, bytes)
 	})
 
@@ -202,9 +202,9 @@ func TestIntsFromByteVector(t *testing.T) {
 
 	t.Run("non-empty array of u8s", func(t *testing.T) {
 		ints := IntsFromByteVector([]byte{
-			01, 00, 00, 00, 00, 00, 00, 00,
-			02, 00, 00, 00, 00, 00, 00, 00,
-			03, 00, 00, 00, 00, 00, 00, 00,
+			0o1, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o2, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o3, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
 		})
 		assert.Equal(t, []int64{1, 2, 3}, ints)
 	})
