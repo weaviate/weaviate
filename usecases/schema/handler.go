@@ -45,6 +45,7 @@ type metaWriter interface {
 	QueryReadOnlyClass(name string) (*models.Class, error)
 	QueryGetSchema() (models.Schema, error)
 	QueryGetTenants(class string) ([]*models.Tenant, error)
+	QueryGetShardOwner(class, shard string) (string, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
