@@ -60,11 +60,13 @@ type limitSetter func(size int64) int64
 func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 	maxRatio float64,
 ) *Monitor {
-	return &Monitor{
+	m := &Monitor{
 		metricsReader: metricsReader,
 		limitSetter:   limitSetter,
 		maxRatio:      maxRatio,
 	}
+	m.Refresh()
+	return m
 }
 
 func (m *Monitor) CheckAlloc(sizeInBytes int64) error {

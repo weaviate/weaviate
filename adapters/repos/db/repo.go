@@ -154,9 +154,6 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:              memMonitor,
 	}
 
-	// make sure allocChecker has an initial state
-	db.memMonitor.Refresh()
-
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
