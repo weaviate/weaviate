@@ -15,11 +15,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // DeleteObject Class Instance from the connected DB

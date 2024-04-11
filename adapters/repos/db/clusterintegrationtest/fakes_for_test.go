@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -26,8 +25,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -38,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 

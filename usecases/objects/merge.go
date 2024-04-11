@@ -15,16 +15,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type MergeDocument struct {

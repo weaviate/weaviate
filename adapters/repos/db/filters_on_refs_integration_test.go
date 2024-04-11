@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -18,8 +17,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-
-	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -31,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestRefFilters(t *testing.T) {

@@ -10,15 +10,12 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
 import (
 	"context"
 	"testing"
-
-	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -31,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // This test aims to prevent a regression on

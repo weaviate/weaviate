@@ -10,15 +10,12 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
 import (
 	"context"
 	"testing"
-
-	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	libschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestDeleteJourney(t *testing.T) {

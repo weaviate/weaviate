@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package classification_integration_test
 
@@ -19,8 +18,6 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
-
-	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -33,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	testhelper "github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 

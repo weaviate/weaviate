@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -19,8 +18,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -31,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func Test_Aggregations(t *testing.T) {
