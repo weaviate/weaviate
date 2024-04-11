@@ -105,7 +105,7 @@ func (f *fakeMetaHandler) ClassInfo(class string) (ci store.ClassInfo) {
 	return args.Get(0).(store.ClassInfo)
 }
 
-func (f *fakeMetaHandler) QueryGetSchema() (models.Schema, error) {
+func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
 	args := f.Called()
 	return args.Get(0).(models.Schema), args.Error(1)
 }
@@ -119,12 +119,12 @@ func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, error
 	return model.(*models.Class), nil
 }
 
-func (f *fakeMetaHandler) QueryGetTenants(class string) ([]*models.Tenant, error) {
+func (f *fakeMetaHandler) QueryTenants(class string) ([]*models.Tenant, error) {
 	args := f.Called(class)
 	return nil, args.Error(0)
 }
 
-func (f *fakeMetaHandler) QueryGetShardOwner(class, shard string) (string, error) {
+func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, error) {
 	args := f.Called(class, shard)
 	return args.Get(0).(string), args.Error(0)
 }

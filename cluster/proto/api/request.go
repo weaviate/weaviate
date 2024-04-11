@@ -47,22 +47,22 @@ type QueryReadOnlyClassResponse struct {
 	State *sharding.State
 }
 
-type QueryGetTenantsRequest struct {
+type QueryTenantsRequest struct {
 	Class string
 }
 
-type QueryGetTenantsResponse struct {
+type QueryTenantsResponse struct {
 	Tenants []*models.Tenant
 }
 
-type QueryGetSchemaResponse struct {
+type QuerySchemaResponse struct {
 	Schema models.Schema
 }
 
-type QueryGetShardOwnerRequest struct {
+type QueryShardOwnerRequest struct {
 	Class, Shard string
 }
 
-type QueryGetShardOwnerResponse struct {
+type QueryShardOwnerResponse struct {
 	Owner string
 }
