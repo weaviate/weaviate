@@ -30,17 +30,17 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get read only class: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_SCHEMA:
-		payload, err = st.QueryGetSchema()
+		payload, err = st.QuerySchema()
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get schema: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_TENANTS:
-		payload, err = st.QueryGetTenants(req)
+		payload, err = st.QueryTenants(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenants: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_SHARD_OWNER:
-		payload, err = st.QueryGetShardOwner(req)
+		payload, err = st.QueryShardOwner(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get shard owner: %w", err)
 		}
@@ -77,9 +77,9 @@ func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
-func (st *Store) QueryGetSchema() ([]byte, error) {
+func (st *Store) QuerySchema() ([]byte, error) {
 	// Build the response, marshal and return
-	response := cmd.QueryGetSchemaResponse{Schema: st.db.Schema.ReadOnlySchema()}
+	response := cmd.QuerySchemaResponse{Schema: st.db.Schema.ReadOnlySchema()}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -87,9 +87,9 @@ func (st *Store) QueryGetSchema() ([]byte, error) {
 	return payload, nil
 }
 
-func (st *Store) QueryGetTenants(req *cmd.QueryRequest) ([]byte, error) {
+func (st *Store) QueryTenants(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
-	subCommand := cmd.QueryGetTenantsRequest{}
+	subCommand := cmd.QueryTenantsRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
@@ -101,7 +101,7 @@ func (st *Store) QueryGetTenants(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Build the response, marshal and return
-	response := cmd.QueryGetTenantsResponse{Tenants: tenants}
+	response := cmd.QueryTenantsResponse{Tenants: tenants}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -109,9 +109,9 @@ func (st *Store) QueryGetTenants(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
-func (st *Store) QueryGetShardOwner(req *cmd.QueryRequest) ([]byte, error) {
+func (st *Store) QueryShardOwner(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
-	subCommand := cmd.QueryGetShardOwnerRequest{}
+	subCommand := cmd.QueryShardOwnerRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
@@ -123,7 +123,7 @@ func (st *Store) QueryGetShardOwner(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Build the response, marshal and return
-	response := cmd.QueryGetShardOwnerResponse{Owner: owner}
+	response := cmd.QueryShardOwnerResponse{Owner: owner}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
