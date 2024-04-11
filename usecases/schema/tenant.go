@@ -95,7 +95,8 @@ func (h *Handler) AddTenants(ctx context.Context,
 		}
 	}
 
-	return h.metaWriter.AddTenants(class, &request)
+	_, err = h.metaWriter.AddTenants(class, &request)
+	return err
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
@@ -177,7 +178,8 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	for i, tenant := range tenants {
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
-	return h.metaWriter.UpdateTenants(class, &req)
+	_, err = h.metaWriter.UpdateTenants(class, &req)
+	return err
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -203,7 +205,8 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	return h.metaWriter.DeleteTenants(class, &req)
+	_, err := h.metaWriter.DeleteTenants(class, &req)
+	return err
 }
 
 // GetTenants is used to get tenants of a class.

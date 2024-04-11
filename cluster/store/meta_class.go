@@ -24,8 +24,10 @@ import (
 
 type metaClass struct {
 	sync.RWMutex
-	Class    models.Class
-	Sharding sharding.State
+	Class        models.Class
+	ClassVersion uint64
+	Sharding     sharding.State
+	ShardVersion uint64
 }
 
 func (m *metaClass) ClassInfo() (ci ClassInfo) {
@@ -42,6 +44,8 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)
 	}
 	ci.Tenants = len(m.Sharding.Physical)
+	ci.ClassVersion = m.ClassVersion
+	ci.ShardVersion = m.ShardVersion
 	return ci
 }
 
@@ -122,7 +126,7 @@ func (m *metaClass) CopyShardingState() *sharding.State {
 	return &st
 }
 
-func (m *metaClass) AddProperty(props ...*models.Property) error {
+func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -131,6 +135,7 @@ func (m *metaClass) AddProperty(props ...*models.Property) error {
 	dest := make([]*models.Property, len(src)+len(props))
 	copy(dest, append(src, props...))
 	m.Class.Properties = dest
+	m.ClassVersion = v
 	return nil
 }
 
@@ -154,7 +159,7 @@ func filterOutDuplicates(old, new []*models.Property) []*models.Property {
 	return newUnique
 }
 
-func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest) error {
+func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, v uint64) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 	m.Lock()
 	defer m.Unlock()
@@ -171,21 +176,23 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest) er
 			req.Tenants[i] = nil // is owner by another node
 		}
 	}
+	m.ShardVersion = v
 	req.Tenants = removeNilTenants(req.Tenants)
 	return nil
 }
 
-func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest) error {
+func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
 	for _, name := range req.Tenants {
 		m.Sharding.DeletePartition(name)
 	}
+	m.ShardVersion = v
 	return nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest) (n int, err error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -217,16 +224,16 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	if len(missingShards) > 0 {
 		err = fmt.Errorf("%w: %v", errShardNotFound, missingShards)
 	}
-
+	m.ShardVersion = v
 	req.Tenants = removeNilTenants(req.Tenants)
 	return
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
-func (m *metaClass) LockGuard(mutator func(*models.Class, *sharding.State) error) error {
+func (m *metaClass) LockGuard(mutator func(*metaClass) error) error {
 	m.Lock()
 	defer m.Unlock()
-	return mutator(&m.Class, &m.Sharding)
+	return mutator(m)
 }
 
 // RLockGuard provides convenient mechanism for owning mutex function which doesn't mutates the state
