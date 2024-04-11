@@ -72,6 +72,9 @@ type Indexer interface {
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
+
+	// RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
+	RestoreClassDir(class string) error
 	Open(context.Context) error
 	Close(context.Context) error
 }
@@ -406,6 +409,13 @@ func (st *Store) Leader() string {
 	return string(add)
 }
 
+func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
+	if st.raft == nil {
+		return "", ""
+	}
+	return st.raft.LeaderWithID()
+}
+
 func (st *Store) Execute(req *api.ApplyRequest) error {
 	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
 
@@ -472,11 +482,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		ret.Error = st.db.AddClass(&cmd, st.nodeID, schemaOnly)
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
-		err := st.db.AddClass(&cmd, st.nodeID, schemaOnly)
-		if err == nil || !errors.Is(err, errClassExists) {
-			ret.Error = err
-		}
-		st.log.Info("class already restored", "class", cmd.Class, "op", "apply_restore")
+		ret.Error = st.db.RestoreClass(&cmd, st.nodeID, schemaOnly)
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
 		ret.Error = st.db.UpdateClass(&cmd, st.nodeID, schemaOnly)

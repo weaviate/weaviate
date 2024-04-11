@@ -148,7 +148,7 @@ func TestRepositoryUpdateClass(t *testing.T) {
 		t.Fatalf("create new class: %v", err)
 	}
 	if err := repo.NewClass(ctx, payload); err == nil {
-		t.Fatal("create new class: must fail since class already exits")
+		t.Fatal("create new class: must fail since class already exists")
 	}
 	repo.asserEqualSchema(t, schema, "create class")
 

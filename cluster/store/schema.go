@@ -25,7 +25,7 @@ import (
 
 var (
 	errClassNotFound = errors.New("class not found")
-	errClassExists   = errors.New("class already exits")
+	errClassExists   = errors.New("class already exists")
 	errShardNotFound = errors.New("shard not found")
 )
 

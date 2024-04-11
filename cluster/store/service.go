@@ -267,6 +267,13 @@ func (s *Service) Stats() map[string]string {
 	return s.store.Stats()
 }
 
+// LeaderWithID is used to return the current leader address and ID of the cluster.
+// It may return empty strings if there is no current leader or the leader is unknown.
+func (s *Service) LeaderWithID() (string, string) {
+	addr, id := s.store.LeaderWithID()
+	return string(addr), string(id)
+}
+
 func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
 	return s.store.WaitToRestoreDB(ctx, period)
 }
