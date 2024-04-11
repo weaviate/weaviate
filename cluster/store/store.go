@@ -423,34 +423,34 @@ func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
 	return st.raft.LeaderWithID()
 }
 
-func (st *Store) Execute(req *api.ApplyRequest) error {
+func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
 
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal command: %w", err)
+		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
 		st.log.Info("class already restored", "class", req.Class)
-		return nil
+		return 0, nil
 	}
 	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
 		if other := st.FindSimilarClass(req.Class); other == req.Class {
-			return errClassExists
+			return 0, errClassExists
 		} else if other != "" {
-			return fmt.Errorf("%w: found similar class %q", errClassExists, other)
+			return 0, fmt.Errorf("%w: found similar class %q", errClassExists, other)
 		}
 	}
 
 	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
 	if err := fut.Error(); err != nil {
 		if errors.Is(err, raft.ErrNotLeader) {
-			return ErrNotLeader
+			return 0, ErrNotLeader
 		}
-		return err
+		return 0, err
 	}
 	resp := fut.Response().(Response)
-	return resp.Error
+	return resp.Version, resp.Error
 }
 
 // Apply log is invoked once a log entry is committed.
@@ -458,7 +458,7 @@ func (st *Store) Execute(req *api.ApplyRequest) error {
 // ApplyFuture returned by Raft.Apply method if that
 // method was called on the same Raft node as the FSM.
 func (st *Store) Apply(l *raft.Log) interface{} {
-	ret := Response{}
+	ret := Response{Version: l.Index}
 	st.log.Debug("apply command", "type", l.Type, "index", l.Index)
 	if l.Type != raft.LogCommand {
 		st.log.Info("not a valid command", "type", l.Type, "index", l.Index)
@@ -708,8 +708,9 @@ func (st *Store) reloadDB() bool {
 }
 
 type Response struct {
-	Error error
-	Data  interface{}
+	Error   error
+	Version uint64
+	Data    interface{}
 }
 
 var _ raft.FSM = &Store{}
