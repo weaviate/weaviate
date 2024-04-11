@@ -229,10 +229,10 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
-func (m *metaClass) LockGuard(mutator func(*models.Class, *sharding.State) error) error {
+func (m *metaClass) LockGuard(mutator func(*metaClass) error) error {
 	m.Lock()
 	defer m.Unlock()
-	return mutator(&m.Class, &m.Sharding)
+	return mutator(m)
 }
 
 // RLockGuard provides convenient mechanism for owning mutex function which doesn't mutates the state

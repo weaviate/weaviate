@@ -206,7 +206,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 }
 
 // updateClass modifies existing class based on the givin update function
-func (s *schema) updateClass(name string, f func(cls *models.Class, ss *sharding.State) error) error {
+func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -223,7 +223,7 @@ func (s *schema) deleteClass(name string) {
 	delete(s.Classes, name)
 }
 
-func (s *schema) addProperty(class string, props ...*models.Property) error {
+func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -231,10 +231,10 @@ func (s *schema) addProperty(class string, props ...*models.Property) error {
 	if meta == nil {
 		return errClassNotFound
 	}
-	return meta.AddProperty(props...)
+	return meta.AddProperty(v, props...)
 }
 
-func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error {
+func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 	s.Lock()
 	defer s.Unlock()
@@ -244,10 +244,10 @@ func (s *schema) addTenants(class string, req *command.AddTenantsRequest) error 
 		return errClassNotFound
 	}
 
-	return meta.AddTenants(s.nodeID, req)
+	return meta.AddTenants(s.nodeID, req, v)
 }
 
-func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) error {
+func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -256,10 +256,10 @@ func (s *schema) deleteTenants(class string, req *command.DeleteTenantsRequest) 
 		return errClassNotFound
 	}
 
-	return meta.DeleteTenants(req)
+	return meta.DeleteTenants(req, v)
 }
 
-func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) (n int, err error) {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) (n int, err error) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -268,7 +268,7 @@ func (s *schema) updateTenants(class string, req *command.UpdateTenantsRequest) 
 		return 0, errClassNotFound
 	}
 
-	return meta.UpdateTenants(s.nodeID, req)
+	return meta.UpdateTenants(s.nodeID, req, v)
 }
 
 func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
