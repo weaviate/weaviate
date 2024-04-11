@@ -202,7 +202,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.UpdateShardStatus(
+	_, err := s.manager.UpdateShardStatus(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.ShardName, params.Body.Status)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

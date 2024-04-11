@@ -37,23 +37,23 @@ func (h *Handler) AddTenants(ctx context.Context,
 	principal *models.Principal,
 	class string,
 	tenants []*models.Tenant,
-) (err error) {
-	if err = h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return
+) (uint64, error) {
+	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+		return 0, err
 	}
 
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return
+		return 0, err
 	}
 
 	if err = validateActivityStatuses(validated, true); err != nil {
-		return
+		return 0, err
 	}
 
 	info, err := h.multiTenancy(class)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	names := make([]string, len(validated))
@@ -72,7 +72,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	if err := h.metaReader.Read(class, f); err != nil {
-		return fmt.Errorf("get partitions from class %q: %w", class, err)
+		return 0, fmt.Errorf("get partitions from class %q: %w", class, err)
 	}
 
 	if len(partitions) != len(names) {
@@ -177,7 +177,8 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	for i, tenant := range tenants {
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
-	return h.metaWriter.UpdateTenants(class, &req)
+	_, err = h.metaWriter.UpdateTenants(class, &req)
+	return err
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -203,7 +204,8 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	return h.metaWriter.DeleteTenants(class, &req)
+	_, err := h.metaWriter.DeleteTenants(class, &req)
+	return err
 }
 
 // GetTenants is used to get tenants of a class.

@@ -74,15 +74,15 @@ func (s *Service) SchemaReader() retrySchema {
 	return s.store.SchemaReader()
 }
 
-func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
+func (s *Service) AddClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
-		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
+		return 0, fmt.Errorf("nil class or empty class name : %w", errBadRequest)
 	}
 
 	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_CLASS,
@@ -92,14 +92,14 @@ func (s *Service) AddClass(cls *models.Class, ss *sharding.State) error {
 	return s.Execute(command)
 }
 
-func (s *Service) UpdateClass(cls *models.Class, ss *sharding.State) error {
+func (s *Service) UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
-		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
+		return 0, fmt.Errorf("nil class or empty class name : %w", errBadRequest)
 	}
 	req := cmd.UpdateClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_UPDATE_CLASS,
@@ -109,7 +109,7 @@ func (s *Service) UpdateClass(cls *models.Class, ss *sharding.State) error {
 	return s.Execute(command)
 }
 
-func (s *Service) DeleteClass(name string) error {
+func (s *Service) DeleteClass(name string) (uint64, error) {
 	command := &cmd.ApplyRequest{
 		Type:  cmd.ApplyRequest_TYPE_DELETE_CLASS,
 		Class: name,
@@ -117,14 +117,14 @@ func (s *Service) DeleteClass(name string) error {
 	return s.Execute(command)
 }
 
-func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) error {
+func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
-		return fmt.Errorf("nil class or empty class name : %w", errBadRequest)
+		return 0, fmt.Errorf("nil class or empty class name : %w", errBadRequest)
 	}
 	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_RESTORE_CLASS,
@@ -134,16 +134,16 @@ func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) error {
 	return s.Execute(command)
 }
 
-func (s *Service) AddProperty(class string, props ...*models.Property) error {
+func (s *Service) AddProperty(class string, props ...*models.Property) (uint64, error) {
 	for _, p := range props {
 		if p == nil || p.Name == "" || class == "" {
-			return fmt.Errorf("empty property or empty class name : %w", errBadRequest)
+			return 0, fmt.Errorf("empty property or empty class name : %w", errBadRequest)
 		}
 	}
 	req := cmd.AddPropertyRequest{Properties: props}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_PROPERTY,
@@ -153,14 +153,14 @@ func (s *Service) AddProperty(class string, props ...*models.Property) error {
 	return s.Execute(command)
 }
 
-func (s *Service) UpdateShardStatus(class, shard, status string) error {
+func (s *Service) UpdateShardStatus(class, shard, status string) (uint64, error) {
 	if class == "" || shard == "" {
-		return fmt.Errorf("empty class or shard : %w", errBadRequest)
+		return 0, fmt.Errorf("empty class or shard : %w", errBadRequest)
 	}
 	req := cmd.UpdateShardStatusRequest{Class: class, Shard: shard, Status: status}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_UPDATE_SHARD_STATUS,
@@ -170,13 +170,13 @@ func (s *Service) UpdateShardStatus(class, shard, status string) error {
 	return s.Execute(command)
 }
 
-func (s *Service) AddTenants(class string, req *cmd.AddTenantsRequest) error {
+func (s *Service) AddTenants(class string, req *cmd.AddTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return fmt.Errorf("empty class name or nil request : %w", errBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request : %w", errBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_ADD_TENANT,
@@ -186,13 +186,13 @@ func (s *Service) AddTenants(class string, req *cmd.AddTenantsRequest) error {
 	return s.Execute(command)
 }
 
-func (s *Service) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
+func (s *Service) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return fmt.Errorf("empty class name or nil request : %w", errBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request : %w", errBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_UPDATE_TENANT,
@@ -202,13 +202,13 @@ func (s *Service) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) err
 	return s.Execute(command)
 }
 
-func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) error {
+func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return fmt.Errorf("empty class name or nil request : %w", errBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request : %w", errBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_DELETE_TENANT,
@@ -218,20 +218,20 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) err
 	return s.Execute(command)
 }
 
-func (s *Service) Execute(req *cmd.ApplyRequest) error {
+func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
 	if s.store.IsLeader() {
 		return s.store.Execute(req)
 	}
 	if cmd.ApplyRequest_Type_name[int32(req.Type.Number())] == "" {
-		return ErrUnknownCommand
+		return 0, ErrUnknownCommand
 	}
 
 	leader := s.store.Leader()
 	if leader == "" {
-		return ErrLeaderNotFound
+		return 0, ErrLeaderNotFound
 	}
-	_, err := s.cl.Apply(leader, req)
-	return err
+	resp, err := s.cl.Apply(leader, req)
+	return resp.Version, err
 }
 
 func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {

@@ -19,8 +19,6 @@ import (
 	"log/slog"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -56,7 +54,7 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 	req.State.SetLocalName(nodeID)
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.addClass(req.Class, req.State) },
+		func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 		func() error { return db.store.AddClass(req) },
 		schemaOnly)
 }
@@ -81,7 +79,7 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.addClass(req.Class, req.State) },
+		func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 		func() error { return db.store.AddClass(req) },
 		schemaOnly)
 }
@@ -97,13 +95,14 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		req.State.SetLocalName(nodeID)
 	}
 
-	update := func(cls *models.Class, ss *sharding.State) error {
-		u, err := db.parser.ParseClassUpdate(cls, req.Class)
+	update := func(meta *metaClass) error {
+		u, err := db.parser.ParseClassUpdate(&meta.Class, req.Class)
 		if err != nil {
 			return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
 		}
-		cls.VectorIndexConfig = u.VectorIndexConfig
-		cls.InvertedIndexConfig = u.InvertedIndexConfig
+		meta.Class.VectorIndexConfig = u.VectorIndexConfig
+		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		meta.ClassVersion = cmd.Version
 		return nil
 	}
 
@@ -133,7 +132,7 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.addProperty(cmd.Class, req.Properties...) },
+		func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 		func() error { return db.store.AddProperty(cmd.Class, req) },
 		schemaOnly)
 }
@@ -159,7 +158,7 @@ func (db *localDB) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error 
 
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.addTenants(cmd.Class, req) },
+		func() error { return db.Schema.addTenants(cmd.Class, cmd.Version, req) },
 		func() error { return db.store.AddTenants(cmd.Class, req) },
 		schemaOnly)
 }
@@ -172,7 +171,7 @@ func (db *localDB) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) (n 
 
 	return n, db.apply(
 		cmd.GetType().String(),
-		func() error { n, err = db.Schema.updateTenants(cmd.Class, req); return err },
+		func() error { n, err = db.Schema.updateTenants(cmd.Class, cmd.Version, req); return err },
 		func() error { return db.store.UpdateTenants(cmd.Class, req) },
 		schemaOnly)
 }
@@ -185,7 +184,7 @@ func (db *localDB) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool) err
 
 	return db.apply(
 		cmd.GetType().String(),
-		func() error { return db.Schema.deleteTenants(cmd.Class, req) },
+		func() error { return db.Schema.deleteTenants(cmd.Class, cmd.Version, req) },
 		func() error { return db.store.DeleteTenants(cmd.Class, req) },
 		schemaOnly)
 }

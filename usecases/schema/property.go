@@ -24,29 +24,29 @@ import (
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, merge bool, newProps ...*models.Property,
-) error {
+) (uint64, error) {
 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if len(newProps) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// validate new props
 	for _, prop := range newProps {
 		if prop.Name == "" {
-			return fmt.Errorf("property must contain name")
+			return 0, fmt.Errorf("property must contain name")
 		}
 		prop.Name = schema.LowercaseFirstLetter(prop.Name)
 		if prop.DataType == nil {
-			return fmt.Errorf("property must contain dataType")
+			return 0, fmt.Errorf("property must contain dataType")
 		}
 	}
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
-		return err
+		return 0, err
 	}
 
 	existingNames := make(map[string]bool, len(class.Properties))
@@ -57,7 +57,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	}
 
 	if err := h.validateProperty(class, existingNames, false, newProps...); err != nil {
-		return err
+		return 0, err
 	}
 
 	migratePropertySettings(newProps...)
@@ -67,13 +67,13 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	new, old := split(class.Properties, newProps)
 	if len(old) > 0 {
 		mergeClassExistedProp(class, old...)
-		if err = h.metaWriter.UpdateClass(class, nil); err != nil {
-			return err
+		if _, err = h.metaWriter.UpdateClass(class, nil); err != nil {
+			return 0, err
 		}
 	}
 
 	if len(new) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	return h.metaWriter.AddProperty(class.Class, new...)

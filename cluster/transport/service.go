@@ -33,7 +33,7 @@ type members interface {
 }
 
 type executor interface {
-	Execute(cmd *cmd.ApplyRequest) error
+	Execute(cmd *cmd.ApplyRequest) (uint64, error)
 	Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
@@ -77,9 +77,9 @@ func (s *Service) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cm
 }
 
 func (s *Service) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	err := s.executor.Execute(req)
+	v, err := s.executor.Execute(req)
 	if err == nil {
-		return &cmd.ApplyResponse{}, nil
+		return &cmd.ApplyResponse{Version: v}, nil
 	}
 	return &cmd.ApplyResponse{Leader: s.members.Leader()}, toRPCError(err)
 }

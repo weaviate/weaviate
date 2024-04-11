@@ -106,7 +106,7 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
-) error {
+) (uint64, error) {
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -120,12 +120,12 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return nil
+	return 0, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, merge bool, newProps ...*models.Property,
-) error {
+) (uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
@@ -149,14 +149,14 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return nil
+	return 0, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	principal *models.Principal, class string, tenants []*models.Tenant,
-) error {
+) (uint64, error) {
 	f.tenantsEnabled = true
-	return nil
+	return 0, nil
 }
 
 func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {

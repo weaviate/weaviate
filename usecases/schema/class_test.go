@@ -60,7 +60,7 @@ func Test_AddClass(t *testing.T) {
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 
-		err := handler.AddClass(ctx, nil, &class)
+		_, err := handler.AddClass(ctx, nil, &class)
 		assert.Nil(t, err)
 
 		fakeMetaHandler.AssertExpectations(t)
@@ -69,7 +69,7 @@ func Test_AddClass(t *testing.T) {
 	t.Run("with empty class name", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{}
-		err := handler.AddClass(ctx, nil, &class)
+		_, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, "'' is not a valid class name")
 	})
 
@@ -95,7 +95,7 @@ func Test_AddClass(t *testing.T) {
 		}
 		fakeMetaHandler.On("AddClass", expectedClass, mock.Anything).Return(nil)
 
-		err := handler.AddClass(ctx, nil, &class)
+		_, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeMetaHandler.AssertExpectations(t)
 	})
@@ -126,7 +126,7 @@ func Test_AddClass(t *testing.T) {
 			Stopwords:              expectedStopwordConfig,
 		}
 		fakeMetaHandler.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		err := handler.AddClass(ctx, nil, &class)
+		_, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeMetaHandler.AssertExpectations(t)
 	})
@@ -187,7 +187,7 @@ func Test_AddClass(t *testing.T) {
 						fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 					}
 
-					err := handler.AddClass(context.Background(), nil, class)
+					_, err := handler.AddClass(context.Background(), nil, class)
 					if tc.expectedErrMsg == "" {
 						require.Nil(t, err)
 					} else {
@@ -320,7 +320,7 @@ func Test_AddClass(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 
 		// Vectorizer while VectorConfig exists
-		err := handler.AddClass(ctx, nil, &models.Class{
+		_, err := handler.AddClass(ctx, nil, &models.Class{
 			Class:      "NewClass",
 			Vectorizer: "some",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
@@ -332,7 +332,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "class.vectorizer \"some\" can not be set if class.vectorConfig is configured")
 
 		// VectorIndexType while VectorConfig exists
-		err = handler.AddClass(ctx, nil, &models.Class{
+		_, err = handler.AddClass(ctx, nil, &models.Class{
 			Class:           "NewClass",
 			VectorIndexType: "some",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
@@ -344,7 +344,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "class.vectorIndexType \"some\" can not be set if class.vectorConfig is configured")
 
 		// VectorConfig is invalid VectorIndexType
-		err = handler.AddClass(ctx, nil, &models.Class{
+		_, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
 				VectorIndexType:   "invalid",
@@ -355,7 +355,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "target vector \"custom\": unrecognized or unsupported vectorIndexType \"invalid\"")
 
 		// VectorConfig is invalid Vectorizer
-		err = handler.AddClass(ctx, nil, &models.Class{
+		_, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
 				VectorIndexType:   "flat",
@@ -461,7 +461,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeMetaHandler.On("ReadOnlyClass").Return(nil)
 
-			err := handler.AddClass(ctx, nil, &class)
+			_, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
 
@@ -471,7 +471,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 				fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
 				fakeMetaHandler.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
+					_, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -626,7 +626,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			err := handler.AddClass(ctx, nil, &class)
+			_, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeMetaHandler.AssertExpectations(t)
 		})
@@ -643,7 +643,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeMetaHandler.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 
 					require.Nil(t, err)
 				})
@@ -791,7 +791,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					err := handler.AddClass(context.Background(), nil, class)
+					_, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -811,7 +811,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					err := handler.AddClass(context.Background(), nil, class)
+					_, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -907,7 +907,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					err := handler.AddClass(context.Background(), nil, class)
+					_, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -931,7 +931,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					err := handler.AddClass(context.Background(), nil, class)
+					_, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -957,7 +957,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-					err := handler.AddClass(context.Background(), nil, class)
+					_, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					property := &models.Property{
@@ -967,7 +967,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					err = handler.AddClassProperty(context.Background(), nil, class, false, property)
+					_, err = handler.AddClassProperty(context.Background(), nil, class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -991,7 +991,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					err := handler.AddClass(ctx, nil, class)
+					_, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -1245,11 +1245,12 @@ func Test_UpdateClass(t *testing.T) {
 				if len(test.initial.Properties) > 0 {
 					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
 				}
-				assert.Nil(t, handler.AddClass(ctx, nil, test.initial))
+				_, err := handler.AddClass(ctx, nil, test.initial)
+				assert.Nil(t, err)
 				store.AddClass(test.initial)
 
 				fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				err := handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
+				err = handler.UpdateClass(ctx, nil, test.initial.Class, test.update)
 				if err == nil {
 					err = store.UpdateClass(test.update)
 				}
