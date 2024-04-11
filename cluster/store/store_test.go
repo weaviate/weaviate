@@ -61,7 +61,8 @@ func TestServiceEndpoints(t *testing.T) {
 	srv := NewService(m.store, nil)
 
 	// LeaderNotFound
-	assert.ErrorIs(t, srv.Execute(&command.ApplyRequest{}), ErrLeaderNotFound)
+	_, err := srv.Execute(&command.ApplyRequest{})
+	assert.ErrorIs(t, err, ErrLeaderNotFound)
 	assert.ErrorIs(t, srv.Join(ctx, m.store.nodeID, addr, true), ErrLeaderNotFound)
 	assert.ErrorIs(t, srv.Remove(ctx, m.store.nodeID), ErrLeaderNotFound)
 
@@ -97,7 +98,8 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Equal(t, schema.Len(), 0)
 
 	// AddClass
-	assert.ErrorIs(t, srv.AddClass(nil, nil), errBadRequest)
+	_, err = srv.AddClass(nil, nil)
+	assert.ErrorIs(t, err, errBadRequest)
 	assert.Equal(t, schema.ClassEqual("C"), "")
 
 	cls := &models.Class{
@@ -105,14 +107,17 @@ func TestServiceEndpoints(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 	ss := &sharding.State{Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
-	assert.Nil(t, srv.AddClass(cls, ss))
+	version0, err := srv.AddClass(cls, ss)
+	assert.Nil(t, err)
 	assert.Equal(t, schema.ClassEqual("C"), "C")
 
 	// Add same class again
-	assert.ErrorIs(t, srv.AddClass(cls, ss), errClassExists)
+	_, err = srv.AddClass(cls, ss)
+	assert.ErrorIs(t, err, errClassExists)
 
 	// Add similar class
-	assert.ErrorIs(t, srv.AddClass(&models.Class{Class: "c"}, ss), errClassExists)
+	_, err = srv.AddClass(&models.Class{Class: "c"}, ss)
+	assert.ErrorIs(t, err, errClassExists)
 
 	// QueryReadOnlyClass
 	readOnlyClass, err := srv.QueryReadOnlyClass(cls.Class)
@@ -130,7 +135,10 @@ func TestServiceEndpoints(t *testing.T) {
 	getTenants, err := srv.QueryGetTenants(cls.Class)
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenants)
-	assert.Equal(t, []*models.Tenant{{Name: "T0", ActivityStatus: models.TenantActivityStatusHOT}}, getTenants)
+	assert.Equal(t, []*models.Tenant{{
+		Name:           "T0",
+		ActivityStatus: models.TenantActivityStatusHOT,
+	}}, getTenants)
 
 	// UpdateClass
 	info := ClassInfo{
@@ -139,51 +147,76 @@ func TestServiceEndpoints(t *testing.T) {
 		ReplicationFactor: 1,
 		Tenants:           1,
 	}
-	assert.ErrorIs(t, srv.UpdateClass(nil, nil), errBadRequest)
+	_, err = srv.UpdateClass(nil, nil)
+	assert.ErrorIs(t, err, errBadRequest)
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
-	assert.Nil(t, srv.UpdateClass(cls, nil))
+	version, err := srv.UpdateClass(cls, nil)
+	info.ClassVersion = version
+	info.ShardVersion = version0
+	assert.Nil(t, err)
 	assert.Equal(t, info, schema.ClassInfo("C"))
 
 	// DeleteClass
-	assert.Nil(t, srv.DeleteClass("X"))
-	assert.Nil(t, srv.DeleteClass("C"))
+	_, err = srv.DeleteClass("X")
+	assert.Nil(t, err)
+	_, err = srv.DeleteClass("C")
+	assert.Nil(t, err)
 	assert.Equal(t, ClassInfo{}, schema.ClassInfo("C"))
 
 	// RestoreClass
-	assert.ErrorIs(t, srv.RestoreClass(nil, nil), errBadRequest)
-	assert.Nil(t, srv.RestoreClass(cls, ss))
+	_, err = srv.RestoreClass(nil, nil)
+	assert.ErrorIs(t, err, errBadRequest)
+	version, err = srv.RestoreClass(cls, ss)
+	assert.Nil(t, err)
+	info.ClassVersion = version
+	info.ShardVersion = version
 	assert.Equal(t, info, schema.ClassInfo("C"))
 
 	// AddProperty
-	assert.ErrorIs(t, srv.AddProperty("C", nil), errBadRequest)
-	assert.ErrorIs(t, srv.AddProperty("", &models.Property{Name: "P1"}), errBadRequest)
-	assert.Nil(t, srv.AddProperty("C", &models.Property{Name: "P1"}))
+	_, err = srv.AddProperty("C", nil)
+	assert.ErrorIs(t, err, errBadRequest)
+	_, err = srv.AddProperty("", &models.Property{Name: "P1"})
+	assert.ErrorIs(t, err, errBadRequest)
+	version, err = srv.AddProperty("C", &models.Property{Name: "P1"})
+	assert.Nil(t, err)
+	info.ClassVersion = version
 	info.Properties = 1
 	assert.Equal(t, info, schema.ClassInfo("C"))
 
 	// UpdateStatus
-	assert.ErrorIs(t, srv.UpdateShardStatus("", "A", "ACTIVE"), errBadRequest)
-	assert.ErrorIs(t, srv.UpdateShardStatus("C", "", "ACTIVE"), errBadRequest)
-	assert.Nil(t, srv.UpdateShardStatus("C", "A", "ACTIVE"))
+	_, err = srv.UpdateShardStatus("", "A", "ACTIVE")
+	assert.ErrorIs(t, err, errBadRequest)
+	_, err = srv.UpdateShardStatus("C", "", "ACTIVE")
+	assert.ErrorIs(t, err, errBadRequest)
+	_, err = srv.UpdateShardStatus("C", "A", "ACTIVE")
+	assert.Nil(t, err)
 
 	// AddTenants
-	assert.ErrorIs(t, srv.AddTenants("", &command.AddTenantsRequest{}), errBadRequest)
-	assert.Nil(t, srv.AddTenants("C", &command.AddTenantsRequest{
+	_, err = srv.AddTenants("", &command.AddTenantsRequest{})
+	assert.ErrorIs(t, err, errBadRequest)
+	version, err = srv.AddTenants("C", &command.AddTenantsRequest{
 		Tenants: []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
-	}))
+	})
+	assert.Nil(t, err)
+	info.ShardVersion = version
 	info.Tenants += 1
 	assert.Equal(t, schema.ClassInfo("C"), info)
 
 	// UpdateTenants
-	assert.ErrorIs(t, srv.UpdateTenants("", &command.UpdateTenantsRequest{}), errBadRequest)
-	assert.Nil(t, srv.UpdateTenants("C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T2", Status: "S2"}}}))
+	_, err = srv.UpdateTenants("", &command.UpdateTenantsRequest{})
+	assert.ErrorIs(t, err, errBadRequest)
+	_, err = srv.UpdateTenants("C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T2", Status: "S2"}}})
+	assert.Nil(t, err)
 
 	// DeleteTenants
-	assert.ErrorIs(t, srv.DeleteTenants("", &command.DeleteTenantsRequest{}), errBadRequest)
-	assert.Nil(t, srv.DeleteTenants("C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}}))
+	_, err = srv.DeleteTenants("", &command.DeleteTenantsRequest{})
+	assert.ErrorIs(t, err, errBadRequest)
+	version, err = srv.DeleteTenants("C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}})
+	assert.Nil(t, err)
 	info.Tenants -= 1
+	info.ShardVersion = version
 	assert.Equal(t, info, schema.ClassInfo("C"))
 	assert.Equal(t, "S2", schema.CopyShardingState("C").Physical["T2"].Status)
 

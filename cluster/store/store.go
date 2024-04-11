@@ -550,7 +550,9 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.len())
 	}
 
-	st.lastAppliedIndex.Store(st.raft.AppliedIndex()) // TODO-RAFT: check if raft return the latest applied index
+	if st.raft != nil {
+		st.lastAppliedIndex.Store(st.raft.AppliedIndex()) // TODO-RAFT: check if raft return the latest applied index
+	}
 
 	return nil
 }

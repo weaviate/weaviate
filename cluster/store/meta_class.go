@@ -135,6 +135,7 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	dest := make([]*models.Property, len(src)+len(props))
 	copy(dest, append(src, props...))
 	m.Class.Properties = dest
+	m.ClassVersion = v
 	return nil
 }
 
