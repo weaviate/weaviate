@@ -43,9 +43,9 @@ type metaWriter interface {
 
 	// Strongly consistent schema read
 	QueryReadOnlyClass(name string) (*models.Class, error)
-	QueryGetSchema() (models.Schema, error)
-	QueryGetTenants(class string) ([]*models.Tenant, error)
-	QueryGetShardOwner(class, shard string) (string, error)
+	QuerySchema() (models.Schema, error)
+	QueryTenants(class string) ([]*models.Tenant, error)
+	QueryShardOwner(class, shard string) (string, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
@@ -150,7 +150,7 @@ func (m *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		return m.getSchema(), nil
 	}
 
-	if consistentSchema, err := m.metaWriter.QueryGetSchema(); err != nil {
+	if consistentSchema, err := m.metaWriter.QuerySchema(); err != nil {
 		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 	} else {
 		return schema.Schema{

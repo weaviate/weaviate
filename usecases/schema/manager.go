@@ -348,7 +348,7 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantShard(class, tenant string) (string, string) {
-	tenants, err := m.metaWriter.QueryGetTenants(class)
+	tenants, err := m.metaWriter.QueryTenants(class)
 	if err != nil {
 		return "", ""
 	}
@@ -362,7 +362,7 @@ func (m *Manager) TenantShard(class, tenant string) (string, string) {
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
-	owner, err := m.metaWriter.QueryGetShardOwner(class, shard)
+	owner, err := m.metaWriter.QueryShardOwner(class, shard)
 	if err != nil {
 		return "", err
 	}

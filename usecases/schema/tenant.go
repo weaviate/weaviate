@@ -222,7 +222,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	}
 
 	if consistency {
-		return h.metaWriter.QueryGetTenants(class)
+		return h.metaWriter.QueryTenants(class)
 	}
 
 	// If non consistent, fallback to the default implementation

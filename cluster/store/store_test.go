@@ -120,26 +120,26 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.NotNil(t, readOnlyClass)
 	assert.Equal(t, cls, readOnlyClass)
 
-	// QueryGetSchema
-	getSchema, err := srv.QueryGetSchema()
+	// QuerySchema
+	getSchema, err := srv.QuerySchema()
 	assert.NoError(t, err)
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
 
-	// QueryGetTenants
-	getTenants, err := srv.QueryGetTenants(cls.Class)
+	// QueryTenants
+	getTenants, err := srv.QueryTenants(cls.Class)
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenants)
 	assert.Equal(t, []*models.Tenant{{Name: "T0", ActivityStatus: models.TenantActivityStatusHOT}}, getTenants)
 
-	// QueryGetShardOwner - Err
-	_, err = srv.QueryGetShardOwner(cls.Class, "T0")
+	// QueryShardOwner - Err
+	_, err = srv.QueryShardOwner(cls.Class, "T0")
 	assert.NotNil(t, err)
 
-	// QueryGetShardOwner
+	// QueryShardOwner
 	mc := srv.SchemaReader().metaClass(cls.Class)
 	mc.Sharding = sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}}
-	getShardOwner, err := srv.QueryGetShardOwner(cls.Class, "T0")
+	getShardOwner, err := srv.QueryShardOwner(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
