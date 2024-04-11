@@ -28,49 +28,49 @@ type fakeMetaHandler struct {
 	countClassEqual bool
 }
 
-func (f *fakeMetaHandler) AddClass(cls *models.Class, ss *sharding.State) error {
+func (f *fakeMetaHandler) AddClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) RestoreClass(cls *models.Class, ss *sharding.State) error {
+func (f *fakeMetaHandler) RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) UpdateClass(cls *models.Class, ss *sharding.State) error {
+func (f *fakeMetaHandler) UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error) {
 	args := f.Called(cls, ss)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) DeleteClass(name string) error {
+func (f *fakeMetaHandler) DeleteClass(name string) (uint64, error) {
 	args := f.Called(name)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) AddProperty(class string, p ...*models.Property) error {
+func (f *fakeMetaHandler) AddProperty(class string, p ...*models.Property) (uint64, error) {
 	args := f.Called(class, p)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) UpdateShardStatus(class, shard, status string) error {
+func (f *fakeMetaHandler) UpdateShardStatus(class, shard, status string) (uint64, error) {
 	args := f.Called(class, shard, status)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) AddTenants(class string, req *command.AddTenantsRequest) error {
+func (f *fakeMetaHandler) AddTenants(class string, req *command.AddTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) UpdateTenants(class string, req *command.UpdateTenantsRequest) error {
+func (f *fakeMetaHandler) UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) DeleteTenants(class string, req *command.DeleteTenantsRequest) error {
+func (f *fakeMetaHandler) DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
-	return args.Error(0)
+	return 0, args.Error(0)
 }
 
 func (f *fakeMetaHandler) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {

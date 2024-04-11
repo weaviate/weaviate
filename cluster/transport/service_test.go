@@ -263,11 +263,11 @@ type MockExecutor struct {
 	qf func(*cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
-func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) error {
+func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) (uint64, error) {
 	if m.ef != nil {
-		return m.ef()
+		return 0, m.ef()
 	}
-	return nil
+	return 0, nil
 }
 
 func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {

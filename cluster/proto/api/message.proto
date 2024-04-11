@@ -53,11 +53,13 @@ message ApplyRequest {
   }
   Type type = 1;
   string class = 2;
-  bytes sub_command = 3;
+  uint64 version = 3;
+  bytes sub_command = 4;
 }
 
 message ApplyResponse {
-  string leader = 1;
+  uint64 version = 1;
+  string leader = 2;
 }
 
 message QueryRequest {
