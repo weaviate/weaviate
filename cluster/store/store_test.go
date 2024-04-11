@@ -132,6 +132,17 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.NotNil(t, getTenants)
 	assert.Equal(t, []*models.Tenant{{Name: "T0", ActivityStatus: models.TenantActivityStatusHOT}}, getTenants)
 
+	// QueryGetShardOwner - Err
+	_, err = srv.QueryGetShardOwner(cls.Class, "T0")
+	assert.NotNil(t, err)
+
+	// QueryGetShardOwner
+	mc := srv.SchemaReader().metaClass(cls.Class)
+	mc.Sharding = sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}}
+	getShardOwner, err := srv.QueryGetShardOwner(cls.Class, "T0")
+	assert.Nil(t, err)
+	assert.Equal(t, "N0", getShardOwner)
+
 	// UpdateClass
 	info := ClassInfo{
 		Exists:            true,

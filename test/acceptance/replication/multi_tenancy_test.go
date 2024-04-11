@@ -39,7 +39,7 @@ func multiTenancyEnabled(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		With2NodeCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -55,14 +55,14 @@ func multiTenancyEnabled(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled: true,
 		}
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled: true,
