@@ -35,6 +35,8 @@ type ClassInfo struct {
 	ReplicationFactor int
 	Tenants           int
 	Properties        int
+	ClassVersion      uint64
+	ShardVersion      uint64
 }
 
 type schema struct {
@@ -191,7 +193,7 @@ func (s *schema) len() int {
 	return len(s.Classes)
 }
 
-func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
+func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error {
 	s.Lock()
 	defer s.Unlock()
 	_, exists := s.Classes[cls.Class]
@@ -199,7 +201,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State) error {
 		return errClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss}
+	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
 	return nil
 }
 

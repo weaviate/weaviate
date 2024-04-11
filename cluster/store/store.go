@@ -484,6 +484,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 	}()
 
+	cmd.Version = l.Index
 	switch cmd.Type {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
