@@ -96,8 +96,8 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return fmt.Errorf("init sharding state: %w", err)
 	}
-
-	return h.metaWriter.AddClass(cls, shardState)
+	_, err = h.metaWriter.AddClass(cls, shardState)
+	return err
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
@@ -142,8 +142,8 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
-
-	return h.metaWriter.RestoreClass(class, &shardingState)
+	_, err = h.metaWriter.RestoreClass(class, &shardingState)
+	return err
 }
 
 // DeleteClass from the schema
@@ -153,7 +153,8 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 		return err
 	}
 
-	return h.metaWriter.DeleteClass(class)
+	_, err = h.metaWriter.DeleteClass(class)
+	return err
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
@@ -188,8 +189,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 
 	}
+	_, err = h.metaWriter.UpdateClass(updated, nil)
 
-	return h.metaWriter.UpdateClass(updated, nil)
+	return err
 }
 
 func (h *Handler) setClassDefaults(class *models.Class) {

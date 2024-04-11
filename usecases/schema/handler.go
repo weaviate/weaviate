@@ -31,15 +31,15 @@ var ErrNotFound = errors.New("not found")
 
 type metaWriter interface {
 	// Schema writes operation
-	AddClass(cls *models.Class, ss *sharding.State) error
-	RestoreClass(cls *models.Class, ss *sharding.State) error
-	UpdateClass(cls *models.Class, ss *sharding.State) error
-	DeleteClass(name string) error
-	AddProperty(class string, p ...*models.Property) error
-	UpdateShardStatus(class, shard, status string) error
-	AddTenants(class string, req *command.AddTenantsRequest) error
-	UpdateTenants(class string, req *command.UpdateTenantsRequest) error
-	DeleteTenants(class string, req *command.DeleteTenantsRequest) error
+	AddClass(cls *models.Class, ss *sharding.State) (uint64, error)
+	RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error)
+	UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error)
+	DeleteClass(name string) (uint64, error)
+	AddProperty(class string, p ...*models.Property) (uint64, error)
+	UpdateShardStatus(class, shard, status string) (uint64, error)
+	AddTenants(class string, req *command.AddTenantsRequest) (uint64, error)
+	UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error)
+	DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error)
 
 	// Strongly consistent schema read
 	QueryReadOnlyClass(name string) (*models.Class, error)
@@ -181,11 +181,11 @@ func (h *Handler) NodeName() string {
 
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
-) error {
+) (uint64, error) {
 	err := h.Authorizer.Authorize(principal, "update",
 		fmt.Sprintf("schema/%s/shards/%s", class, shard))
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	return h.metaWriter.UpdateShardStatus(class, shard, status)

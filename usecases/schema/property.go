@@ -67,7 +67,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	new, old := split(class.Properties, newProps)
 	if len(old) > 0 {
 		mergeClassExistedProp(class, old...)
-		if err = h.metaWriter.UpdateClass(class, nil); err != nil {
+		if _, err = h.metaWriter.UpdateClass(class, nil); err != nil {
 			return err
 		}
 	}
@@ -76,7 +76,8 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return nil
 	}
 
-	return h.metaWriter.AddProperty(class.Class, new...)
+	_, err = h.metaWriter.AddProperty(class.Class, new...)
+	return err
 }
 
 // split does split the passed properties based in their existence

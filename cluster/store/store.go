@@ -130,7 +130,9 @@ type Store struct {
 	heartbeatTimeout time.Duration
 	electionTimeout  time.Duration
 	snapshotInterval time.Duration
-	applyTimeout     time.Duration
+
+	// applyTimeout timeout limit the amount of time raft waits for a command to be started
+	applyTimeout time.Duration
 
 	// migrationTimeout is the timeout for restoring the legacy schema
 	migrationTimeout time.Duration
@@ -154,6 +156,11 @@ type Store struct {
 
 	// initialLastAppliedIndex represents the index of the last applied command when the store is opened.
 	initialLastAppliedIndex uint64
+
+	// lastIndex        atomic.Uint64
+
+	// lastAppliedIndex index of latest update to the store
+	lastAppliedIndex atomic.Uint64
 
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
@@ -219,7 +226,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
-
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 	st.log.Info("raft node",
 		"raft_applied_index", st.raft.AppliedIndex(),
 		"raft_last_index", st.raft.LastIndex(),
@@ -416,34 +423,34 @@ func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
 	return st.raft.LeaderWithID()
 }
 
-func (st *Store) Execute(req *api.ApplyRequest) error {
+func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
 
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal command: %w", err)
+		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
 		st.log.Info("class already restored", "class", req.Class)
-		return nil
+		return 0, nil
 	}
 	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
 		if other := st.FindSimilarClass(req.Class); other == req.Class {
-			return errClassExists
+			return 0, errClassExists
 		} else if other != "" {
-			return fmt.Errorf("%w: found similar class %q", errClassExists, other)
+			return 0, fmt.Errorf("%w: found similar class %q", errClassExists, other)
 		}
 	}
 
 	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
 	if err := fut.Error(); err != nil {
 		if errors.Is(err, raft.ErrNotLeader) {
-			return ErrNotLeader
+			return 0, ErrNotLeader
 		}
-		return err
+		return 0, err
 	}
 	resp := fut.Response().(Response)
-	return resp.Error
+	return resp.Version, resp.Error
 }
 
 // Apply log is invoked once a log entry is committed.
@@ -451,7 +458,7 @@ func (st *Store) Execute(req *api.ApplyRequest) error {
 // ApplyFuture returned by Raft.Apply method if that
 // method was called on the same Raft node as the FSM.
 func (st *Store) Apply(l *raft.Log) interface{} {
-	ret := Response{}
+	ret := Response{Version: l.Index}
 	st.log.Debug("apply command", "type", l.Type, "index", l.Index)
 	if l.Type != raft.LogCommand {
 		st.log.Info("not a valid command", "type", l.Type, "index", l.Index)
@@ -465,6 +472,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
+		st.lastAppliedIndex.Store(l.Index)
 		// If the local db has not been loaded, wait until we reach the state
 		// from the local raft log before loading the db.
 		// This is necessary because the database operations are not idempotent
@@ -476,6 +484,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 	}()
 
+	cmd.Version = l.Index
 	switch cmd.Type {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
@@ -539,6 +548,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 	if st.reloadDB() {
 		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.len())
+	}
+
+	if st.raft != nil {
+		st.lastAppliedIndex.Store(st.raft.AppliedIndex()) // TODO-RAFT: check if raft return the latest applied index
 	}
 
 	return nil
@@ -697,8 +710,9 @@ func (st *Store) reloadDB() bool {
 }
 
 type Response struct {
-	Error error
-	Data  interface{}
+	Error   error
+	Version uint64
+	Data    interface{}
 }
 
 var _ raft.FSM = &Store{}
