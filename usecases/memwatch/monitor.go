@@ -13,7 +13,9 @@ package memwatch
 
 import (
 	"fmt"
+	"os"
 	"runtime/metrics"
+	"strconv"
 	"sync"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -154,6 +156,15 @@ func EstimateObjectMemory(object *models.Object) int64 {
 func EstimateObjectDeleteMemory() int64 {
 	// When deleting an object we attach a tombstone to the object in the HNSW and a new segment in the Memtable and
 	// additional other temporary allocations.
-	// The total amount is hard to guess so we go with 100 bytes.
+	// The total amount is hard to guess, so we go with a default of 100 bytes.
+	estimate := int64(100)
+	if v := os.Getenv("MEMORY_ESTIMATE_DELETE_BYTES"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return estimate
+		}
+
+		return int64(asInt)
+	}
 	return 100
 }

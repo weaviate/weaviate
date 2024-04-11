@@ -18,6 +18,23 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestEstimation(t *testing.T) {
+	t.Run("set correctly", func(t *testing.T) {
+		t.Setenv("MEMORY_ESTIMATE_DELETE_BYTES", "120")
+		assert.Equal(t, int64(120), EstimateObjectDeleteMemory())
+	})
+
+	t.Run("set wrong - use default", func(t *testing.T) {
+		t.Setenv("MEMORY_ESTIMATE_DELETE_BYTES", "abc")
+		assert.Equal(t, int64(100), EstimateObjectDeleteMemory())
+	})
+
+	t.Run("unset - use default", func(t *testing.T) {
+		t.Setenv("MEMORY_ESTIMATE_DELETE_BYTES", "")
+		assert.Equal(t, int64(100), EstimateObjectDeleteMemory())
+	})
+}
+
 func TestMonitor(t *testing.T) {
 	t.Run("with constant profiles (no changes)", func(t *testing.T) {
 		metrics := &fakeHeapReader{val: 30000}
