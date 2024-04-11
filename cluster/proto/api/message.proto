@@ -58,7 +58,8 @@ message ApplyRequest {
 }
 
 message ApplyResponse {
-  string leader = 1;
+  uint64 version = 1;
+  string leader = 2;
 }
 
 message QueryRequest {
