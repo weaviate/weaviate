@@ -130,7 +130,9 @@ type Store struct {
 	heartbeatTimeout time.Duration
 	electionTimeout  time.Duration
 	snapshotInterval time.Duration
-	applyTimeout     time.Duration
+
+	// applyTimeout timeout limit the amount of time raft waits for a command to be started
+	applyTimeout time.Duration
 
 	// migrationTimeout is the timeout for restoring the legacy schema
 	migrationTimeout time.Duration
@@ -154,6 +156,11 @@ type Store struct {
 
 	// initialLastAppliedIndex represents the index of the last applied command when the store is opened.
 	initialLastAppliedIndex uint64
+
+	// lastIndex        atomic.Uint64
+
+	// lastAppliedIndex index of latest update to the store
+	lastAppliedIndex atomic.Uint64
 
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
@@ -219,7 +226,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
-
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 	st.log.Info("raft node",
 		"raft_applied_index", st.raft.AppliedIndex(),
 		"raft_last_index", st.raft.LastIndex(),
@@ -465,6 +472,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
+		st.lastAppliedIndex.Store(l.Index)
 		// If the local db has not been loaded, wait until we reach the state
 		// from the local raft log before loading the db.
 		// This is necessary because the database operations are not idempotent
@@ -540,6 +548,8 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	if st.reloadDB() {
 		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.len())
 	}
+
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex()) // TODO-RAFT: check if raft return the latest applied index
 
 	return nil
 }
