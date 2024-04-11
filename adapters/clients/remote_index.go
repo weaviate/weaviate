@@ -63,7 +63,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*30, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*30, req, body, nil, func(code int) bool { return code != http.StatusNoContent })
 	return err
 }
 
