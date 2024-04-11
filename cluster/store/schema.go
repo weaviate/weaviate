@@ -274,8 +274,8 @@ func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
 	// To avoid races between checking that multi tenancy is enabled and reading from the class itself,
 	// ensure we fetch both using the same lock.
 	// We will then read the tenants from the class using the more specific meta lock
-	info := s.ClassInfo(class)
-	meta := s.metaClass(class)
+	info := s.Classes[class].ClassInfo()
+	meta := s.Classes[class]
 	s.RUnlock()
 
 	// Check that the class exists, and that multi tenancy is enabled
