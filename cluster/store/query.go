@@ -39,6 +39,12 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenants: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_SHARD_OWNER:
+		payload, err = st.QueryGetShardOwner(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get shard owner: %w", err)
+		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -96,6 +102,28 @@ func (st *Store) QueryGetTenants(req *cmd.QueryRequest) ([]byte, error) {
 
 	// Build the response, marshal and return
 	response := cmd.QueryGetTenantsResponse{Tenants: tenants}
+	payload, err := json.Marshal(&response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (st *Store) QueryGetShardOwner(req *cmd.QueryRequest) ([]byte, error) {
+	// Validate that the subcommand is the correct type
+	subCommand := cmd.QueryGetShardOwnerRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
+	}
+
+	// Read the meta class to get both the class and sharding information
+	owner, err := st.db.Schema.ShardOwner(subCommand.Class, subCommand.Shard)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	// Build the response, marshal and return
+	response := cmd.QueryGetShardOwnerResponse{Owner: owner}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)

@@ -66,6 +66,7 @@ message QueryRequest {
     TYPE_GET_CLASS = 1;
     TYPE_GET_SCHEMA = 2;
     TYPE_GET_TENANTS = 3;
+    TYPE_GET_SHARD_OWNER = 4;
   }
 
   Type type = 1;
