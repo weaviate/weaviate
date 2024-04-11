@@ -166,5 +166,5 @@ func EstimateObjectDeleteMemory() int64 {
 
 		return int64(asInt)
 	}
-	return 100
+	return estimate
 }
