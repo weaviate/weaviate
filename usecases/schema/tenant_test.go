@@ -161,7 +161,7 @@ func TestAddTenants(t *testing.T) {
 
 			test.mockCalls(fakeMetaHandler)
 
-			err := handler.AddTenants(ctx, nil, test.class, test.tenants)
+			_, err := handler.AddTenants(ctx, nil, test.class, test.tenants)
 
 			fakeMetaHandler.AssertExpectations(t)
 

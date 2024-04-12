@@ -109,6 +109,8 @@ func testContainsAnyAll(t *testing.T, host string) func(t *testing.T) {
 			}
 			err := client.Schema().ClassCreator().WithClass(class).Do(context.TODO())
 			require.Nil(t, err)
+			// Give time for the schema to replicate and graphql to rebuild it for it's queries
+			time.Sleep(3 * time.Second)
 		})
 
 		t.Run("where with bm25 without data", func(t *testing.T) {

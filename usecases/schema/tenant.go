@@ -37,23 +37,23 @@ func (h *Handler) AddTenants(ctx context.Context,
 	principal *models.Principal,
 	class string,
 	tenants []*models.Tenant,
-) (err error) {
-	if err = h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return
+) (uint64, error) {
+	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+		return 0, err
 	}
 
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return
+		return 0, err
 	}
 
 	if err = validateActivityStatuses(validated, true); err != nil {
-		return
+		return 0, err
 	}
 
 	info, err := h.multiTenancy(class)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	names := make([]string, len(validated))
@@ -72,7 +72,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	if err := h.metaReader.Read(class, f); err != nil {
-		return fmt.Errorf("get partitions from class %q: %w", class, err)
+		return 0, fmt.Errorf("get partitions from class %q: %w", class, err)
 	}
 
 	if len(partitions) != len(names) {
@@ -95,8 +95,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		}
 	}
 
-	_, err = h.metaWriter.AddTenants(class, &request)
-	return err
+	return h.metaWriter.AddTenants(class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
