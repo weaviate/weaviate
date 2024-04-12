@@ -330,19 +330,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	// TODO-RAFT START
-	go func() {
-		if err := appState.CloudService.Open(context.Background(), executor); err != nil {
-			appState.Logger.
-				WithField("action", "startup").
-				WithError(err).
-				Fatal("could not open cloud meta store")
-		}
-	}()
-
-	time.Sleep(2 * time.Second)
-	// TODO-RAFT END
-
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
@@ -403,9 +390,22 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
+	updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
+
+	// TODO-RAFT START
+	go func() {
+		if err := appState.CloudService.Open(context.Background(), executor); err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+		// manually update schema once
+		updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
+	}()
+
+	time.Sleep(2 * time.Second)
+	// TODO-RAFT END
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
