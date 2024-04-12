@@ -177,7 +177,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 		for _, tc := range testCases {
 			// Set up schema independently for each test
 			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
-			fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+			fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 
 			strTokenization := "empty"
 			if tc.tokenization != "" {
@@ -199,7 +199,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 
 				// If we expect no error, assert that the call is made with the property, else assert that no call was made to add the
 				// property
-				fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+				fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				if len(tc.expectedErrContains) == 0 {
 					fakeMetaHandler.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
 				} else {
@@ -407,9 +407,9 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 		Class:      "RefClass",
 		Vectorizer: "none",
 	}
-	fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&refClass)
+	fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
-	fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+	fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 	_, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)
 	_, err = handler.AddClass(ctx, nil, &refClass)

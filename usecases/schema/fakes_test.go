@@ -100,9 +100,19 @@ func (f *fakeMetaHandler) MultiTenancy(class string) models.MultiTenancyConfig {
 	return args.Get(0).(models.MultiTenancyConfig)
 }
 
+func (f *fakeMetaHandler) MultiTenancyWithVersion(class string, version uint64) (models.MultiTenancyConfig, uint64) {
+	args := f.Called(class, version)
+	return args.Get(0).(models.MultiTenancyConfig), 0
+}
+
 func (f *fakeMetaHandler) ClassInfo(class string) (ci store.ClassInfo) {
 	args := f.Called(class)
 	return args.Get(0).(store.ClassInfo)
+}
+
+func (f *fakeMetaHandler) ClassInfoWithVersion(class string, version uint64) (store.ClassInfo, uint64) {
+	args := f.Called(class, version)
+	return args.Get(0).(store.ClassInfo), 0
 }
 
 func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
@@ -110,23 +120,23 @@ func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, error) {
+func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, uint64, error) {
 	args := f.Called(class)
 	model := args.Get(0)
 	if model == nil {
-		return nil, nil
+		return nil, 0, nil
 	}
-	return model.(*models.Class), nil
+	return model.(*models.Class), 0, nil
 }
 
-func (f *fakeMetaHandler) QueryTenants(class string) ([]*models.Tenant, error) {
+func (f *fakeMetaHandler) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
 	args := f.Called(class)
-	return nil, args.Error(0)
+	return nil, 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, error) {
+func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, uint64, error) {
 	args := f.Called(class, shard)
-	return args.Get(0).(string), args.Error(0)
+	return args.Get(0).(string), 0, args.Error(0)
 }
 
 func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
@@ -136,6 +146,15 @@ func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
 		return nil
 	}
 	return model.(*models.Class)
+}
+
+func (f *fakeMetaHandler) ReadOnlyClassWithVersion(class string, version uint64) (*models.Class, uint64) {
+	args := f.Called(class, version)
+	model := args.Get(0)
+	if model == nil {
+		return nil, 0
+	}
+	return model.(*models.Class), 0
 }
 
 func (f *fakeMetaHandler) ReadOnlySchema() models.Schema {
@@ -148,9 +167,19 @@ func (f *fakeMetaHandler) CopyShardingState(class string) *sharding.State {
 	return args.Get(0).(*sharding.State)
 }
 
+func (f *fakeMetaHandler) CopyShardingStateWithVersion(class string, version uint64) (*sharding.State, uint64) {
+	args := f.Called(class, version)
+	return args.Get(0).(*sharding.State), 0
+}
+
 func (f *fakeMetaHandler) ShardReplicas(class, shard string) ([]string, error) {
 	args := f.Called(class, shard)
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (f *fakeMetaHandler) ShardReplicasWithVersion(class, shard string, version uint64) ([]string, uint64, error) {
+	args := f.Called(class, shard, version)
+	return args.Get(0).([]string), 0, args.Error(1)
 }
 
 func (f *fakeMetaHandler) ShardFromUUID(class string, uuid []byte) string {
@@ -158,14 +187,29 @@ func (f *fakeMetaHandler) ShardFromUUID(class string, uuid []byte) string {
 	return args.String(0)
 }
 
+func (f *fakeMetaHandler) ShardFromUUIDWithVersion(class string, uuid []byte, version uint64) (string, uint64) {
+	args := f.Called(class, uuid, version)
+	return args.String(0), 0
+}
+
 func (f *fakeMetaHandler) ShardOwner(class, shard string) (string, error) {
 	args := f.Called(class, shard)
 	return args.String(0), args.Error(1)
 }
 
+func (f *fakeMetaHandler) ShardOwnerWithVersion(class, shard string, version uint64) (string, uint64, error) {
+	args := f.Called(class, shard, version)
+	return args.String(0), 0, args.Error(1)
+}
+
 func (f *fakeMetaHandler) TenantShard(class, tenant string) (string, string) {
 	args := f.Called(class, tenant)
 	return args.String(0), args.String(1)
+}
+
+func (f *fakeMetaHandler) TenantShardWithVersion(class, tenant string, version uint64) (string, string, uint64) {
+	args := f.Called(class, tenant, version)
+	return args.String(0), args.String(1), 0
 }
 
 func (f *fakeMetaHandler) Read(class string, reader func(*models.Class, *sharding.State) error) error {

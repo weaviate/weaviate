@@ -28,7 +28,7 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 	}
 	rsc := retrySchema{sc}
 	// class not found
-	_, err := sc.ShardReplicas("C", "S")
+	_, err, _ := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, errClassNotFound)
 
 	// shard not found
