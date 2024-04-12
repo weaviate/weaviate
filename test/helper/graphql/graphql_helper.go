@@ -58,8 +58,8 @@ func QueryGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc
 func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
 	var (
 		err      error
-		response = &models.GraphQLResponse{}
-		count    = 0
+		response *models.GraphQLResponse
+		count    int
 	)
 	// TODO-RAFT: this try in window of 10 sec. because the graphql rebuild has to be done
 	// after RAFT is ready. it should be removed once RAFT<->GraphQl is stable
