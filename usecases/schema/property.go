@@ -124,10 +124,6 @@ func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Pri
 
 func (h *Handler) setNewPropDefaults(class *models.Class, props ...*models.Property) error {
 	setPropertyDefaults(props...)
-	if err := validateUserProp(class, props...); err != nil {
-		return err
-	}
-
 	h.moduleConfig.SetSinglePropertyDefaults(class, props...)
 	return nil
 }
