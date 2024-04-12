@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -71,7 +72,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		schemaClass, err := m.schemaManager.GetConsistentClassCached(ctx, principal, object.Class)
+		schemaClass, _, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
 		if err != nil {
 			return err
 		}
@@ -86,13 +87,15 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			if err := m.createClass(ctx, principal, object.Class, properties); err != nil {
 				return err
 			}
+			classcache.RemoveClassFromContext(ctx, object.Class)
 			continue
 		}
-		newProps := schema.DedupProperties(schemaClass.Properties, properties)
-		if len(newProps) > 0 {
-			if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, newProps...); err != nil {
+		newProperties := schema.DedupProperties(schemaClass.Properties, properties)
+		if len(newProperties) > 0 {
+			if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, newProperties...); err != nil {
 				return err
 			}
+			classcache.RemoveClassFromContext(ctx, object.Class)
 		}
 	}
 	return nil
@@ -461,7 +464,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
 	for className, tenantNames := range classTenants {
-		class, err := m.schemaManager.GetConsistentClassCached(ctx, principal, className)
+		class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 		if err != nil || // invalid class
 			!schema.MultiTenancyEnabled(class) || // non-MT class
 			!class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation

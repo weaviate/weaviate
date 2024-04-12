@@ -116,7 +116,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		class, ok := classPerClassName[obj.Class]
 		if !ok {
 			var err2 error
-			if class, err2 = b.schemaManager.GetConsistentClassCached(ctx, principal, obj.Class); err2 != nil {
+			if class, _, err2 = b.schemaManager.GetCachedClass(ctx, principal, obj.Class); err2 != nil {
 				batchObjects[i].Err = err2
 				continue
 			}

@@ -19,13 +19,27 @@ import (
 
 type classCache sync.Map
 
-func (cc *classCache) Load(name string) (*models.Class, bool) {
-	if c, ok := (*sync.Map)(cc).Load(name); ok {
-		return c.(*models.Class), true
+type classCacheEntry struct {
+	class   *models.Class
+	version uint64
+}
+
+func (cc *classCache) Load(name string) (*classCacheEntry, bool) {
+	if e, ok := (*sync.Map)(cc).Load(name); ok {
+		return e.(*classCacheEntry), true
 	}
 	return nil, false
 }
 
-func (cc *classCache) Store(name string, class *models.Class) {
-	(*sync.Map)(cc).Store(name, class)
+func (cc *classCache) LoadOrStore(name string, entry *classCacheEntry) (*classCacheEntry, bool) {
+	e, ok := (*sync.Map)(cc).LoadOrStore(name, entry)
+	return e.(*classCacheEntry), ok
+}
+
+// func (cc *classCache) Store(name string, entry *classCacheEntry) {
+// 	(*sync.Map)(cc).Store(name, entry)
+// }
+
+func (cc *classCache) Delete(name string) {
+	(*sync.Map)(cc).Delete(name)
 }

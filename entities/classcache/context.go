@@ -29,8 +29,40 @@ func ContextWithClassCache(ctx context.Context) context.Context {
 	return context.WithValue(ctx, classCacheKey, &classCache{})
 }
 
-func ClassFromContext(ctxWithClassCache context.Context, name string, getter func(name string) (*models.Class, error)) (*models.Class, error) {
-	value := ctxWithClassCache.Value(classCacheKey)
+func RemoveClassFromContext(ctxWithClassCache context.Context, name string) error {
+	cache, err := extractCache(ctxWithClassCache)
+	if err != nil {
+		return err
+	}
+
+	cache.Delete(name)
+	return nil
+}
+
+func ClassFromContext(ctxWithClassCache context.Context, name string, getter func(name string) (*models.Class, uint64, error)) (*models.Class, uint64, error) {
+	cache, err := extractCache(ctxWithClassCache)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if entry, ok := cache.Load(name); ok {
+		return entry.class, entry.version, nil
+	}
+
+	// TODO prevent concurrent getter calls for the same class if it was not loaded,
+	// get once and share results
+	class, version, err := getter(name)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// do not replace entry if it was loaded in the meantime by concurrent access
+	entry, _ := cache.LoadOrStore(name, &classCacheEntry{class: class, version: version})
+	return entry.class, entry.version, nil
+}
+
+func extractCache(ctx context.Context) (*classCache, error) {
+	value := ctx.Value(classCacheKey)
 	if value == nil {
 		return nil, errorNoClassCache
 	}
@@ -38,15 +70,5 @@ func ClassFromContext(ctxWithClassCache context.Context, name string, getter fun
 	if !ok {
 		return nil, errorNoClassCache
 	}
-
-	if class, ok := cache.Load(name); ok {
-		return class, nil
-	}
-
-	class, err := getter(name)
-	if err != nil {
-		return nil, err
-	}
-	cache.Store(name, class)
-	return class, nil
+	return cache, nil
 }

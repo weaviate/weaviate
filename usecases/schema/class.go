@@ -56,23 +56,26 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, version, nil
 }
 
-func (h *Handler) GetConsistentClassCached(ctxWithClassCache context.Context,
+func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, name string,
-) (*models.Class, error) {
+) (*models.Class, uint64, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return classcache.ClassFromContext(ctxWithClassCache, name, func(name string) (*models.Class, error) {
-		class, _, err := h.metaWriter.QueryReadOnlyClass(name)
+	return classcache.ClassFromContext(ctxWithClassCache, name, func(name string) (*models.Class, uint64, error) {
+		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
+		}
+		if class == nil {
+			return nil, 0, nil
 		}
 		err = h.parser.ParseClass(class)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		return class, nil
+		return class, version, nil
 	})
 }
 

@@ -96,9 +96,9 @@ func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *m
 	return f.GetClass(ctx, principal, name)
 }
 
-func (f *fakeSchemaManager) GetConsistentClassCached(ctx context.Context,
+func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 	principal *models.Principal, name string,
-) (*models.Class, error) {
+) (*models.Class, uint64, error) {
 	return f.GetClass(ctx, principal, name)
 }
 
