@@ -430,7 +430,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
-	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && st.db.Schema.ClassInfo(req.Class).Exists {
+	classInfo, _ := st.db.Schema.ClassInfo(req.Class, 0)
+	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		st.log.Info("class already restored", "class", req.Class)
 		return 0, nil
 	}

@@ -38,7 +38,7 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	defer m.RUnlock()
 	ci.Exists = true
 	ci.Properties = len(m.Class.Properties)
-	ci.MultiTenancy = m.MultiTenancyConfig()
+	ci.MultiTenancy, _ = m.MultiTenancyConfig()
 	ci.ReplicationFactor = 1
 	if m.Class.ReplicationConfig != nil && m.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)
@@ -49,7 +49,7 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	return ci
 }
 
-func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig) {
+func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig, version uint64) {
 	if m == nil {
 		return
 	}
@@ -59,8 +59,7 @@ func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig) {
 		return
 	}
 
-	cfg = *m.Class.MultiTenancyConfig
-	return
+	return *m.Class.MultiTenancyConfig, m.ClassVersion
 }
 
 // CloneClass returns a shallow copy of m

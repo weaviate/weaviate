@@ -280,16 +280,16 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration)
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
-func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
+func (s *Service) QueryReadOnlyClass(class string) (*models.Class, uint64, error) {
 	if class == "" {
-		return &models.Class{}, fmt.Errorf("empty class name: %w", errBadRequest)
+		return &models.Class{}, 0, fmt.Errorf("empty class name: %w", errBadRequest)
 	}
 
 	// Build the query and execute it
 	req := cmd.QueryReadOnlyClassRequest{Class: class}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return &models.Class{}, fmt.Errorf("marshal request: %w", err)
+		return &models.Class{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_CLASS,
@@ -297,23 +297,23 @@ func (s *Service) QueryReadOnlyClass(class string) (*models.Class, error) {
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return &models.Class{}, fmt.Errorf("failed to execute query: %w", err)
+		return &models.Class{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Empty payload doesn't unmarshal to an empty struct and will instead result in an error.
 	// We have an empty payload when the requested class if not present in the schema.
 	// In that case return a nil pointer and no error.
 	if len(queryResp.Payload) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryReadOnlyClassResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return &models.Class{}, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return &models.Class{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
-	return resp.Class, nil
+	return resp.Class, resp.ClassVersion, nil
 }
 
 // QuerySchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
@@ -338,12 +338,12 @@ func (s *Service) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Service) QueryTenants(class string) ([]*models.Tenant, error) {
+func (s *Service) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
 	// Build the query and execute it
 	req := cmd.QueryTenantsRequest{Class: class}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return []*models.Tenant{}, fmt.Errorf("marshal request: %w", err)
+		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS,
@@ -351,27 +351,27 @@ func (s *Service) QueryTenants(class string) ([]*models.Tenant, error) {
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return []*models.Tenant{}, fmt.Errorf("failed to execute query: %w", err)
+		return []*models.Tenant{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return []*models.Tenant{}, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return []*models.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
-	return resp.Tenants, nil
+	return resp.Tenants, resp.ShardVersion, nil
 }
 
 // QueryShardOwner build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the tenant with strong consistency and return the shard owner node
-func (s *Service) QueryShardOwner(class, shard string) (string, error) {
+func (s *Service) QueryShardOwner(class, shard string) (string, uint64, error) {
 	// Build the query and execute it
 	req := cmd.QueryShardOwnerRequest{Class: class, Shard: shard}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return "", 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_SHARD_OWNER,
@@ -379,17 +379,17 @@ func (s *Service) QueryShardOwner(class, shard string) (string, error) {
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute query: %w", err)
+		return "", 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryShardOwnerResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return "", fmt.Errorf("failed to unmarshal query result: %w", err)
+		return "", 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
-	return resp.Owner, nil
+	return resp.Owner, resp.ShardVersion, nil
 }
 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse

@@ -41,11 +41,12 @@ type metaWriter interface {
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error)
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error)
 
-	// Strongly consistent schema read
-	QueryReadOnlyClass(name string) (*models.Class, error)
+	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
+	// from an up to date schema.
+	QueryReadOnlyClass(name string) (*models.Class, uint64, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string) ([]*models.Tenant, error)
-	QueryShardOwner(class, shard string) (string, error)
+	QueryTenants(class string) ([]*models.Tenant, uint64, error)
+	QueryShardOwner(class, shard string) (string, uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
@@ -68,6 +69,16 @@ type metaReader interface {
 	TenantShard(class, tenant string) (string, string)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
+
+	// WithVersion endpoints return the data with the schema version
+	ClassInfoWithVersion(class string, version uint64) (ci store.ClassInfo, resultVersion uint64)
+	MultiTenancyWithVersion(class string, version uint64) (models.MultiTenancyConfig, uint64)
+	ReadOnlyClassWithVersion(class string, version uint64) (cls *models.Class, resultVersion uint64)
+	ShardOwnerWithVersion(class, shard string, version uint64) (owner string, resultVersion uint64, err error)
+	ShardFromUUIDWithVersion(class string, uuid []byte, version uint64) (shard string, resultVersion uint64)
+	ShardReplicasWithVersion(class, shard string, version uint64) (nodes []string, resultVersion uint64, err error)
+	TenantShardWithVersion(class, tenant string, version uint64) (name string, st string, resultVersion uint64)
+	CopyShardingStateWithVersion(class string, version uint64) (ss *sharding.State, resultVersion uint64)
 }
 
 type validator interface {

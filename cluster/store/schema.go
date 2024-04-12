@@ -24,9 +24,10 @@ import (
 )
 
 var (
-	errClassNotFound = errors.New("class not found")
-	errClassExists   = errors.New("class already exists")
-	errShardNotFound = errors.New("shard not found")
+	errClassNotFound       = errors.New("class not found")
+	errClassExists         = errors.New("class already exists")
+	errShardNotFound       = errors.New("shard not found")
+	errSchemaVersionTooLow = errors.New("minimum requested schema version could not be reached")
 )
 
 type ClassInfo struct {
@@ -46,11 +47,14 @@ type schema struct {
 	Classes map[string]*metaClass
 }
 
-func (s *schema) ClassInfo(class string) (ci ClassInfo) {
+func (s *schema) ClassInfo(class string, version uint64) (ClassInfo, uint64) {
 	s.RLock()
 	defer s.RUnlock()
-
-	return s.Classes[class].ClassInfo()
+	cl, ok := s.Classes[class]
+	if !ok {
+		return ClassInfo{}, 0
+	}
+	return cl.ClassInfo(), cl.ClassVersion
 }
 
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
@@ -67,14 +71,19 @@ func (s *schema) ClassEqual(name string) string {
 }
 
 func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
-	return s.metaClass(class).MultiTenancyConfig()
+	mtc, _ := s.metaClass(class).MultiTenancyConfig()
+	return mtc
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error, requestedVersion uint64) error {
 	meta := s.metaClass(class)
 	if meta == nil {
 		return errClassNotFound
+	}
+
+	if requestedVersion != 0 && meta.ClassVersion < requestedVersion {
+		return errSchemaVersionTooLow
 	}
 
 	return meta.RLockGuard(reader)
@@ -88,14 +97,14 @@ func (s *schema) metaClass(class string) *metaClass {
 
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
-func (s *schema) ReadOnlyClass(class string) *models.Class {
+func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 	s.RLock()
 	defer s.RUnlock()
 	meta := s.Classes[class]
 	if meta == nil {
-		return nil
+		return nil, 0
 	}
-	return meta.CloneClass()
+	return meta.CloneClass(), meta.ClassVersion
 }
 
 // ReadOnlySchema returns a read only schema
@@ -122,53 +131,56 @@ func (s *schema) ReadOnlySchema() models.Schema {
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (s *schema) ShardOwner(class, shard string) (string, error) {
+func (s *schema) ShardOwner(class, shard string) (string, error, uint64) {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return "", errClassNotFound
+		return "", errClassNotFound, 0
 	}
 
-	return meta.ShardOwner(shard)
+	res, err := meta.ShardOwner(shard)
+	return res, err, meta.ShardVersion
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (s *schema) ShardFromUUID(class string, uuid []byte) string {
+func (s *schema) ShardFromUUID(class string, uuid []byte) (string, uint64) {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return ""
+		return "", 0
 	}
-	return meta.ShardFromUUID(uuid)
+	return meta.ShardFromUUID(uuid), meta.ShardVersion
 }
 
 // ShardReplicas returns the replica nodes of a shard
-func (s *schema) ShardReplicas(class, shard string) ([]string, error) {
+func (s *schema) ShardReplicas(class, shard string) ([]string, error, uint64) {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return nil, errClassNotFound
+		return nil, errClassNotFound, 0
 	}
-	return meta.ShardReplicas(shard)
+	res, err := meta.ShardReplicas(shard)
+	return res, err, meta.ShardVersion
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (s *schema) TenantShard(class, tenant string) (string, string) {
+func (s *schema) TenantShard(class, tenant string) (string, string, uint64) {
 	s.RLock()
 	defer s.RUnlock()
 
 	meta := s.Classes[class]
 	if meta == nil {
-		return "", ""
+		return "", "", 0
 	}
 
-	return meta.TenantShard(tenant)
+	tenant, status := meta.TenantShard(tenant)
+	return tenant, status, meta.ShardVersion
 }
 
-func (s *schema) CopyShardingState(class string) *sharding.State {
+func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return nil
+		return nil, 0
 	}
 
-	return meta.CopyShardingState()
+	return meta.CopyShardingState(), meta.ShardVersion
 }
 
 func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
