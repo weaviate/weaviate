@@ -64,7 +64,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		With2NodeCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -80,11 +80,11 @@ func immediateReplicaCRUD(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -169,7 +169,6 @@ func immediateReplicaCRUD(t *testing.T) {
 					Additional additional `json:"_additional"`
 				} `json:"hasParagraphs"`
 			}
-
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
 			resp := gqlGet(t, compose.ContainerURI(2), "Article", replica.One,
@@ -322,13 +321,13 @@ func eventualReplicaCRUD(t *testing.T) {
 	t.Run("configure classes to replicate to node 2", func(t *testing.T) {
 		ac := helper.GetClass(t, "Article")
 		ac.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.UpdateClass(t, ac)
 
 		pc := helper.GetClass(t, "Paragraph")
 		pc.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.UpdateClass(t, pc)
 	})
