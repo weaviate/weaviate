@@ -12,8 +12,15 @@
 package memwatch
 
 import (
+	"math"
+	"os"
+	"runtime"
 	"runtime/debug"
+	"strconv"
+	"syscall"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -84,6 +91,88 @@ func TestMonitor(t *testing.T) {
 	t.Run("with real dependencies", func(t *testing.T) {
 		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97)
 		_ = m.Ratio()
+	})
+}
+
+func TestMappings(t *testing.T) {
+	// dont matter here
+	metrics := &fakeHeapReader{val: 30000}
+	limiter := &fakeLimitSetter{limit: 100000}
+
+	t.Run("max memory mappings set correctly", func(t *testing.T) {
+		t.Setenv("MAX_MEMORY_MAPPINGS", "120")
+		assert.Equal(t, int64(120), getMaxMemoryMappings())
+	})
+
+	t.Run("max memory mappings incorrectly", func(t *testing.T) {
+		t.Setenv("MAX_MEMORY_MAPPINGS", "abc")
+		switch runtime.GOOS {
+		case "linux":
+			// we can read the max value on linux
+			assert.Greater(t, getMaxMemoryMappings(), 0)
+			assert.Less(t, getMaxMemoryMappings(), math.MaxInt64)
+		default:
+			// cant read on other OS so we use max int
+			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+		}
+	})
+
+	t.Run("max memory mappings not set", func(t *testing.T) {
+		switch runtime.GOOS {
+		case "linux":
+			// we can read the max value on linux
+			assert.Greater(t, getMaxMemoryMappings(), 0)
+			assert.Less(t, getMaxMemoryMappings(), math.MaxInt64)
+		default:
+			// cant read on other OS so we use max int
+			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+		}
+	})
+
+	t.Run("current memory settings", func(t *testing.T) {
+		switch runtime.GOOS {
+		case "linux", "darwin":
+			assert.Greater(t, getCurrentMappings(), int64(0))
+			assert.Less(t, getCurrentMappings(), int64(math.MaxInt64))
+		}
+	})
+
+	t.Run("current memory settings", func(t *testing.T) {
+		currentMappings := getCurrentMappings()
+		addMappings := 15
+		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
+		m.Refresh()
+
+		mappingsLeft := getMaxMemoryMappings() - getCurrentMappings()
+		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
+		path := t.TempDir()
+		// use up available mappings
+		for i := 0; i < int(mappingsLeft)+5; i++ {
+			m.Refresh()
+			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
+			require.Nil(t, err)
+			defer file.Close()
+			_, err = file.Write([]byte("Hello"))
+			require.Nil(t, err)
+
+			fileInfo, err := file.Stat()
+			require.Nil(t, err)
+
+			// there might be other processes that use mappings
+			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(); mappingsLeft <= 0 {
+				require.NotNil(t, m.CheckMapping(1))
+			} else {
+				require.Nil(t, m.CheckMapping(1))
+				data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+				require.Nil(t, err)
+
+				defer syscall.Munmap(data)
+			}
+		}
+
+		// any further mapping should fail
+		require.NotNil(t, m.CheckMapping(1))
 	})
 }
 
