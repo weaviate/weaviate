@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // UpdateObject updates object of class.
@@ -45,6 +46,11 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process update object")
+		return nil, fmt.Errorf("cannot process update object: %w", err)
+	}
 
 	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
 }
