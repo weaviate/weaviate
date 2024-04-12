@@ -86,7 +86,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			return m.createClass(ctx, principal, object.Class, properties)
 		}
 
-		if err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...); err != nil {
+		if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...); err != nil {
 			return err
 		}
 	}
@@ -105,7 +105,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	return m.schemaManager.AddClass(ctx, principal, class)
+	_, err := m.schemaManager.AddClass(ctx, principal, class)
+	return err
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
@@ -479,7 +480,7 @@ func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
 		return err
 	}
 	return nil
