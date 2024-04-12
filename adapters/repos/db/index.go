@@ -373,6 +373,10 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics,
 ) (ShardLike, error) {
 	if i.Config.DisableLazyLoadShards {
+		if err := i.allocChecker.CheckMapping(4); err != nil {
+			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
+		}
+
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
