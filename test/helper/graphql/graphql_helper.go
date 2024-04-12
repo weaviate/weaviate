@@ -61,10 +61,10 @@ func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, op
 		response *models.GraphQLResponse
 		count    int
 	)
-	// TODO-RAFT: this try in window of 10 sec. because the graphql rebuild has to be done
+	// TODO-RAFT: this try in window of 15 sec. because the graphql rebuild has to be done
 	// after RAFT is ready. it should be removed once RAFT<->GraphQl is stable
 	response, err = QueryGraphQL(t, auth, operation, query, variables)
-	for err != nil && count < 10 {
+	for err != nil && count < 15 {
 		time.Sleep(time.Second)
 		response, err = QueryGraphQL(t, auth, operation, query, variables)
 		count++
