@@ -30,6 +30,10 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return 0, err
 	}
 
+	if class == nil {
+		return 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
 	if len(newProps) == 0 {
 		return 0, nil
 	}
