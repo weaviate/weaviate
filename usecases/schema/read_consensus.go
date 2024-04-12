@@ -63,10 +63,9 @@ func newReadConsensus(parser parserFn,
 			current := typed.(ReadSchemaPayload).Schema
 			if err := Equal(previous, current); err != nil {
 				diff := Diff("previous", previous, "current", current)
-				logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
-					"diff": diff,
-				}).Errorf("trying to reach cluster consensus on schema: %v", err)
-
+				logger.WithFields(logrusStartupSyncFields()).
+					Errorf("Trying to reach cluster consensus on schema: %v", err)
+				logger.WithFields(logrusStartupSyncFields()).Tracef("diff: %+v", diff)
 				return nil, fmt.Errorf("did not reach consensus on schema in cluster: %w", err)
 			}
 		}
@@ -157,7 +156,9 @@ func equalSharding(l, r map[string]*sharding.State) error {
 		}
 		for k, lu := range u.Physical {
 			if !reflect.DeepEqual(lu, v.Physical[k]) {
-				return fmt.Errorf("class %q: physical shard %q", cls, k)
+				return fmt.Errorf(
+					"class %q: physical shard %q, u: %+v, v: %+v",
+					cls, k, lu, v.Physical[k])
 			}
 		}
 
