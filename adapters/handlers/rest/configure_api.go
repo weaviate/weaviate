@@ -390,6 +390,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	// manually update schema for graphQL
 	updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
 
 	// TODO-RAFT START
@@ -400,7 +401,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				WithError(err).
 				Fatal("could not open cloud meta store")
 		}
-		// manually update schema once
+		// manually update schema for graphQL after RAFT init
 		updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
 	}()
 
