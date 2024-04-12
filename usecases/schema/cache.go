@@ -44,6 +44,48 @@ func NewState(nClasses int) State {
 	}
 }
 
+func (s State) EqualEnough(other *State) bool {
+	// Same number of classes
+	eqClassLen := len(s.ObjectSchema.Classes) == len(other.ObjectSchema.Classes)
+	if !eqClassLen {
+		return false
+	}
+
+	// Same sharding state length
+	eqSSLen := len(s.ShardingState) == len(other.ShardingState)
+	if !eqSSLen {
+		return false
+	}
+
+	for cls, ss1ss := range s.ShardingState {
+		// Same sharding state keys
+		ss2ss, ok := other.ShardingState[cls]
+		if !ok {
+			return false
+		}
+
+		// Same number of physical shards
+		eqPhysLen := len(ss1ss.Physical) == len(ss2ss.Physical)
+		if !eqPhysLen {
+			return false
+		}
+
+		for shard, ss1phys := range ss1ss.Physical {
+			// Same physical shard contents and status
+			ss2phys, ok := ss2ss.Physical[shard]
+			if !ok {
+				return false
+			}
+			eqActivStat := ss1phys.ActivityStatus() == ss2phys.ActivityStatus()
+			if !eqActivStat {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 type schemaCache struct {
 	sync.RWMutex
 	State
