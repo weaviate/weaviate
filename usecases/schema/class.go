@@ -49,7 +49,8 @@ func (m *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 	if consistency {
-		return m.metaWriter.QueryReadOnlyClass(name)
+		class, _, err := m.metaWriter.QueryReadOnlyClass(name)
+		return class, err
 	}
 	return m.metaReader.ReadOnlyClass(name), nil
 }

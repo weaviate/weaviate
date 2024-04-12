@@ -45,7 +45,7 @@ func TestExecutor(t *testing.T) {
 		VectorIndexConfig: flat.NewDefaultUserConfig(),
 	}
 	store.On("ReadOnlySchema").Return(models.Schema{})
-	store.On("ReadOnlyClass", "A").Return(cls)
+	store.On("ReadOnlyClass", "A", mock.Anything).Return(cls)
 
 	t.Run("OpenClose", func(t *testing.T) {
 		migrator := &fakeMigrator{}
@@ -143,7 +143,7 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("UpdateTenantsClassNotFound", func(t *testing.T) {
 		store := &fakeMetaHandler{}
-		store.On("ReadOnlyClass", "A").Return(nil)
+		store.On("ReadOnlyClass", "A", mock.Anything).Return(nil)
 
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)
@@ -180,7 +180,7 @@ func TestExecutor(t *testing.T) {
 	})
 	t.Run("AddTenantsClassNotFound", func(t *testing.T) {
 		store := &fakeMetaHandler{}
-		store.On("ReadOnlyClass", "A").Return(nil)
+		store.On("ReadOnlyClass", "A", mock.Anything).Return(nil)
 		req := &api.AddTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)
 		assert.ErrorIs(t, x.AddTenants("A", req), ErrNotFound)
