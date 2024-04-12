@@ -201,9 +201,9 @@ func (m *Manager) validateSchemaCorruption(ctx context.Context) error {
 		return nil
 	}
 	if err := m.schemaCache.RLockGuard(cmp); err != nil {
-		m.logger.WithFields(logrusStartupSyncFields()).WithFields(logrus.Fields{
-			"diff": diff,
-		}).Warning("mismatch between local schema and remote (other nodes consensus) schema")
+		m.logger.WithFields(logrusStartupSyncFields()).
+			Warning("Mismatch between local schema and remote (other nodes consensus) schema")
+		m.logger.WithFields(logrusStartupSyncFields()).Tracef("diff: %+v", diff)
 		if m.clusterState.SkipSchemaRepair() {
 			return fmt.Errorf("corrupt cluster: other nodes have consensus on schema, "+
 				"but local node has a different (non-null) schema: %w", err)

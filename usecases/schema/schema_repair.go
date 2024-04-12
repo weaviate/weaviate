@@ -243,8 +243,8 @@ func determineRepairsNeeded(states comparisonUnit) repairSet {
 					repairs.tenants[className] = append(repairs.tenants[className], phys)
 					continue
 				}
-				_, found = anomalySS.Physical[name]
-				if !found {
+				localPhys, found := anomalySS.Physical[name]
+				if !found || phys.ActivityStatus() != localPhys.ActivityStatus() {
 					repairs.tenants[className] = append(repairs.tenants[className], phys)
 				}
 			}
