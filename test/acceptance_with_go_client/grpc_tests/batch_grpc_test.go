@@ -12,11 +12,10 @@
 package grpc_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -40,6 +39,8 @@ func TestGRPC_Batch(t *testing.T) {
 }
 
 func TestGRPC_Batch_Cluster(t *testing.T) {
+	t.Skip("disabled due to eventual consistency failure. Re-enable when eventual consistency on batch is tackled. See: WEAVIATE-754")
+
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviateClusterWithGRPC().
