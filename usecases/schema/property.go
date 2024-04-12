@@ -30,6 +30,10 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return 0, err
 	}
 
+	if class == nil {
+		return 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
 	if len(newProps) == 0 {
 		return 0, nil
 	}
@@ -120,10 +124,6 @@ func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Pri
 
 func (h *Handler) setNewPropDefaults(class *models.Class, props ...*models.Property) error {
 	setPropertyDefaults(props...)
-	if err := validateUserProp(class, props...); err != nil {
-		return err
-	}
-
 	h.moduleConfig.SetSinglePropertyDefaults(class, props...)
 	return nil
 }
