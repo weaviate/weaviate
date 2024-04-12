@@ -185,25 +185,3 @@ func (h *Handler) validatePropModuleConfig(class *models.Class, props ...*models
 
 	return nil
 }
-
-func validateUserProp(class *models.Class, props ...*models.Property) error {
-	for _, prop := range props {
-		if prop.ModuleConfig == nil {
-			continue
-		} else {
-			modconfig, ok := prop.ModuleConfig.(map[string]interface{})
-			if !ok {
-				return fmt.Errorf("%v property config invalid", prop.Name)
-			}
-			vectorizerConfig, ok := modconfig[class.Vectorizer]
-			if !ok {
-				return fmt.Errorf("%v vectorizer module not part of the property", class.Vectorizer)
-			}
-			_, ok = vectorizerConfig.(map[string]interface{})
-			if !ok {
-				return fmt.Errorf("vectorizer config for vectorizer %v, not of type map[string]interface{}", class.Vectorizer)
-			}
-		}
-	}
-	return nil
-}
