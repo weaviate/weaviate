@@ -175,7 +175,7 @@ func Test_AddClass(t *testing.T) {
 					classes[class.Class] = *class
 
 					if tc.callReadOnly {
-						call := fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(nil)
+						call := fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 						call.RunFn = func(a mock.Arguments) {
 							existedClass := classes[a.Get(0).(string)]
 							call.ReturnArguments = mock.Arguments{&existedClass}
@@ -459,7 +459,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeMetaHandler.On("ReadOnlyClass").Return(nil)
+			fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 
 			_, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
@@ -468,7 +468,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("add properties to existing class", func(t *testing.T) {
 			for _, tc := range testCases {
 				fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(&class)
+				fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeMetaHandler.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
 					_, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
@@ -1006,7 +1006,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 func Test_UpdateClass(t *testing.T) {
 	t.Run("ClassNotFound", func(t *testing.T) {
 		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
-		fakeMetaHandler.On("ReadOnlyClass", "WrongClass").Return(nil)
+		fakeMetaHandler.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
 		fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{})
@@ -1241,9 +1241,9 @@ func Test_UpdateClass(t *testing.T) {
 
 				fakeMetaHandler.On("AddClass", test.initial, mock.Anything).Return(nil)
 				fakeMetaHandler.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
+				fakeMetaHandler.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				if len(test.initial.Properties) > 0 {
-					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class).Return(test.initial)
+					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
 				_, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)

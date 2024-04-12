@@ -43,16 +43,22 @@ type QueryReadOnlyClassRequest struct {
 }
 
 type QueryReadOnlyClassResponse struct {
-	Class *models.Class
-	State *sharding.State
+	Class        *models.Class
+	ClassVersion uint64
 }
 
 type QueryTenantsRequest struct {
 	Class string
 }
 
+type TenantWithVersion struct {
+	ShardVersion uint64
+	Tenant       *models.Tenant
+}
+
 type QueryTenantsResponse struct {
-	Tenants []*models.Tenant
+	ShardVersion uint64
+	Tenants      []*models.Tenant
 }
 
 type QuerySchemaResponse struct {
@@ -64,5 +70,6 @@ type QueryShardOwnerRequest struct {
 }
 
 type QueryShardOwnerResponse struct {
-	Owner string
+	ShardVersion uint64
+	Owner        string
 }

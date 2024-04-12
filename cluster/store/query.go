@@ -63,13 +63,16 @@ func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the meta class to get both the class and sharding information
-	metaClass := st.db.Schema.metaClass(subCommand.Class)
-	if metaClass == nil {
+	class, version := st.db.Schema.ReadOnlyClass(subCommand.Class)
+	if class == nil {
 		return []byte{}, nil
 	}
 
 	// Build the response, marshal and return
-	response := cmd.QueryReadOnlyClassResponse{Class: &metaClass.Class, State: &metaClass.Sharding}
+	response := cmd.QueryReadOnlyClassResponse{
+		ClassVersion: version,
+		Class:        class,
+	}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
@@ -117,13 +120,13 @@ func (st *Store) QueryShardOwner(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the meta class to get both the class and sharding information
-	owner, err := st.db.Schema.ShardOwner(subCommand.Class, subCommand.Shard)
+	owner, err, version := st.db.Schema.ShardOwner(subCommand.Class, subCommand.Shard)
 	if err != nil {
 		return []byte{}, err
 	}
 
 	// Build the response, marshal and return
-	response := cmd.QueryShardOwnerResponse{Owner: owner}
+	response := cmd.QueryShardOwnerResponse{ShardVersion: version, Owner: owner}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
