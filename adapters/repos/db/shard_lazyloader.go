@@ -13,13 +13,12 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/pkg/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -37,21 +37,23 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type LazyLoadShard struct {
-	shardOpts *deferredShardOpts
-	shard     *Shard
-	loaded    bool
-	mutex     sync.Mutex
+	shardOpts  *deferredShardOpts
+	shard      *Shard
+	loaded     bool
+	mutex      sync.Mutex
+	memMonitor memwatch.AllocChecker
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 ) *LazyLoadShard {
 	promMetrics.NewUnloadedshard(class.Class)
 	return &LazyLoadShard{
@@ -63,6 +65,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			indexCheckpoints: indexCheckpoints,
 		},
+		memMonitor: memMonitor,
 	}
 }
 
@@ -89,6 +92,10 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
+	if err := l.memMonitor.CheckMapping(4); err != nil {
+		return errors.Wrap(err, "memory pressure: cannot load shard")
+	}
+
 	if l.loaded {
 		return nil
 	}
@@ -111,6 +118,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
 	}
+
 	return nil
 }
 

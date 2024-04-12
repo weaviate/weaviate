@@ -126,7 +126,7 @@ func (m *Monitor) obtainCurrentMappings() {
 func getCurrentMappings() int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsCommand("cat", "/proc/%s/maps´")
+		return currentMappingsCommand("cat", "/proc/%s/maps")
 	case "darwin":
 		// command output contains a bunch of extra info
 		return currentMappingsCommand("vmmap", "%s") - currentMappingsCommand("vmmap", "%s -summary")
@@ -244,6 +244,7 @@ type metricsReader func() int64
 
 type AllocChecker interface {
 	CheckAlloc(sizeInBytes int64) error
+	CheckMapping(numberMappings int64) error
 	Refresh()
 }
 
