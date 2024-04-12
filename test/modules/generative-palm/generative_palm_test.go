@@ -96,6 +96,22 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				name:            "chat-bison",
 				generativeModel: "chat-bison",
 			},
+			{
+				name:            "chat-bison-32k",
+				generativeModel: "chat-bison-32k",
+			},
+			{
+				name:            "chat-bison@002",
+				generativeModel: "chat-bison@002",
+			},
+			{
+				name:            "chat-bison-32k@002",
+				generativeModel: "chat-bison-32k@002",
+			},
+			{
+				name:            "chat-bison@001",
+				generativeModel: "chat-bison@001",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
