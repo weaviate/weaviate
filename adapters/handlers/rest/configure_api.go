@@ -404,8 +404,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// manually update schema for graphQL after RAFT init
 		updateSchemaCallback(schemaManager.GetSchemaSkipAuth())
 	}()
-
-	time.Sleep(2 * time.Second)
 	// TODO-RAFT END
 
 	// Add dimensions to all the objects in the database, if requested by the user
