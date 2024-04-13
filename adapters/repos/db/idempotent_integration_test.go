@@ -522,7 +522,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
-		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

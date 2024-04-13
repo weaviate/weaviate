@@ -16,7 +16,7 @@ export ORIGIN=${ORIGIN:-"http://localhost:8080"}
 export QUERY_DEFAULTS_LIMIT=${QUERY_DEFAULTS_LIMIT:-"20"}
 export QUERY_MAXIMUM_RESULTS=${QUERY_MAXIMUM_RESULTS:-"10000"}
 export TRACK_VECTOR_DIMENSIONS=true
-export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
+export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
@@ -60,9 +60,9 @@ case $CONFIG in
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      PERSISTENCE_DATA_PATH="./data-node2" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-node2" \
-      CLUSTER_HOSTNAME="node2" \
+      PERSISTENCE_DATA_PATH="./data-weaviate-1" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
+      CLUSTER_HOSTNAME="weaviate-1" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
@@ -86,8 +86,8 @@ case $CONFIG in
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node3" \
-        CLUSTER_HOSTNAME="node3" \
+        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
+        CLUSTER_HOSTNAME="weaviate-2" \
         CLUSTER_IN_LOCALHOST=true \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
