@@ -61,8 +61,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
-	if err != nil {
+	if err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 

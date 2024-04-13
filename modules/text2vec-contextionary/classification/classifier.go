@@ -46,14 +46,14 @@ func (c *Classifier) ClassifyFn(params modulecapabilities.ClassifyParams) (modul
 	}
 
 	// 1. do preparation here once
-	preparedContext, err := c.prepareContextualClassification(params.Schema, params.VectorRepo,
+	preparedContext, err := c.prepareContextualClassification(params.GetClass, params.VectorRepo,
 		params.Params, params.Filters, params.UnclassifiedItems)
 	if err != nil {
 		return nil, errors.Wrap(err, "prepare context for text2vec-contextionary-contextual classification")
 	}
 
 	// 2. use higher order function to inject preparation data so it is then present for each single run
-	return c.makeClassifyItemContextual(params.Schema, preparedContext), nil
+	return c.makeClassifyItemContextual(preparedContext), nil
 }
 
 func (c *Classifier) ParseClassifierSettings(params *models.Classification) error {

@@ -19,11 +19,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/config"
+
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
+func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 	initialParsed, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
@@ -84,7 +85,7 @@ func validateImmutableField(u immutableParameter,
 	return nil
 }
 
-func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()

@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"sync/atomic"
 	"time"
@@ -58,7 +59,7 @@ const (
 	// GlobalBackupFile used by coordinator to store its metadata
 	GlobalBackupFile  = "backup_config.json"
 	GlobalRestoreFile = "restore_config.json"
-	_TempDirectory    = ".backup.tmp"
+	TempDirectory     = ".backup.tmp"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -413,7 +414,7 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		sourcer:    sourcer,
 		backend:    backend,
 		destDir:    destDir,
-		tempDir:    path.Join(destDir, _TempDirectory),
+		tempDir:    path.Join(destDir, TempDirectory),
 		movedFiles: make([]string, 0, 64),
 		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
@@ -429,35 +430,23 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (rollback func() error, err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
-		return func() error { return nil }, nil
+		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
-	defer func() {
-		if err != nil {
-			if rerr := fw.rollBack(); rerr != nil {
-				err = fmt.Errorf("%w: %v", err, rerr)
-			}
-		}
-		os.RemoveAll(classTempDir)
-	}()
 
 	if err := fw.writeTempFiles(ctx, classTempDir, desc); err != nil {
-		return nil, fmt.Errorf("get files: %w", err)
+		return fmt.Errorf("get files: %w", err)
 	}
 
 	if fw.migrator != nil {
 		if err := fw.migrator(classTempDir); err != nil {
-			return nil, fmt.Errorf("migrate from pre 1.23: %w", err)
+			return fmt.Errorf("migrate from pre 1.23: %w", err)
 		}
 	}
 
-	if err := fw.moveAll(classTempDir); err != nil {
-		return nil, fmt.Errorf("move files to destination: %w", err)
-	}
-
-	return func() error { return fw.rollBack() }, nil
+	return nil
 }
 
 // writeTempFiles writes class files into a temporary directory
@@ -527,36 +516,6 @@ func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescri
 	return nil
 }
 
-// moveAll moves all files to the destination
-func (fw *fileWriter) moveAll(classTempDir string) (err error) {
-	files, err := os.ReadDir(classTempDir)
-	if err != nil {
-		return fmt.Errorf("read %s", classTempDir)
-	}
-	destDir := fw.destDir
-	for _, key := range files {
-		from := path.Join(classTempDir, key.Name())
-		to := path.Join(destDir, key.Name())
-		if err := os.Rename(from, to); err != nil {
-			return fmt.Errorf("move %s %s: %w", from, to, err)
-		}
-		fw.movedFiles = append(fw.movedFiles, to)
-	}
-
-	return nil
-}
-
-// rollBack successfully written files
-func (fw *fileWriter) rollBack() (err error) {
-	// rollback successfully moved files
-	for _, fpath := range fw.movedFiles {
-		if rerr := os.RemoveAll(fpath); rerr != nil && err == nil {
-			err = fmt.Errorf("rollback %s: %w", fpath, rerr)
-		}
-	}
-	return err
-}
-
 func chunkKey(class string, id int32) string {
 	return fmt.Sprintf("%s/chunk-%d", class, id)
 }
@@ -571,4 +530,32 @@ func routinePoolSize(percentage int) int {
 		return x
 	}
 	return 1
+}
+
+// RestoreClassDir returns a func that restores classes on the filesystem directly from the temporary class backup stored on disk.
+// This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
+func RestoreClassDir(dataPath string) func(class string) error {
+	return func(class string) error {
+		classTempDir := filepath.Join(dataPath, TempDirectory, class)
+		// nothing to restore
+		if _, err := os.Stat(classTempDir); err != nil {
+			return nil
+		}
+		defer os.RemoveAll(classTempDir)
+		files, err := os.ReadDir(classTempDir)
+		if err != nil {
+			return fmt.Errorf("read %s", classTempDir)
+		}
+		destDir := dataPath
+
+		for _, key := range files {
+			from := path.Join(classTempDir, key.Name())
+			to := path.Join(destDir, key.Name())
+			if err := os.Rename(from, to); err != nil {
+				return fmt.Errorf("move %s %s: %w", from, to, err)
+			}
+		}
+
+		return nil
+	}
 }
