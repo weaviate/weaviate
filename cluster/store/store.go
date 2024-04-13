@@ -73,6 +73,9 @@ type Indexer interface {
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 
+	// ReloadLocalDB reloads the local database using the latest schema.
+	ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error
+
 	// RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 	RestoreClassDir(class string) error
 	Open(context.Context) error

@@ -47,6 +47,21 @@ func (e *executor) Open(ctx context.Context) error {
 	return e.migrator.WaitForStartup(ctx)
 }
 
+// ReloadLocalDB reloads the local database using the latest schema.
+func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
+	cs := make([]*models.Class, len(all))
+
+	for i, u := range all {
+		e.logger.WithField("index", u.Class.Class).Info("restore local index")
+		cs[i] = u.Class
+		if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
+			return fmt.Errorf("restore index %q: %w", i, err)
+		}
+	}
+	e.rebuildGQL(models.Schema{Classes: cs})
+	return nil
+}
+
 func (e *executor) Close(ctx context.Context) error {
 	return e.migrator.Shutdown(ctx)
 }
@@ -208,13 +223,16 @@ func (e *executor) GetShardsStatus(class string) (models.ShardStatusList, error)
 	return resp, nil
 }
 
-func (e *executor) triggerSchemaUpdateCallbacks() {
-	s := e.store.ReadOnlySchema()
+func (e *executor) rebuildGQL(s models.Schema) {
 	for _, cb := range e.callbacks {
 		cb(schema.Schema{
 			Objects: &s,
 		})
 	}
+}
+
+func (e *executor) triggerSchemaUpdateCallbacks() {
+	e.rebuildGQL(e.store.ReadOnlySchema())
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
