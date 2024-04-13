@@ -93,6 +93,10 @@ func (f *fakeDB) UpdateIndex(cmd command.UpdateClassRequest) error {
 	return nil
 }
 
+func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassRequest) error {
+	return nil
+}
+
 func (f *fakeDB) DeleteClass(class string) error {
 	return nil
 }
