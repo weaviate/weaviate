@@ -25,6 +25,7 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -848,7 +849,9 @@ func (m *MockIndexer) UpdateIndex(req cmd.UpdateClassRequest) error {
 	return args.Error(0)
 }
 
-func (m *MockIndexer) ReBuildGQL(s models.Schema) {}
+func (m *MockIndexer) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
+	return nil
+}
 
 func (m *MockIndexer) DeleteClass(name string) error {
 	args := m.Called(name)

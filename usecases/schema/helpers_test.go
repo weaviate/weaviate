@@ -92,7 +92,10 @@ func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
 func (f *fakeDB) UpdateIndex(cmd command.UpdateClassRequest) error {
 	return nil
 }
-func (f *fakeDB) ReBuildGQL(s models.Schema) {}
+
+func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassRequest) error {
+	return nil
+}
 
 func (f *fakeDB) DeleteClass(class string) error {
 	return nil
