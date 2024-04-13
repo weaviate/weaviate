@@ -91,17 +91,19 @@ func (p *Provider) setPerClassConfigDefaults(cfg *ClassBasedModuleConfig,
 // SetSinglePropertyDefaults can be used when a property is added later, e.g.
 // as part of merging in a ref prop after a class has already been created
 func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
-	prop *models.Property,
+	props ...*models.Property,
 ) {
-	if !hasTargetVectors(class) {
-		p.setSinglePropertyDefaults(prop, class.Vectorizer)
-		return
-	}
+	for _, prop := range props {
+		if !hasTargetVectors(class) {
+			p.setSinglePropertyDefaults(prop, class.Vectorizer)
+			continue
+		}
 
-	for _, vectorConfig := range class.VectorConfig {
-		if moduleConfig, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(moduleConfig) == 1 {
-			for vectorizer := range moduleConfig {
-				p.setSinglePropertyDefaults(prop, vectorizer)
+		for _, vectorConfig := range class.VectorConfig {
+			if moduleConfig, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(moduleConfig) == 1 {
+				for vectorizer := range moduleConfig {
+					p.setSinglePropertyDefaults(prop, vectorizer)
+				}
 			}
 		}
 	}

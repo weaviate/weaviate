@@ -295,9 +295,7 @@ func (i *Index) marshalShardingState() ([]byte, error) {
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
-	schema := i.getSchema.GetSchemaSkipAuth()
-
-	b, err := schema.GetClass(i.Config.ClassName).MarshalBinary()
+	b, err := i.getSchema.ReadOnlyClass(i.Config.ClassName.String()).MarshalBinary()
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal schema")
 	}
