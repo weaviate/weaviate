@@ -72,6 +72,7 @@ type Indexer interface {
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
+	ReBuildGQL(s models.Schema)
 
 	// RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 	RestoreClassDir(class string) error

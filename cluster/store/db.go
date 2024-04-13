@@ -208,6 +208,7 @@ func (db *localDB) Reload() error {
 			return fmt.Errorf("restore index %q: %w", k, err)
 		}
 	}
+	db.store.ReBuildGQL(db.Schema.ReadOnlySchema())
 	return nil
 }
 

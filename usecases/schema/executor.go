@@ -90,12 +90,8 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 }
 
 func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
-	ctx := context.Background()
-	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
-		return err
-	}
-	e.triggerSchemaUpdateCallbacks()
-	return nil
+	ctx := context.Background() // Rebuilding GQL is done by the raft store
+	return e.migrator.UpdateIndex(ctx, req.Class, req.State)
 }
 
 func (e *executor) DeleteClass(cls string) error {
@@ -208,13 +204,16 @@ func (e *executor) GetShardsStatus(class string) (models.ShardStatusList, error)
 	return resp, nil
 }
 
-func (e *executor) triggerSchemaUpdateCallbacks() {
-	s := e.store.ReadOnlySchema()
+func (e *executor) ReBuildGQL(s models.Schema) {
 	for _, cb := range e.callbacks {
 		cb(schema.Schema{
 			Objects: &s,
 		})
 	}
+}
+
+func (e *executor) triggerSchemaUpdateCallbacks() {
+	e.ReBuildGQL(e.store.ReadOnlySchema())
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
