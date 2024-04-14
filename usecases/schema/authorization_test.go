@@ -32,6 +32,10 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Schema_Authorization(t *testing.T) {
+	var (
+		after = "after"
+		limit = int64(1)
+	)
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -127,13 +131,13 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetTenants",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", &after, &limit},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false},
+			additionalArgs:   []interface{}{"className", false, &after, &limit},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},

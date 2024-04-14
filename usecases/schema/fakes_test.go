@@ -73,6 +73,14 @@ func (f *fakeMetaHandler) DeleteTenants(class string, req *command.DeleteTenants
 	return 0, args.Error(0)
 }
 
+func (f *fakeMetaHandler) GetConsistentTenants(ctx context.Context, class string, consistency bool, after *string, tenant *int64) ([]*models.Tenant, error) {
+	args := f.Called(ctx, class, consistency, after, tenant)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.Tenant), args.Error(1)
+}
+
 func (f *fakeMetaHandler) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {
 	args := f.Called(ctx, nodeID, raftAddr, voter)
 	return args.Error(0)
@@ -129,9 +137,12 @@ func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, uint6
 	return model.(*models.Class), 0, nil
 }
 
-func (f *fakeMetaHandler) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
-	args := f.Called(class)
-	return nil, 0, args.Error(0)
+func (f *fakeMetaHandler) QueryTenants(class string, after *string, limit *int64) ([]*models.Tenant, uint64, error) {
+	args := f.Called(class, after, limit)
+	if args.Get(0) == nil {
+		return nil, 0, args.Error(2)
+	}
+	return args.Get(0).([]*models.Tenant), args.Get(1).(uint64), args.Error(2)
 }
 
 func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, uint64, error) {

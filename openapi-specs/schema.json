@@ -4507,7 +4507,20 @@
             "default": true,
             "type": "boolean",
             "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
-          }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "If tenant is provided, the pagination cursor will start after this tenant."
+           },
+           {
+            "name": "limit",
+            "in": "query",
+            "type": "integer",
+            "description": "The maximum number of tenants to return."
+           }
         ],
         "responses": {
           "200": {

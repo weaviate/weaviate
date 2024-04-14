@@ -98,7 +98,7 @@ func (st *Store) QueryTenants(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the tenants
-	tenants, err := st.db.Schema.getTenants(subCommand.Class)
+	tenants, err := st.db.Schema.getTenants(subCommand.Class, subCommand.After, subCommand.Limit)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not get tenants: %w", err)
 	}

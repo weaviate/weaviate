@@ -28,6 +28,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrNotEnabled = errors.New("multi-tenancy not enabled")
 
 type metaWriter interface {
 	// Schema writes operation
@@ -45,7 +46,7 @@ type metaWriter interface {
 	// from an up to date schema.
 	QueryReadOnlyClass(name string) (*models.Class, uint64, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string) ([]*models.Tenant, uint64, error)
+	QueryTenants(class string, after *string, limit *int64) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 
 	// Cluster related operations

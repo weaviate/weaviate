@@ -211,48 +211,62 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 // GetTenants is used to get tenants of a class.
 //
 // Class must exist and has partitioning enabled
-func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
+func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string,
+	after *string, limit *int64,
+) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
-	return h.getTenants(class)
+	return h.getTenants(class, after, limit)
 }
 
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool) ([]*models.Tenant, error) {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool,
+	after *string, limit *int64) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
 
 	if consistency {
-		tenants, _, err := h.metaWriter.QueryTenants(class)
+		tenants, _, err := h.metaWriter.QueryTenants(class, after, limit)
 		return tenants, err
 	}
 
-	// If non consistent, fallback to the default implementation
-	return h.getTenants(class)
+	// If non-consistent, fallback to the default implementation
+	return h.getTenants(class, after, limit)
 }
 
-func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
+func (h *Handler) getTenants(class string, after *string, limit *int64) ([]*models.Tenant, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, info.Tenants)
+	var ts []*models.Tenant
+	if limit != nil {
+		ts = make([]*models.Tenant, *limit)
+	} else {
+		ts = make([]*models.Tenant, info.Tenants)
+	}
 	f := func(_ *models.Class, ss *sharding.State) error {
-		if N := len(ss.Physical); N > len(ts) {
-			ts = make([]*models.Tenant, N)
-		} else if N < len(ts) {
-			ts = ts[:N]
-		}
+		foundAfter := after == nil
 		i := 0
 		for tenant := range ss.Physical {
+			if !foundAfter {
+				if tenant == *after || after == nil {
+					foundAfter = true
+				}
+				continue
+			}
+			if i >= len(ts) {
+				break
+			}
 			ts[i] = &models.Tenant{
 				Name:           tenant,
 				ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
 			}
 			i++
 		}
+		ts = ts[:i] // Trim the slice to the actual number of tenants added
 		return nil
 	}
 	return ts, h.metaReader.Read(class, f)
@@ -273,7 +287,7 @@ func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal, class string, tenant string) error {
-	tenants, err := m.GetTenants(ctx, principal, class)
+	tenants, err := m.GetTenants(ctx, principal, class, nil, nil)
 	if err != nil {
 		return err
 	}

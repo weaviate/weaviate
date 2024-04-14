@@ -49,6 +49,8 @@ type QueryReadOnlyClassResponse struct {
 
 type QueryTenantsRequest struct {
 	Class string
+	After *string
+	Limit *int64
 }
 
 type TenantWithVersion struct {

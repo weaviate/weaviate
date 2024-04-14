@@ -107,7 +107,9 @@ func TestServiceEndpoints(t *testing.T) {
 		Class:              "C",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
-	ss := &sharding.State{Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
+	ss := &sharding.State{Physical: map[string]sharding.Physical{
+		"T0": {Name: "T0"}, "T1": {Name: "T1"}, "T2": {Name: "T2"},
+	}}
 	version0, err := srv.AddClass(cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schema.ClassEqual("C"), "C")
@@ -133,13 +135,34 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
 
 	// QueryTenants
-	getTenants, _, err := srv.QueryTenants(cls.Class)
+	getTenants, _, err := srv.QueryTenants(cls.Class, nil, nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenants)
+	assert.Equal(t, []*models.Tenant{
+		{
+			Name:           "T0",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		{
+			Name:           "T1",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+		{
+			Name:           "T2",
+			ActivityStatus: models.TenantActivityStatusHOT,
+		},
+	}, getTenants)
+
+	// QueryTenants with after and limit
+	after := "T1"
+	limit := int64(1)
+	getTenantsAfterLimit, _, errAfterLimit := srv.QueryTenants(cls.Class, &after, &limit)
+	assert.NoError(t, errAfterLimit)
+	assert.NotNil(t, getTenantsAfterLimit)
 	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
+		Name:           "T2",
 		ActivityStatus: models.TenantActivityStatusHOT,
-	}}, getTenants)
+	}}, getTenantsAfterLimit)
 
 	// QueryShardOwner - Err
 	_, _, err = srv.QueryShardOwner(cls.Class, "T0")
@@ -209,7 +232,7 @@ func TestServiceEndpoints(t *testing.T) {
 	_, err = srv.AddTenants("", &command.AddTenantsRequest{})
 	assert.ErrorIs(t, err, errBadRequest)
 	version, err = srv.AddTenants("C", &command.AddTenantsRequest{
-		Tenants: []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
+		Tenants: []*command.Tenant{nil, {Name: "T4", Status: "S1"}, nil},
 	})
 	assert.Nil(t, err)
 	info.ShardVersion = version
@@ -219,7 +242,7 @@ func TestServiceEndpoints(t *testing.T) {
 	// UpdateTenants
 	_, err = srv.UpdateTenants("", &command.UpdateTenantsRequest{})
 	assert.ErrorIs(t, err, errBadRequest)
-	_, err = srv.UpdateTenants("C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T2", Status: "S2"}}})
+	_, err = srv.UpdateTenants("C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T4", Status: "S2"}}})
 	assert.Nil(t, err)
 
 	// DeleteTenants
@@ -230,7 +253,7 @@ func TestServiceEndpoints(t *testing.T) {
 	info.Tenants -= 1
 	info.ShardVersion = version
 	assert.Equal(t, info, schema.ClassInfo("C"))
-	assert.Equal(t, "S2", schema.CopyShardingState("C").Physical["T2"].Status)
+	assert.Equal(t, "S2", schema.CopyShardingState("C").Physical["T4"].Status)
 
 	// Self Join
 	assert.Nil(t, srv.Join(ctx, m.store.nodeID, addr, true))

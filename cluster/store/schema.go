@@ -283,7 +283,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	return meta.UpdateTenants(s.nodeID, req, v)
 }
 
-func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, after *string, limit *int64) ([]*models.Tenant, error) {
 	s.RLock()
 	// To avoid races between checking that multi tenancy is enabled and reading from the class itself,
 	// ensure we fetch both using the same lock.
@@ -303,15 +303,30 @@ func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
 	// Read tenants using the meta lock guard
 	var res []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
-		res = make([]*models.Tenant, len(ss.Physical))
+		if limit != nil {
+			res = make([]*models.Tenant, *limit)
+		} else {
+			res = make([]*models.Tenant, len(ss.Physical))
+		}
+		foundAfter := after == nil
 		i := 0
 		for tenant := range ss.Physical {
+			if !foundAfter {
+				if tenant == *after || after == nil {
+					foundAfter = true
+				}
+				continue
+			}
+			if i >= len(res) {
+				break
+			}
 			res[i] = &models.Tenant{
 				Name:           tenant,
 				ActivityStatus: entSchema.ActivityStatus(ss.Physical[tenant].Status),
 			}
 			i++
 		}
+		res = res[:i] // Trim the slice to the actual number of tenants added
 		return nil
 	}
 	return res, meta.RLockGuard(f)
