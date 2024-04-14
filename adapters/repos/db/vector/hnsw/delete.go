@@ -209,7 +209,7 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 // edges that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error {
 	_, err := h.cleanUpTombstonedNodes(shouldAbort)
-	return err
+	return h.wrapErrorWithClassName(err)
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
@@ -244,26 +244,26 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		return executed, err
+		return executed, h.wrapErrorWithClassName(err)
 	} else if !ok {
 		return executed, nil
 	}
 	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		return executed, err
+		return executed, h.wrapErrorWithClassName(err)
 	} else if !ok {
 		return executed, nil
 	}
 
 	if ok, err := h.removeTombstonesAndNodes(deleteList, breakCleanUpTombstonedNodes); err != nil {
-		return executed, err
+		return executed, h.wrapErrorWithClassName(err)
 	} else if !ok {
 		return executed, nil
 	}
 
 	if _, err := h.resetIfEmpty(); err != nil {
-		return executed, err
+		return executed, h.wrapErrorWithClassName(err)
 	}
 
 	return executed, nil
@@ -705,15 +705,19 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			}
 			if err := h.commitLog.DeleteNode(id); err != nil {
 				h.resetLock.Unlock()
-				return false, err
+				return false, h.wrapErrorWithClassName(err)
 			}
 		}
 		h.resetLock.Unlock()
 
 		if err := h.commitLog.RemoveTombstone(id); err != nil {
-			return false, err
+			return false, h.wrapErrorWithClassName(err)
 		}
 	}
 
 	return true, nil
+}
+
+func (h *hnsw) wrapErrorWithClassName(err error) error {
+	return fmt.Errorf("class %s: %w", h.className, err)
 }
