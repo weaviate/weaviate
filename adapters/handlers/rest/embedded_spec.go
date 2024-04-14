@@ -2797,6 +2797,18 @@ func init() {
             "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
             "name": "consistency",
             "in": "header"
+          },
+          {
+            "type": "string",
+            "description": "If tenant is provided, the pagination cursor will start after this tenant.",
+            "name": "after",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "description": "The maximum number of tenants to return.",
+            "name": "limit",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8174,6 +8186,18 @@ func init() {
             "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
             "name": "consistency",
             "in": "header"
+          },
+          {
+            "type": "string",
+            "description": "If tenant is provided, the pagination cursor will start after this tenant.",
+            "name": "after",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "description": "The maximum number of tenants to return.",
+            "name": "limit",
+            "in": "query"
           }
         ],
         "responses": {

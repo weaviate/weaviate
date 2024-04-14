@@ -121,6 +121,15 @@ func (f *fakeMetaHandler) ClassInfoWithVersion(ctx context.Context, class string
 	return args.Get(0).(clusterSchema.ClassInfo), args.Error(1)
 }
 
+func (f *fakeMetaHandler) GetConsistentTenants(ctx context.Context, class string, consistency bool, after *string, tenant *int64) ([]*models.Tenant, error) {
+	args := f.Called(ctx, class, consistency, after, tenant)
+	rTenant := args.Get(0)
+	if rTenant == nil {
+		return nil, args.Error(1)
+	}
+	return rTenant.([]*models.Tenant), args.Error(1)
+}
+
 func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
 	args := f.Called()
 	return args.Get(0).(models.Schema), args.Error(1)
@@ -137,9 +146,14 @@ func (f *fakeMetaHandler) QueryReadOnlyClasses(classes ...string) (map[string]ve
 	return models.(map[string]versioned.Class), nil
 }
 
-func (f *fakeMetaHandler) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
-	args := f.Called(class)
-	return nil, 0, args.Error(0)
+func (f *fakeMetaHandler) QueryTenants(class string, tenants []string, after *string, limit *int64) ([]*models.Tenant, uint64, error) {
+	args := f.Called(class, after, limit)
+	tenant := args.Get(0)
+	if tenant == nil {
+		return nil, 0, args.Error(2)
+	}
+	shardVersion := args.Get(1)
+	return tenant.([]*models.Tenant), shardVersion.(uint64), args.Error(2)
 }
 
 func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, uint64, error) {

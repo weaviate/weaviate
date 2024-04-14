@@ -27,6 +27,11 @@ import (
 // A component-test like test suite that makes sure that every available UC is
 // potentially protected with the Authorization plugin
 func Test_Schema_Authorization(t *testing.T) {
+	var (
+		after = "after"
+		limit = int64(1)
+	)
+
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -128,19 +133,19 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetTenants",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", &after, &limit},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false, []string{}},
+			additionalArgs:   []interface{}{"className", false, []string{}, &after, &limit},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "ConsistentTenantExists",
-			additionalArgs:   []interface{}{"className", false, "P1"},
+			additionalArgs:   []interface{}{"className", false, "P1", &after, &limit},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},

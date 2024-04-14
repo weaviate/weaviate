@@ -274,7 +274,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, nil)
+	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, nil, params.After, params.Limit)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -292,7 +292,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 }
 
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
-	if err := s.manager.ConsistentTenantExists(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, params.TenantName); err != nil {
+	if err := s.manager.ConsistentTenantExists(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, params.TenantName, nil, nil); err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if err == schemaUC.ErrNotFound {
 			return schema.NewTenantExistsNotFound()

@@ -14,6 +14,8 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"github.com/weaviate/weaviate/cluster/utils/priorityqueue"
+	"slices"
 	"strings"
 	"sync"
 
@@ -305,7 +307,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	}
 }
 
-func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, tenants []string, after *string, limit *int64) ([]*models.Tenant, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
@@ -314,24 +316,39 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 	// Read tenants using the meta lock guard
 	var res []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
-		if len(tenants) == 0 {
-			res = make([]*models.Tenant, len(ss.Physical))
-			i := 0
-			for tenant := range ss.Physical {
-				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
-				i++
-			}
-		} else {
-			res = make([]*models.Tenant, 0, len(tenants))
-			for _, tenant := range tenants {
-				if status, ok := ss.Physical[tenant]; ok {
-					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
-				}
-			}
+		if after != nil && limit != nil {
+			res = GetAllTenantsPriorityQueue(ss.Physical, *after, int(*limit))
+			return nil
 		}
+
+		res = CappedTenants(limit, res, tenants, ss)
 		return nil
 	}
 	return res, meta.RLockGuard(f)
+}
+
+func CappedTenants(limit *int64, res []*models.Tenant, tenants []string, ss *sharding.State) []*models.Tenant {
+	if limit != nil {
+		res = make([]*models.Tenant, 0, *limit)
+	} else if len(tenants) == 0 {
+		res = make([]*models.Tenant, len(ss.Physical))
+	} else {
+		res = make([]*models.Tenant, 0, len(tenants))
+	}
+
+	i := 0
+	for tenant := range ss.Physical {
+		if _, ok := ss.Physical[tenant]; !ok {
+			continue
+		}
+
+		res[i] = MakeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
+		if limit != nil && len(res) >= int(*limit) {
+			break
+		}
+		i++
+	}
+	return res
 }
 
 func (s *schema) States() map[string]types.ClassState {
@@ -356,9 +373,39 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return s.Classes
 }
 
-func makeTenant(name, status string) *models.Tenant {
+func (s *schema) clear() {
+	s.Lock()
+	defer s.Unlock()
+	for k := range s.Classes {
+		delete(s.Classes, k)
+	}
+}
+
+func MakeTenant(name, status string) *models.Tenant {
 	return &models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
 	}
+}
+
+func GetAllTenantsPriorityQueue(shards map[string]sharding.Physical, after string, limit int) []*models.Tenant {
+	pq := priorityqueue.NewMaxStringPriorityQueue(limit)
+	for tenant := range shards {
+		if tenant <= after {
+			continue
+		}
+		pq.Insert(tenant)
+		if pq.Len() > limit {
+			pq.Pop()
+		}
+	}
+	res := make([]*models.Tenant, pq.Len())
+	resIndex := 0
+	for pq.Len() > 0 {
+		tenant := pq.Pop()
+		res[resIndex] = MakeTenant(tenant, entSchema.ActivityStatus(shards[tenant].Status))
+		resIndex++
+	}
+	slices.Reverse(res)
+	return res
 }

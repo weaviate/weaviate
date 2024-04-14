@@ -60,7 +60,7 @@ func (sm *SchemaManager) QueryTenants(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the tenants
-	tenants, err := sm.schema.getTenants(subCommand.Class, subCommand.Tenants)
+	tenants, err := sm.schema.getTenants(subCommand.Class, subCommand.Tenants, subCommand.After, subCommand.Limit)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not get tenants: %w", err)
 	}

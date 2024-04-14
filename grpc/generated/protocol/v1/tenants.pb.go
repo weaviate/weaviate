@@ -81,6 +81,8 @@ type TenantsGetRequest struct {
 	//
 	//	*TenantsGetRequest_Names
 	Params isTenantsGetRequest_Params `protobuf_oneof:"params"`
+	After  string                     `protobuf:"bytes,4,opt,name=after,proto3" json:"after,omitempty"`
+	Limit  int64                      `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
 }
 
 func (x *TenantsGetRequest) Reset() {
@@ -134,6 +136,20 @@ func (x *TenantsGetRequest) GetNames() *TenantNames {
 		return x.Names
 	}
 	return nil
+}
+
+func (x *TenantsGetRequest) GetAfter() string {
+	if x != nil {
+		return x.After
+	}
+	return ""
+}
+
+func (x *TenantsGetRequest) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
 }
 
 type isTenantsGetRequest_Params interface {

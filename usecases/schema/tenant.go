@@ -164,54 +164,20 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	return err
 }
 
-// GetTenants is used to get tenants of a class.
-//
-// Class must exist and has partitioning enabled
-func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
-		return nil, err
-	}
-	return h.getTenants(class)
-}
-
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool,
+	tenants []string, after *string, limit *int64,
+) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
 
 	if consistency {
-		tenants, _, err := h.metaWriter.QueryTenants(class, tenants)
+		tenants, _, err := h.metaWriter.QueryTenants(class, tenants, after, limit)
 		return tenants, err
 	}
 
 	// If non consistent, fallback to the default implementation
-	return h.getTenantsByNames(class, tenants)
-}
-
-func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
-	info, err := h.multiTenancy(class)
-	if err != nil || info.Tenants == 0 {
-		return nil, err
-	}
-
-	ts := make([]*models.Tenant, info.Tenants)
-	f := func(_ *models.Class, ss *sharding.State) error {
-		if n := len(ss.Physical); n > len(ts) {
-			ts = make([]*models.Tenant, n)
-		} else if n < len(ts) {
-			ts = ts[:n]
-		}
-		i := 0
-		for tenant := range ss.Physical {
-			ts[i] = &models.Tenant{
-				Name:           tenant,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[tenant].Status),
-			}
-			i++
-		}
-		return nil
-	}
-	return ts, h.metaReader.Read(class, f)
+	return h.getTenantsByNames(class, tenants, after, limit)
 }
 
 func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
@@ -228,7 +194,9 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 // TenantExists is used to check if the tenant exists of a class
 //
 // Class must exist and has partitioning enabled
-func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
+func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string,
+	after *string, limit *int64,
+) error {
 	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return err
 	}
@@ -236,10 +204,10 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 	var tenants []*models.Tenant
 	var err error
 	if consistency {
-		tenants, _, err = h.metaWriter.QueryTenants(class, []string{tenant})
+		tenants, _, err = h.metaWriter.QueryTenants(class, []string{tenant}, after, limit)
 	} else {
-		// If non consistent, fallback to the default implementation
-		tenants, err = h.getTenantsByNames(class, []string{tenant})
+		// If non-consistent, fallback to the default implementation
+		tenants, err = h.getTenantsByNames(class, []string{tenant}, after, limit)
 	}
 	if err != nil {
 		return err
@@ -258,7 +226,7 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+func (h *Handler) getTenantsByNames(class string, names []string, after *string, limit *int64) ([]*models.Tenant, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
@@ -266,15 +234,12 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 
 	ts := make([]*models.Tenant, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
-		for _, name := range names {
-			if _, ok := ss.Physical[name]; !ok {
-				continue
-			}
-			ts = append(ts, &models.Tenant{
-				Name:           name,
-				ActivityStatus: schema.ActivityStatus(ss.Physical[name].Status),
-			})
+		if after != nil && limit != nil {
+			ts = store.GetAllTenantsPriorityQueue(ss.Physical, *after, int(*limit))
+			return nil
 		}
+
+		ts = store.CappedTenants(limit, ts, names, ss)
 		return nil
 	}
 	return ts, h.metaReader.Read(class, f)
