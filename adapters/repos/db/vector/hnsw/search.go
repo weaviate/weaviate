@@ -486,7 +486,19 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	maxLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	var entryPointDistance float32
+	var ok bool
+	var err error
+	if h.compressed.Load() {
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+		entryPointDistance, ok, err = compressorDistancer.DistanceToNode(entryPointID)
+		defer returnFn()
+	} else {
+		entryPointDistance, ok, err = h.distBetweenNodeAndVec(entryPointID, searchVec)
+	}
+
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
@@ -494,13 +506,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	if !ok {
 		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
-	}
-
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
 	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
