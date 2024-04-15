@@ -33,26 +33,26 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func (h *Handler) GetClass(ctx context.Context, principal *models.Principal,
-	name string,
-) (*models.Class, error) {
+func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, uint64, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return h.metaReader.ReadOnlyClass(name), nil
+	cl, version := h.metaReader.ReadOnlyClassWithVersion(name, 0)
+	return cl, version, nil
 }
 
 func (m *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
-) (*models.Class, error) {
+) (*models.Class, uint64, error) {
 	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if consistency {
-		class, _, err := m.metaWriter.QueryReadOnlyClass(name)
-		return class, err
+		class, version, err := m.metaWriter.QueryReadOnlyClass(name)
+		return class, version, err
 	}
-	return m.metaReader.ReadOnlyClass(name), nil
+	class, version := m.metaReader.ReadOnlyClassWithVersion(name, 0)
+	return class, version, nil
 }
 
 // AddClass to the schema
