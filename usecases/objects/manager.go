@@ -35,19 +35,14 @@ import (
 )
 
 type schemaManager interface {
-	AddClass(ctx context.Context, principal *models.Principal,
-		class *models.Class) (uint64, error)
-	AddTenants(ctx context.Context, principal *models.Principal,
-		class string, tenants []*models.Tenant) (uint64, error)
-	GetClass(ctx context.Context, principal *models.Principal,
-		name string,
-	) (*models.Class, error)
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (uint64, error)
+	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
+	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, uint64, error)
 	// ReadOnlyClass return class model.
-	ReadOnlyClass(name string) *models.Class
+	ReadOnlyClass(name string) (*models.Class, uint64)
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal,
-		class *models.Class, merge bool, prop ...*models.Property) (uint64, error)
+	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, merge bool, prop ...*models.Property) (uint64, error)
 	MultiTenancy(class string) models.MultiTenancyConfig
 
 	// Consistent methods with the consistency flag.
@@ -57,7 +52,7 @@ type schemaManager interface {
 	// GetConsistentClass overrides the default implementation to consider the consistency flag
 	GetConsistentClass(ctx context.Context, principal *models.Principal,
 		name string, consistency bool,
-	) (*models.Class, error)
+	) (*models.Class, uint64, error)
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
