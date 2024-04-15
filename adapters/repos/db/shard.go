@@ -72,7 +72,8 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
-	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker  //Returns the active property length tracker, which is used in BM25f calculations
+	GetPropertyIdTracker() *tracker.JsonPropertyIdTracker          //Returns the active property id tracker, which is used to encode property names as numbers.  The numbers should not be synchornised with other nodes
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error

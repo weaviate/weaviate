@@ -19,6 +19,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/pkg/errors"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -84,7 +85,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 
 	var it docIDsIterator
 	if len(sort) > 0 {
-		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, additional, className)
 		if err != nil {
 			return nil, fmt.Errorf("sort doc ids: %w", err)
 		}

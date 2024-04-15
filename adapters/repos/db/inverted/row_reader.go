@@ -107,7 +107,7 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
+	v, err := rr.equalHelper(ctx, helpers.MakePropertyKey(rr.PropPrefix, rr.value))
 	if err != nil {
 		return err
 	}
