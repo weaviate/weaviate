@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -185,7 +184,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
