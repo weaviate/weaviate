@@ -112,7 +112,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	now := time.Now()
 	m.reservedMappings -= clearReservedMappings(m.lastRefresh, now, m.reservedMappingsBuffer)
 
-	if float64(m.usedMappings+numberMappings+m.reservedMappings) > float64(m.maxMemoryMappings) {
+	if m.usedMappings+numberMappings+m.reservedMappings > m.maxMemoryMappings {
 		return ErrNotEnoughMappings
 	}
 	if reservationTimeInS > 0 {

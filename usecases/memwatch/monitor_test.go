@@ -138,14 +138,14 @@ func TestMappings(t *testing.T) {
 		}
 	})
 
-	t.Run("current memory settings", func(t *testing.T) {
+	t.Run("check mappings", func(t *testing.T) {
 		currentMappings := getCurrentMappings()
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh()
 
-		mappingsLeft := getMaxMemoryMappings() - getCurrentMappings()
+		mappingsLeft := getMaxMemoryMappings() - currentMappings
 		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
 		path := t.TempDir()
 		// use up available mappings
@@ -174,6 +174,29 @@ func TestMappings(t *testing.T) {
 
 		// any further mapping should fail
 		require.NotNil(t, m.CheckMappingAndReserve(1, 0))
+	})
+
+	t.Run("check reservations", func(t *testing.T) {
+		currentMappings := getCurrentMappings()
+		addMappings := 15
+		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
+		maxMappings := getMaxMemoryMappings()
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
+		m.Refresh()
+		currentMappings = getCurrentMappings() // update after refresh
+
+		// reserve up available mappings
+		for i := 0; i < int(addMappings)+5; i++ {
+			// there might be other processes that use mappings
+			if maxMappings-currentMappings-int64(i) <= 0 {
+				require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+			} else {
+				require.Nil(t, m.CheckMappingAndReserve(1, 60))
+			}
+		}
+
+		// any further mapping should fail
+		require.NotNil(t, m.CheckMappingAndReserve(1, 60))
 	})
 }
 
