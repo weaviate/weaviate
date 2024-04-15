@@ -127,11 +127,11 @@ func (req *PutReferenceInput) validate(
 		return nil, err
 	}
 
-	schema, err := sm.GetSchema(principal)
+	class, err := sm.GetClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, err
 	}
-	return refs, validateReferenceSchema(req.Class, req.Property, schema)
+	return refs, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *PutReferenceInput) validateExistence(
@@ -158,13 +158,13 @@ func validateReferenceName(class, property string) error {
 	return nil
 }
 
-func validateReferenceSchema(class, property string, sch schema.Schema) error {
-	prop, err := sch.GetProperty(schema.ClassName(class), schema.PropertyName(property))
+func validateReferenceSchema(sm schemaManager, c *models.Class, property string) error {
+	prop, err := schema.GetPropertyByName(c, property)
 	if err != nil {
 		return err
 	}
 
-	dt, err := sch.FindPropertyDataType(prop.DataType)
+	dt, err := schema.FindPropertyDataTypeWithRefs(sm.ReadOnlyClass, prop.DataType, false, "")
 	if err != nil {
 		return err
 	}

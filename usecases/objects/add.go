@@ -20,22 +20,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
-
-type schemaManager interface {
-	GetSchema(principal *models.Principal) (schema.Schema, error)
-	AddClass(ctx context.Context, principal *models.Principal,
-		class *models.Class) error
-	GetClass(ctx context.Context, principal *models.Principal,
-		name string,
-	) (*models.Class, error)
-	AddClassProperty(ctx context.Context, principal *models.Principal,
-		class string, property *models.Property) error
-	MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-		class string, property *models.Property) error
-}
 
 // AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
@@ -101,7 +87,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, object, true)
+	err = m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}

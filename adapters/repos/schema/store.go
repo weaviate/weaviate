@@ -21,8 +21,10 @@ import (
 	"path"
 
 	"github.com/sirupsen/logrus"
+	clusterStore "github.com/weaviate/weaviate/cluster/store"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	bolt "go.etcd.io/bbolt"
@@ -468,7 +470,7 @@ func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) 
 				return fmt.Errorf("context for class %q: %w", cls.Class, err)
 			}
 			sharding := ss.ShardingState[cls.Class]
-			payload, err := ucs.CreateClassPayload(cls, sharding)
+			payload, err := createClassPayload(cls, sharding)
 			if err != nil {
 				return fmt.Errorf("create payload for class %q: %w", cls.Class, err)
 			}
@@ -552,3 +554,42 @@ func copyFile(dst, src string) error {
 }
 
 // var _ = schemauc.Repo(&Repo{})
+
+func createClassPayload(class *models.Class,
+	shardingState *sharding.State,
+) (pl schema.ClassPayload, err error) {
+	pl.Name = class.Class
+	if pl.Metadata, err = json.Marshal(class); err != nil {
+		return pl, fmt.Errorf("marshal class %q metadata: %w", pl.Name, err)
+	}
+	if shardingState != nil {
+		ss := *shardingState
+		pl.Shards = make([]schema.KeyValuePair, len(ss.Physical))
+		i := 0
+		for name, shard := range ss.Physical {
+			data, err := json.Marshal(shard)
+			if err != nil {
+				return pl, fmt.Errorf("marshal shard %q metadata: %w", name, err)
+			}
+			pl.Shards[i] = schema.KeyValuePair{Key: name, Value: data}
+			i++
+		}
+		ss.Physical = nil
+		if pl.ShardingState, err = json.Marshal(&ss); err != nil {
+			return pl, fmt.Errorf("marshal class %q sharding state: %w", pl.Name, err)
+		}
+	}
+	return pl, nil
+}
+
+func (r *store) LoadLegacySchema() (map[string]clusterStore.ClassState, error) {
+	res := make(map[string]clusterStore.ClassState)
+	legacySchema, err := r.Load(context.Background())
+	if err != nil {
+		return res, fmt.Errorf("could not load legacy schema: %w", err)
+	}
+	for _, c := range legacySchema.ObjectSchema.Classes {
+		res[c.Class] = clusterStore.ClassState{Class: *c, Shards: *legacySchema.ShardingState[c.Class]}
+	}
+	return res, nil
+}

@@ -20,12 +20,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func TestState(t *testing.T) {
 	size := 1000
 
-	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
+	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}
@@ -153,7 +154,7 @@ func TestInitState(t *testing.T) {
 		t.Run(fmt.Sprintf("Shards=%d_RF=%d", test.shards, test.replicationFactor),
 			func(t *testing.T) {
 				nodes := fakeNodes{test.nodes}
-				cfg, err := ParseConfig(map[string]interface{}{
+				cfg, err := config.ParseConfig(map[string]interface{}{
 					"desiredCount": float64(test.shards),
 					"replicas":     float64(test.replicationFactor),
 				}, 3)
@@ -292,7 +293,7 @@ func TestAddPartition(t *testing.T) {
 		nodes1 = []string{"N", "M"}
 		nodes2 = []string{"L", "M", "O"}
 	)
-	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
+	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}
@@ -312,7 +313,7 @@ func TestAddPartition(t *testing.T) {
 func TestStateDeepCopy(t *testing.T) {
 	original := State{
 		IndexID: "original",
-		Config: Config{
+		Config: config.Config{
 			VirtualPerPhysical:  1,
 			DesiredCount:        2,
 			ActualCount:         3,
@@ -344,7 +345,7 @@ func TestStateDeepCopy(t *testing.T) {
 
 	control := State{
 		IndexID: "original",
-		Config: Config{
+		Config: config.Config{
 			VirtualPerPhysical:  1,
 			DesiredCount:        2,
 			ActualCount:         3,

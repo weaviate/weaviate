@@ -47,7 +47,7 @@ type Provider struct {
 }
 
 type schemaGetter interface {
-	GetSchemaSkipAuth() schema.Schema
+	ReadOnlyClass(name string) *models.Class
 }
 
 func NewProvider() *Provider {
@@ -874,8 +874,7 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 }
 
 func (p *Provider) getClass(className string) (*models.Class, error) {
-	sch := p.schemaGetter.GetSchemaSkipAuth()
-	class := sch.FindClassByName(schema.ClassName(className))
+	class := p.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		return nil, errors.Errorf("class %q not found in schema", className)
 	}
