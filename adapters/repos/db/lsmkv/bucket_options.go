@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type BucketOption func(b *Bucket) error
@@ -88,6 +89,13 @@ func WithDynamicMemtableSizing(
 			maxDuration: time.Duration(maxActiveSeconds) * time.Second,
 		}
 		b.memtableResizer = newMemtableSizeAdvisor(cfg)
+		return nil
+	}
+}
+
+func WithAllocChecker(mm memwatch.AllocChecker) BucketOption {
+	return func(b *Bucket) error {
+		b.allocChecker = mm
 		return nil
 	}
 }

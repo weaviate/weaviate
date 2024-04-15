@@ -446,11 +446,21 @@ func (r *store) Save(ctx context.Context, ss ucs.State) error {
 		return nil
 	}
 
+	r.log.WithField("action", "save_schema").
+		Infof("Current schema state outdated, updating schema store")
+
 	f := func(tx *bolt.Tx) error {
 		root := tx.Bucket(schemaBucket)
 		return r.saveAllTx(ctx, root, ss)(tx)
 	}
-	return r.db.Update(f)
+
+	err = r.db.Update(f)
+	if err == nil {
+		r.log.WithField("action", "save_schema").
+			Infof("Schema store successfully updated")
+	}
+
+	return err
 }
 
 func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) func(tx *bolt.Tx) error {
@@ -481,7 +491,12 @@ func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) 
 			if err := r.updateClass(b, payload); err != nil {
 				return fmt.Errorf("update bucket %q: %w", cls.Class, err)
 			}
+			r.log.WithField("action", "update_schema_store").
+				Debugf("Class updated: %s", cls.Class)
 		}
+
+		r.log.WithField("action", "update_schema_store").
+			Debug("All classes updated")
 
 		return nil
 	}
