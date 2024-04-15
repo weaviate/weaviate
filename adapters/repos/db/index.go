@@ -375,7 +375,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics,
 ) (ShardLike, error) {
 	if i.Config.DisableLazyLoadShards {
-		if err := i.allocChecker.CheckMappingAndReserve(4, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
+		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 

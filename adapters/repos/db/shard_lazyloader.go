@@ -94,13 +94,14 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
+	if l.loaded {
+		return nil
+	}
+
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 		return errors.Wrap(err, "memory pressure: cannot load shard")
 	}
 
-	if l.loaded {
-		return nil
-	}
 	if l.shardOpts.class == nil {
 		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
 	} else {
