@@ -650,8 +650,6 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop id tracker at %s", s.DBPathLSM())
 	}
 
-	// TODO: can we remove this?
-	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
