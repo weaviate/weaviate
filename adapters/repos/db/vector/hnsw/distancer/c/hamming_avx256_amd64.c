@@ -39,8 +39,8 @@ void hamming_256(float *a, float *b, float *res, long *len)
     acc[3] = _mm256_setzero_si256();
 
     __m256i ones_256 = _mm256_set1_epi32(1);
-    __m256i zeros_256 = _mm256_setzero_si256(); // Vector of zeros
-    // Use mask to blend 1s and 0s: 1s where comparison is true, 0s elsewhere
+    __m256i zeros_256 = _mm256_setzero_si256();
+
     __m256i blend1_256 = _mm256_setzero_si256();
     __m256i blend2_256 = _mm256_setzero_si256();
     __m256i blend3_256 = _mm256_setzero_si256();
