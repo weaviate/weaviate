@@ -164,7 +164,6 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 			}
 
 			for i := 0; i < count; i++ {
-
 				res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
 
 				if err != nil {
