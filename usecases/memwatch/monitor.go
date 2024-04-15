@@ -216,10 +216,9 @@ func getMaxMemoryMappings() int64 {
 	// get user provided default
 	if v := os.Getenv("MAX_MEMORY_MAPPINGS"); v != "" {
 		asInt, err := strconv.Atoi(v)
-		if err != nil {
-			return maxMappings
+		if err == nil {
+			return int64(asInt)
 		}
-		return int64(asInt)
 	}
 
 	// different operating systems have different ways of finding the max
