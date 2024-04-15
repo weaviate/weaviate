@@ -177,6 +177,7 @@ func (b *Bucket) CheckBucket() {
 	if b.strategy == "" {
 		panic("Bucket strategy is empty")
 	}
+}
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
 
@@ -299,7 +300,7 @@ func (b *Bucket) DumpString() string {
 		if err != nil {
 			return err
 		}
-		buf.WriteString(fmt.Sprintf("%v, %v: %v\n", object.ID(), object.DocID(), string(json)))
+		buf.WriteString(fmt.Sprintf("%v, %v: %v\n", object.ID(), object.DocID, string(json)))
 		return nil
 	})
 	buf.WriteString("Bucket end\n")
