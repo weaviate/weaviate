@@ -186,7 +186,7 @@ func getCurrentMappings() int64 {
 
 func currentMappingsCommand(command, args string) int64 {
 	cmd1 := exec.Command(command, fmt.Sprintf(args, strconv.Itoa(os.Getpid()))) // print mappings
-	cmd2 := exec.Command("wc", "-l")                                            // count nunmber of mappings
+	cmd2 := exec.Command("wc", "-l")                                            // count number of mappings
 
 	pipe, err := cmd1.StdoutPipe()
 	if err != nil {

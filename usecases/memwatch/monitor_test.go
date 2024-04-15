@@ -12,6 +12,7 @@
 package memwatch
 
 import (
+	"errors"
 	"math"
 	"os"
 	"runtime"
@@ -109,9 +110,13 @@ func TestMappings(t *testing.T) {
 		t.Setenv("MAX_MEMORY_MAPPINGS", "abc")
 		switch runtime.GOOS {
 		case "linux":
-			// we can read the max value on linux
-			assert.Greater(t, getMaxMemoryMappings(), int64(0))
-			assert.Less(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			// we can read the max value, but it does not exist on all systems
+			if _, err := os.Stat("/proc/sys/vm/max_map_count"); errors.Is(err, os.ErrNotExist) {
+				assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			} else {
+				assert.Greater(t, getMaxMemoryMappings(), int64(0))
+				assert.Less(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			}
 		default:
 			// cant read on other OS so we use max int
 			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
@@ -119,11 +124,16 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("max memory mappings not set", func(t *testing.T) {
+		t.Setenv("MAX_MEMORY_MAPPINGS", "")
 		switch runtime.GOOS {
 		case "linux":
-			// we can read the max value on linux
-			assert.Greater(t, getMaxMemoryMappings(), 0)
-			assert.Less(t, getMaxMemoryMappings(), math.MaxInt64)
+			// we can read the max value, but it does not exist on all systems
+			if _, err := os.Stat("/proc/sys/vm/max_map_count"); errors.Is(err, os.ErrNotExist) {
+				assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			} else {
+				assert.Greater(t, getMaxMemoryMappings(), int64(0))
+				assert.Less(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			}
 		default:
 			// cant read on other OS so we use max int
 			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
