@@ -183,12 +183,11 @@ func TestMappings(t *testing.T) {
 		maxMappings := getMaxMemoryMappings()
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh()
-		currentMappings = getCurrentMappings() // update after refresh
 
 		// reserve up available mappings
 		for i := 0; i < int(addMappings)+5; i++ {
 			// there might be other processes that use mappings
-			if maxMappings-currentMappings-int64(i) <= 0 {
+			if maxMappings-m.usedMappings-int64(i) <= 0 {
 				require.NotNil(t, m.CheckMappingAndReserve(1, 60))
 			} else {
 				require.Nil(t, m.CheckMappingAndReserve(1, 60))
@@ -212,11 +211,12 @@ func TestMappingsReservationClearing(t *testing.T) {
 	}{
 		{name: "no reservations", reservations: map[int]int64{}, expectedClearing: 0},
 		{name: "reservations present, no expiration", nowShift: 1, reservations: map[int]int64{1: 45, 2: 14}, expectedClearing: 0},
-		{name: "reservations present, one expiration", nowShift: 1, reservations: map[int]int64{1: 45, 30: 14}, expectedClearing: 14},
+		{name: "reservations present, one expiration", nowShift: 1, reservations: map[int]int64{1: 45, 31: 14}, expectedClearing: 14},
 		{name: "reservations present, clear all", nowShift: 60, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 59: 1}, expectedClearing: 4},
 		{name: "reservations present, clear nothing (same time)", reservations: map[int]int64{0: 1, 30: 1, 2: 1, 59: 1}, expectedClearing: 0},
-		{name: "clear range", nowShift: 20, reservations: map[int]int64{0: 10, 29: 10, 30: 1, 32: 1, 50: 1, 51: 10}, expectedClearing: 3},
+		{name: "clear range", nowShift: 20, reservations: map[int]int64{0: 10, 29: 10, 30: 1, 31: 1, 50: 1, 51: 10}, expectedClearing: 2},
 		{name: "clear over minute wraparound", nowShift: 45, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 29: 10, 59: 1}, expectedClearing: 4},
+		{name: "dont clear value of last refresh", nowShift: 2, reservations: map[int]int64{0: 1, 30: 1, 31: 1, 32: 1, 33: 1}, expectedClearing: 2},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

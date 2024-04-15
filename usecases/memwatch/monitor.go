@@ -54,7 +54,7 @@ type Monitor struct {
 	usedMappings           int64
 	reservedMappings       int64
 	reservedMappingsBuffer []int64
-	lastRefresh            time.Time
+	lastReservationsClear  time.Time
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -83,7 +83,7 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		maxRatio:               maxRatio,
 		maxMemoryMappings:      getMaxMemoryMappings(),
 		reservedMappingsBuffer: make([]int64, 60), // one entry per second
-		lastRefresh:            time.Now(),
+		lastReservationsClear:  time.Now(),
 	}
 	m.Refresh()
 	return m
@@ -110,7 +110,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 
 	// expire old mappings
 	now := time.Now()
-	m.reservedMappings -= clearReservedMappings(m.lastRefresh, now, m.reservedMappingsBuffer)
+	m.reservedMappings -= clearReservedMappings(m.lastReservationsClear, now, m.reservedMappingsBuffer)
 
 	if m.usedMappings+numberMappings+m.reservedMappings > m.maxMemoryMappings {
 		return ErrNotEnoughMappings
@@ -120,28 +120,29 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%60] += numberMappings
 	}
 
-	m.lastRefresh = now
+	m.lastReservationsClear = now
 
 	return nil
 }
 
-func clearReservedMappings(lastRefresh time.Time, now time.Time, reservedMappingsBuffer []int64) int64 {
+func clearReservedMappings(lastClear time.Time, now time.Time, reservedMappingsBuffer []int64) int64 {
 	clearedMappings := int64(0)
-	if now.Sub(lastRefresh) >= time.Minute {
+	if now.Sub(lastClear) >= time.Minute {
 		for i := 0; i < len(reservedMappingsBuffer); i++ {
 			clearedMappings += reservedMappingsBuffer[i]
 			reservedMappingsBuffer[i] = 0
 		}
-	} else if now.Second() == lastRefresh.Second() {
+	} else if now.Second() == lastClear.Second() {
 		// do nothing
-	} else if now.Second() > lastRefresh.Second() {
-		for i := lastRefresh.Second(); i <= now.Second(); i++ {
+	} else if now.Second() > lastClear.Second() {
+		// the value of the last refresh was already cleared
+		for i := lastClear.Second() + 1; i <= now.Second(); i++ {
 			clearedMappings += reservedMappingsBuffer[i]
 			reservedMappingsBuffer[i] = 0
 		}
 	} else {
-		// wrap around
-		for i := lastRefresh.Second(); i < 60; i++ {
+		// wrap around, the value of the last refresh was already cleared
+		for i := lastClear.Second() + 1; i < 60; i++ {
 			clearedMappings += reservedMappingsBuffer[i]
 			reservedMappingsBuffer[i] = 0
 		}
@@ -280,9 +281,12 @@ func (m *Monitor) updateLimit() {
 
 func NewDummyMonitor() *Monitor {
 	m := &Monitor{
-		metricsReader: func() int64 { return 0 },
-		limitSetter:   func(size int64) int64 { return TiB },
-		maxRatio:      1,
+		metricsReader:          func() int64 { return 0 },
+		limitSetter:            func(size int64) int64 { return TiB },
+		maxRatio:               1,
+		maxMemoryMappings:      10000000,
+		reservedMappingsBuffer: make([]int64, 60),
+		lastReservationsClear:  time.Now(),
 	}
 	m.Refresh()
 	return m
