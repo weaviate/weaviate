@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -51,7 +51,7 @@ func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit 
 	return nil, nil, errors.Errorf("cannot vector-search on a class not vector-indexed")
 }
 
-func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	callback()
 	switch t := updated.(type) {
 	case hnsw.UserConfig:
@@ -116,7 +116,7 @@ func (i *Index) ShouldCompress() (bool, int) {
 	return false, 0
 }
 
-func (i *Index) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+func (i *Index) ShouldCompressFromConfig(config schemaConfig.VectorIndexConfig) (bool, int) {
 	return false, 0
 }
 

@@ -27,10 +27,41 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+type schemaManager interface {
+	AddClass(ctx context.Context, principal *models.Principal,
+		class *models.Class) (uint64, error)
+	AddTenants(ctx context.Context, principal *models.Principal,
+		class string, tenants []*models.Tenant) (uint64, error)
+	GetClass(ctx context.Context, principal *models.Principal,
+		name string,
+	) (*models.Class, error)
+	// ReadOnlyClass return class model.
+	ReadOnlyClass(name string) *models.Class
+	// AddClassProperty it is upsert operation. it adds properties to a class and updates
+	// existing properties if the merge bool passed true.
+	AddClassProperty(ctx context.Context, principal *models.Principal,
+		class *models.Class, merge bool, prop ...*models.Property) (uint64, error)
+	MultiTenancy(class string) models.MultiTenancyConfig
+
+	// Consistent methods with the consistency flag.
+	// This is used to ensure that internal users will not miss-use the flag and it doesn't need to be set to a default
+	// value everytime we use the Manager.
+
+	// GetConsistentClass overrides the default implementation to consider the consistency flag
+	GetConsistentClass(ctx context.Context, principal *models.Principal,
+		name string, consistency bool,
+	) (*models.Class, error)
+
+	// GetConsistentSchema retrieves a locally cached copy of the schema
+	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
+}
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
@@ -45,6 +76,7 @@ type Manager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *autoSchemaManager
 	metrics           objectsMetrics
+	allocChecker      *memwatch.Monitor
 }
 
 type objectsMetrics interface {
@@ -128,8 +160,12 @@ type ModulesProvider interface {
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider, metrics objectsMetrics,
+	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
 ) *Manager {
+	if allocChecker == nil {
+		allocChecker = memwatch.NewDummyMonitor()
+	}
+
 	return &Manager{
 		config:            config,
 		locks:             locks,
@@ -141,6 +177,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		modulesProvider:   modulesProvider,
 		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
 		metrics:           metrics,
+		allocChecker:      allocChecker,
 	}
 }
 

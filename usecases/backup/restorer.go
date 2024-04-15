@@ -37,7 +37,6 @@ type restorer struct {
 	logger   logrus.FieldLogger
 	sourcer  Sourcer
 	backends BackupBackendProvider
-	schema   schemaManger
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -50,19 +49,17 @@ type restorer struct {
 func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	schema schemaManger,
 ) *restorer {
 	return &restorer{
 		node:          node,
 		logger:        logger,
 		sourcer:       sourcer,
 		backends:      backends,
-		schema:        schema,
 		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
-func (r *restorer) restore(ctx context.Context,
+func (r *restorer) restore(
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
@@ -112,7 +109,7 @@ func (r *restorer) restore(ctx context.Context,
 			return
 		}
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, req.NodeMapping)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)
@@ -125,14 +122,16 @@ func (r *restorer) restore(ctx context.Context,
 	return ret, nil
 }
 
+// restoreAll restores classes in temporary directories on the filesystem.
+// The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, nodeMapping map[string]string,
+	store nodeStore,
 ) (err error) {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store, nodeMapping); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -152,7 +151,7 @@ func getType(myvar interface{}) string {
 
 func (r *restorer) restoreOne(ctx context.Context,
 	desc *backup.ClassDescriptor, serverVersion string,
-	compressed bool, cpuPercentage int, store nodeStore, nodeMapping map[string]string,
+	compressed bool, cpuPercentage int, store nodeStore,
 ) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
@@ -164,9 +163,6 @@ func (r *restorer) restoreOne(ctx context.Context,
 		defer timer.ObserveDuration()
 	}
 
-	if r.sourcer.ClassExists(desc.Name) {
-		return fmt.Errorf("already exists")
-	}
 	fw := newFileWriter(r.sourcer, store, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
@@ -179,16 +175,10 @@ func (r *restorer) restoreOne(ctx context.Context,
 		fw.setMigrator(f)
 	}
 
-	rollback, err := fw.Write(ctx, desc)
-	if err != nil {
+	if err := fw.Write(ctx, desc); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
-	if err := r.schema.RestoreClass(ctx, desc, nodeMapping); err != nil {
-		if rerr := rollback(); rerr != nil {
-			r.logger.WithField("className", desc.Name).WithField("action", "rollback").Error(rerr)
-		}
-		return fmt.Errorf("restore schema: %w", err)
-	}
+
 	return nil
 }
 

@@ -79,6 +79,11 @@ type PrometheusMetrics struct {
 	SchemaTxClosed   *prometheus.CounterVec
 	SchemaTxDuration *prometheus.SummaryVec
 
+	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
+	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
+	TombstoneReassignNeighbors    *prometheus.CounterVec
+	TombstoneDeleteListSize       *prometheus.GaugeVec
+
 	Group bool
 }
 
@@ -382,6 +387,22 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "schema_tx_duration_seconds",
 			Help: "Mean duration of a tx by status",
 		}, []string{"ownership", "status"}),
+		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_find_local_entrypoint",
+			Help: "Total number of tombstone delete local entrypoint calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneFindGlobalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_find_global_entrypoint",
+			Help: "Total number of tombstone delete global entrypoint calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneReassignNeighbors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_reassign_neighbors",
+			Help: "Total number of tombstone reassign neighbor calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneDeleteListSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "tombstone_delete_list_size",
+			Help: "Delete list size of tombstones",
+		}, []string{"class_name", "shard_name"}),
 	}
 }
 

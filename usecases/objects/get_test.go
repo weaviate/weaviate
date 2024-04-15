@@ -64,7 +64,7 @@ func Test_GetAction(t *testing.T) {
 		metrics = &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
 			authorizer, vectorRepo,
-			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
 	}
 
 	t.Run("get non-existing action by id", func(t *testing.T) {
@@ -693,7 +693,7 @@ func Test_GetThing(t *testing.T) {
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
 			authorizer, vectorRepo,
-			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics)
+			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
 	}
 
 	t.Run("get non-existing thing by id", func(t *testing.T) {
@@ -1090,7 +1090,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	logger, _ := test.NewNullLogger()
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
 	r.Manager = NewManager(r.locks, schemaManager, cfg, logger,
-		r.authorizer, r.repo, r.modulesProvider, r.metrics)
+		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil)
 
 	return r
 }

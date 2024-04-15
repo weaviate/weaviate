@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -164,7 +165,9 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := state.Level
-	nodeCh := c.broadcast(ctx, state.Hosts, ask, level)
+	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
 	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 

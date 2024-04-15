@@ -14,6 +14,9 @@ package vectorizer
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -73,7 +76,12 @@ func Test_classSettings_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ic := NewClassSettings(tt.cfg)
 			if tt.wantErr != nil {
-				assert.EqualError(t, ic.Validate(nil), tt.wantErr.Error())
+				assert.EqualError(t, ic.Validate(&models.Class{Class: "Test", Properties: []*models.Property{
+					{
+						Name:     "test",
+						DataType: []string{schema.DataTypeText.String()},
+					},
+				}}), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
 				assert.Equal(t, tt.wantModelID, ic.ModelID())

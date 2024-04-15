@@ -13,8 +13,12 @@ package memwatch
 
 import (
 	"fmt"
+	"os"
 	"runtime/metrics"
+	"strconv"
 	"sync"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const (
@@ -58,11 +62,13 @@ type limitSetter func(size int64) int64
 func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 	maxRatio float64,
 ) *Monitor {
-	return &Monitor{
+	m := &Monitor{
 		metricsReader: metricsReader,
 		limitSetter:   limitSetter,
 		maxRatio:      maxRatio,
 	}
+	m.Refresh()
+	return m
 }
 
 func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
@@ -117,4 +123,48 @@ func (m *Monitor) updateLimit() {
 	m.limit = m.limitSetter(-1)
 }
 
+func NewDummyMonitor() *Monitor {
+	m := &Monitor{
+		metricsReader: func() int64 { return 0 },
+		limitSetter:   func(size int64) int64 { return TiB },
+		maxRatio:      1,
+	}
+	m.Refresh()
+	return m
+}
+
 type metricsReader func() int64
+
+type AllocChecker interface {
+	CheckAlloc(sizeInBytes int64) error
+	Refresh()
+}
+
+func EstimateObjectMemory(object *models.Object) int64 {
+	// Note: This is very much oversimplified. It assumes that we always need
+	// the footprint of the full vector and it assumes a fixed overhead of 30B
+	// per vector. In reality this depends on the HNSW settings - and possibly
+	// in the future we might have completely different index types.
+	//
+	// However, in the meantime this should be a fairly reasonable estimate, as
+	// it's not meant to fail exactly on the last available byte, but rather
+	// prevent OOM crashes. Given the fuzziness and async style of the
+	// memtracking somewhat decent estimate should be good enough.
+	return int64(len(object.Vector)*4 + 30)
+}
+
+func EstimateObjectDeleteMemory() int64 {
+	// When deleting an object we attach a tombstone to the object in the HNSW and a new segment in the Memtable and
+	// additional other temporary allocations.
+	// The total amount is hard to guess, so we go with a default of 100 bytes.
+	estimate := int64(100)
+	if v := os.Getenv("MEMORY_ESTIMATE_DELETE_BYTES"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return estimate
+		}
+
+		return int64(asInt)
+	}
+	return estimate
+}

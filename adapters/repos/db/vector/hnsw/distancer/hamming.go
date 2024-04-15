@@ -20,7 +20,7 @@ var hammingImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 
 	for i := range a {
 		if a[i] != b[i] {
-			sum += float32(1)
+			sum += 1
 		}
 	}
 
