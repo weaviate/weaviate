@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // This test aims to prevent a regression on
@@ -63,7 +63,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -180,7 +180,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

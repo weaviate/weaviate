@@ -143,8 +143,8 @@ func createMyFavoriteClassObject() *storobj.Object {
 	)
 }
 
-func sorterCitySchema() schema.Schema {
-	return schema.Schema{
+func sorterCitySchema() *schema.Schema {
+	return &schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{

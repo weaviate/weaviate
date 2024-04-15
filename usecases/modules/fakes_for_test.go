@@ -147,8 +147,8 @@ func (m dummyNonVectorizerModule) Type() modulecapabilities.ModuleType {
 
 type fakeSchemaGetter struct{ schema schema.Schema }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlyClass(name string) *models.Class {
+	return f.schema.GetClass(name)
 }
 
 type fakeObjectsRepo struct {

@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -688,16 +688,12 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 }
 
 func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
-	s := e.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects == nil {
-		return errors.Errorf("failed to get schema")
-	}
-	class := s.GetClass(schema.ClassName(params.ClassName))
+	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
 	targetVector := e.targetParamHelper.GetTargetVectorFromParams(params)
-	vectorConfig, err := schema.TypeAssertVectorIndex(class, []string{targetVector})
+	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, []string{targetVector})
 	if err != nil {
 		return err
 	}
@@ -712,13 +708,13 @@ func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
 	if e.schemaGetter == nil {
 		return false, fmt.Errorf("schemaGetter not set")
 	}
-	sch := e.schemaGetter.GetSchemaSkipAuth()
-	cls := sch.GetClass(schema.ClassName(params.ClassName))
-	if cls == nil {
+
+	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+	if class == nil {
 		return false, fmt.Errorf("class not found in schema: %q", params.ClassName)
 	}
 
-	return cls.ReplicationConfig != nil && cls.ReplicationConfig.Factor > 1, nil
+	return class.ReplicationConfig != nil && class.ReplicationConfig.Factor > 1, nil
 }
 
 func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDistance bool) {

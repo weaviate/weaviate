@@ -22,15 +22,16 @@ const (
 	modelProperty = "model"
 )
 
+const (
+	DefaultCohereModel = "rerank-multilingual-v3.0"
+)
+
 var availableCohereModels = []string{
+	"rerank-english-v3.0",
+	"rerank-multilingual-v3.0",
 	"rerank-english-v2.0",
 	"rerank-multilingual-v2.0",
 }
-
-// note it might not like this -- might want int values for e.g. MaxTokens
-var (
-	DefaultCohereModel = "rerank-multilingual-v2.0"
-)
 
 type classSettings struct {
 	cfg                  moduletools.ClassConfig

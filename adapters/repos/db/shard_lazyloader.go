@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -216,14 +217,14 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []f
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
@@ -323,9 +324,9 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 	return l.shard.addTimestampProperties(ctx)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	l.mustLoad()
-	l.shard.createPropertyIndex(ctx, prop, eg)
+	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
