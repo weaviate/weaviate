@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,9 +38,12 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -76,7 +79,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
 			})
 		}
 	})
@@ -134,9 +137,12 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -172,7 +178,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
 			})
 		}
 	})
@@ -214,7 +220,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, nil))
 			})
 		}
 	})
@@ -259,9 +265,12 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -297,7 +306,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
 			})
 		}
 	})
@@ -324,7 +333,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, nil))
 			})
 		}
 	})

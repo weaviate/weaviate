@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,18 +18,19 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/fatih/camelcase"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	txt2vecmodels "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/models"
+	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
 // Vectorizer turns objects into vectors
 type Vectorizer struct {
-	client client
+	client           client
+	objectVectorizer *objectsvectorizer.ObjectVectorizer
 }
 
 type ErrNoUsableWords struct {
@@ -58,108 +59,46 @@ type ClassIndexCheck interface {
 
 // New from c11y client
 func New(client client) *Vectorizer {
-	return &Vectorizer{client}
+	return &Vectorizer{
+		client:           client,
+		objectVectorizer: objectsvectorizer.New(),
+	}
+}
+
+func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	return v.Corpi(ctx, inputs)
 }
 
 // Object object to vector
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	objectDiff *moduletools.ObjectDiff, icheck ClassIndexCheck,
-) error {
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
 	}
 
-	vec, sources, err := v.object(ctx, object.Class, object.Properties, objectDiff, overrides,
-		icheck)
+	vec, sources, err := v.object(ctx, object, overrides, cfg)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	object.Vector = vec
-
-	if object.Additional == nil {
-		object.Additional = models.AdditionalProperties{}
-	}
-
-	object.Additional["interpretation"] = &txt2vecmodels.Interpretation{
+	additional := models.AdditionalProperties{}
+	additional["interpretation"] = &txt2vecmodels.Interpretation{
 		Source: sourceFromInputElements(sources),
 	}
 
-	return nil
+	return vec, additional, nil
 }
 
-func sortStringKeys(schemaMap map[string]interface{}) []string {
-	keys := make([]string, 0, len(schemaMap))
-	for k := range schemaMap {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func appendPropIfText(icheck ClassIndexCheck, list *[]string, propName string,
-	value interface{},
-) bool {
-	valueString, ok := value.(string)
-	if ok {
-		if icheck.VectorizePropertyName(propName) {
-			// use prop and value
-			*list = append(*list, strings.ToLower(
-				fmt.Sprintf("%s %s", camelCaseToLower(propName), valueString)))
-		} else {
-			*list = append(*list, strings.ToLower(valueString))
-		}
-		return true
-	}
-	return false
-}
-
-func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, objDiff *moduletools.ObjectDiff, overrides map[string]string,
-	icheck ClassIndexCheck,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, overrides map[string]string,
+	cfg moduletools.ClassConfig,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
-	vectorize := objDiff == nil || objDiff.GetVec() == nil
+	icheck := NewIndexChecker(cfg)
+	corpi := v.objectVectorizer.Texts(ctx, object, icheck)
 
-	var corpi []string
-	if icheck.VectorizeClassName() {
-		corpi = append(corpi, camelCaseToLower(className))
-	}
-	if schema != nil {
-		schemamap := schema.(map[string]interface{})
-		for _, prop := range sortStringKeys(schemamap) {
-			if !icheck.PropertyIndexed(prop) {
-				continue
-			}
-
-			appended := false
-			switch val := schemamap[prop].(type) {
-			case []string:
-				for _, elem := range val {
-					appended = appendPropIfText(icheck, &corpi, prop, elem) || appended
-				}
-			case []interface{}:
-				for _, elem := range val {
-					appended = appendPropIfText(icheck, &corpi, prop, elem) || appended
-				}
-			default:
-				appended = appendPropIfText(icheck, &corpi, prop, val)
-			}
-
-			vectorize = vectorize || (appended && objDiff != nil && objDiff.IsChangedProp(prop))
-		}
-	}
-	if len(corpi) == 0 {
-		// fall back to using the class name
-		corpi = append(corpi, camelCaseToLower(className))
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return objDiff.GetVec(), []txt2vecmodels.InterpretationSource{}, nil
-	}
-
-	vector, ie, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
+	vector, ie, err := v.client.VectorForCorpi(ctx, []string{corpi}, overrides)
 	if err != nil {
 		switch err.(type) {
 		case ErrNoUsableWords:

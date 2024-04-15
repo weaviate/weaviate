@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -39,35 +40,42 @@ type Aggregator struct {
 	params                 aggregation.Params
 	getSchema              schemaUC.SchemaGetter
 	classSearcher          inverted.ClassSearcher // to support ref-filters
-	deletedDocIDs          inverted.DeletedDocIDChecker
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
-	propLengths            *inverted.JsonPropertyLengthTracker
+
 	propertyIds            *tracker.JsonPropertyIdTracker
+	PropertyName           string
+	propLenTracker         *inverted.JsonPropertyLengthTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
-	PropertyName           string
+	bitmapFactory          *roaringset.BitmapFactory
+
 }
 
-func New(store *lsmkv.Store, params aggregation.Params, getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher, deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger, propLengths *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable, tenant string, propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64) *Aggregator {
+
+func New(store *lsmkv.Store, params aggregation.Params,getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher,stopwords stopwords.StopwordDetector, shardVersion uint16,vectorIndex vectorIndex, logger logrus.FieldLogger,propLenTracker *inverted.JsonPropertyLengthTracker,isFallbackToSearchable inverted.IsFallbackToSearchable,tenant string, propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64,bitmapFactory *roaringset.BitmapFactory) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
 		store:                  store,
 		params:                 params,
 		getSchema:              getSchema,
 		classSearcher:          classSearcher,
-		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		vectorIndex:            vectorIndex,
-		propLengths:            propLengths,
+		propLenTracker:         propLenTracker,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
 		propertyIds:            propertyIds,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
+		bitmapFactory:          bitmapFactory,
 	}
+}
+
+func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+	return a.propLenTracker
 }
 
 func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {

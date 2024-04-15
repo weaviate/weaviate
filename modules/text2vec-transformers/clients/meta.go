@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,10 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
@@ -32,21 +35,22 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 
 	endpoints := map[string]string{}
 	if v.originPassage != v.originQuery {
-		endpoints["passage"] = v.urlPassage("/meta")
-		endpoints["query"] = v.urlQuery("/meta")
+		endpoints["passage"] = v.urlPassage("/meta", ent.VectorizationConfig{})
+		endpoints["query"] = v.urlQuery("/meta", ent.VectorizationConfig{})
 	} else {
-		endpoints[""] = v.urlPassage("/meta")
+		endpoints[""] = v.urlPassage("/meta", ent.VectorizationConfig{})
 	}
 
 	var wg sync.WaitGroup
 	ch := make(chan nameMetaErr, len(endpoints))
 	for serviceName, endpoint := range endpoints {
+		serviceName, endpoint := serviceName, endpoint
 		wg.Add(1)
-		go func(serviceName string, endpoint string) {
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			meta, err := v.metaInfo(endpoint)
 			ch <- nameMetaErr{serviceName, meta, err}
-		}(serviceName, endpoint)
+		}, v.logger)
 	}
 	wg.Wait()
 	close(ch)

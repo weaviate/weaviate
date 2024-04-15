@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -31,11 +32,14 @@ func TestNodesAPI_Journey(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -49,7 +53,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	// check nodes api response on empty DB
-	nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
+	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 
@@ -117,7 +121,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Nil(t, batchRes[1].Err)
 
 	// check nodes api after importing 2 objects to DB
-	nodeStatues, err = repo.GetNodeStatus(context.Background(), "")
+	nodeStatues, err = repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
 	require.Nil(t, err)
 	require.NotNil(t, nodeStatues)
 
@@ -130,7 +134,11 @@ func TestNodesAPI_Journey(t *testing.T) {
 	assert.Len(t, nodeStatus.Shards, 1)
 	assert.Equal(t, "ClassNodesAPI", nodeStatus.Shards[0].Class)
 	assert.True(t, len(nodeStatus.Shards[0].Name) > 0)
-	assert.Equal(t, int64(2), nodeStatus.Shards[0].ObjectCount)
-	assert.Equal(t, int64(2), nodeStatus.Stats.ObjectCount)
+	// a previous version of this test made assertions on object counts,
+	// however with object count becoming async, we can no longer make exact
+	// assertions here. See https://github.com/weaviate/weaviate/issues/4193
+	// for details.
+	assert.Equal(t, "READY", nodeStatus.Shards[0].VectorIndexingStatus)
+	assert.Equal(t, int64(0), nodeStatus.Shards[0].VectorQueueLength)
 	assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
 }

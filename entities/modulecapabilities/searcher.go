@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,7 @@ import (
 )
 
 // FindVectorFn method for getting a vector of given object by its ID
-type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID, tenant string) ([]float32, error)
+type FindVectorFn = func(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error)
 
 // VectorForParams defines method for passing a raw searcher content to the module
 // and exchanging it for a vector. Warning: Argument "cfg"

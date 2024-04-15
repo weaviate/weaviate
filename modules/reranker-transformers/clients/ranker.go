@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,11 +22,12 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
-	"golang.org/x/sync/errgroup"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -51,7 +52,7 @@ func New(origin string, timeout time.Duration, logger logrus.FieldLogger) *clien
 func (c *client) Rank(ctx context.Context,
 	query string, documents []string, cfg moduletools.ClassConfig,
 ) (*ent.RankResult, error) {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(_NUMCPU)
 
 	chunkedDocuments := c.chunkDocuments(documents, c.maxDocuments)
@@ -67,7 +68,7 @@ func (c *client) Rank(ctx context.Context,
 				documentScoreResponses[i] = documentScoreResponse
 			})
 			return nil
-		})
+		}, chunkedDocuments[i])
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err

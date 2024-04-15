@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,11 +46,81 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   []schema.DataType
+		name    string
+		fields  fields
+		args    args
+		want    []schema.DataType
+		errMsgs []string
 	}{
+		{
+			name: "fail determining type of nested array (1)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultString: schema.DataTypeText.String(),
+				},
+			},
+			args: args{
+				value: []interface{}{[]interface{}{"panic"}},
+			},
+			errMsgs: []string{"unrecognized data type"},
+		},
+		{
+			name: "fail determining type of nested array (2)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultString: schema.DataTypeText.String(),
+				},
+			},
+			args: args{
+				value: []interface{}{[]string{}},
+			},
+			errMsgs: []string{"unrecognized data type"},
+		},
+		{
+			name: "fail determining type of mixed elements in array",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled:       true,
+					DefaultString: schema.DataTypeText.String(),
+				},
+			},
+			args: args{
+				value: []interface{}{"something", false},
+			},
+			errMsgs: []string{"mismatched data type", "'text' expected, got 'boolean'"},
+		},
+		{
+			name: "fail determining type of mixed refs and objects (1)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					map[string]interface{}{"beacon": "weaviate://localhost/df48b9f6-ba48-470c-bf6a-57657cb07390"},
+					map[string]interface{}{"propOfObject": "something"},
+				},
+			},
+			errMsgs: []string{"mismatched data type", "reference expected, got 'object'"},
+		},
+		{
+			name: "fail determining type of mixed refs and objects (2)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					map[string]interface{}{"propOfObject": "something"},
+					map[string]interface{}{"beacon": "weaviate://localhost/df48b9f6-ba48-470c-bf6a-57657cb07390"},
+				},
+			},
+			errMsgs: []string{"mismatched data type", "'object' expected, got reference"},
+		},
 		{
 			name: "determine text",
 			fields: fields{
@@ -88,6 +158,30 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 				value: "2002-10-02T15:00:00Z",
 			},
 			want: []schema.DataType{schema.DataTypeDate},
+		},
+		{
+			name: "determine uuid (1)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: "5b2cbe85-c38a-41f7-9e8c-7406ff6d15aa",
+			},
+			want: []schema.DataType{schema.DataTypeUUID},
+		},
+		{
+			name: "determine uuid (2)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: "5b2cbe85c38a41f79e8c7406ff6d15aa",
+			},
+			want: []schema.DataType{schema.DataTypeUUID},
 		},
 		{
 			name: "determine int",
@@ -278,6 +372,36 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			want: []schema.DataType{schema.DataTypeDateArray},
 		},
 		{
+			name: "determine uuid array (1)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"5b2cbe85-c38a-41f7-9e8c-7406ff6d15aa",
+					"57a8564d-089b-4cd9-be39-56681605e0da",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeUUIDArray},
+		},
+		{
+			name: "determine uuid array (2)",
+			fields: fields{
+				config: config.AutoSchema{
+					Enabled: true,
+				},
+			},
+			args: args{
+				value: []interface{}{
+					"5b2cbe85c38a41f79e8c7406ff6d15aa",
+					"57a8564d089b4cd9be3956681605e0da",
+				},
+			},
+			want: []schema.DataType{schema.DataTypeUUIDArray},
+		},
+		{
 			name: "[deprecated string] determine string",
 			fields: fields{
 				config: config.AutoSchema{
@@ -302,19 +426,6 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 				value: []interface{}{"a", "b"},
 			},
 			want: []schema.DataType{schema.DataTypeStringArray},
-		},
-		{
-			name: "determine error type that is not recognized",
-			fields: fields{
-				config: config.AutoSchema{
-					Enabled:       true,
-					DefaultString: schema.DataTypeText.String(),
-				},
-			},
-			args: args{
-				value: []interface{}{[]interface{}{"panic"}},
-			},
-			want: []schema.DataType{schema.DataTypeText},
 		},
 		{
 			name:   "determine object",
@@ -411,8 +522,17 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			config:        tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
-			if got := m.determineType(tt.args.value, false); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("autoSchemaManager.determineType() = %v, want %v", got, tt.want)
+			got, err := m.determineType(tt.args.value, false)
+			if len(tt.errMsgs) == 0 {
+				require.NoError(t, err)
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("autoSchemaManager.determineType() = %v, want %v", got, tt.want)
+				}
+			} else {
+				for _, errMsg := range tt.errMsgs {
+					require.ErrorContains(t, err, errMsg)
+				}
+				assert.Nil(t, got)
 			}
 		})
 	}
@@ -439,7 +559,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 	var obj *models.Object
 
-	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj, true)
 	assert.EqualError(t, fmt.Errorf(validation.ErrorMissingObject), err.Error())
 }
 
@@ -473,7 +593,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	}
 	// when
 	schemaBefore := schemaManager.GetSchemaResponse
-	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj, true)
 	schemaAfter := schemaManager.GetSchemaResponse
 
 	// then
@@ -554,7 +674,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
 	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
 
-	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj)
+	err := autoSchemaManager.autoSchema(context.Background(), &models.Principal{}, obj, true)
 	require.Nil(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse
@@ -1043,7 +1163,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 
 	for i, tc := range testCases {
 		t.Run(fmt.Sprintf("testCase_%d", i), func(t *testing.T) {
-			properties := manager.getProperties(&models.Object{
+			properties, _ := manager.getProperties(&models.Object{
 				Class:      "ClassWithObjectProps",
 				Properties: tc.valProperties,
 			})
@@ -1403,7 +1523,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		logger: logger,
 	}
 
-	err := manager.autoSchema(context.Background(), &models.Principal{}, object)
+	err := manager.autoSchema(context.Background(), &models.Principal{}, object, true)
 	require.NoError(t, err)
 
 	schemaAfter := schemaManager.GetSchemaResponse

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,11 @@
 package vectorizer
 
 import (
+	"errors"
+
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -23,84 +27,46 @@ const (
 )
 
 type classSettings struct {
+	basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
-}
-
-func (ic *classSettings) PropertyIndexed(propName string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultPropertyIndexed
-	}
-
-	vcn, ok := ic.cfg.Property(propName)["skip"]
-	if !ok {
-		return DefaultPropertyIndexed
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultPropertyIndexed
-	}
-
-	return !asBool
-}
-
-func (ic *classSettings) VectorizePropertyName(propName string) bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultVectorizePropertyName
-	}
-	vcn, ok := ic.cfg.Property(propName)["vectorizePropertyName"]
-	if !ok {
-		return DefaultVectorizePropertyName
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultVectorizePropertyName
-	}
-
-	return asBool
-}
-
-func (ic *classSettings) VectorizeClassName() bool {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultVectorizeClassName
-	}
-
-	vcn, ok := ic.cfg.Class()["vectorizeClassName"]
-	if !ok {
-		return DefaultVectorizeClassName
-	}
-
-	asBool, ok := vcn.(bool)
-	if !ok {
-		return DefaultVectorizeClassName
-	}
-
-	return asBool
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
 func (ic *classSettings) PoolingStrategy() string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return DefaultPoolingStrategy
-	}
+	return ic.BaseClassSettings.GetPropertyAsString("poolingStrategy", DefaultPoolingStrategy)
+}
 
-	vcn, ok := ic.cfg.Class()["poolingStrategy"]
-	if !ok {
-		return DefaultPoolingStrategy
-	}
+func (ic *classSettings) InferenceURL() string {
+	return ic.getSetting("inferenceUrl")
+}
 
-	asString, ok := vcn.(string)
-	if !ok {
-		return DefaultPoolingStrategy
-	}
+func (ic *classSettings) PassageInferenceURL() string {
+	return ic.getSetting("passageInferenceUrl")
+}
 
-	return asString
+func (ic *classSettings) QueryInferenceURL() string {
+	return ic.getSetting("queryInferenceUrl")
+}
+
+func (ic *classSettings) getSetting(property string) string {
+	return ic.BaseClassSettings.GetPropertyAsString(property, "")
+}
+
+func (ic *classSettings) Validate(class *models.Class) error {
+	if err := ic.BaseClassSettings.Validate(); err != nil {
+		return err
+	}
+	if ic.InferenceURL() != "" && (ic.PassageInferenceURL() != "" || ic.QueryInferenceURL() != "") {
+		return errors.New("either inferenceUrl or passageInferenceUrl together with queryInferenceUrl needs to be set, not both")
+	}
+	if ic.PassageInferenceURL() == "" && ic.QueryInferenceURL() != "" {
+		return errors.New("queryInferenceUrl is set but passageInferenceUrl is empty, both needs to be set")
+	}
+	if ic.PassageInferenceURL() != "" && ic.QueryInferenceURL() == "" {
+		return errors.New("passageInferenceUrl is set but queryInferenceUrl is empty, both needs to be set")
+	}
+	return ic.BaseClassSettings.Validate()
 }

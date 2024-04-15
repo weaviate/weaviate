@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,9 @@ import (
 	"net/http"
 	"os"
 	"sync"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -132,6 +135,7 @@ func readSiftFloat(file string, maxObjects int) []*models.Object {
 }
 
 func benchmarkSift(c *http.Client, url string, maxObjects, numBatches int) (map[string]int64, error) {
+	logger := logrus.New()
 	clearExistingObjects(c, url)
 	objects := readSiftFloat("sift_base.fvecs", maxObjects)
 	queries := readSiftFloat("sift_query.fvecs", maxObjects/100)
@@ -156,20 +160,21 @@ func benchmarkSift(c *http.Client, url string, maxObjects, numBatches int) (map[
 	timeChan := make(chan int64, numBatches)
 
 	for i := 0; i < numBatches; i++ {
+		batchId := i
 		wg.Add(1)
-		go func(batchId int, errChan chan<- error) {
+		enterrors.GoWrapper(func() {
 			batchObjects := objects[batchId*batchSize : (batchId+1)*batchSize]
 			requestAdd := createRequest(url+"batch/objects", "POST", batch{batchObjects})
 			responseAddCode, _, timeBatchAdd, err := performRequest(c, requestAdd)
 
 			timeChan <- timeBatchAdd
 			if err != nil {
-				errChan <- errors.Wrap(err, "Could not add batch, error: ")
+				errorChan <- errors.Wrap(err, "Could not add batch, error: ")
 			} else if responseAddCode != 200 {
-				errChan <- errors.Errorf("Could not add batch, http error code: %v", responseAddCode)
+				errorChan <- errors.Errorf("Could not add batch, http error code: %v", responseAddCode)
 			}
 			wg.Done()
-		}(i, errorChan)
+		}, logger)
 
 	}
 	wg.Wait()

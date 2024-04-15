@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -54,7 +54,7 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	}
 }
 
-func TestEnvironmentSetFlushAfter_BackwardCompatibility(t *testing.T) {
+func TestEnvironmentSetFlushAfter_AllNames(t *testing.T) {
 	factors := []struct {
 		name        string
 		flushAfter  []string
@@ -62,69 +62,106 @@ func TestEnvironmentSetFlushAfter_BackwardCompatibility(t *testing.T) {
 		expectedErr bool
 	}{
 		{"Valid", []string{"1"}, 1, false},
-		{"not given", []string{}, DefaultPersistenceFlushIdleMemtablesAfter, false},
+		{"not given", []string{}, DefaultPersistenceMemtablesFlushDirtyAfter, false},
 		{"invalid factor", []string{"-1"}, -1, true},
 		{"zero factor", []string{"0"}, -1, true},
 		{"not parsable", []string{"I'm not a number"}, -1, true},
 	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.flushAfter) == 1 {
-				t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", tt.flushAfter[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
-
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
-			}
-		})
-	}
-}
-
-func TestEnvironmentSetFlushAfter_NewName(t *testing.T) {
-	factors := []struct {
-		name        string
-		flushAfter  []string
-		expected    int
-		expectedErr bool
+	envNames := []struct {
+		name    string
+		envName string
 	}{
-		{"Valid", []string{"1"}, 1, false},
-		{"not given", []string{}, DefaultPersistenceFlushIdleMemtablesAfter, false},
-		{"invalid factor", []string{"-1"}, -1, true},
-		{"zero factor", []string{"0"}, -1, true},
-		{"not parsable", []string{"I'm not a number"}, -1, true},
+		{name: "fallback idle (1st)", envName: "PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER"},
+		{name: "fallback idle (2nd)", envName: "PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS"},
+		{name: "dirty", envName: "PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS"},
 	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.flushAfter) == 1 {
-				t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", tt.flushAfter[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
 
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
+	for _, n := range envNames {
+		t.Run(n.name, func(t *testing.T) {
+			for _, tt := range factors {
+				t.Run(tt.name, func(t *testing.T) {
+					if len(tt.flushAfter) == 1 {
+						t.Setenv(n.envName, tt.flushAfter[0])
+					}
+					conf := Config{}
+					err := FromEnv(&conf)
+
+					if tt.expectedErr {
+						require.NotNil(t, err)
+					} else {
+						require.Equal(t, tt.expected, conf.Persistence.MemtablesFlushDirtyAfter)
+					}
+				})
 			}
 		})
 	}
 }
 
 func TestEnvironmentFlushConflictingValues(t *testing.T) {
-	// if both the old and new variable names are used the new variable name
+	// if all 3 variable names are used, the newest variable name
 	// should be taken into consideration
 	os.Clearenv()
 	t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", "16")
 	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
+	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "18")
 	conf := Config{}
 	err := FromEnv(&conf)
 	require.Nil(t, err)
 
-	assert.Equal(t, 17, conf.Persistence.FlushIdleMemtablesAfter)
+	assert.Equal(t, 18, conf.Persistence.MemtablesFlushDirtyAfter)
+}
+
+func TestEnvironmentPersistence_dataPath(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		config   Config
+		expected string
+	}{
+		{
+			name:     "given",
+			value:    []string{"/var/lib/weaviate"},
+			config:   Config{},
+			expected: "/var/lib/weaviate",
+		},
+		{
+			name:  "given with config set",
+			value: []string{"/var/lib/weaviate"},
+			config: Config{
+				Persistence: Persistence{
+					DataPath: "/var/data/weaviate",
+				},
+			},
+			expected: "/var/lib/weaviate",
+		},
+		{
+			name:     "not given",
+			value:    []string{},
+			config:   Config{},
+			expected: DefaultPersistenceDataPath,
+		},
+		{
+			name:  "not given with config set",
+			value: []string{},
+			config: Config{
+				Persistence: Persistence{
+					DataPath: "/var/data/weaviate",
+				},
+			},
+			expected: "/var/data/weaviate",
+		},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_DATA_PATH", tt.value[0])
+			}
+			conf := tt.config
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Persistence.DataPath)
+		})
+	}
 }
 
 func TestEnvironmentMemtable_MaxSize(t *testing.T) {
@@ -225,21 +262,26 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		expectedErr    error
 	}{
 		{
-			name: "valid cluster config - both ports provided",
+			name: "valid cluster config - ports and advertiseaddr provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7101",
+				"CLUSTER_ADVERTISE_ADDR":   "193.0.0.1",
+				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
 				GossipBindPort: 7100,
 				DataBindPort:   7101,
+				AdvertiseAddr:  "193.0.0.1",
+				AdvertisePort:  9999,
 			},
 		},
 		{
-			name: "valid cluster config - no ports provided",
+			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
 				GossipBindPort: DefaultGossipBindPort,
 				DataBindPort:   DefaultGossipBindPort + 1,
+				AdvertiseAddr:  "",
 			},
 		},
 		{
@@ -345,6 +387,34 @@ func TestEnvironmentMaxConcurrentGetRequests(t *testing.T) {
 	}
 }
 
+func TestEnvironmentCORS_Origin(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"Valid", []string{"http://foo.com"}, "http://foo.com", false},
+		{"not given", []string{}, DefaultCORSAllowOrigin, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("CORS_ALLOW_ORIGIN", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.CORS.AllowOrigin)
+			}
+		})
+	}
+}
+
 func TestEnvironmentGRPCPort(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -370,6 +440,34 @@ func TestEnvironmentGRPCPort(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.GRPC.Port)
+			}
+		})
+	}
+}
+
+func TestEnvironmentCORS_Methods(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"Valid", []string{"POST"}, "POST", false},
+		{"not given", []string{}, DefaultCORSAllowMethods, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("CORS_ALLOW_METHODS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.CORS.AllowMethods)
 			}
 		})
 	}
@@ -402,6 +500,34 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 				require.NotNil(t, err)
 			} else {
 				require.Equal(t, tt.expected, conf.DisableGraphQL)
+			}
+		})
+	}
+}
+
+func TestEnvironmentCORS_Headers(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    string
+		expectedErr bool
+	}{
+		{"Valid", []string{"Authorization"}, "Authorization", false},
+		{"not given", []string{}, DefaultCORSAllowHeaders, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Clearenv()
+			if len(tt.value) == 1 {
+				os.Setenv("CORS_ALLOW_HEADERS", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.CORS.AllowHeaders)
 			}
 		})
 	}
@@ -499,6 +625,116 @@ func TestEnvironmentMinimumReplicationFactor(t *testing.T) {
 			} else {
 				require.Equal(t, tt.expected, conf.Replication.MinimumFactor)
 			}
+		})
+	}
+}
+
+func TestEnvironmentQueryDefaults_Limit(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		config   Config
+		expected int64
+	}{
+		{
+			name:     "Valid",
+			value:    []string{"3"},
+			config:   Config{},
+			expected: 3,
+		},
+		{
+			name:  "Valid with config already set",
+			value: []string{"3"},
+			config: Config{
+				QueryDefaults: QueryDefaults{
+					Limit: 20,
+				},
+			},
+			expected: 3,
+		},
+		{
+			name:  "not given with config set",
+			value: []string{},
+			config: Config{
+				QueryDefaults: QueryDefaults{
+					Limit: 20,
+				},
+			},
+			expected: 20,
+		},
+		{
+			name:     "not given with config set",
+			value:    []string{},
+			config:   Config{},
+			expected: DefaultQueryDefaultsLimit,
+		},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("QUERY_DEFAULTS_LIMIT", tt.value[0])
+			}
+			conf := tt.config
+			err := FromEnv(&conf)
+
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.QueryDefaults.Limit)
+		})
+	}
+}
+
+func TestEnvironmentAuthentication(t *testing.T) {
+	factors := []struct {
+		name         string
+		auth_env_var []string
+		expected     Authentication
+	}{
+		{
+			name:         "Valid API Key",
+			auth_env_var: []string{"AUTHENTICATION_APIKEY_ENABLED"},
+			expected: Authentication{
+				APIKey: APIKey{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name:         "Valid Anonymous Access",
+			auth_env_var: []string{"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"},
+			expected: Authentication{
+				AnonymousAccess: AnonymousAccess{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name:         "Valid OIDC Auth",
+			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
+			expected: Authentication{
+				OIDC: OIDC{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name:         "not given",
+			auth_env_var: []string{},
+			expected: Authentication{
+				AnonymousAccess: AnonymousAccess{
+					Enabled: true,
+				},
+			},
+		},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.auth_env_var) == 1 {
+				t.Setenv(tt.auth_env_var[0], "true")
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.Nil(t, err)
+			require.Equal(t, tt.expected, conf.Authentication)
 		})
 	}
 }

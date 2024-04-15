@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,7 +104,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -119,9 +119,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Vector,
+		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Vector,
+		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -140,7 +140,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -155,9 +155,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			"a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Vector,
+		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Vector,
+		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -180,7 +180,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -193,9 +193,9 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		assert.Equal(t, id2, repoCalledWithObjects[1].UUID, "the user-specified uuid was used")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, []float32{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Vector,
+		assert.Equal(t, models.C11yVector{0.1, 0.1, 0.1111}, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, []float32{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Vector,
+		assert.Equal(t, models.C11yVector{0.2, 0.2, 0.2222}, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -218,7 +218,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -251,7 +251,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -313,7 +313,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	t.Run("with objects without IDs", func(t *testing.T) {
 		reset()
 		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
-		expectedVector := []float32{0, 1, 2}
+		expectedVector := models.C11yVector{0, 1, 2}
 		objects := []*models.Object{
 			{
 				Class: "Foo",
@@ -324,7 +324,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(expectedVector, nil)
 		}
 
@@ -337,9 +337,9 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		assert.Len(t, repoCalledWithObjects[1].UUID, 36, "a uuid was set for the second object")
 		assert.Nil(t, repoCalledWithObjects[0].Err)
 		assert.Nil(t, repoCalledWithObjects[1].Err)
-		assert.Equal(t, expectedVector, repoCalledWithObjects[0].Vector,
+		assert.Equal(t, expectedVector, repoCalledWithObjects[0].Object.Vector,
 			"the correct vector was used")
-		assert.Equal(t, expectedVector, repoCalledWithObjects[1].Vector,
+		assert.Equal(t, expectedVector, repoCalledWithObjects[1].Object.Vector,
 			"the correct vector was used")
 	})
 
@@ -360,7 +360,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -390,7 +390,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		for range objects {
-			modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+			modulesProvider.On("BatchUpdateVector").
 				Return(nil, nil)
 		}
 
@@ -461,7 +461,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 
 	ctx := context.Background()
 	for range objects {
-		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
+		modulesProvider.On("BatchUpdateVector").
 			Return(nil, nil)
 	}
 	addedObjects, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,7 +82,7 @@ func TestInvalidPropertyName(t *testing.T) {
 			parsed, ok := err.(*clschema.SchemaObjectsCreateUnprocessableEntity)
 			require.True(t, ok, "error should be unprocessable entity")
 			assert.Equal(t, "'some-property' is not a valid property name. Property names in Weaviate "+
-				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]*/”.",
+				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]{0,230}/”.",
 				parsed.Payload.Error[0].Message)
 		})
 	})

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -43,7 +44,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 			continue
 		}
 		queue := objectByClass[item.Object.Class]
-		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Vector))
+		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, item.Object.Vectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
 	}
@@ -142,7 +143,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	for class, index := range indexByClass {
 		queue := refByClass[class]
-		errs := index.addReferencesBatch(ctx, queue, repl)
+		errs := index.AddReferencesBatch(ctx, queue, repl)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -167,12 +168,12 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findDocIDs(ctx, params.Filters, tenant)
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}
 	// prepare to be deleted list of DocIDs from all shards
-	toDelete := map[string][]uint64{}
+	toDelete := map[string][]strfmt.UUID{}
 	limit := db.config.QueryMaximumResults
 
 	matches := int64(0)
@@ -213,8 +214,8 @@ func estimateBatchMemory(objs objects.BatchObjects) int64 {
 		// However, in the meantime this should be a fairly reasonable estimate, as
 		// it's not meant to fail exactly on the last available byte, but rather
 		// prevent OOM crashes. Given the fuzziness and async style of the
-		// memtrackinga somewhat decent estimate should be go good enough.
-		sum += int64(len(item.Vector)*4 + 30)
+		// memtrackinga somewhat decent estimate should be good enough.
+		sum += int64(len(item.Object.Vector)*4 + 30)
 	}
 
 	return sum

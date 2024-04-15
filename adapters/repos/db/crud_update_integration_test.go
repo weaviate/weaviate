@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,9 +42,12 @@ func TestUpdateJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -69,7 +72,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil)
 			require.Nil(t, err)
 		}
 
@@ -153,7 +156,7 @@ func TestUpdateJourney(t *testing.T) {
 			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
@@ -216,7 +219,7 @@ func TestUpdateJourney(t *testing.T) {
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
@@ -376,13 +379,13 @@ func extractPropValues(in search.Results, propName string) []interface{} {
 
 func getTracker(repo *DB, className string) *inverted.JsonPropertyLengthTracker {
 	index := repo.GetIndex("UpdateTestClass")
-	var shard *Shard
-	index.ForEachShard(func(name string, shardv *Shard) error {
+	var shard ShardLike
+	index.ForEachShard(func(name string, shardv ShardLike) error {
 		shard = shardv
 		return nil
 	})
 
-	tracker := shard.propLengths
+	tracker := shard.GetPropertyLengthTracker()
 
 	return tracker
 }

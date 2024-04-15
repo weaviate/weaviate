@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,12 +51,12 @@ func (m *Memtable) flush() error {
 		return nil
 	}
 
-	f, err := os.Create(m.path + ".db")
+	f, err := os.OpenFile(m.path+".db", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}
 
-	w := bufio.NewWriterSize(f, int(float64(m.size)*1.3)) // calculate 30% overhead for disk representation
+	w := bufio.NewWriter(f)
 
 	var keys []segmentindex.Key
 	switch m.strategy {
@@ -95,6 +95,10 @@ func (m *Memtable) flush() error {
 	}
 
 	if err := w.Flush(); err != nil {
+		return err
+	}
+
+	if err := f.Sync(); err != nil {
 		return err
 	}
 

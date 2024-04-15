@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,11 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -206,52 +208,75 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
+		false, false, indexOpts...)
+}
+
+func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
+	vic schema.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
+	maxResults := int64(10_000)
 
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
-		RootPath:                  t.TempDir(),
-		QueryMaximumResults:       10000,
+		MemtablesFlushDirtyAfter:  60,
+		RootPath:                  tmpDir,
+		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	require.Nil(t, err)
 
 	shardState := singleShardState()
-	class := models.Class{Class: className}
 	sch := schema.Schema{
 		Objects: &models.Schema{
-			Classes: []*models.Class{&class},
+			Classes: []*models.Class{class},
 		},
 	}
 	schemaGetter := &fakeSchemaGetter{shardState: shardState, schema: sch}
-	queue := make(chan job, 100000)
+
+	iic := schema.InvertedIndexConfig{}
+	if class.InvertedIndexConfig != nil {
+		iic = inverted.ConfigFromModel(class.InvertedIndexConfig)
+	}
+	var sd *stopwords.Detector
+	if withStopwords {
+		sd, err = stopwords.NewDetectorFromConfig(iic.Stopwords)
+		require.NoError(t, err)
+	}
+	var checkpts *indexcheckpoint.Checkpoints
+	if withCheckpoints {
+		checkpts, err = indexcheckpoint.New(tmpDir, logger)
+		require.NoError(t, err)
+	}
 
 	idx := &Index{
-		Config:                IndexConfig{RootPath: tmpDir, ClassName: schema.ClassName(className)},
-		invertedIndexConfig:   schema.InvertedIndexConfig{},
-		vectorIndexUserConfig: enthnsw.UserConfig{Skip: true},
+		Config: IndexConfig{
+			RootPath:            tmpDir,
+			ClassName:           schema.ClassName(class.Class),
+			QueryMaximumResults: maxResults,
+		},
+		invertedIndexConfig:   iic,
+		vectorIndexUserConfig: vic,
 		logger:                logger,
 		getSchema:             schemaGetter,
-		centralJobQueue:       queue,
+		centralJobQueue:       repo.jobQueueCh,
+		stopwords:             sd,
+		indexCheckpoints:      checkpts,
 	}
+	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
-
 	for _, opt := range indexOpts {
 		opt(idx)
 	}
 
 	shardName := shardState.AllPhysicalShards()[0]
+	shard, err := idx.initShard(ctx, shardName, class, nil)
+	require.NoError(t, err)
 
-	shd, err := NewShard(ctx, nil, shardName, idx, &class, repo.jobQueueCh)
-	if err != nil {
-		panic(err)
-	}
-
-	idx.shards.Store(shardName, shd)
-
-	return shd, idx
+	idx.shards.Store(shardName, shard)
+	return shard, idx
 }
 
 func testObject(className string) *storobj.Object {

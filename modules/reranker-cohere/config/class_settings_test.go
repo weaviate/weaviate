@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -82,4 +82,8 @@ func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interfa
 
 func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

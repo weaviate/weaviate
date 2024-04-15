@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -456,4 +456,21 @@ func (m *Manager) GetTenants(ctx context.Context, principal *models.Principal, c
 	})
 
 	return tenants, nil
+}
+
+// TenantExists is used to check if the tenant exists of a class
+//
+// Class must exist and has partitioning enabled
+func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal, class string, tenant string) error {
+	tenants, err := m.GetTenants(ctx, principal, class)
+	if err != nil {
+		return err
+	}
+
+	for _, t := range tenants {
+		if t.Name == tenant {
+			return nil
+		}
+	}
+	return ErrNotFound
 }

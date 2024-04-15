@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -101,7 +101,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -563,7 +563,7 @@ type additionalCheck struct {
 func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 	if parentName == "_additional" {
 		if name == "classification" || name == "certainty" ||
-			name == "distance" || name == "id" || name == "vector" ||
+			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
 			name == "group" {
@@ -646,6 +646,18 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "vector" {
 							additionalProps.Vector = true
+							continue
+						}
+						if additionalProperty == "vectors" {
+							if s.SelectionSet != nil && len(s.SelectionSet.Selections) > 0 {
+								vectors := make([]string, len(s.SelectionSet.Selections))
+								for i, selection := range s.SelectionSet.Selections {
+									if field, ok := selection.(*ast.Field); ok {
+										vectors[i] = field.Name.Value
+									}
+								}
+								additionalProps.Vectors = vectors
+							}
 							continue
 						}
 						if additionalProperty == "creationTimeUnix" {

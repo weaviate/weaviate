@@ -1,0 +1,289 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+import "google/protobuf/struct.proto";
+import "v1/base.proto";
+import "v1/properties.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoSearchGet";
+
+message SearchRequest {
+  //required
+  string collection = 1;
+
+  // parameters
+  string tenant = 10;
+  optional ConsistencyLevel consistency_level = 11;
+
+  // what is returned
+  optional PropertiesRequest properties = 20;
+  optional MetadataRequest metadata = 21;
+  optional GroupBy group_by = 22;
+
+  // affects order and length of results. 0/empty (default value) means disabled
+  uint32 limit = 30;
+  uint32 offset = 31;
+  uint32 autocut = 32;
+  string after = 33;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated SortBy sort_by = 34;
+
+  // matches/searches for objects
+  optional Filters filters = 40;
+  optional Hybrid hybrid_search = 41;
+  optional BM25 bm25_search = 42;
+  optional NearVector near_vector = 43;
+  optional NearObject near_object = 44;
+  optional NearTextSearch near_text = 45;
+  optional NearImageSearch near_image = 46;
+  optional NearAudioSearch near_audio = 47;
+  optional NearVideoSearch near_video = 48;
+  optional NearDepthSearch near_depth = 49;
+  optional NearThermalSearch near_thermal = 50;
+  optional NearIMUSearch near_imu = 51;
+
+  optional GenerativeSearch generative = 60;
+  optional Rerank rerank = 61;
+
+  bool uses_123_api = 100 [deprecated = true];
+}
+
+message GroupBy {
+  // currently only supports one entry (eg just properties, no refs). But might
+  // be extended in the future.
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 1;
+  int32 number_of_groups = 2;
+  int32 objects_per_group = 3;
+}
+
+message SortBy {
+  bool ascending = 1;
+  // currently only supports one entry (eg just properties, no refs). But the
+  // weaviate datastructure already has paths in it and this makes it easily
+  // extendable in the future
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string path = 2;
+}
+
+message GenerativeSearch {
+  string single_response_prompt = 1;
+  string grouped_response_task = 2;
+  repeated string grouped_properties = 3;
+}
+
+message MetadataRequest {
+  bool uuid = 1;
+  bool vector = 2;
+  bool creation_time_unix = 3;
+  bool last_update_time_unix = 4;
+  bool distance = 5;
+  bool certainty = 6;
+  bool score = 7;
+  bool explain_score = 8;
+  bool is_consistent = 9;
+  repeated string vectors = 10;
+}
+
+message PropertiesRequest {
+  repeated string non_ref_properties = 1;
+  repeated RefPropertiesRequest ref_properties = 2;
+  repeated ObjectPropertiesRequest object_properties = 3;
+  bool return_all_nonref_properties = 11;
+}
+
+message ObjectPropertiesRequest {
+  string prop_name = 1;
+  repeated string primitive_properties = 2;
+  repeated ObjectPropertiesRequest object_properties = 3;
+}
+
+message Hybrid {
+  string query = 1;
+  repeated string properties = 2;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 3 [deprecated = true];  // will be removed in the future, use vector_bytes
+  float alpha = 4;
+  enum FusionType {
+    FUSION_TYPE_UNSPECIFIED = 0;
+    FUSION_TYPE_RANKED = 1;
+    FUSION_TYPE_RELATIVE_SCORE = 2;
+  }
+  FusionType fusion_type = 5;
+  bytes vector_bytes = 6;
+  repeated string target_vectors = 7;
+  NearTextSearch near_text = 8;
+  NearVector near_vector = 9;
+
+}
+
+message NearTextSearch {
+  message Move {
+    float force = 1;
+    repeated string concepts = 2;
+    repeated string uuids = 3;
+  }
+
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string query = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  optional Move move_to = 4;
+  optional Move move_away = 5;
+  repeated string target_vectors = 6;
+};
+
+message NearImageSearch {
+  string image = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+};
+
+message NearAudioSearch {
+  string audio = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+};
+
+message NearVideoSearch {
+  string video = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+};
+
+message NearDepthSearch {
+  string depth = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+}
+
+message NearThermalSearch {
+  string thermal = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+}
+
+message NearIMUSearch {
+  string imu = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+}
+
+message BM25 {
+  string query = 1;
+  repeated string properties = 2;
+}
+
+message RefPropertiesRequest {
+  string reference_property = 1;
+  PropertiesRequest properties = 2;
+  MetadataRequest metadata = 3;
+  string target_collection = 4;
+}
+
+message NearVector {
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
+  optional double certainty = 2;
+  optional double distance = 3;
+  bytes vector_bytes = 4;
+  repeated string target_vectors = 5;
+}
+
+message NearObject {
+  string id = 1;
+  optional double certainty = 2;
+  optional double distance = 3;
+  repeated string target_vectors = 4;
+}
+
+message Rerank {
+  string property = 1;
+  optional string query = 2;
+}
+
+message SearchReply {
+  float took = 1;
+  repeated SearchResult results = 2;
+  optional string generative_grouped_result = 3;
+  repeated GroupByResult group_by_results = 4;
+}
+
+message RerankReply {
+  double score = 1;
+}
+
+message GenerativeReply {
+  string result = 1;
+}
+
+message GroupByResult {
+  string name = 1;
+  float min_distance = 2;
+  float max_distance = 3;
+  int64 number_of_objects = 4;
+  repeated SearchResult objects = 5;
+  optional RerankReply rerank = 6;
+  optional GenerativeReply generative = 7;
+}
+
+message SearchResult {
+  PropertiesResult properties = 1;
+  MetadataResult metadata = 2;
+}
+
+message MetadataResult {
+  string id = 1;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated float vector = 2 [deprecated = true];
+  int64 creation_time_unix = 3;
+  bool creation_time_unix_present = 4;
+  int64 last_update_time_unix = 5;
+  bool last_update_time_unix_present = 6;
+  float distance = 7;
+  bool distance_present = 8;
+  float certainty = 9;
+  bool certainty_present = 10;
+  float score = 11;
+  bool score_present = 12;
+  string explain_score = 13;
+  bool explain_score_present = 14;
+  optional bool is_consistent = 15;
+  string generative = 16;
+  bool generative_present = 17;
+  bool is_consistent_present = 18;
+  bytes vector_bytes = 19;
+  bytes id_as_bytes = 20;
+  double rerank_score = 21;
+  bool rerank_score_present = 22;
+  repeated Vectors vectors = 23;
+}
+
+message PropertiesResult {
+  google.protobuf.Struct non_ref_properties = 1 [deprecated = true];
+  repeated RefPropertiesResult ref_props = 2;
+  string target_collection = 3;
+  MetadataResult metadata = 4;
+  repeated NumberArrayProperties number_array_properties = 5 [deprecated = true];
+  repeated IntArrayProperties int_array_properties = 6 [deprecated = true];
+  repeated TextArrayProperties text_array_properties = 7 [deprecated = true];
+  repeated BooleanArrayProperties boolean_array_properties = 8 [deprecated = true];
+  repeated ObjectProperties object_properties = 9 [deprecated = true];
+  repeated ObjectArrayProperties object_array_properties = 10 [deprecated = true];
+  Properties non_ref_props = 11;
+  bool ref_props_requested = 12;
+}
+
+message RefPropertiesResult {
+  repeated PropertiesResult properties = 1;
+  string prop_name = 2;
+}

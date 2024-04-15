@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,14 +23,14 @@ type fakeClient struct {
 }
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg ent.VectorizationConfig,
+	text []string, cfg ent.VectorizationConfig, titlePropertyValue string,
 ) (*ent.VectorizationResult, error) {
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
-		Vector:     []float32{0, 1, 2, 3},
+		Vectors:    [][]float32{{0, 1, 2, 3}},
 		Dimensions: 4,
-		Text:       text[0],
+		Texts:      text,
 	}, nil
 }
 
@@ -40,46 +40,77 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	c.lastInput = text
 	c.lastConfig = cfg
 	return &ent.VectorizationResult{
-		Vector:     []float32{0.1, 1.1, 2.1, 3.1},
+		Vectors:    [][]float32{{0.1, 1.1, 2.1, 3.1}},
 		Dimensions: 4,
-		Text:       text[0],
+		Texts:      text,
 	}, nil
 }
 
-type fakeSettings struct {
-	skippedProperty    string
-	vectorizeClassName bool
-	excludedProperty   string
-	apiEndpoint        string
-	projectID          string
-	endpointID         string
-	truncateType       string
+type fakeClassConfig struct {
+	classConfig           map[string]interface{}
+	vectorizeClassName    bool
+	vectorizePropertyName bool
+	skippedProperty       string
+	excludedProperty      string
+	apiEndpoint           string
+	projectID             string
+	endpointID            string
+	modelID               string
+	properties            interface{}
 }
 
-func (f *fakeSettings) PropertyIndexed(propName string) bool {
-	return f.skippedProperty != propName
+func (f fakeClassConfig) Class() map[string]interface{} {
+	classSettings := map[string]interface{}{
+		"vectorizeClassName": f.vectorizeClassName,
+	}
+	if f.apiEndpoint != "" {
+		classSettings["apiEndpoint"] = f.apiEndpoint
+	}
+	if f.projectID != "" {
+		classSettings["projectID"] = f.projectID
+	}
+	if f.endpointID != "" {
+		classSettings["endpointID"] = f.endpointID
+	}
+	if f.modelID != "" {
+		classSettings["modelID"] = f.modelID
+	}
+	if f.properties != nil {
+		classSettings["properties"] = f.properties
+	}
+	for k, v := range f.classConfig {
+		classSettings[k] = v
+	}
+	return classSettings
 }
 
-func (f *fakeSettings) VectorizePropertyName(propName string) bool {
-	return f.excludedProperty != propName
+func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	return f.Class()
 }
 
-func (f *fakeSettings) VectorizeClassName() bool {
-	return f.vectorizeClassName
+func (f fakeClassConfig) Property(propName string) map[string]interface{} {
+	if propName == f.skippedProperty {
+		return map[string]interface{}{
+			"skip": true,
+		}
+	}
+	if propName == f.excludedProperty {
+		return map[string]interface{}{
+			"vectorizePropertyName": false,
+		}
+	}
+	if f.vectorizePropertyName {
+		return map[string]interface{}{
+			"vectorizePropertyName": true,
+		}
+	}
+	return nil
 }
 
-func (f *fakeSettings) Truncate() string {
-	return f.truncateType
+func (f fakeClassConfig) Tenant() string {
+	return ""
 }
 
-func (f *fakeSettings) ApiEndpoint() string {
-	return f.truncateType
-}
-
-func (f *fakeSettings) ProjectID() string {
-	return f.truncateType
-}
-
-func (f *fakeSettings) ModelID() string {
-	return f.truncateType
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

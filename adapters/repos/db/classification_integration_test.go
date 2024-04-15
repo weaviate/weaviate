@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,9 +35,12 @@ func TestClassifications(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -61,7 +64,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil)
 			require.Nil(t, err)
 		}
 	})
@@ -69,7 +72,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing articles", func(t *testing.T) {
 		for _, res := range classificationTestArticles() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil)
 			require.Nil(t, err)
 		}
 	})

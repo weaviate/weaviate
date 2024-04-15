@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -205,6 +205,8 @@ func (ccc *classConfigComparison) diff() []string {
 		ccc.right.VectorIndexType, "vector index type")
 	ccc.compare(ccc.left.Vectorizer,
 		ccc.right.Vectorizer, "vectorizer")
+	ccc.compare(ccc.left.VectorConfig,
+		ccc.right.VectorConfig, "vector config")
 	return ccc.msgs
 }
 

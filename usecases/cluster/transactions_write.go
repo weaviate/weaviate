@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -219,7 +221,7 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 		close(clearCancelListener)
 	}
 
-	go func(id string) {
+	f := func() {
 		ctxDone := ctx.Done()
 		select {
 		case <-clearCancelListener:
@@ -244,7 +246,8 @@ func (c *TxManager) resetTxExpiry(ttl time.Duration, id string) {
 
 			c.clearTransaction()
 		}
-	}(id)
+	}
+	enterrors.GoWrapper(f, c.logger)
 }
 
 // expired is a helper to return a more meaningful error message to the user.
@@ -466,32 +469,69 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 	c.ongoingCommits.Add(1)
 	defer c.ongoingCommits.Done()
 
+	// requires locking because it accesses c.currentTransaction
+	txCopy, err := c.incomingCommitTxValidate(ctx, tx)
+	if err != nil {
+		return err
+	}
+
+	// cannot use locking because of risk of deadlock, see comment inside method
+	if err := c.incomingTxCommitApplyCommitFn(ctx, txCopy); err != nil {
+		return err
+	}
+
+	// requires locking because it accesses c.currentTransaction
+	return c.incomingTxCommitCleanup(ctx, tx)
+}
+
+func (c *TxManager) incomingCommitTxValidate(
+	ctx context.Context, tx *Transaction,
+) (*Transaction, error) {
 	c.Lock()
 	defer c.Unlock()
 
 	if !c.acceptIncoming {
-		return ErrNotReady
+		return nil, ErrNotReady
 	}
 
 	if c.currentTransaction == nil || c.currentTransaction.ID != tx.ID {
 		expired := c.expired(tx.ID)
 		if expired {
-			return ErrExpiredTransaction
+			return nil, ErrExpiredTransaction
 		}
-		return ErrInvalidTransaction
+		return nil, ErrInvalidTransaction
 	}
 
+	txCopy := *c.currentTransaction
+	return &txCopy, nil
+}
+
+func (c *TxManager) incomingTxCommitApplyCommitFn(
+	ctx context.Context, tx *Transaction,
+) error {
+	// Important: Do not hold the c.Lock() while applying the commitFn. The
+	// c.Lock() is only meant to make access to c.currentTransaction thread-safe.
+	// If we would hold it during apply, there is a risk for a deadlock because
+	// apply will likely lock the schema Manager. The schema Manager itself
+	// however, might be waiting for the TxManager in case of concurrent
+	// requests.
+	// See https://github.com/weaviate/weaviate/issues/4312 for steps on how to
+	// reproduce
+	//
 	// use transaction from cache, not passed in for two reason: a. protect
 	// against the transaction being manipulated after being created, b. allow
 	// an "empty" transaction that only contains the id for less network overhead
 	// (we don't need to pass the payload around anymore, after it's successfully
 	// opened - every node has a copy of the payload now)
-	err := c.commitFn(ctx, c.currentTransaction)
-	if err != nil {
-		return err
-	}
+	return c.commitFn(ctx, tx)
+}
 
+func (c *TxManager) incomingTxCommitCleanup(
+	ctx context.Context, tx *Transaction,
+) error {
 	// TODO: only clean up on success - does this make sense?
+	c.Lock()
+	defer c.Unlock()
 	c.currentTransaction = nil
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {

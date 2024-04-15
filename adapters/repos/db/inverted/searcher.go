@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,8 +18,9 @@ import (
 	"strconv"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -27,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -34,7 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type Searcher struct {
@@ -43,7 +45,6 @@ type Searcher struct {
 	schema                 schema.Schema
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	deletedDocIDs          DeletedDocIDChecker
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
@@ -51,13 +52,10 @@ type Searcher struct {
 	propIds                *tracker.JsonPropertyIdTracker
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
+	bitmapFactory       *roaringset.BitmapFactory
 }
 
-type DeletedDocIDChecker interface {
-	Contains(id uint64) bool
-}
-
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable, tenant string, nestedCrossRefLimit int64) *Searcher {
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable, tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory) *Searcher {
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,
@@ -65,12 +63,12 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Sc
 		propIndices:            propIndices,
 		propIds:                propIds,
 		classSearcher:          classSearcher,
-		deletedDocIDs:          deletedDocIDs,
 		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
+		bitmapFactory:          bitmapFactory,
 	}
 }
 
@@ -86,19 +84,19 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 
 	var it docIDsIterator
 	if len(sort) > 0 {
-		docIDs, err := s.sort(ctx, limit, sort, allowList, additional, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
 		if err != nil {
-			return nil, errors.Wrap(err, "sort doc ids")
+			return nil, fmt.Errorf("sort doc ids: %w", err)
 		}
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
-		it = allowList.LimitedIterator(limit)
+		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional)
+	return s.objectsByDocID(it, additional, limit)
 }
 
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList, additional additional.Properties, className schema.ClassName) ([]uint64, error) {
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList,  additional additional.Properties, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
 	if err != nil {
 		return nil, err
@@ -106,14 +104,19 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, doc
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties) ([]*storobj.Object, error) {
+func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties, limit int) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
-		return nil, errors.Errorf("objects bucket not found")
+		return nil, fmt.Errorf("objects bucket not found")
 	}
 
 	out := make([]*storobj.Object, it.Len())
 	docIDBytes := make([]byte, 8)
+
+	// Prevent unbounded iteration
+	if limit == 0 {
+		limit = int(config.DefaultQueryMaximumResults)
+	}
 
 	i := 0
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
@@ -134,11 +137,15 @@ func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Prope
 			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
 		}
 		if err != nil {
-			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
+			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
 		}
 
 		out[i] = unmarshalled
 		i++
+
+		if i >= limit {
+			break
+		}
 	}
 
 	return out[:i], nil
@@ -155,7 +162,16 @@ func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Prope
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, 0)
+	allow, err := s.docIDs(ctx, filter, additional, className, 0)
+	if err != nil {
+		return nil, err
+	}
+	// Some filters, such as NotEqual, return a theoretical range of docIDs
+	// which also includes a buffer in the underlying bitmap, to reduce the
+	// overhead of repopulating the base bitmap. Here we can truncate that
+	// buffer to ensure that the caller is receiving only the possible range
+	// of docIDs
+	return allow.Truncate(s.bitmapFactory.ActualMaxVal()), nil
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName, limit int) (helpers.AllowList, error) {
@@ -165,12 +181,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, addi
 	}
 
 	if err := pv.fetchDocIDs(s, limit); err != nil {
-		return nil, errors.Wrap(err, "fetch doc ids for prop/value pair")
+		return nil, fmt.Errorf("fetch doc ids for prop/value pair: %w", err)
 	}
 
 	dbm, err := pv.mergeDocIDs()
 	if err != nil {
-		return nil, errors.Wrap(err, "merge doc ids by operator")
+		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
 
 	return helpers.NewAllowListFromBitmap(dbm.DocIDs), nil
@@ -181,9 +197,9 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out, err := newPropValuePair(class)
+	out, err := newPropValuePair(class, s.logger)
 	if err != nil {
-		return nil, errors.Wrap(err, "new prop value pair")
+		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
 	if filter.Operands != nil {
 		// nested filter
@@ -267,7 +283,7 @@ func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.C
 
 func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	// prevent unbounded concurrency, see
 	// https://github.com/weaviate/weaviate/issues/3179 for details
 	eg.SetLimit(2 * _NUMCPU)
@@ -276,12 +292,11 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 		eg.Go(func() error {
 			child, err := s.buildPropValuePair(&clause, className)
 			if err != nil {
-				return errors.Wrapf(err, "nested clause at pos %d", i)
+				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
 			children[i] = child
 			return nil
-		})
-
+		}, clause)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
@@ -483,7 +498,7 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		}
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
-			return nil, errors.Wrap(err, "trying parse time as RFC3339 string")
+			return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
 		}
 
 		// if propType is a `valueDate`, we need to convert
@@ -554,7 +569,8 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
 	}
-	return nil, errors.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
+	return nil, fmt.Errorf("invalid search term, only stopwords provided. " +
+		"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
 func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {
@@ -613,33 +629,33 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	var operands []filters.Clause
 	switch propType {
 	case schema.DataTypeText, schema.DataTypeTextArray:
-		valueStringArray, ok := value.([]string)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []string but is %T", value)
+		valueStringArray, err := s.extractStringArray(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueStringArray)
 	case schema.DataTypeInt, schema.DataTypeIntArray:
-		valueInt64Array, ok := value.([]int)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []int but is %T", value)
+		valueIntArray, err := s.extractIntArray(value)
+		if err != nil {
+			return nil, err
 		}
-		operands = getContainsOperands(propType, path, valueInt64Array)
+		operands = getContainsOperands(propType, path, valueIntArray)
 	case schema.DataTypeNumber, schema.DataTypeNumberArray:
-		valueFloat64Array, ok := value.([]float64)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []float64 but is %T", value)
+		valueFloat64Array, err := s.extractFloat64Array(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueFloat64Array)
 	case schema.DataTypeBoolean, schema.DataTypeBooleanArray:
-		valueBooleanArray, ok := value.([]bool)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []bool but is %T", value)
+		valueBooleanArray, err := s.extractBoolArray(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueBooleanArray)
 	case schema.DataTypeDate, schema.DataTypeDateArray:
-		valueDateArray, ok := value.([]string)
-		if !ok {
-			return nil, fmt.Errorf("value type should be []string but is %T", value)
+		valueDateArray, err := s.extractStringArray(value)
+		if err != nil {
+			return nil, err
 		}
 		operands = getContainsOperands(propType, path, valueDateArray)
 	default:
@@ -650,9 +666,9 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	if err != nil {
 		return nil, err
 	}
-	out, err := newPropValuePair(class)
+	out, err := newPropValuePair(class, s.logger)
 	if err != nil {
-		return nil, errors.Wrap(err, "new prop value pair")
+		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
 	out.children = children
 	// filters.ContainsAny
@@ -707,6 +723,84 @@ func (s *Searcher) onTokenizableProp(prop *models.Property) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (s *Searcher) extractStringArray(value interface{}) ([]string, error) {
+	switch v := value.(type) {
+	case []string:
+		return v, nil
+	case []interface{}:
+		vals := make([]string, len(v))
+		for i := range v {
+			val, ok := v[i].(string)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be string but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []string but is %T", value)
+	}
+}
+
+func (s *Searcher) extractIntArray(value interface{}) ([]int, error) {
+	switch v := value.(type) {
+	case []int:
+		return v, nil
+	case []interface{}:
+		vals := make([]int, len(v))
+		for i := range v {
+			// in this case all number values are unmarshalled to float64, so we need to cast to float64
+			// and then make int
+			val, ok := v[i].(float64)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be float64 but is %T", i, v[i])
+			}
+			vals[i] = int(val)
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []int but is %T", value)
+	}
+}
+
+func (s *Searcher) extractFloat64Array(value interface{}) ([]float64, error) {
+	switch v := value.(type) {
+	case []float64:
+		return v, nil
+	case []interface{}:
+		vals := make([]float64, len(v))
+		for i := range v {
+			val, ok := v[i].(float64)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be float64 but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []float64 but is %T", value)
+	}
+}
+
+func (s *Searcher) extractBoolArray(value interface{}) ([]bool, error) {
+	switch v := value.(type) {
+	case []bool:
+		return v, nil
+	case []interface{}:
+		vals := make([]bool, len(v))
+		for i := range v {
+			val, ok := v[i].(bool)
+			if !ok {
+				return nil, fmt.Errorf("value[%d] type should be bool but is %T", i, v[i])
+			}
+			vals[i] = val
+		}
+		return vals, nil
+	default:
+		return nil, fmt.Errorf("value type should be []bool but is %T", value)
 	}
 }
 

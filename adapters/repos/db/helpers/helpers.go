@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,9 +23,9 @@ import (
 var (
 	ObjectsBucket              = []byte("objects")
 	ObjectsBucketLSM           = "objects"
-	CompressedObjectsBucketLSM = "compressed_objects"
+	VectorsCompressedBucketLSM = "vectors_compressed"
+	VectorsBucketLSM           = "vectors"
 	DimensionsBucketLSM        = "dimensions"
-	DocIDBucket                = []byte("doc_ids")
 )
 
 func MakeByteEncodedPropertyPostfix(propertyName string, propertyIds *tracker.JsonPropertyIdTracker) []byte {
@@ -52,6 +52,13 @@ func MakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
 	return jointKey
 }
 
+// MetaCountProp helps create an internally used propName for meta props that
+// don't explicitly exist in the user schema, but are required for proper
+// indexing, such as the count of arrays.
+func MetaCountProp(propName string) string {
+	return fmt.Sprintf("%s__meta_count", propName)
+}
+
 func MatchesPropertyKeyPostfix(byteEncodedPropertyId []byte, prefixed_key []byte) bool {
 	// Allows accessing every key
 	if len(byteEncodedPropertyId) == 0 {
@@ -69,6 +76,8 @@ func UnMakePropertyKey(byteEncodedPropertyId []byte, postfixed_key []byte) []byt
 	return out
 }
 
+// BucketFromPropNameLSM creates string used as the bucket name
+// for a particular prop in the inverted index
 func BucketFromPropertyName(propertyName string) []byte {
 	return []byte(fmt.Sprintf("property_%s", propertyName))
 }

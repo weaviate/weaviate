@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,7 +34,6 @@ const (
 	DefaultCompression CompressionLevel = iota
 	BestSpeed
 	BestCompression
-	HuffmanOnly
 )
 
 type zip struct {
@@ -298,8 +297,6 @@ func zipLevel(level int) int {
 		return gzip.BestSpeed
 	case BestCompression:
 		return gzip.BestCompression
-	case HuffmanOnly:
-		return gzip.HuffmanOnly
 	default:
 		return gzip.DefaultCompression
 	}
@@ -311,19 +308,21 @@ type zipConfig struct {
 	ChunkSize  int
 }
 
-func newZipConfig(level, cpuPercentage, chunkSize int) zipConfig {
-	if chunkSize == 0 {
-		chunkSize = defaultChunkSize
-	}
-	if chunkSize < minChunkSize {
-		chunkSize = minChunkSize
-	} else if chunkSize > maxChunkSize {
-		chunkSize = maxChunkSize
+func newZipConfig(c Compression) zipConfig {
+	// convert from MB to byte because input already
+	// in MB and validated against min:2 max:512
+	switch c.ChunkSize = c.ChunkSize * 1024 * 1024; {
+	case c.ChunkSize == 0:
+		c.ChunkSize = DefaultChunkSize
+	case c.ChunkSize > maxChunkSize:
+		c.ChunkSize = maxChunkSize
+	case c.ChunkSize < minChunkSize:
+		c.ChunkSize = minChunkSize
 	}
 
 	return zipConfig{
-		Level:      level,
-		GoPoolSize: routinePoolSize(cpuPercentage),
-		ChunkSize:  chunkSize,
+		Level:      int(c.Level),
+		GoPoolSize: routinePoolSize(c.CPUPercentage),
+		ChunkSize:  c.ChunkSize,
 	}
 }

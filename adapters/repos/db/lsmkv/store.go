@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,30 +17,39 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	wsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
-	dir           string
-	rootDir       string
-	bucketsByName map[string]*Bucket
-	logger        logrus.FieldLogger
-	metrics       *Metrics
-
-	cycleCallbacks *storeCycleCallbacks
+	dir     string
+	rootDir string
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
+	bucketsByName    map[string]*Bucket
+
+	logger  logrus.FieldLogger
+	metrics *Metrics
+
+	cycleCallbacks *storeCycleCallbacks
+	bcreator       BucketCreator
+	// Prevent concurrent manipulations to the same Bucket, specially if there is
+	// action on the bucket in the meantime.
+	bucketsLocks *wsync.KeyLocker
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -51,6 +60,8 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, shard
 		dir:           dir,
 		rootDir:       rootDir,
 		bucketsByName: map[string]*Bucket{},
+		bucketsLocks:  wsync.New(),
+		bcreator:      NewBucketCreator(),
 		logger:        logger,
 		metrics:       metrics,
 	}
@@ -164,11 +175,16 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 func (s *Store) CreateOrLoadBucket_old(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	s.bucketsLocks.Lock(bucketName)
+	defer s.bucketsLocks.Unlock(bucketName)
+
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
 
-	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
+	// bucket can be concurrently loaded with another buckets but
+	// the same bucket will be loaded only once
+	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
@@ -229,9 +245,13 @@ type jobFunc func(context.Context, *Bucket) (interface{}, error)
 
 type rollbackFunc func(context.Context, *Bucket) error
 
-func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
+func (s *Store) ListFiles(ctx context.Context, basePath string) ([]string, error) {
 	listFiles := func(ctx context.Context, b *Bucket) (interface{}, error) {
-		return b.ListFiles(ctx)
+		basePath, err := filepath.Rel(basePath, b.dir)
+		if err != nil {
+			return nil, fmt.Errorf("bucket relative path: %w", err)
+		}
+		return b.ListFiles(ctx, basePath)
 	}
 
 	result, err := s.runJobOnBuckets(ctx, listFiles, nil)
@@ -254,6 +274,7 @@ func (s *Store) ListFiles(ctx context.Context) ([]string, error) {
 func (s *Store) runJobOnBuckets(ctx context.Context,
 	jobFunc jobFunc, rollbackFunc rollbackFunc,
 ) ([]interface{}, error) {
+	s.bucketAccessLock.Lock()
 	var (
 		status      = newBucketJobStatus()
 		resultQueue = make(chan interface{}, len(s.bucketsByName))
@@ -263,16 +284,17 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	for _, bucket := range s.bucketsByName {
 		wg.Add(1)
 		b := bucket
-		go func() {
+		f := func() {
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, s.logger)
 	}
-
+	s.bucketAccessLock.Unlock()
 	wg.Wait()
 	close(resultQueue)
 
@@ -322,6 +344,9 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	s.bucketsLocks.Lock(bucketName)
+	defer s.bucketsLocks.Unlock(bucketName)
+
 	if b := s.Bucket(bucketName); b != nil {
 		return fmt.Errorf("bucket %s exists and is already in use", bucketName)
 	}
@@ -331,7 +356,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
-	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
+	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err

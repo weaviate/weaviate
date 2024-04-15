@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -145,7 +145,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		obj := &models.Object{Class: "MyClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
 		require.Nil(t, err)
 	}
 }
@@ -197,7 +197,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 		obj := &models.Object{Class: "FilterClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
 		require.Nil(t, err)
 	}
 }
@@ -206,9 +206,12 @@ func TestBM25FJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -228,25 +231,24 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("bm25f journey", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for basic search ---")
-		for _, r := range res {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		for i, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(4), res[0].DocID())
-		require.Equal(t, uint64(5), res[1].DocID())
-		require.Equal(t, uint64(6), res[2].DocID())
-		require.Equal(t, uint64(3), res[3].DocID())
-		require.Equal(t, uint64(0), res[4].DocID())
-		require.Equal(t, uint64(2), res[5].DocID())
+		require.Equal(t, uint64(4), res[0].DocID)
+		require.Equal(t, uint64(5), res[1].DocID)
+		require.Equal(t, uint64(6), res[2].DocID)
+		require.Equal(t, uint64(3), res[3].DocID)
+		require.Equal(t, uint64(0), res[4].DocID)
+		require.Equal(t, uint64(2), res[5].DocID)
 
 		// Without additionalExplanations no explainScore entry should be present
-		require.Contains(t, res[0].Object.Additional, "score")
 		require.NotContains(t, res[0].Object.Additional, "explainScore")
 	})
 
@@ -256,76 +258,76 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f textField non-alpha", func(t *testing.T) {
 		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		addit = additional.Properties{}
-		resTextField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0)
+		resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for textField search ---")
-		for _, r := range resTextField {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		for i, r := range resTextField {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(7), resTextField[0].DocID())
+		require.Equal(t, uint64(7), resTextField[0].DocID)
 	})
 
 	// text/field are not lower-cased before indexing, so upper case searches must be passed through unchanged.
 	t.Run("bm25f textField caps", func(t *testing.T) {
 		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
 		addit := additional.Properties{}
-		resTextField, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0)
+		resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for textField caps search ---")
-		for _, r := range resTextField {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		for i, r := range resTextField {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(8), resTextField[0].DocID())
+		require.Equal(t, uint64(8), resTextField[0].DocID)
 	})
 
 	// Check basic text search WITH CAPS
 	t.Run("bm25f text with caps", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 		// Print results
 		t.Log("--- Start results for search with caps ---")
-		for _, r := range res {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		for i, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 		require.Nil(t, err)
 
 		// Check results in correct order
-		require.Equal(t, uint64(4), res[0].DocID())
-		require.Equal(t, uint64(5), res[1].DocID())
-		require.Equal(t, uint64(6), res[2].DocID())
-		require.Equal(t, uint64(2), res[3].DocID())
-		require.Equal(t, uint64(3), res[4].DocID())
-		require.Equal(t, uint64(0), res[5].DocID())
-		require.Equal(t, uint64(1), res[6].DocID())
+		require.Equal(t, uint64(4), res[0].DocID)
+		require.Equal(t, uint64(5), res[1].DocID)
+		require.Equal(t, uint64(6), res[2].DocID)
+		require.Equal(t, uint64(2), res[3].DocID)
+		require.Equal(t, uint64(3), res[4].DocID)
+		require.Equal(t, uint64(0), res[5].DocID)
+		require.Equal(t, uint64(1), res[6].DocID)
 	})
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 
 		require.Nil(t, err)
 		// Print results
 		t.Log("--- Start results for boosted search ---")
-		for _, r := range res {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+		for i, r := range res {
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(4), res[0].DocID())
-		require.Equal(t, uint64(5), res[1].DocID())
-		require.Equal(t, uint64(6), res[2].DocID())
-		require.Equal(t, uint64(0), res[3].DocID())
-		require.Equal(t, uint64(1), res[4].DocID())
-		require.Equal(t, uint64(2), res[5].DocID())
-		require.Equal(t, uint64(3), res[6].DocID())
+		require.Equal(t, uint64(4), res[0].DocID)
+		require.Equal(t, uint64(5), res[1].DocID)
+		require.Equal(t, uint64(6), res[2].DocID)
+		require.Equal(t, uint64(0), res[3].DocID)
+		require.Equal(t, uint64(1), res[4].DocID)
+		require.Equal(t, uint64(2), res[5].DocID)
+		require.Equal(t, uint64(3), res[6].DocID)
 	})
 
 	t.Run("Check search with two terms", func(t *testing.T) {
@@ -333,11 +335,11 @@ func TestBM25FJourney(t *testing.T) {
 		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 		// Check results in correct order
-		require.Equal(t, uint64(1), res[0].DocID())
-		require.Equal(t, uint64(4), res[1].DocID())
-		require.Equal(t, uint64(5), res[2].DocID())
-		require.Equal(t, uint64(6), res[3].DocID())
-		require.Equal(t, uint64(2), res[4].DocID())
+		require.Equal(t, uint64(1), res[0].DocID)
+		require.Equal(t, uint64(4), res[1].DocID)
+		require.Equal(t, uint64(5), res[2].DocID)
+		require.Equal(t, uint64(6), res[3].DocID)
+		require.Equal(t, uint64(2), res[4].DocID)
 	})
 
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
@@ -347,10 +349,10 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 
 		// Check results in correct order
-		require.Equal(t, uint64(1), res[0].DocID())
-		require.Equal(t, uint64(4), res[1].DocID())
-		require.Equal(t, uint64(5), res[2].DocID())
-		require.Equal(t, uint64(6), res[3].DocID())
+		require.Equal(t, uint64(1), res[0].DocID)
+		require.Equal(t, uint64(4), res[1].DocID)
+		require.Equal(t, uint64(5), res[2].DocID)
+		require.Equal(t, uint64(6), res[3].DocID)
 	})
 
 	t.Run("bm25f non alphanums", func(t *testing.T) {
@@ -358,7 +360,7 @@ func TestBM25FJourney(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
-		require.Equal(t, uint64(7), res[0].DocID())
+		require.Equal(t, uint64(7), res[0].DocID)
 	})
 
 	t.Run("First result has high score", func(t *testing.T) {
@@ -366,7 +368,7 @@ func TestBM25FJourney(t *testing.T) {
 		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
-		require.Equal(t, uint64(0), res[0].DocID())
+		require.Equal(t, uint64(0), res[0].DocID)
 		require.Len(t, res, 4) // four results have one of the terms
 	})
 
@@ -375,11 +377,11 @@ func TestBM25FJourney(t *testing.T) {
 		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
-		require.Equal(t, uint64(4), res[0].DocID())
-		require.Equal(t, uint64(5), res[1].DocID())
-		require.Equal(t, uint64(6), res[2].DocID())
-		require.Equal(t, uint64(3), res[3].DocID())
-		require.Equal(t, uint64(2), res[4].DocID())
+		require.Equal(t, uint64(4), res[0].DocID)
+		require.Equal(t, uint64(5), res[1].DocID)
+		require.Equal(t, uint64(6), res[2].DocID)
+		require.Equal(t, uint64(3), res[3].DocID)
+		require.Equal(t, uint64(2), res[4].DocID)
 		require.Len(t, res, 5) // four results have one of the terms
 	})
 
@@ -388,9 +390,9 @@ func TestBM25FJourney(t *testing.T) {
 		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
-		require.Equal(t, uint64(9), res[0].DocID())
-		require.Equal(t, uint64(0), res[1].DocID())
-		require.Equal(t, uint64(8), res[2].DocID())
+		require.Equal(t, uint64(9), res[0].DocID)
+		require.Equal(t, uint64(0), res[1].DocID)
+		require.Equal(t, uint64(8), res[2].DocID)
 		require.Len(t, res, 3)
 	})
 
@@ -400,7 +402,6 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 
 		// With additionalExplanations explainScore entry should be present
-		require.Contains(t, res[0].Object.Additional, "score")
 		require.Contains(t, res[0].Object.Additional, "explainScore")
 		require.Contains(t, res[0].Object.Additional["explainScore"], "BM25")
 	})
@@ -411,8 +412,8 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
-		require.Equal(t, uint64(0), res[0].DocID())
-		require.Equal(t, uint64(1), res[1].DocID())
+		require.Equal(t, uint64(0), res[0].DocID)
+		require.Equal(t, uint64(1), res[1].DocID)
 	})
 
 	t.Run("Array fields string", func(t *testing.T) {
@@ -421,29 +422,29 @@ func TestBM25FJourney(t *testing.T) {
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
-		require.Equal(t, uint64(6), res[0].DocID())
-		require.Equal(t, uint64(5), res[1].DocID())
+		require.Equal(t, uint64(6), res[0].DocID)
+		require.Equal(t, uint64(5), res[1].DocID)
 	})
 
 	t.Run("With autocut", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "journey", Properties: []string{"description"}}
-		resNoAutoCut, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0)
+		resNoAutoCut, noautocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
-		resAutoCut, _, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 1)
+		resAutoCut, autocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 1)
 		require.Nil(t, err)
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		require.EqualValues(t, 0.5868752, resNoAutoCut[0].Score())
-		require.EqualValues(t, 0.5450892, resNoAutoCut[1].Score()) // <= autocut last element
-		require.EqualValues(t, 0.34149727, resNoAutoCut[2].Score())
-		require.EqualValues(t, 0.3049518, resNoAutoCut[3].Score())
-		require.EqualValues(t, 0.27547202, resNoAutoCut[4].Score())
+		require.EqualValues(t, float32(0.5868752), noautocutscores[0])
+		require.EqualValues(t, float32(0.5450892), noautocutscores[1]) // <= autocut last element
+		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
+		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
+		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, 0.5868752, resAutoCut[0].Score())
-		require.EqualValues(t, 0.5450892, resAutoCut[1].Score())
+		require.EqualValues(t, float32(0.5868752), autocutscores[0])
+		require.EqualValues(t, float32(0.5450892), autocutscores[1])
 	})
 }
 
@@ -451,9 +452,12 @@ func TestBM25FSingleProp(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -471,28 +475,31 @@ func TestBM25FSingleProp(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 	t.Log("--- Start results for singleprop search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	for i, r := range res {
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 	require.Nil(t, err)
 	// Check results in correct order
-	require.Equal(t, uint64(3), res[0].DocID())
-	require.Equal(t, uint64(4), res[3].DocID())
+	require.Equal(t, uint64(3), res[0].DocID)
+	require.Equal(t, uint64(4), res[3].DocID)
 
 	// Check scores
-	EqualFloats(t, float32(0.1248), res[0].Score(), 5)
-	EqualFloats(t, float32(0.0363), res[1].Score(), 5)
+	EqualFloats(t, float32(0.1248), scores[0], 5)
+	EqualFloats(t, float32(0.0363), scores[1], 5)
 }
 
 func TestBM25FWithFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -543,16 +550,19 @@ func TestBM25FWithFilters(t *testing.T) {
 
 	require.Nil(t, err)
 	require.True(t, len(res) == 1)
-	require.Equal(t, uint64(2), res[0].DocID())
+	require.Equal(t, uint64(2), res[0].DocID)
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -588,27 +598,30 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	}
 
 	addit := additional.Properties{}
-	filtered, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0)
+	filtered, filteredScores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0)
 	require.Nil(t, err)
-	unfiltered, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	unfiltered, unfilteredScores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 	require.Nil(t, err)
 
 	require.Len(t, filtered, 1)   // should match exactly one element
 	require.Len(t, unfiltered, 2) // contains irrelevant result
 
-	assert.Equal(t, uint64(0), filtered[0].DocID())   // brooks koepka result
-	assert.Equal(t, uint64(0), unfiltered[0].DocID()) // brooks koepka result
+	assert.Equal(t, uint64(0), filtered[0].DocID)   // brooks koepka result
+	assert.Equal(t, uint64(0), unfiltered[0].DocID) // brooks koepka result
 
-	assert.Equal(t, filtered[0].Score(), unfiltered[0].Score())
+	assert.Equal(t, filteredScores[0], unfilteredScores[0])
 }
 
 func TestBM25FDifferentParamsJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -626,29 +639,29 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
 
 	// Print results
 	t.Log("--- Start results for boosted search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	for i, r := range res {
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
 	require.Nil(t, err)
 
 	// Check results in correct order
-	require.Equal(t, uint64(6), res[0].DocID())
-	require.Equal(t, uint64(1), res[3].DocID())
+	require.Equal(t, uint64(6), res[0].DocID)
+	require.Equal(t, uint64(1), res[3].DocID)
 
 	// Print results
 	t.Log("--- Start results for boosted search ---")
-	for _, r := range res {
-		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), r.Score(), r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+	for i, r := range res {
+		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 	}
 
 	// Check scores
-	EqualFloats(t, float32(0.06023), res[0].Score(), 6)
-	EqualFloats(t, float32(0.04238), res[1].Score(), 6)
+	EqualFloats(t, float32(0.06023), scores[0], 6)
+	EqualFloats(t, float32(0.04238), scores[1], 6)
 }
 
 func EqualFloats(t *testing.T, expected, actual float32, significantFigures int) {
@@ -671,9 +684,12 @@ func TestBM25FCompare(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -696,21 +712,21 @@ func TestBM25FCompare(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title"}, Query: "journey"}
 		addit := additional.Properties{}
 
-		withBM25Fobjs, withBM25Fscores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		withBM25Fobjs, withBM25Fscores, err := shard.ObjectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
 		require.Nil(t, err)
 
 		for i, r := range withBM25Fobjs {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, withBM25Fscores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		t.Logf("------ BM25 --------\n")
 		kwr.Type = ""
 
-		objs, scores, err := shard.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
+		objs, scores, err := shard.ObjectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit)
 		require.Nil(t, err)
 
 		for i, r := range objs {
-			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID(), scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
+			t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
 		}
 
 		require.Equal(t, len(withBM25Fobjs), len(objs))
@@ -720,19 +736,19 @@ func TestBM25FCompare(t *testing.T) {
 		}
 
 		// Not all the scores are unique and the search is not stable, so pick ones that don't move
-		require.Equal(t, uint64(4), objs[0].DocID())
-		require.Equal(t, uint64(5), objs[1].DocID())
-		require.Equal(t, uint64(6), objs[2].DocID())
-		require.Equal(t, uint64(1), objs[3].DocID())
-		require.Equal(t, uint64(2), objs[4].DocID())
-		require.Equal(t, uint64(0), objs[5].DocID())
+		require.Equal(t, uint64(4), objs[0].DocID)
+		require.Equal(t, uint64(5), objs[1].DocID)
+		require.Equal(t, uint64(6), objs[2].DocID)
+		require.Equal(t, uint64(1), objs[3].DocID)
+		require.Equal(t, uint64(2), objs[4].DocID)
+		require.Equal(t, uint64(0), objs[5].DocID)
 
-		require.Equal(t, uint64(4), withBM25Fobjs[0].DocID())
-		require.Equal(t, uint64(5), withBM25Fobjs[1].DocID())
-		require.Equal(t, uint64(6), withBM25Fobjs[2].DocID())
-		require.Equal(t, uint64(1), withBM25Fobjs[3].DocID())
-		require.Equal(t, uint64(2), withBM25Fobjs[4].DocID())
-		require.Equal(t, uint64(0), withBM25Fobjs[5].DocID())
+		require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
+		require.Equal(t, uint64(5), withBM25Fobjs[1].DocID)
+		require.Equal(t, uint64(6), withBM25Fobjs[2].DocID)
+		require.Equal(t, uint64(1), withBM25Fobjs[3].DocID)
+		require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
+		require.Equal(t, uint64(0), withBM25Fobjs[5].DocID)
 
 	}
 }
@@ -835,7 +851,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
 		require.Nil(t, err)
 	}
 	return className
@@ -845,14 +861,17 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -870,54 +889,54 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
-		res, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for boosted search ---")
-		for _, r := range res {
-			t.Logf("Result id: %v, score: %v, \n", r.DocID(), r.Score())
+		for i, r := range res {
+			t.Logf("Result id: %v, score: %v, \n", r.DocID, scores[i])
 		}
 
 		// Check results in correct order
-		require.Equal(t, uint64(3), res[0].DocID())
-		require.Equal(t, uint64(0), res[1].DocID())
-		require.Equal(t, uint64(2), res[2].DocID())
+		require.Equal(t, uint64(3), res[0].DocID)
+		require.Equal(t, uint64(0), res[1].DocID)
+		require.Equal(t, uint64(2), res[2].DocID)
 		require.Len(t, res, 3)
 
 		// Check scores
-		EqualFloats(t, float32(0.8914), res[0].Score(), 5)
-		EqualFloats(t, float32(0.5425), res[1].Score(), 5)
-		EqualFloats(t, float32(0.3952), res[2].Score(), 5)
+		EqualFloats(t, float32(0.8914), scores[0], 5)
+		EqualFloats(t, float32(0.5425), scores[1], 5)
+		EqualFloats(t, float32(0.3952), scores[2], 5)
 	})
 
 	t.Run("Results without stopwords", func(t *testing.T) {
 		kwrNoStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "example losing business"}
-		resNoStopwords, _, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0)
+		resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		classEn := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
 		idxEn := repo.GetIndex(schema.ClassName(classEn))
 		require.NotNil(t, idxEn)
 		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
-		resStopwords, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil, "", 0)
+		resStopwords, resScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		require.Equal(t, len(resNoStopwords), len(resStopwords))
 		for i, resNo := range resNoStopwords {
 			resYes := resStopwords[i]
-			require.Equal(t, resNo.DocID(), resYes.DocID())
-			require.Equal(t, resNo.Score(), resYes.Score())
+			require.Equal(t, resNo.DocID, resYes.DocID)
+			require.Equal(t, resNoScores[i], resScores[i])
 		}
 
 		kwrStopwordsDuplicate := &searchparams.KeywordRanking{Type: "bm25", Query: "on an example on losing the business on"}
-		resStopwordsDuplicate, _, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil, "", 0)
+		resStopwordsDuplicate, duplicateScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 		require.Equal(t, len(resNoStopwords), len(resStopwordsDuplicate))
 		for i, resNo := range resNoStopwords {
 			resYes := resStopwordsDuplicate[i]
-			require.Equal(t, resNo.DocID(), resYes.DocID())
-			require.Equal(t, resNo.Score(), resYes.Score())
+			require.Equal(t, resNo.DocID, resYes.DocID)
+			require.Equal(t, resNoScores[i], duplicateScores[i])
 		}
 	})
 }
@@ -970,7 +989,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
 		require.Nil(t, err)
 	}
 	return className
@@ -981,14 +1000,17 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1005,17 +1027,17 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
-		res, _, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil, "", 0)
 		require.Nil(t, err)
 
 		// Print results
 		t.Log("--- Start results for boosted search ---")
-		for _, r := range res {
-			t.Logf("Result id: %v, score: %v, \n", r.DocID(), r.Score())
+		for i, r := range res {
+			t.Logf("Result id: %v, score: %v, \n", r.DocID, scores[i])
 		}
 
 		// Document 1 is a result for both terms
 		require.Len(t, res, 1)
-		require.Equal(t, uint64(1), res[0].DocID())
+		require.Equal(t, uint64(1), res[0].DocID)
 	})
 }

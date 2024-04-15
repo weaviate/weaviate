@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,7 +39,7 @@ func TestVectorize(t *testing.T) {
 		defer server.Close()
 		c := New(server.URL, 0, nullLogger())
 		res, err := c.Vectorize(context.Background(), []string{"hello"},
-			[]string{"image-encoding"})
+			[]string{"image-encoding"}, ent.VectorizationConfig{})
 
 		assert.Nil(t, err)
 		assert.Equal(t, &ent.VectorizationResult{
@@ -62,7 +62,7 @@ func TestVectorize(t *testing.T) {
 		defer server.Close()
 		c := New(server.URL, 0, nullLogger())
 		_, err := c.Vectorize(context.Background(), []string{"hello"},
-			[]string{"image-encoding"})
+			[]string{"image-encoding"}, ent.VectorizationConfig{})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "some error from the server")

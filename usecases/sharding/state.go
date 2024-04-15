@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -251,35 +251,36 @@ func (s *State) IsLocalShard(name string) bool {
 // Shard 1: Node7, Node8, Node9, Node10, Node 11
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
-func (s *State) initPhysical(names []string, replFactor int64) error {
-	it, err := cluster.NewNodeIterator(names, cluster.StartAfter)
+func (s *State) initPhysical(nodes []string, replFactor int64) error {
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
 		return err
 	}
-	it.SetStartNode(names[len(names)-1])
+	it.SetStartNode(nodes[len(nodes)-1])
 
 	s.Physical = map[string]Physical{}
 
+	nodeSet := make(map[string]bool)
 	for i := 0; i < s.Config.DesiredCount; i++ {
 		name := generateShardName()
 		shard := Physical{Name: name}
-		node := it.Next()
-		shard.BelongsToNodes = []string{node}
-		if replFactor > 1 {
-			// create a second node iterator and start after the already assigned
-			// one, this way we can identify our next n right neighbors without
-			// affecting the root iterator which will determine the next shard
-			replicationIter, err := cluster.NewNodeIterator(names, cluster.StartAfter)
-			if err != nil {
-				return fmt.Errorf("assign replication nodes: %w", err)
+		shard.BelongsToNodes = make([]string, 0, replFactor)
+		for { // select shard
+			node := it.Next()
+			if len(nodeSet) == len(nodes) { // this is a new round
+				for k := range nodeSet {
+					delete(nodeSet, k)
+				}
 			}
+			if !nodeSet[node] {
+				nodeSet[node] = true
+				shard.BelongsToNodes = append(shard.BelongsToNodes, node)
+				break
+			}
+		}
 
-			replicationIter.SetStartNode(node)
-			// the first node is already assigned, we only need to assign the
-			// additional nodes
-			for i := replFactor; i > 1; i-- {
-				shard.BelongsToNodes = append(shard.BelongsToNodes, replicationIter.Next())
-			}
+		for i := replFactor; i > 1; i-- {
+			shard.BelongsToNodes = append(shard.BelongsToNodes, it.Next())
 		}
 
 		s.Physical[name] = shard
@@ -290,42 +291,42 @@ func (s *State) initPhysical(names []string, replFactor int64) error {
 
 // GetPartitions based on the specified shards, available nodes, and replFactor
 // It doesn't change the internal state
-func (s *State) GetPartitions(nodes nodes, shards []string, replFactor int64) (map[string][]string, error) {
-	names := nodes.Candidates()
-	if len(names) == 0 {
+func (s *State) GetPartitions(lookUp nodes, shards []string, replFactor int64) (map[string][]string, error) {
+	nodes := lookUp.Candidates()
+	if len(nodes) == 0 {
 		return nil, fmt.Errorf("list of node candidates is empty")
 	}
-	if f, n := replFactor, len(names); f > int64(n) {
+	if f, n := replFactor, len(nodes); f > int64(n) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
 	}
-	it, err := cluster.NewNodeIterator(names, cluster.StartAfter)
+	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
 		return nil, err
 	}
-	it.SetStartNode(names[len(names)-1])
+	it.SetStartNode(nodes[len(nodes)-1])
 	partitions := make(map[string][]string, len(shards))
+	nodeSet := make(map[string]bool)
 	for _, name := range shards {
 		if _, alreadyExists := s.Physical[name]; alreadyExists {
 			continue
 		}
-		owners := make([]string, 1, replFactor)
-		node := it.Next()
-		owners[0] = node
-		if replFactor > 1 {
-			// create a second node iterator and start after the already assigned
-			// one, this way we can identify our next n right neighbors without
-			// affecting the root iterator which will determine the next shard
-			replicationIter, err := cluster.NewNodeIterator(names, cluster.StartAfter)
-			if err != nil {
-				return nil, fmt.Errorf("assign replication nodes: %w", err)
+		owners := make([]string, 0, replFactor)
+		for { // select shard
+			node := it.Next()
+			if len(nodeSet) == len(nodes) { // this is a new round
+				for k := range nodeSet {
+					delete(nodeSet, k)
+				}
 			}
+			if !nodeSet[node] {
+				nodeSet[node] = true
+				owners = append(owners, node)
+				break
+			}
+		}
 
-			replicationIter.SetStartNode(node)
-			// the first node is already assigned, we only need to assign the
-			// additional nodes
-			for i := replFactor; i > 1; i-- {
-				owners = append(owners, replicationIter.Next())
-			}
+		for i := replFactor; i > 1; i-- {
+			owners = append(owners, it.Next())
 		}
 
 		partitions[name] = owners
@@ -349,6 +350,30 @@ func (s *State) AddPartition(name string, nodes []string, status string) Physica
 // DeletePartition to physical shards
 func (s *State) DeletePartition(name string) {
 	delete(s.Physical, name)
+}
+
+// ApplyNodeMapping replaces node names with their new value form nodeMapping in s.
+// If s.LegacyBelongsToNodeForBackwardCompat is non empty, it will also perform node name replacement if present in nodeMapping.
+func (s *State) ApplyNodeMapping(nodeMapping map[string]string) {
+	if len(nodeMapping) == 0 {
+		return
+	}
+
+	for k, v := range s.Physical {
+		if v.LegacyBelongsToNodeForBackwardCompat != "" {
+			if newNodeName, ok := nodeMapping[v.LegacyBelongsToNodeForBackwardCompat]; ok {
+				v.LegacyBelongsToNodeForBackwardCompat = newNodeName
+			}
+		}
+
+		for i, nodeName := range v.BelongsToNodes {
+			if newNodeName, ok := nodeMapping[nodeName]; ok {
+				v.BelongsToNodes[i] = newNodeName
+			}
+		}
+
+		s.Physical[k] = v
+	}
 }
 
 func (s *State) initVirtual() {

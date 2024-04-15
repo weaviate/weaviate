@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,73 +13,42 @@ package vectorizer
 
 import (
 	"context"
-	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
+	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 func (v *Vectorizer) VectorizeInput(ctx context.Context, input string,
 	icheck vectorizer.ClassIndexCheck,
 ) ([]float32, error) {
-	vectorS, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{}) // FIXME config?
+	res, err := v.client.VectorizeQuery(ctx, input, ent.VectorizationConfig{})
 	if err != nil {
 		return nil, err
 	}
-	return vectorS.Vector, nil
-}
-
-func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
-	settings ClassSettings,
-) ([]float32, error) {
-	res, err := v.client.VectorizeQuery(ctx, v.joinSentences(inputs), ent.VectorizationConfig{
-		EndpointURL:  settings.EndpointURL(),
-		Model:        settings.QueryModel(),
-		WaitForModel: settings.OptionWaitForModel(),
-		UseGPU:       settings.OptionUseGPU(),
-		UseCache:     settings.OptionUseCache(),
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "remote client vectorize")
-	}
-
 	return res.Vector, nil
 }
 
-func (v *Vectorizer) joinSentences(input []string) string {
-	if len(input) == 1 {
-		return input[0]
-	}
-
-	b := &strings.Builder{}
-	for i, sent := range input {
-		if i > 0 {
-			if v.endsWithPunctuation(input[i-1]) {
-				b.WriteString(" ")
-			} else {
-				b.WriteString(". ")
-			}
+func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
+	cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	settings := NewClassSettings(cfg)
+	vectors := make([][]float32, len(inputs))
+	for i := range inputs {
+		res, err := v.client.VectorizeQuery(ctx, inputs[i], ent.VectorizationConfig{
+			EndpointURL:  settings.EndpointURL(),
+			Model:        settings.QueryModel(),
+			WaitForModel: settings.OptionWaitForModel(),
+			UseGPU:       settings.OptionUseGPU(),
+			UseCache:     settings.OptionUseCache(),
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "remote client vectorize")
 		}
-		b.WriteString(sent)
+		vectors[i] = res.Vector
 	}
 
-	return b.String()
-}
-
-func (v *Vectorizer) endsWithPunctuation(sent string) bool {
-	if len(sent) == 0 {
-		// treat an empty string as if it ended with punctuation so we don't add
-		// additional punctuation
-		return true
-	}
-
-	lastChar := sent[len(sent)-1]
-	switch lastChar {
-	case '.', ',', '?', '!':
-		return true
-
-	default:
-		return false
-	}
+	return libvectorizer.CombineVectors(vectors), nil
 }

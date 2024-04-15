@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package journey
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,11 +23,17 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors bool) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
-	booksClass := books.ClassContextionaryVectorizer()
+
+	var booksClass *models.Class
+	if namedVectors {
+		booksClass = books.ClassNamedContextionaryVectorizer()
+	} else {
+		booksClass = books.ClassContextionaryVectorizer()
+	}
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 
@@ -39,7 +46,21 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
 	}
 
-	backupID := "backup-1"
+	vectorsForDune := func() map[string][]float32 {
+		vectors := map[string][]float32{}
+		duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
+
+		if namedVectors {
+			for name := range booksClass.VectorConfig {
+				vectors[name] = duneBook.Vectors[name]
+			}
+		} else {
+			vectors["vector"] = duneBook.Vector
+		}
+		return vectors
+	}
+
+	backupID := "backup-1_named_vectors" + strconv.FormatBool(namedVectors)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
@@ -50,6 +71,37 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 	t.Run("verify that Books objects exist", func(t *testing.T) {
 		verifyThatAllBooksExist(t)
 	})
+	initialVectors := vectorsForDune()
+
+	t.Run("verify invalid compression config", func(t *testing.T) {
+		// unknown compression level
+		resp, err := helper.CreateBackup(t, &models.BackupConfig{
+			CompressionLevel: "some-weird-config",
+		}, booksClass.Class, backend, backupID)
+
+		helper.AssertRequestFail(t, resp, err, func() {
+			_, ok := err.(*backups.BackupsCreateUnprocessableEntity)
+			require.True(t, ok, "not backups.BackupsCreateUnprocessableEntity")
+		})
+
+		// out of band cpu %
+		resp, err = helper.CreateBackup(t, &models.BackupConfig{
+			CPUPercentage: 120,
+		}, booksClass.Class, backend, backupID)
+		helper.AssertRequestFail(t, resp, err, func() {
+			_, ok := err.(*backups.BackupsCreateUnprocessableEntity)
+			require.True(t, ok, "not backups.BackupsCreateUnprocessableEntity")
+		})
+
+		// out of band chunkSize
+		resp, err = helper.CreateBackup(t, &models.BackupConfig{
+			ChunkSize: 1024,
+		}, booksClass.Class, backend, backupID)
+		helper.AssertRequestFail(t, resp, err, func() {
+			_, ok := err.(*backups.BackupsCreateUnprocessableEntity)
+			require.True(t, ok, "not backups.BackupsCreateUnprocessableEntity")
+		})
+	})
 
 	t.Run("start backup process", func(t *testing.T) {
 		params := backups.NewBackupsCreateParams().
@@ -57,6 +109,11 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 			WithBody(&models.BackupCreateRequest{
 				ID:      backupID,
 				Include: []string{booksClass.Class},
+				Config: &models.BackupConfig{
+					CPUPercentage:    80,
+					ChunkSize:        512,
+					CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
+				},
 			})
 		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
 
@@ -106,6 +163,18 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 		require.NotNil(t, err)
 	})
 
+	// out of band cpu %
+	t.Run("invalid restore request", func(t *testing.T) {
+		resp, err := helper.RestoreBackup(t, &models.RestoreConfig{
+			CPUPercentage: 180,
+		}, booksClass.Class, backend, backupID, map[string]string{})
+
+		helper.AssertRequestFail(t, resp, err, func() {
+			_, ok := err.(*backups.BackupsRestoreUnprocessableEntity)
+			require.True(t, ok, "not backups.BackupsRestoreUnprocessableEntity")
+		})
+	})
+
 	t.Run("start restore process", func(t *testing.T) {
 		params := backups.NewBackupsRestoreParams().
 			WithBackend(backend).
@@ -120,7 +189,6 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 			require.Equal(t, models.BackupCreateStatusResponseStatusSTARTED, *meta.Status)
 		})
 	})
-
 	t.Run("verify that restore process is completed", func(t *testing.T) {
 		params := backups.NewBackupsRestoreStatusParams().
 			WithBackend(backend).
@@ -135,7 +203,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 			case models.BackupRestoreStatusResponseStatusSUCCESS:
 				return
 			case models.BackupRestoreStatusResponseStatusFAILED:
-				t.Errorf("failed to create backup, got response: %+v", meta)
+				t.Errorf("failed to restore backup, got response: %+v", meta)
 				return
 			default:
 				time.Sleep(1 * time.Second)
@@ -145,5 +213,10 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 
 	t.Run("verify that Books objects exist after restore", func(t *testing.T) {
 		verifyThatAllBooksExist(t)
+	})
+
+	t.Run("verify that vectors are the same after restore", func(t *testing.T) {
+		restoredVectors := vectorsForDune()
+		require.Equal(t, initialVectors, restoredVectors)
 	})
 }

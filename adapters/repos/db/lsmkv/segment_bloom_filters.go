@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/willf/bloom"
 )
 
@@ -34,37 +35,64 @@ func (s *segment) bloomFilterSecondaryPath(pos int) string {
 	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
 }
 
-func (s *segment) initBloomFilter() error {
+func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
+	if err := s.initBloomFilter(overwrite); err != nil {
+		return fmt.Errorf("init bloom filter for primary index: %w", err)
+	}
+	if s.secondaryIndexCount > 0 {
+		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+		for i := range s.secondaryBloomFilters {
+			if err := s.initSecondaryBloomFilter(i, overwrite); err != nil {
+				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
+			}
+		}
+	}
+	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
+	return nil
+}
+
+func (s *segment) initBloomFilter(overwrite bool) error {
 	path := s.bloomFilterPath()
+
 	ok, err := fileExists(path)
 	if err != nil {
 		return err
 	}
 
 	if ok {
-		err = s.loadBloomFilterFromDisk()
-		if err == nil {
-			return nil
-		}
+		if overwrite {
+			err := os.Remove(path)
+			if err != nil {
+				return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
+			}
+		} else {
+			err = s.loadBloomFilterFromDisk()
+			if err == nil {
+				return nil
+			}
 
-		if err != ErrInvalidChecksum {
-			// not a recoverable error
-			return err
-		}
+			if !errors.Is(err, ErrInvalidChecksum) {
+				// not a recoverable error
+				return err
+			}
 
-		// now continue re-calculating
+			// now continue re-calculating
+		}
 	}
 
 	before := time.Now()
+
 	if err := s.computeAndStoreBloomFilter(path); err != nil {
 		return err
 	}
 
 	took := time.Since(before)
+
 	s.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_primary").
 		WithField("path", s.path).
 		WithField("took", took).
 		Debugf("building bloom filter took %s\n", took)
+
 	return nil
 }
 
@@ -86,6 +114,26 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 	return nil
 }
 
+func (s *segment) precomputeBloomFilters() ([]string, error) {
+	out := []string{}
+
+	if err := s.precomputeBloomFilter(); err != nil {
+		return nil, fmt.Errorf("precompute bloom filter for primary index: %w", err)
+	}
+	out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterPath()))
+
+	if s.secondaryIndexCount > 0 {
+		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+		for i := range s.secondaryBloomFilters {
+			if err := s.precomputeSecondaryBloomFilter(i); err != nil {
+				return nil, fmt.Errorf("precompute bloom filter for secondary index at %d: %w", i, err)
+			}
+			out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(i)))
+		}
+	}
+	return out, nil
+}
+
 func (s *segment) precomputeBloomFilter() error {
 	before := time.Now()
 
@@ -96,7 +144,10 @@ func (s *segment) precomputeBloomFilter() error {
 	}
 
 	if ok {
-		return fmt.Errorf("a bloom filter already exists with path %s", path)
+		err := os.Remove(path)
+		if err != nil {
+			return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
+		}
 	}
 
 	if err := s.computeAndStoreBloomFilter(path); err != nil {
@@ -138,27 +189,35 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	return nil
 }
 
-func (s *segment) initSecondaryBloomFilter(pos int) error {
+func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
 	before := time.Now()
 
 	path := s.bloomFilterSecondaryPath(pos)
+
 	ok, err := fileExists(path)
 	if err != nil {
 		return err
 	}
 
 	if ok {
-		err = s.loadBloomFilterSecondaryFromDisk(pos)
-		if err == nil {
-			return nil
-		}
+		if overwrite {
+			err := os.Remove(path)
+			if err != nil {
+				return fmt.Errorf("deleting existing secondary bloom filter %s: %w", path, err)
+			}
+		} else {
+			err = s.loadBloomFilterSecondaryFromDisk(pos)
+			if err == nil {
+				return nil
+			}
 
-		if err != ErrInvalidChecksum {
-			// not a recoverable error
-			return err
-		}
+			if !errors.Is(err, ErrInvalidChecksum) {
+				// not a recoverable error
+				return err
+			}
 
-		// now continue re-calculating
+			// now continue re-calculating
+		}
 	}
 
 	if err := s.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
@@ -172,6 +231,7 @@ func (s *segment) initSecondaryBloomFilter(pos int) error {
 		WithField("path", s.path).
 		WithField("took", took).
 		Debugf("building bloom filter took %s\n", took)
+
 	return nil
 }
 

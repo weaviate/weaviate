@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,33 +12,33 @@
 package lsmkv
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/binary"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 )
 
 type commitloggerParser struct {
-	path         string
-	strategy     string
-	memtable     *Memtable
-	reader       io.Reader
-	metrics      *Metrics
-	replaceCache map[string]segmentReplaceNode
+	strategy string
+
+	reader         io.Reader
+	checksumReader rwhasher.ReaderHasher
+
+	bufNode *bytes.Buffer
+
+	memtable *Memtable
 }
 
-func newCommitLoggerParser(path string, activeMemtable *Memtable,
-	strategy string, metrics *Metrics,
+func newCommitLoggerParser(strategy string, reader io.Reader, memtable *Memtable,
 ) *commitloggerParser {
 	return &commitloggerParser{
-		path:         path,
-		memtable:     activeMemtable,
-		strategy:     strategy,
-		metrics:      metrics,
-		replaceCache: map[string]segmentReplaceNode{},
+		strategy:       strategy,
+		reader:         reader,
+		checksumReader: rwhasher.NewCRC32Reader(reader),
+		bufNode:        bytes.NewBuffer(nil),
+		memtable:       memtable,
 	}
 }
 
@@ -55,86 +55,28 @@ func (p *commitloggerParser) Do() error {
 	}
 }
 
-// doReplace parsers all entries into a cache for deduplication first and only
-// imports unique entries into the actual memtable as a final step.
-func (p *commitloggerParser) doReplace() error {
-	f, err := os.Open(p.path)
+func (p *commitloggerParser) doRecord() (r io.Reader, err error) {
+	var nodeLen uint32
+	err = binary.Read(p.checksumReader, binary.LittleEndian, &nodeLen)
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "read commit node length")
 	}
 
-	metered := diskio.NewMeteredReader(f, p.metrics.TrackStartupReadWALDiskIO)
-	p.reader = bufio.NewReaderSize(metered, 1*1024*1024)
+	p.bufNode.Reset()
 
-	// errUnexpectedLength indicates that we could not read the commit log to the
-	// end, for example because the last element on the log was corrupt.
-	var errUnexpectedLength error
+	io.CopyN(p.bufNode, p.checksumReader, int64(nodeLen))
 
-	for {
-		var commitType CommitType
-
-		err := binary.Read(p.reader, binary.LittleEndian, &commitType)
-		if err == io.EOF {
-			break
-		}
-
-		if err != nil {
-			errUnexpectedLength = errors.Wrap(err, "read commit type")
-			break
-		}
-
-		if CommitTypeReplace.Is(commitType) {
-			if err := p.parseReplaceNode(); err != nil {
-				errUnexpectedLength = errors.Wrap(err, "read replace node")
-				break
-			}
-		} else {
-			f.Close()
-			return errors.Errorf("found a %s commit on a replace bucket", commitType.String())
-		}
-	}
-
-	for _, node := range p.replaceCache {
-		var opts []SecondaryKeyOption
-		if p.memtable.secondaryIndices > 0 {
-			for i, secKey := range node.secondaryKeys {
-				opts = append(opts, WithSecondaryKey(i, secKey))
-			}
-		}
-		if node.tombstone {
-			p.memtable.setTombstone(node.primaryKey, opts...)
-		} else {
-			p.memtable.put(node.primaryKey, node.value, opts...)
-		}
-	}
-
-	if errUnexpectedLength != nil {
-		f.Close()
-		return errUnexpectedLength
-	}
-
-	return f.Close()
-}
-
-// parseReplaceNode only parses into the deduplication cache, not into the
-// final memtable yet. A second step is required to parse from the cache into
-// the actual memtable.
-func (p *commitloggerParser) parseReplaceNode() error {
-	n, err := ParseReplaceNode(p.reader, p.memtable.secondaryIndices)
+	// read checksum directly from the reader
+	var checksum [4]byte
+	_, err = io.ReadFull(p.reader, checksum[:])
 	if err != nil {
-		return err
+		return nil, errors.Wrap(err, "read commit checksum")
 	}
 
-	if !n.tombstone {
-		p.replaceCache[string(n.primaryKey)] = n
-	} else {
-		if existing, ok := p.replaceCache[string(n.primaryKey)]; ok {
-			existing.tombstone = true
-			p.replaceCache[string(n.primaryKey)] = existing
-		} else {
-			p.replaceCache[string(n.primaryKey)] = n
-		}
+	// validate checksum
+	if !bytes.Equal(checksum[:], p.checksumReader.Hash()) {
+		return nil, errors.Wrap(ErrInvalidChecksum, "read commit entry")
 	}
 
-	return nil
+	return p.bufNode, nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/willf/bloom"
 )
 
 // preComputeSegmentMeta has no side-effects for an already running store. As a
@@ -29,7 +28,7 @@ import (
 // created will have a .tmp suffix so they don't interfere with existing
 // segments that might have a similar name.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
-	logger logrus.FieldLogger,
+	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -77,61 +76,54 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
-	ind := &segment{
+	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
 		// pre-compute later on still apply they will in turn be suffixed with
 		// .tmp, but that is supposed to be the end of the file. if we didn't trim
 		// the path here, we would end up with filenames like
 		// segment.tmp.bloom.tmp, whereas we want to end up with segment.bloom.tmp
-		path:                strings.TrimSuffix(path, ".tmp"),
-		contents:            contents,
-		contentFile:         file,
-		version:             header.Version,
-		secondaryIndexCount: header.SecondaryIndices,
-		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(fileInfo.Size()),
-		strategy:            header.Strategy,
-		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          header.IndexStart,
-		index:               primaryDiskIndex,
-		logger:              logger,
+		path:                  strings.TrimSuffix(path, ".tmp"),
+		contents:              contents,
+		contentFile:           file,
+		version:               header.Version,
+		secondaryIndexCount:   header.SecondaryIndices,
+		segmentStartPos:       header.IndexStart,
+		segmentEndPos:         uint64(fileInfo.Size()),
+		strategy:              header.Strategy,
+		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:            header.IndexStart,
+		index:                 primaryDiskIndex,
+		logger:                logger,
+		useBloomFilter:        useBloomFilter,
+		calcCountNetAdditions: calcCountNetAdditions,
 	}
 
-	if ind.secondaryIndexCount > 0 {
-		ind.secondaryIndices = make([]diskIndex, ind.secondaryIndexCount)
-		ind.secondaryBloomFilters = make([]*bloom.BloomFilter, ind.secondaryIndexCount)
-		for i := range ind.secondaryIndices {
+	if seg.secondaryIndexCount > 0 {
+		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
+		for i := range seg.secondaryIndices {
 			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
 				return nil, errors.Wrapf(err, "get position for secondary index at %d", i)
 			}
-
-			ind.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
-			if err := ind.precomputeSecondaryBloomFilter(i); err != nil {
-				return nil, errors.Wrapf(err, "init bloom filter for secondary index at %d", i)
-			}
-
-			out = append(out, fmt.Sprintf("%s.tmp", ind.bloomFilterSecondaryPath(i)))
+			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
 		}
 	}
 
-	if err := ind.precomputeBloomFilter(); err != nil {
-		return nil, err
+	if seg.useBloomFilter {
+		files, err := seg.precomputeBloomFilters()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, files...)
+	}
+	if seg.calcCountNetAdditions {
+		files, err := seg.precomputeCountNetAdditions(updatedCountNetAdditions)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, files...)
 	}
 
-	out = append(out, fmt.Sprintf("%s.tmp", ind.bloomFilterPath()))
-
-	if ind.strategy != segmentindex.StrategyReplace {
-		// only "replace" has count net additions, so we are done
-		return out, nil
-	}
-
-	cnaPath := fmt.Sprintf("%s.tmp", ind.countNetPath())
-	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions); err != nil {
-		return nil, err
-	}
-
-	out = append(out, cnaPath)
 	return out, nil
 }

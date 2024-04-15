@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,12 +13,14 @@ package lsmkv
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"sync/atomic"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 type commitLogger struct {
@@ -27,12 +29,32 @@ type commitLogger struct {
 	n      atomic.Int64
 	path   string
 
+	checksumWriter rwhasher.WriterHasher
+
+	bufNode *bytes.Buffer
+
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
 	paused bool
 }
 
-type CommitType uint16
+// commit log entry data format
+// ---------------------------
+// | version == 0 (1byte)    |
+// | record (dynamic length) |
+// ---------------------------
+
+// ------------------------------------------------------
+// | version == 1 (1byte)                               |
+// | type (1byte)                                       |
+// | node length (4bytes)                               |
+// | node (dynamic length)                              |
+// | checksum (crc32 4bytes non-checksum fields so far) |
+// ------------------------------------------------------
+
+const CurrentVersion uint8 = 1
+
+type CommitType uint8
 
 const (
 	CommitTypeReplace CommitType = iota // replace strategy
@@ -65,7 +87,7 @@ func newCommitLogger(path string) (*commitLogger, error) {
 		path: path + ".wal",
 	}
 
-	f, err := os.Create(out.path)
+	f, err := os.OpenFile(out.path, os.O_CREATE|os.O_RDWR, 0o666)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +95,46 @@ func newCommitLogger(path string) (*commitLogger, error) {
 	out.file = f
 
 	out.writer = bufio.NewWriter(f)
+	out.checksumWriter = rwhasher.NewCRC32Writer(out.writer)
+
+	out.bufNode = bytes.NewBuffer(nil)
+
 	return out, nil
+}
+
+func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
+	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
+
+	err := binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
+	if err != nil {
+		return err
+	}
+
+	// write node
+	_, err = cl.checksumWriter.Write(nodeBytes)
+	if err != nil {
+		return err
+	}
+
+	// write record checksum directly on the writer
+	checksumSize, err := cl.writer.Write(cl.checksumWriter.Hash())
+	if err != nil {
+		return err
+	}
+
+	cl.n.Add(int64(1 + 1 + 4 + len(nodeBytes) + checksumSize))
+
+	return nil
 }
 
 func (cl *commitLogger) put(node segmentReplaceNode) error {
@@ -81,21 +142,17 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 		return nil
 	}
 
-	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeReplace); err != nil {
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	if err != nil {
 		return err
 	}
-	n := 1
-
-	if ki, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
-		return err
-	} else {
-		n += ki.ValueEnd - ki.ValueStart
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	cl.n.Add(int64(n))
-
-	return nil
+	return cl.writeEntry(CommitTypeReplace, cl.bufNode.Bytes())
 }
 
 func (cl *commitLogger) append(node segmentCollectionNode) error {
@@ -103,21 +160,17 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 		return nil
 	}
 
-	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeCollection); err != nil {
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	if err != nil {
 		return err
 	}
-	n := 1
-
-	if ki, err := node.KeyIndexAndWriteTo(cl.writer); err != nil {
-		return err
-	} else {
-		n += ki.ValueEnd - ki.ValueStart
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	cl.n.Add(int64(n))
-
-	return nil
+	return cl.writeEntry(CommitTypeCollection, cl.bufNode.Bytes())
 }
 
 func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
@@ -125,20 +178,17 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 		return nil
 	}
 
-	if err := binary.Write(cl.writer, binary.LittleEndian, CommitTypeRoaringSet); err != nil {
+	cl.bufNode.Reset()
+
+	ki, err := node.KeyIndexAndWriteTo(cl.bufNode, 0)
+	if err != nil {
 		return err
 	}
-	n := 1
-
-	if ki, err := node.KeyIndexAndWriteTo(cl.writer, 0); err != nil {
-		return err
-	} else {
-		n += ki.ValueEnd - ki.ValueStart
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	cl.n.Add(int64(n))
-
-	return nil
+	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
 }
 
 // Size returns the amount of data that has been written since the commit
@@ -149,12 +199,14 @@ func (cl *commitLogger) Size() int64 {
 }
 
 func (cl *commitLogger) close() error {
-	if cl.paused {
-		return errors.Errorf("attempting to close a paused commit logger")
-	}
+	if !cl.paused {
+		if err := cl.writer.Flush(); err != nil {
+			return err
+		}
 
-	if err := cl.writer.Flush(); err != nil {
-		return err
+		if err := cl.file.Sync(); err != nil {
+			return err
+		}
 	}
 
 	return cl.file.Close()
@@ -173,5 +225,10 @@ func (cl *commitLogger) delete() error {
 }
 
 func (cl *commitLogger) flushBuffers() error {
-	return cl.writer.Flush()
+	err := cl.writer.Flush()
+	if err != nil {
+		return fmt.Errorf("flushing WAL %q: %w", cl.path, err)
+	}
+
+	return nil
 }

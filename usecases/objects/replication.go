@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,7 +25,8 @@ type VObject struct {
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
-	Vector []float32 `json:"vector"`
+	Vector  []float32      `json:"vector"`
+	Vectors models.Vectors `json:"vectors"`
 
 	// StaleUpdateTime is the LastUpdateTimeUnix of the stale object sent to the coordinator
 	StaleUpdateTime int64 `json:"updateTime,omitempty"`
@@ -43,6 +44,7 @@ type vobjectMarshaler struct {
 	StaleUpdateTime int64
 	Version         uint64
 	Vector          []float32
+	Vectors         models.Vectors
 	LatestObject    []byte
 }
 
@@ -50,6 +52,7 @@ func (vo *VObject) MarshalBinary() ([]byte, error) {
 	b := vobjectMarshaler{
 		StaleUpdateTime: vo.StaleUpdateTime,
 		Vector:          vo.Vector,
+		Vectors:         vo.Vectors,
 		Version:         vo.Version,
 	}
 	if vo.LatestObject != nil {
@@ -72,6 +75,7 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 	}
 	vo.StaleUpdateTime = b.StaleUpdateTime
 	vo.Vector = b.Vector
+	vo.Vectors = b.Vectors
 	vo.Version = b.Version
 
 	if b.LatestObject != nil {

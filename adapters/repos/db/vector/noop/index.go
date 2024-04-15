@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -25,6 +26,11 @@ type Index struct{}
 
 func NewIndex() *Index {
 	return &Index{}
+}
+
+func (i *Index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) error {
+	// silently ignore
+	return nil
 }
 
 func (i *Index) Add(id uint64, vector []float32) error {
@@ -80,7 +86,7 @@ func (i *Index) SwitchCommitLogs(context.Context) error {
 	return nil
 }
 
-func (i *Index) ListFiles(context.Context) ([]string, error) {
+func (i *Index) ListFiles(context.Context, string) ([]string, error) {
 	return nil, nil
 }
 
@@ -92,4 +98,36 @@ func (i *Index) PostStartup() {
 }
 
 func (i *Index) Dump(labels ...string) {
+}
+
+func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+	return 0, true, nil
+}
+
+func (i *Index) ContainsNode(id uint64) bool {
+	return false
+}
+
+func (i *Index) DistancerProvider() distancer.Provider {
+	return nil
+}
+
+func (i *Index) ShouldCompress() (bool, int) {
+	return false, 0
+}
+
+func (i *Index) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+	return false, 0
+}
+
+func (i *Index) Compressed() bool {
+	return false
+}
+
+func (i *Index) AlreadyIndexed() uint64 {
+	return 0
+}
+
+func (i *Index) TurnOnCompression(callback func()) error {
+	return nil
 }

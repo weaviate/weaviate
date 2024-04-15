@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,9 +48,12 @@ func Test_Aggregations(t *testing.T) {
 
 	shardState := singleShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -90,9 +93,12 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 
 	shardState := fixedMultiShardState()
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -166,7 +172,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						Properties: schema,
 					}
 					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}, nil))
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
 				})
 			}
 		})
@@ -182,7 +188,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						}
 
 						require.Nil(t,
-							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil))
+							repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil, nil))
 					})
 				}
 			}
@@ -197,7 +203,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						Properties: schema,
 					}
 					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil))
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil, nil))
 				})
 			}
 		})
@@ -211,7 +217,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 						Properties: schema,
 					}
 					require.Nil(t,
-						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil))
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}, nil, nil))
 				})
 			}
 		})

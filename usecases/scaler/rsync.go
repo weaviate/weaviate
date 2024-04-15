@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,8 +18,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/backup"
-	"golang.org/x/sync/errgroup"
 )
 
 // client the client interface is used to communicate with remote nodes
@@ -52,8 +54,8 @@ func newRSync(c client, cl cluster, rootPath string) *rsync {
 }
 
 // Push pushes local shards of a class to remote nodes
-func (r *rsync) Push(ctx context.Context, shardsBackups []*backup.ShardDescriptor, dist ShardDist, className string) error {
-	var g errgroup.Group
+func (r *rsync) Push(ctx context.Context, shardsBackups []*backup.ShardDescriptor, dist ShardDist, className string, logger logrus.FieldLogger) error {
+	g := enterrors.NewErrorGroupWrapper(logger)
 	g.SetLimit(_NUMCPU * 2)
 	for _, desc := range shardsBackups {
 		shardName := desc.Name
@@ -61,7 +63,7 @@ func (r *rsync) Push(ctx context.Context, shardsBackups []*backup.ShardDescripto
 		desc := desc
 		g.Go(func() error {
 			return r.PushShard(ctx, className, desc, additions)
-		})
+		}, shardName)
 
 	}
 	return g.Wait()

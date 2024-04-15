@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // ErrAny represent a random error
@@ -274,15 +275,26 @@ func TestRestoreRequestValidation(t *testing.T) {
 
 func TestManagerRestoreBackup(t *testing.T) {
 	var (
-		cls         = "DemoClass"
+		cls         = "Article"
+		rawbytes    = []byte("hello")
 		backendName = "gcs"
 		backupID    = "1"
-		rawbytes    = []byte("hello")
 		timept      = time.Now().UTC()
 		ctx         = context.Background()
 		nodeHome    = backupID + "/" + nodeName
 		path        = "bucket/backups/" + nodeHome
 	)
+
+	rawShardingStateBytes, _ := json.Marshal(&sharding.State{
+		IndexID: cls,
+		Physical: map[string]sharding.Physical{"cT9eTErXgmTX": {
+			Name:           "cT9eTErXgmTX",
+			BelongsToNodes: []string{nodeName},
+		}},
+	})
+	rawClassBytes, _ := json.Marshal(&models.Class{
+		Class: cls,
+	})
 	meta2 := backup.BackupDescriptor{
 		ID:            backupID,
 		StartedAt:     timept,
@@ -291,8 +303,10 @@ func TestManagerRestoreBackup(t *testing.T) {
 		Status:        string(backup.Success),
 
 		Classes: []backup.ClassDescriptor{{
-			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
-			Chunks: map[int32][]string{1: {"Shard1"}},
+			Name:          cls,
+			Schema:        rawClassBytes,
+			ShardingState: rawShardingStateBytes,
+			Chunks:        map[int32][]string{1: {"Shard1"}},
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",
@@ -309,8 +323,10 @@ func TestManagerRestoreBackup(t *testing.T) {
 		Status:        string(backup.Success),
 
 		Classes: []backup.ClassDescriptor{{
-			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
-			Chunks: map[int32][]string{1: {"Shard1"}},
+			Name:          cls,
+			Schema:        rawClassBytes,
+			ShardingState: rawShardingStateBytes,
+			Chunks:        map[int32][]string{1: {"Shard1"}},
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",
@@ -428,7 +444,7 @@ func TestManagerRestoreBackup(t *testing.T) {
 		}
 		assert.Equal(t, resp1, want1)
 		assert.Nil(t, err)
-		lastStatus := m.restorer.waitForCompletion(req1.Backend, req1.ID, 10, 50)
+		lastStatus := m.restorer.waitForCompletion(req1.Backend, req1.ID, 12, 50)
 		assert.Equal(t, backup.Success, lastStatus.Status)
 	})
 
@@ -530,6 +546,16 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 			Duration: time.Millisecond * 20,
 		}
 	)
+	rawShardingStateBytes, _ := json.Marshal(&sharding.State{
+		IndexID: cls,
+		Physical: map[string]sharding.Physical{"cT9eTErXgmTX": {
+			Name:           "cT9eTErXgmTX",
+			BelongsToNodes: []string{nodeName},
+		}},
+	})
+	rawClassBytes, _ := json.Marshal(&models.Class{
+		Class: cls,
+	})
 
 	metadata := backup.BackupDescriptor{
 		ID:            backupID,
@@ -538,7 +564,9 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		ServerVersion: "1",
 		Status:        string(backup.Success),
 		Classes: []backup.ClassDescriptor{{
-			Name: cls, Schema: rawbytes, ShardingState: rawbytes,
+			Name:          cls,
+			Schema:        rawClassBytes,
+			ShardingState: rawShardingStateBytes,
 			Shards: []*backup.ShardDescriptor{
 				{
 					Name: "Shard1", Node: "Node-1",
@@ -603,7 +631,7 @@ func TestManagerCoordinatedRestore(t *testing.T) {
 		assert.Equal(t, want1, resp1)
 		err := m.OnCommit(ctx, &StatusRequest{Method: OpRestore, ID: req.ID, Backend: req.Backend})
 		assert.Nil(t, err)
-		lastStatus := m.restorer.waitForCompletion(req.Backend, req.ID, 10, 50)
+		lastStatus := m.restorer.waitForCompletion(req.Backend, req.ID, 12, 50)
 		assert.Nil(t, err)
 		assert.Equal(t, lastStatus.Status, backup.Success)
 	})

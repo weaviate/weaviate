@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -89,9 +89,9 @@ func (f *fakeClient) PutObjects(ctx context.Context, host, index, shard, request
 }
 
 func (f *fakeClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, docIDs, dryRun)
+	args := f.Called(ctx, host, index, shard, requestID, uuids, dryRun)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 

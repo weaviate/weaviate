@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -51,6 +53,7 @@ type BindModule struct {
 	nearTextSearcher           modulecapabilities.Searcher
 	nearTextTransformer        modulecapabilities.TextTransform
 	metaClient                 metaClient
+	logger                     logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -58,22 +61,18 @@ type metaClient interface {
 }
 
 type bindVectorizer interface {
-	Object(ctx context.Context, object *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
-	VectorizeImage(ctx context.Context, image string) ([]float32, error)
-	VectorizeAudio(ctx context.Context, audio string) ([]float32, error)
-	VectorizeVideo(ctx context.Context, video string) ([]float32, error)
-	VectorizeIMU(ctx context.Context, imu string) ([]float32, error)
-	VectorizeThermal(ctx context.Context, thermal string) ([]float32, error)
-	VectorizeDepth(ctx context.Context, depth string) ([]float32, error)
+	Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeAudio(ctx context.Context, audio string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeVideo(ctx context.Context, video string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeIMU(ctx context.Context, imu string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeThermal(ctx context.Context, thermal string, cfg moduletools.ClassConfig) ([]float32, error)
+	VectorizeDepth(ctx context.Context, depth string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type textVectorizer interface {
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors(vectors [][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (m *BindModule) Name() string {
@@ -87,6 +86,7 @@ func (m *BindModule) Type() modulecapabilities.ModuleType {
 func (m *BindModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -164,20 +164,29 @@ func (m *BindModule) RootHandler() http.Handler {
 }
 
 func (m *BindModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.bindVectorizer.Object(ctx, obj, objDiff, icheck)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.bindVectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *BindModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return true, mediaProps, err
 }
 
 func (m *BindModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaClient.MetaInfo()
 }
 
+func (m *BindModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.bindVectorizer.Object)
+}
+
 func (m *BindModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.textVectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface

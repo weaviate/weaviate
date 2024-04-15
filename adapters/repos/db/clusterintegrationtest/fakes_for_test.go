@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -69,7 +69,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
 	n.repo, err = db.New(logger, db.Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -173,7 +173,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ss.Shard("", string(uuid))
 }
 
-func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error {
 	return nil
 }
 
@@ -200,7 +200,11 @@ type nodeResolver struct {
 }
 
 func (r nodeResolver) AllNames() []string {
-	panic("node resolving not implemented yet")
+	xs := []string{}
+	for _, n := range *r.nodes {
+		xs = append(xs, n.name)
+	}
+	return xs
 }
 
 func (r nodeResolver) Candidates() []string {

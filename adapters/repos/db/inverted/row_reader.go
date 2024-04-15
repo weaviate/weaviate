@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,11 +14,14 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
@@ -28,6 +31,7 @@ type RowReader struct {
 	bucket     lsmkv.BucketInterface
 	operator   filters.Operator
 	PropPrefix []byte
+	bitmapFactory *roaringset.BitmapFactory
 
 	keyOnly bool
 }
@@ -35,13 +39,14 @@ type RowReader struct {
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
-func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool) *RowReader {
+func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool,bitmapFactory *roaringset.BitmapFactory) *RowReader {
 	return &RowReader{
 		bucket:     bucket,
 		value:      value,
 		operator:   operator,
 		PropPrefix: bucket.PropertyPrefix(),
 		keyOnly:    keyOnly,
+		bitmapFactory: bitmapFactory,
 	}
 }
 
@@ -119,16 +124,25 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.bucket.SetList(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
 
-	_, err = readFn(rr.value, v)
+	_, err = readFn(rr.value, rr.transformToBitmap(v))
+	return err
+}
+
+func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(rr.transformToBitmap(v))
+	_, err = readFn(rr.value, inverted)
 	return err
 }
 
@@ -153,7 +167,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -222,7 +236,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -238,7 +252,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
-		return errors.Wrapf(err, "parse like value")
+		return fmt.Errorf("parse like value: %w", err)
 	}
 
 	c := rr.newCursor()
@@ -281,7 +295,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -302,4 +316,25 @@ func (rr *RowReader) newCursor() *lsmkv.CursorSet {
 	}
 
 	return rr.bucket.SetCursor()
+}
+
+func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
+	out := sroar.NewBitmap()
+	for _, asBytes := range ids {
+		out.Set(binary.LittleEndian.Uint64(asBytes))
+	}
+	return out
+}
+
+// equalHelper exists, because the Equal and NotEqual operators share this functionality
+func (rr *RowReader) equalHelper(ctx context.Context) ([][]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	v, err := rr.bucket.SetList(rr.value)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
 }

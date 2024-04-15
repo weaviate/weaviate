@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -174,7 +174,7 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 					},
 				},
 			},
-			containsErrMessage: "invalid text property 'panicProperty' on class 'BeautifulWeather'",
+			containsErrMessage: "property 'panicProperty' on class 'BeautifulWeather': element [0]: unrecognized data type of value",
 		},
 		{
 			name: "unrecognized nil array property type",
@@ -187,35 +187,32 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 					},
 				},
 			},
-			containsErrMessage: "invalid text property 'panicProperty' on class 'BeautifulWeather'",
+			containsErrMessage: "property 'panicProperty' on class 'BeautifulWeather': element [0]: unrecognized data type of value",
 		},
 		{
 			name: "array property with nil",
 			properties: map[string]interface{}{
 				"nilPropertyArray": []interface{}{nil},
 			},
-			containsErrMessage: "invalid text property 'nilPropertyArray' on class 'BeautifulWeather': not a string",
+			containsErrMessage: "property 'nilPropertyArray' on class 'BeautifulWeather': element [0]: unrecognized data type of value '<nil>'",
 		},
 		{
 			name: "empty string array property",
 			properties: map[string]interface{}{
 				"emptyPropertyArray": []string{},
 			},
-			containsErrMessage: "invalid text property 'emptyPropertyArray' on class 'BeautifulWeather': not a string",
 		},
 		{
 			name: "empty interface array property",
 			properties: map[string]interface{}{
 				"emptyPropertyArray": []interface{}{},
 			},
-			containsErrMessage: "invalid text property 'emptyPropertyArray' on class 'BeautifulWeather': not a string",
 		},
 		{
 			name: "empty int array property",
 			properties: map[string]interface{}{
 				"emptyPropertyArray": []int{},
 			},
-			containsErrMessage: "invalid text property 'emptyPropertyArray' on class 'BeautifulWeather': not a string",
 		},
 		{
 			name: "array property with empty string",

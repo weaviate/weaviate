@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 // These are mostly copy/pasted (with minimal additions) from the
@@ -142,7 +141,7 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 				Properties: map[string]interface{}{
-					"reviews": []interface{}{
+					"reviews": []string{
 						"a very great car",
 						"you should consider buying one",
 					},
@@ -156,7 +155,7 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 				Properties: map[string]interface{}{
-					"reviews": []interface{}{
+					"reviews": []string{
 						"a very great car",
 						"you should consider buying one",
 					},
@@ -185,16 +184,17 @@ func TestVectorizingObjects(t *testing.T) {
 
 			v := New(client)
 
-			ic := &fakeSettings{
-				excludedProperty:   test.excludedProperty,
-				skippedProperty:    test.noindex,
-				vectorizeClassName: test.excludedClass != "Car",
-				poolingStrategy:    test.poolingStrategy,
+			ic := &fakeClassConfig{
+				excludedProperty:      test.excludedProperty,
+				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Car",
+				poolingStrategy:       test.poolingStrategy,
+				vectorizePropertyName: true,
 			}
-			err := v.Object(context.Background(), test.input, nil, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
-			assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
+			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			expected := strings.Split(test.expectedClientCall, " ")
 			actual := strings.Split(client.lastInput, " ")
 			assert.Equal(t, expected, actual)
@@ -205,163 +205,75 @@ func TestVectorizingObjects(t *testing.T) {
 
 func TestVectorizingObjectsWithDiff(t *testing.T) {
 	type testCase struct {
-		name              string
-		input             *models.Object
-		skipped           string
-		diff              *moduletools.ObjectDiff
-		expectedVectorize bool
+		name    string
+		input   *models.Object
+		skipped string
+	}
+
+	props := map[string]interface{}{
+		"brand":       "best brand",
+		"power":       300,
+		"description": "a very great car",
+		"reviews": []string{
+			"a very great car",
+			"you should consider buying one",
+		},
 	}
 
 	tests := []testCase{
 		{
-			name: "no diff",
+			name: "noop comp",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff:              nil,
-			expectedVectorize: true,
+		},
+
+		{
+			name: "one vectorizable prop changed (1)",
+			input: &models.Object{
+				Class:      "Car",
+				Properties: props,
+			},
 		},
 		{
-			name: "diff all props unchanged",
+			name: "one vectorizable prop changed (2)",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff: newObjectDiffWithVector().
-				WithProp("brand", "best brand", "best brand").
-				WithProp("power", 300, 300).
-				WithProp("description", "a very great car", "a very great car").
-				WithProp("reviews", []interface{}{
-					"a very great car",
-					"you should consider buying one",
-				}, []interface{}{
-					"a very great car",
-					"you should consider buying one",
-				}),
-			expectedVectorize: false,
 		},
 		{
-			name: "diff one vectorizable prop changed (1)",
+			name: "one vectorizable prop changed (3)",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff: newObjectDiffWithVector().
-				WithProp("brand", "old best brand", "best brand"),
-			expectedVectorize: true,
-		},
-		{
-			name: "diff one vectorizable prop changed (2)",
-			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
-			},
-			diff: newObjectDiffWithVector().
-				WithProp("description", "old a very great car", "a very great car"),
-			expectedVectorize: true,
-		},
-		{
-			name: "diff one vectorizable prop changed (3)",
-			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
-			},
-			diff: newObjectDiffWithVector().
-				WithProp("reviews", []interface{}{
-					"old a very great car",
-					"you should consider buying one",
-				}, []interface{}{
-					"a very great car",
-					"you should consider buying one",
-				}),
-			expectedVectorize: true,
 		},
 		{
 			name:    "all non-vectorizable props changed",
 			skipped: "description",
 			input: &models.Object{
-				Class: "Car",
-				Properties: map[string]interface{}{
-					"brand":       "best brand",
-					"power":       300,
-					"description": "a very great car",
-					"reviews": []interface{}{
-						"a very great car",
-						"you should consider buying one",
-					},
-				},
+				Class:      "Car",
+				Properties: props,
 			},
-			diff: newObjectDiffWithVector().
-				WithProp("power", 123, 300).
-				WithProp("description", "old a very great car", "a very great car"),
-			expectedVectorize: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ic := &fakeSettings{
+			ic := &fakeClassConfig{
 				skippedProperty: test.skipped,
 			}
 
 			client := &fakeClient{}
 			v := New(client)
 
-			err := v.Object(context.Background(), test.input, test.diff, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic)
 
 			require.Nil(t, err)
-			if test.expectedVectorize {
-				assert.Equal(t, models.C11yVector{0, 1, 2, 3}, test.input.Vector)
-				assert.NotEmpty(t, client.lastInput)
-			} else {
-				assert.Equal(t, models.C11yVector{0, 0, 0, 0}, test.input.Vector)
-				assert.Empty(t, client.lastInput)
-			}
+			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
+			assert.NotEmpty(t, client.lastInput)
 		})
 	}
-}
-
-func newObjectDiffWithVector() *moduletools.ObjectDiff {
-	return moduletools.NewObjectDiff([]float32{0, 0, 0, 0})
 }

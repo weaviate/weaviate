@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -141,7 +141,7 @@ func (c *Classifier) runItems(ctx context.Context, classifyItem ClassifyItemFn, 
 		workerCount = len(items)
 	}
 
-	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo)
+	workers := newRunWorkers(workerCount, classifyItem, params, filters, c.vectorRepo, c.logger)
 	workers.addJobs(items)
 	res := workers.work(ctx)
 

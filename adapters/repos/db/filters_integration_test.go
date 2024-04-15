@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,9 +36,12 @@ func TestFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -64,9 +67,12 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -119,7 +125,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
 			})
 		}
 	}
@@ -142,7 +148,7 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
 			})
 		}
 	}
@@ -251,7 +257,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "modelName != sprinter",
 				filter:      buildFilter("modelName", "sprinter", neq, dtText),
-				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID},
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID, carNilID, carEmpty},
 			},
 			{
 				name:        "modelName = spr*er (optimizable) dtText",
@@ -336,7 +342,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			{
 				name:        "not equal to 1995-08-17T12:47:00+02:00",
 				filter:      buildFilter("released", mustParseTime("1995-08-17T12:47:00+02:00"), neq, dtDate),
-				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID, carEmpty, carNilID},
 			},
 			{
 				name:        "exactly matching a specific contact email",
@@ -582,6 +588,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 					require.Contains(t, err.Error(), test.ErrMsg)
 				} else {
 					require.Nil(t, err)
+
 					require.Len(t, res, len(test.expectedIDs))
 
 					ids := make([]strfmt.UUID, len(test.expectedIDs))
@@ -1024,9 +1031,12 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1082,7 +1092,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-				}, []float32{0.5}, nil)
+				}, []float32{0.5}, nil, nil)
 			}
 		}
 	}
@@ -1129,9 +1139,12 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1223,7 +1236,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 			})
 		}
 	})
@@ -1529,9 +1542,12 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -1591,7 +1607,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 			})
 		}
 	})

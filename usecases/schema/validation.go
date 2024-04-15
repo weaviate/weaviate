@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -66,7 +66,7 @@ func (m *Manager) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
 			}
 		default:
@@ -280,36 +280,59 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 	return nil
 }
 
-func (m *Manager) validateVectorSettings(ctx context.Context, class *models.Class) error {
-	if err := m.validateVectorizer(ctx, class); err != nil {
-		return err
-	}
-
-	if err := m.validateVectorIndex(ctx, class); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *Manager) validateVectorizer(ctx context.Context, class *models.Class) error {
-	if class.Vectorizer == config.VectorizerModuleNone {
+func (m *Manager) validateVectorSettings(class *models.Class) error {
+	if !hasTargetVectors(class) {
+		if err := m.validateVectorizer(class.Vectorizer); err != nil {
+			return err
+		}
+		if err := m.validateVectorIndexType(class.VectorIndexType); err != nil {
+			return err
+		}
 		return nil
 	}
 
-	if err := m.vectorizerValidator.ValidateVectorizer(class.Vectorizer); err != nil {
+	if class.Vectorizer != "" {
+		return fmt.Errorf("class.vectorizer %q can not be set if class.vectorConfig is configured", class.Vectorizer)
+	}
+	if class.VectorIndexType != "" {
+		return fmt.Errorf("class.vectorIndexType %q can not be set if class.vectorConfig is configured", class.VectorIndexType)
+	}
+
+	for name, cfg := range class.VectorConfig {
+		// check only if vectorizer correctly configured (map with single key being vectorizer name)
+		// other cases are handled in module config validation
+		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+			for vectorizer := range vm {
+				if err := m.validateVectorizer(vectorizer); err != nil {
+					return fmt.Errorf("target vector %q: %w", name, err)
+				}
+			}
+		}
+		if err := m.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (m *Manager) validateVectorizer(vectorizer string) error {
+	if vectorizer == config.VectorizerModuleNone {
+		return nil
+	}
+
+	if err := m.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
 		return errors.Wrap(err, "vectorizer")
 	}
 
 	return nil
 }
 
-func (m *Manager) validateVectorIndex(ctx context.Context, class *models.Class) error {
-	switch class.VectorIndexType {
-	case "hnsw":
+func (m *Manager) validateVectorIndexType(vectorIndexType string) error {
+	switch vectorIndexType {
+	case "hnsw", "flat":
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
-			class.VectorIndexType)
+			vectorIndexType)
 	}
 }

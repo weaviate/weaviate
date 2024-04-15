@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,6 +34,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantIsAzure          bool
 		wantErr              error
 		wantBaseURL          string
+		wantApiVersion       string
 	}{
 		{
 			name: "Happy flow",
@@ -48,6 +49,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.0,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
+			wantApiVersion:       "2023-05-15",
 		},
 		{
 			name: "Everything non default configured",
@@ -69,6 +71,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
+			wantApiVersion:       "2023-05-15",
 		},
 		{
 			name: "OpenAI Proxy",
@@ -84,6 +87,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantBaseURL:          "https://proxy.weaviate.dev/",
+			wantApiVersion:       "2023-05-15",
 			wantModel:            "gpt-3.5-turbo",
 			wantMaxTokens:        4097,
 			wantTemperature:      0.5,
@@ -112,6 +116,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
+			wantApiVersion:       "2023-05-15",
 		},
 		{
 			name: "Azure OpenAI config",
@@ -137,6 +142,34 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
+			wantApiVersion:       "2023-05-15",
+		},
+		{
+			name: "Azure OpenAI config with baseURL",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"baseURL":          "some-base-url",
+					"resourceName":     "weaviate",
+					"deploymentId":     "gpt-3.5-turbo",
+					"maxTokens":        4097,
+					"temperature":      0.5,
+					"topP":             3,
+					"frequencyPenalty": 0.1,
+					"presencePenalty":  0.9,
+				},
+			},
+			wantResourceName:     "weaviate",
+			wantDeploymentID:     "gpt-3.5-turbo",
+			wantIsAzure:          true,
+			wantModel:            "gpt-3.5-turbo",
+			wantMaxTokens:        4097,
+			wantTemperature:      0.5,
+			wantTopP:             3,
+			wantFrequencyPenalty: 0.1,
+			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+			wantBaseURL:          "some-base-url",
+			wantApiVersion:       "2023-05-15",
 		},
 		{
 			name: "With gpt-3.5-turbo-16k model",
@@ -158,6 +191,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantPresencePenalty:  0.9,
 			wantErr:              nil,
 			wantBaseURL:          "https://api.openai.com",
+			wantApiVersion:       "2023-05-15",
 		},
 		{
 			name: "Wrong maxTokens configured",
@@ -222,6 +256,17 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
 		},
+		{
+			name: "Wrong Azure config - wrong api version",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiVersion": "wrong-api-version",
+				},
+			},
+			wantErr: errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
+				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
+				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview]"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -239,6 +284,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
 				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
 				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
+				assert.Equal(t, tt.wantApiVersion, ic.ApiVersion())
 			}
 		})
 	}
@@ -262,4 +308,8 @@ func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interfa
 
 func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

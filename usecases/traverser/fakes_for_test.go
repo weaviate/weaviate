@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -88,7 +88,7 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector []float32, offset, limit int, filters *filters.LocalFilter,
+	vector []float32, targetVector string, offset, limit int, filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
@@ -140,7 +140,7 @@ func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
-	[]float32, int, int, *filters.LocalFilter, additional.Properties, string,
+	[]float32, string, int, int, *filters.LocalFilter, additional.Properties, string,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -416,12 +416,13 @@ func (m *fakeText2vecContextionaryModule) getInterpretation() *fakeInterpretatio
 }
 
 type nearCustomTextParams struct {
-	Values       []string
-	MoveTo       nearExploreMove
-	MoveAwayFrom nearExploreMove
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
+	Values        []string
+	MoveTo        nearExploreMove
+	MoveAwayFrom  nearExploreMove
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (p nearCustomTextParams) GetCertainty() float64 {
@@ -434,6 +435,10 @@ func (p nearCustomTextParams) GetDistance() float64 {
 
 func (p nearCustomTextParams) SimilarityMetricProvided() bool {
 	return p.Certainty != 0 || p.WithDistance
+}
+
+func (p nearCustomTextParams) GetTargetVectors() []string {
+	return p.TargetVectors
 }
 
 type nearExploreMove struct {

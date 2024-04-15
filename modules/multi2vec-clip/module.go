@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -39,6 +41,7 @@ type ClipModule struct {
 	nearTextSearcher         modulecapabilities.Searcher
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
+	logger                   logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -46,17 +49,13 @@ type metaClient interface {
 }
 
 type imageVectorizer interface {
-	Object(ctx context.Context, object *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
-	VectorizeImage(ctx context.Context, image string) ([]float32, error)
+	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type textVectorizer interface {
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors(vectors [][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 func (m *ClipModule) Name() string {
@@ -70,6 +69,7 @@ func (m *ClipModule) Type() modulecapabilities.ModuleType {
 func (m *ClipModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -103,7 +103,6 @@ func (m *ClipModule) InitExtension(modules []modulecapabilities.Module) error {
 func (m *ClipModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	// TODO: proper config management
 	uri := os.Getenv("CLIP_INFERENCE_API")
 	if uri == "" {
 		return errors.Errorf("required variable CLIP_INFERENCE_API is not set")
@@ -127,10 +126,13 @@ func (m *ClipModule) RootHandler() http.Handler {
 }
 
 func (m *ClipModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.imageVectorizer.Object(ctx, obj, objDiff, icheck)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.imageVectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *ClipModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.imageVectorizer.Object)
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
@@ -140,7 +142,13 @@ func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
 func (m *ClipModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.textVectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *ClipModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return false, mediaProps, err
 }
 
 // verify we implement the modules.Module interface

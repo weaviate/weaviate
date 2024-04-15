@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -68,6 +69,12 @@ type BucketInterface interface {
 	GetRegisteredName() string
 	CheckBucket()
 }
+type BucketCreator interface {
+	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+		opts ...BucketOption,
+	) (*Bucket, error)
+}
 
 type Bucket struct {
 	dir      string
@@ -79,10 +86,11 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock sync.RWMutex
+	flushLock        sync.RWMutex
+	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
-	flushAfterIdle    time.Duration
+	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
@@ -117,6 +125,33 @@ type Bucket struct {
 
 	RegisteredName  string
 	PropertyTracker map[string]uint32
+
+
+	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
+	// should be kept in root segment during compaction process.
+	// Since segments are immutable, deletions are added as new entries with
+	// tombstones. Tombstones are by default copied to merged segment, as they
+	// can refer to keys/values present in previous segments.
+	// Those tombstones can be removed entirely when merging with root (1st) segment,
+	// due to lack of previous segments, tombstones may relate to.
+	// As info about key/value being deleted (based on tombstone presence) may be important
+	// for some use cases (e.g. replication needs to know if object(ObjectsBucketLSM) was deleted)
+	// keeping tombstones on compaction is optional
+	keepTombstones bool
+
+	// Init and use bloom filter for getting key from bucket segments.
+	// As some buckets can be accessed only with cursor (see flat index),
+	// where bloom filter is not applicable, it can be disabled.
+	// ON by default
+	useBloomFilter bool
+
+	// Net additions keep track of number of elements stored in bucket (of type replace).
+	// As some buckets don't have to provide Count info (see flat index),
+	// tracking additions can be disabled.
+	// ON by default
+	calcCountNetAdditions bool
+
+	forceCompaction bool
 }
 
 func (b *Bucket) GetRegisteredName() string {
@@ -142,7 +177,8 @@ func (b *Bucket) CheckBucket() {
 	if b.strategy == "" {
 		panic("Bucket strategy is empty")
 	}
-}
+
+func NewBucketCreator() *Bucket { return &Bucket{} }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -150,14 +186,14 @@ func (b *Bucket) CheckBucket() {
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
-	defaultFlushAfterIdle := 60 * time.Second
+	defaultFlushAfterDirty := 60 * time.Second
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -165,15 +201,18 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	}
 
 	b := &Bucket{
-		dir:               dir,
-		rootDir:           rootDir,
-		memtableThreshold: defaultMemTableThreshold,
-		walThreshold:      defaultWalThreshold,
-		flushAfterIdle:    defaultFlushAfterIdle,
-		strategy:          defaultStrategy,
-		mmapContents:      true,
-		logger:            logger,
-		metrics:           metrics,
+		dir:                   dir,
+		rootDir:               rootDir,
+		memtableThreshold:     defaultMemTableThreshold,
+		walThreshold:          defaultWalThreshold,
+		flushDirtyAfter:       defaultFlushAfterDirty,
+		strategy:              defaultStrategy,
+		mmapContents:          true,
+		logger:                logger,
+		metrics:               metrics,
+		useBloomFilter:        true,
+		calcCountNetAdditions: true,
+		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
 	for _, opt := range opts {
@@ -186,10 +225,20 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(dir, logger, b.legacyMapSortingBeforeCompaction,
-		metrics, b.strategy, b.monitorCount, compactionCallbacks, b.mmapContents)
+	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+		sgConfig{
+			dir:                   dir,
+			strategy:              b.strategy,
+			mapRequiresSorting:    b.legacyMapSortingBeforeCompaction,
+			monitorCount:          b.monitorCount,
+			mmapContents:          b.mmapContents,
+			keepTombstones:        b.keepTombstones,
+			forceCompaction:       b.forceCompaction,
+			useBloomFilter:        b.useBloomFilter,
+			calcCountNetAdditions: b.calcCountNetAdditions,
+		})
 	if err != nil {
-		return nil, errors.Wrap(err, "init disk segments")
+		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
 
 	// Actual strategy is stored in segment files. In case it is SetCollection,
@@ -219,11 +268,12 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 
 	b.disk = sg
 
-	if err := b.setNewActiveMemtable(); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
 
-	if err := b.recoverFromCommitLogs(ctx); err != nil {
+	err = b.setNewActiveMemtable()
+	if err != nil {
 		return nil, err
 	}
 
@@ -255,6 +305,44 @@ func (b *Bucket) DumpString() string {
 	buf.WriteString("Bucket end\n")
 	return buf.String()
 }
+func (b *Bucket) GetDir() string {
+	return b.dir
+}
+
+func (b *Bucket) GetRootDir() string {
+	return b.rootDir
+}
+
+func (b *Bucket) GetStrategy() string {
+	return b.strategy
+}
+
+func (b *Bucket) GetDesiredStrategy() string {
+	return b.desiredStrategy
+}
+
+func (b *Bucket) GetSecondaryIndices() uint16 {
+	return b.secondaryIndices
+}
+
+func (b *Bucket) GetStatus() storagestate.Status {
+	b.statusLock.RLock()
+	defer b.statusLock.RUnlock()
+
+	return b.status
+}
+
+func (b *Bucket) GetMemtableThreshold() uint64 {
+	return b.memtableThreshold
+}
+
+func (b *Bucket) GetWalThreshold() uint64 {
+	return b.walThreshold
+}
+
+func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
+	return b.flushCallbackCtrl
+}
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
 	i := 0
@@ -267,7 +355,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 			return fmt.Errorf("cannot unmarshal object %d, %v", i, err)
 		}
 		if err := f(obj); err != nil {
-			return errors.Wrapf(err, "callback on object '%d' failed", obj.DocID())
+			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 		}
 
 		i++
@@ -286,6 +374,21 @@ func (b *Bucket) DumpStringRoaring() string {
 		buf.WriteString(fmt.Sprintf("%v: %v\n", k, sbmp.ToArray()))
 	}
 	return buf.String()
+}
+
+func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {
+	cursor := b.MapCursor()
+	defer cursor.Close()
+
+	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
+		for _, v := range vList {
+			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
+				return fmt.Errorf("callback on object '%v' failed: %w", v, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {
@@ -310,14 +413,14 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		// is replace
 		return v, nil
 	}
-	if err == lsmkv.Deleted {
+	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, nil
 	}
 
-	if err != lsmkv.NotFound {
-		panic("unsupported error in bucket.Get")
+	if !errors.Is(err, lsmkv.NotFound) {
+		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
 	}
 
 	if b.flushing != nil {
@@ -327,13 +430,13 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 			// is replace
 			return v, nil
 		}
-		if err == lsmkv.Deleted {
+		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, nil
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -355,6 +458,16 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
 	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, nil)
 	return bytes, err
+}
+
+// GetBySecondaryWithBuffer is like [Bucket.GetBySecondary], but also takes a
+// buffer. It's in the response of the caller to pool the buffer, since the
+// bucket does not know when the caller is done using it. The return bytes will
+// likely point to the same memory that's part of the buffer. However, if the
+// buffer is to small, a larger buffer may also be returned (second arg).
+func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]byte, []byte, error) {
+	bytes, newBuf, err := b.GetBySecondaryIntoMemory(pos, key, buf)
+	return bytes, newBuf, err
 }
 
 // GetBySecondaryIntoMemory copies into the specified memory, and retrieves
@@ -379,13 +492,13 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		// is replace
 		return v, buffer, nil
 	}
-	if err == lsmkv.Deleted {
+	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
 		return nil, buffer, nil
 	}
 
-	if err != lsmkv.NotFound {
+	if !errors.Is(err, lsmkv.NotFound) {
 		panic("unsupported error in bucket.Get")
 	}
 
@@ -396,13 +509,13 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 			// is replace
 			return v, buffer, nil
 		}
-		if err == lsmkv.Deleted {
+		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
 			return nil, buffer, nil
 		}
 
-		if err != lsmkv.NotFound {
+		if !errors.Is(err, lsmkv.NotFound) {
 			panic("unsupported error in bucket.Get")
 		}
 	}
@@ -422,7 +535,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err := b.disk.getCollection(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -431,7 +544,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
 		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		}
@@ -441,7 +554,7 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	v, err = b.active.getCollection(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -531,6 +644,10 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+	if !b.keepTombstones {
+		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -610,7 +727,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -621,7 +738,10 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
 				return nil, err
 			}
-			segmentDecoded[j].Tombstone = v.tombstone
+			// Read "broken" tombstones with length 12 but a non-tombstone value
+			// Related to Issue #4125
+			// TODO: Remove the extra check, as it may interfere future in-disk format changes
+			segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 		}
 		segments = append(segments, segmentDecoded)
 	}
@@ -634,7 +754,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
 				return nil, err
 			}
 		}
@@ -645,7 +765,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
 	}
@@ -749,8 +869,14 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 // meant to be called from situations where a lock is already held, does not
 // lock on its own
 func (b *Bucket) setNewActiveMemtable() error {
-	mt, err := newMemtable(filepath.Join(b.dir, fmt.Sprintf("segment-%d",
-		time.Now().UnixNano())), b.strategy, b.secondaryIndices, b.metrics)
+	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
+
+	cl, err := newCommitLogger(path)
+	if err != nil {
+		return errors.Wrap(err, "init commit logger")
+	}
+
+	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
 	if err != nil {
 		return err
 	}
@@ -786,6 +912,14 @@ func (b *Bucket) Count() int {
 		b.metrics.ObjectCount(memtableCount + diskCount)
 	}
 	return memtableCount + diskCount
+}
+
+// CountAsync ignores the current memtable, that makes it async because it only
+// reflects what has been already flushed. This in turn makes it very cheap to
+// call, so it can be used for observability purposes where eventual
+// consistency on the count is fine, but a large cost is not.
+func (b *Bucket) CountAsync() int {
+	return b.disk.count()
 }
 
 func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
@@ -826,7 +960,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running flush in progress")
+		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
 	b.flushLock.Lock()
@@ -861,27 +995,28 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
-		b.active.IdleDuration() >= b.flushAfterIdle
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
+	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
+	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
 	// bucket should refrain from flushing until its shard
 	// indicates otherwise
 	if shouldSwitch && b.isReadOnly() {
-		b.logger.WithField("action", "lsm_memtable_flush").
-			WithField("path", b.dir).
-			Warn("flush halted due to shard READONLY status")
+		if b.haltedFlushTimer.IntervalElapsed() {
+			b.logger.WithField("action", "lsm_memtable_flush").
+				WithField("path", b.dir).
+				Warn("flush halted due to shard READONLY status")
+			b.haltedFlushTimer.IncreaseInterval()
+		}
 
 		b.flushLock.RUnlock()
-		// TODO maybe will not be necessary with dynamic interval
-		time.Sleep(time.Second)
 		return false
 	}
 
 	b.flushLock.RUnlock()
 	if shouldSwitch {
+		b.haltedFlushTimer.Reset()
 		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
@@ -909,7 +1044,7 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 	defer b.statusLock.Unlock()
 
 	b.status = status
-	b.disk.updateStatus(status)
+	b.disk.UpdateStatus(status)
 }
 
 func (b *Bucket) isReadOnly() bool {
@@ -929,15 +1064,15 @@ func (b *Bucket) FlushAndSwitch() error {
 		WithField("path", b.dir).
 		Trace("start flush and switch")
 	if err := b.atomicallySwitchMemtable(); err != nil {
-		return errors.Wrap(err, "switch active memtable")
+		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
 	if err := b.flushing.flush(); err != nil {
-		return errors.Wrap(err, "flush")
+		return fmt.Errorf("flush: %w", err)
 	}
 
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(); err != nil {
-		return errors.Wrap(err, "add segment and remove flushing")
+		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
 	took := time.Since(before)

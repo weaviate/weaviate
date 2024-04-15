@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,11 +13,11 @@ package hnsw
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestVectorCachePrefilling(t *testing.T) {
@@ -25,10 +25,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 	index := &hnsw{
 		nodes:               generateDummyVertices(100),
 		currentMaximumLayer: 3,
-		shardedNodeLocks:    make([]sync.RWMutex, NodeLockStripe),
-	}
-	for i := uint64(0); i < NodeLockStripe; i++ {
-		index.shardedNodeLocks[i] = sync.RWMutex{}
+		shardedNodeLocks:    common.NewDefaultShardedRWLocks(),
 	}
 
 	logger, _ := test.NewNullLogger()
@@ -36,13 +33,13 @@ func TestVectorCachePrefilling(t *testing.T) {
 	pf := newVectorCachePrefiller[float32](cache, index, logger)
 
 	t.Run("prefill with limit >= graph size", func(t *testing.T) {
-		cache.reset()
+		cache.Reset()
 		pf.Prefill(context.Background(), 100)
 		assert.Equal(t, allNumbersUpTo(100), cache.store)
 	})
 
 	t.Run("prefill with small limit so only the upper layer fits", func(t *testing.T) {
-		cache.reset()
+		cache.Reset()
 		pf.Prefill(context.Background(), 7)
 		assert.Equal(t, map[uint64]struct{}{
 			0:  {},
@@ -56,7 +53,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 	})
 
 	t.Run("limit where a layer partially fits", func(t *testing.T) {
-		cache.reset()
+		cache.Reset()
 		pf.Prefill(context.Background(), 10)
 		assert.Equal(t, map[uint64]struct{}{
 			// layer 3
@@ -82,67 +79,60 @@ func newFakeCache() *fakeCache {
 	}
 }
 
-//nolint:unused
-func (f *fakeCache) all() [][]float32 {
-	return nil
-}
-
 type fakeCache struct {
 	store map[uint64]struct{}
 }
 
-//nolint:unused
-func (f *fakeCache) get(ctx context.Context, id uint64) ([]float32, error) {
+func (f *fakeCache) MultiGet(ctx context.Context, id []uint64) ([][]float32, []error) {
+	panic("not implemented")
+}
+
+func (f *fakeCache) Get(ctx context.Context, id uint64) ([]float32, error) {
 	f.store[id] = struct{}{}
 	return nil, nil
 }
 
-//nolint:unused
-func (f *fakeCache) delete(ctx context.Context, id uint64) {
+func (f *fakeCache) Delete(ctx context.Context, id uint64) {
 	panic("not implemented")
 }
 
-//nolint:unused
-func (f *fakeCache) preload(id uint64, vec []float32) {
+func (f *fakeCache) Preload(id uint64, vec []float32) {
 	panic("not implemented")
 }
 
-//nolint:unused
-func (f *fakeCache) prefetch(id uint64) {
+func (f *fakeCache) Prefetch(id uint64) {
 	panic("not implemented")
 }
 
-//nolint:unused
-func (f *fakeCache) grow(id uint64) {
+func (f *fakeCache) Grow(id uint64) {
 	panic("not implemented")
 }
 
-//nolint:unused
-func (f *fakeCache) updateMaxSize(size int64) {
+func (f *fakeCache) UpdateMaxSize(size int64) {
 	panic("not implemented")
 }
 
-//nolint:unused
-func (f *fakeCache) drop() {
+func (f *fakeCache) All() [][]float32 {
 	panic("not implemented")
 }
 
-//nolint:unused
-func (f *fakeCache) copyMaxSize() int64 {
+func (f *fakeCache) Drop() {
+	panic("not implemented")
+}
+
+func (f *fakeCache) CopyMaxSize() int64 {
 	return 1e6
 }
 
-func (f *fakeCache) reset() {
+func (f *fakeCache) Reset() {
 	f.store = map[uint64]struct{}{}
 }
 
-//nolint:unused
-func (f *fakeCache) len() int32 {
+func (f *fakeCache) Len() int32 {
 	return int32(len(f.store))
 }
 
-//nolint:unused
-func (f *fakeCache) countVectors() int64 {
+func (f *fakeCache) CountVectors() int64 {
 	panic("not implemented")
 }
 

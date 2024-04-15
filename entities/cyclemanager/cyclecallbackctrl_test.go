@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,9 +38,9 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrl1, ctrl2)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -68,9 +68,9 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrl1, ctrl2)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -97,9 +97,9 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrlShort := callbacks.Register("short", callbackShort)
 		ctrlLong := callbacks.Register("long", callbackLong)
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrlShort, ctrlLong)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -136,9 +136,9 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrl1, ctrl2)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -166,9 +166,9 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1)
 		ctrl2 := callbacks.Register("c2", callback2)
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrl1, ctrl2)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -195,9 +195,9 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrlShort := callbacks.Register("short", callbackShort)
 		ctrlLong := callbacks.Register("long", callbackLong)
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrlShort, ctrlLong)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrlShort, ctrlLong)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 
@@ -234,9 +234,9 @@ func TestCycleCombineCallbackCtrl_Activate(t *testing.T) {
 		callbacks := NewCallbackGroup("id", logger, 2)
 		ctrl1 := callbacks.Register("c1", callback1, AsInactive())
 		ctrl2 := callbacks.Register("c2", callback2, AsInactive())
-		combinedCtrl := NewCombinedCallbackCtrl(2, ctrl1, ctrl2)
+		combinedCtrl := NewCombinedCallbackCtrl(2, logger, ctrl1, ctrl2)
 
-		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback)
+		cycle := NewManager(NewFixedTicker(100*time.Millisecond), callbacks.CycleCallback, logger)
 		cycle.Start()
 		defer cycle.StopAndWait(ctx)
 

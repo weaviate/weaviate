@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,21 +12,21 @@
 package vectorizer
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg  moduletools.ClassConfig
+	base *basesettings.BaseClassSettings
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg)}
 }
 
 func (ic *classSettings) ImageField(property string) bool {
@@ -43,6 +43,41 @@ func (ic *classSettings) TextField(property string) bool {
 
 func (ic *classSettings) TextFieldsWeights() ([]float32, error) {
 	return ic.getFieldsWeights("text")
+}
+
+func (ic *classSettings) Properties() ([]string, error) {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return nil, errors.New("empty config")
+	}
+	props := make([]string, 0)
+
+	fields := []string{"imageFields", "textFields"}
+
+	for _, field := range fields {
+		fields, ok := ic.cfg.Class()[field]
+		if !ok {
+			continue
+		}
+
+		fieldsArray, ok := fields.([]interface{})
+		if !ok {
+			return nil, errors.Errorf("%s must be an array", field)
+		}
+
+		for _, value := range fieldsArray {
+			v, ok := value.(string)
+			if !ok {
+				return nil, errors.Errorf("%s must be a string", field)
+			}
+			props = append(props, v)
+		}
+	}
+	return props, nil
+}
+
+func (ic *classSettings) InferenceURL() string {
+	return ic.base.GetPropertyAsString("inferenceUrl", "")
 }
 
 func (ic *classSettings) field(name, property string) bool {
@@ -189,26 +224,5 @@ func (ic *classSettings) getFieldsWeights(name string) ([]float32, error) {
 }
 
 func (ic *classSettings) getNumber(in interface{}) (float32, error) {
-	switch i := in.(type) {
-	case float64:
-		return float32(i), nil
-	case float32:
-		return i, nil
-	case int:
-		return float32(i), nil
-	case string:
-		num, err := strconv.ParseFloat(i, 64)
-		if err != nil {
-			return 0, err
-		}
-		return float32(num), err
-	case json.Number:
-		num, err := i.Float64()
-		if err != nil {
-			return 0, err
-		}
-		return float32(num), err
-	default:
-		return 0.0, errors.Errorf("Unrecognized weight entry type: %T", i)
-	}
+	return ic.base.GetNumber(in)
 }

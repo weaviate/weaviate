@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -168,7 +168,13 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	var tenant string
+	if params.Tenant == nil {
+		tenant = ""
+	} else {
+		tenant = *params.Tenant
+	}
+	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -295,6 +301,25 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	return schema.NewTenantsGetOK().WithPayload(tenants)
 }
 
+func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
+	if err := s.manager.TenantExists(params.HTTPRequest.Context(), principal, params.ClassName, params.TenantName); err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		if err == schemaUC.ErrNotFound {
+			return schema.NewTenantExistsNotFound()
+		}
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantExistsForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantExistsUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return schema.NewTenantExistsOK()
+}
+
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
 	h := &schemaHandlers{manager, newSchemaRequestsTotal(metrics, logger)}
 
@@ -324,6 +349,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	api.SchemaTenantsUpdateHandler = schema.TenantsUpdateHandlerFunc(h.updateTenants)
 	api.SchemaTenantsDeleteHandler = schema.TenantsDeleteHandlerFunc(h.deleteTenants)
 	api.SchemaTenantsGetHandler = schema.TenantsGetHandlerFunc(h.getTenants)
+	api.SchemaTenantExistsHandler = schema.TenantExistsHandlerFunc(h.tenantExists)
 }
 
 type schemaRequestsTotal struct {

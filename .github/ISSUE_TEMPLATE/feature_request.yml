@@ -1,0 +1,29 @@
+name: Missing a Feature?
+description: Suggest it here.
+labels: ["feature request", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        #### Before you get started
+        * Is this feature already in our [roadmap](https://weaviate.io/developers/weaviate/roadmap)?
+        * Check to make sure someone hasn't already [requested this feature](https://github.com/weaviate/weaviate/issues?q=is:issue+label:"feature+request"). if that's the case, give it a thumbs up 👍
+        * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
+
+  - type: textarea
+    id: feature_request_body
+    attributes:
+      label: Describe your feature request
+      description: |
+        - Describe here your requested feature. Provide all necessary context, use cases and the reasoning on why this feature is a good one.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: This project has a Code of Conduct that all participants are expected to understand and follow.
+      options:
+        - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
+          required: true

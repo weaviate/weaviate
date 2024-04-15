@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -155,6 +155,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["certainty"] = b.additionalCertaintyField(class)
 	additionalProperties["distance"] = b.additionalDistanceField(class)
 	additionalProperties["vector"] = b.additionalVectorField(class)
+	additionalProperties["vectors"] = b.additionalVectorsField(class)
 	additionalProperties["id"] = b.additionalIDField()
 	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
@@ -216,6 +217,27 @@ func (b *classBuilder) additionalVectorField(class *models.Class) *graphql.Field
 	return &graphql.Field{
 		Type: graphql.NewList(graphql.Float),
 	}
+}
+
+func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Field {
+	if len(class.VectorConfig) > 0 {
+		fields := graphql.Fields{}
+		for targetVector := range class.VectorConfig {
+			fields[targetVector] = &graphql.Field{
+				Name: fmt.Sprintf("%sAdditionalVectors%s", class.Class, targetVector),
+				Type: graphql.NewList(graphql.Float),
+			}
+		}
+		return &graphql.Field{
+			Type: graphql.NewObject(
+				graphql.ObjectConfig{
+					Name:   fmt.Sprintf("%sAdditionalVectors", class.Class),
+					Fields: fields,
+				},
+			),
+		}
+	}
+	return nil
 }
 
 func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {

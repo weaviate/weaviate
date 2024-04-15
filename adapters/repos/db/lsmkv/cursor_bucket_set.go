@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,8 +13,9 @@ package lsmkv
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -102,13 +103,13 @@ func (c *CursorSet) seekAll(target []byte) {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
-		if err == lsmkv.NotFound {
+		if errors.Is(err, lsmkv.NotFound) {
 			state[i].err = err
 			continue
 		}
 
 		if err != nil {
-			panic(errors.Wrap(err, "unexpected error in seek"))
+			panic(fmt.Errorf("unexpected error in seek: %w", err))
 		}
 
 		state[i].key = key
@@ -124,13 +125,13 @@ func (c *CursorSet) firstAll() {
 	state := make([]cursorStateCollection, len(c.innerCursors))
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
-		if err == lsmkv.NotFound {
+		if errors.Is(err, lsmkv.NotFound) {
 			state[i].err = err
 			continue
 		}
 
 		if err != nil {
-			panic(errors.Wrap(err, "unexpected error in seek"))
+			panic(fmt.Errorf("unexpected error in seek: %w", err))
 		}
 
 		state[i].key = key
@@ -145,7 +146,7 @@ func (c *CursorSet) firstAll() {
 func (c *CursorSet) serveCurrentStateAndAdvance() ([]byte, [][]byte) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
-		if err == lsmkv.NotFound {
+		if errors.Is(err, lsmkv.NotFound) {
 			return nil, nil
 		}
 	}
@@ -167,7 +168,7 @@ func (c *CursorSet) cursorWithLowestKey() (int, error) {
 	var lowest []byte
 
 	for i, res := range c.state {
-		if res.err == lsmkv.NotFound {
+		if errors.Is(res.err, lsmkv.NotFound) {
 			continue
 		}
 
@@ -217,8 +218,14 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 		c.advanceInner(id)
 	}
 
+	values := newSetDecoder().Do(raw)
+	if len(values) == 0 {
+		// all values deleted, skip key
+		return c.Next()
+	}
+
+	// TODO remove keyOnly option, not used anyway
 	if !c.keyOnly {
-		values := newSetDecoder().Do(raw)
 		return key, values
 	} else {
 		return key, nil
@@ -227,7 +234,7 @@ func (c *CursorSet) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 
 func (c *CursorSet) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
-	if err == lsmkv.NotFound {
+	if errors.Is(err, lsmkv.NotFound) {
 		c.state[id].err = err
 		c.state[id].key = nil
 		if !c.keyOnly {
@@ -236,7 +243,7 @@ func (c *CursorSet) advanceInner(id int) {
 		return
 	}
 
-	if err == lsmkv.Deleted {
+	if errors.Is(err, lsmkv.Deleted) {
 		c.state[id].err = err
 		c.state[id].key = k
 		c.state[id].value = nil
@@ -244,7 +251,7 @@ func (c *CursorSet) advanceInner(id int) {
 	}
 
 	if err != nil {
-		panic(errors.Wrap(err, "unexpected error in advance"))
+		panic(fmt.Errorf("unexpected error in advance: %w", err))
 	}
 
 	c.state[id].key = k

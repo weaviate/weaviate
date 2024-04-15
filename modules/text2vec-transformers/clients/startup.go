@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,7 +18,10 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
 func (v *vectorizer) WaitForStartup(initCtx context.Context,
@@ -26,22 +29,23 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 ) error {
 	endpoints := map[string]string{}
 	if v.originPassage != v.originQuery {
-		endpoints["passage"] = v.urlPassage("/.well-known/ready")
-		endpoints["query"] = v.urlQuery("/.well-known/ready")
+		endpoints["passage"] = v.urlPassage("/.well-known/ready", ent.VectorizationConfig{})
+		endpoints["query"] = v.urlQuery("/.well-known/ready", ent.VectorizationConfig{})
 	} else {
-		endpoints[""] = v.urlPassage("/.well-known/ready")
+		endpoints[""] = v.urlPassage("/.well-known/ready", ent.VectorizationConfig{})
 	}
 
 	ch := make(chan error, len(endpoints))
 	var wg sync.WaitGroup
 	for serviceName, endpoint := range endpoints {
+		serviceName, endpoint := serviceName, endpoint
 		wg.Add(1)
-		go func(serviceName string, endpoint string) {
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			if err := v.waitFor(initCtx, interval, endpoint, serviceName); err != nil {
 				ch <- err
 			}
-		}(serviceName, endpoint)
+		}, v.logger)
 	}
 	wg.Wait()
 	close(ch)

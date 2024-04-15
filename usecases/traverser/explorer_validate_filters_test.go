@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -400,7 +400,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 						search.AssertExpectations(t)
 					})
 
-					t.Run("response must contain concepts", func(t *testing.T) {
+					t.Run("response must contain concepts13", func(t *testing.T) {
 						require.Len(t, res, 1)
 						assert.Equal(t,
 							map[string]interface{}{

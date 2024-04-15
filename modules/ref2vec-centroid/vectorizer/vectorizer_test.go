@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -136,11 +136,11 @@ func TestVectorizer_Object(t *testing.T) {
 					Properties: map[string]interface{}{"toRef": modelRefs},
 				}
 
-				err := New(cfg, repo.Object).Object(ctx, obj)
+				vec, err := New(cfg, repo.Object).Object(ctx, obj)
 				if test.expectedCalcError != nil {
 					assert.EqualError(t, err, test.expectedCalcError.Error())
 				} else {
-					assert.EqualValues(t, test.expectedResult, obj.Vector)
+					assert.EqualValues(t, test.expectedResult, vec)
 				}
 			})
 		}
@@ -162,7 +162,7 @@ func TestVectorizer_Object(t *testing.T) {
 			Properties: map[string]interface{}{"toRef": []interface{}{}},
 		}
 
-		err := New(cfg, repo.Object).Object(ctx, obj)
+		_, err := New(cfg, repo.Object).Object(ctx, obj)
 		assert.Nil(t, err)
 		assert.Nil(t, obj.Vector)
 	})
@@ -188,7 +188,7 @@ func TestVectorizer_Tenant(t *testing.T) {
 		Tenant:     tenant,
 	}
 
-	err := New(cfg, repo.Object).Object(ctx, obj)
+	_, err := New(cfg, repo.Object).Object(ctx, obj)
 	assert.Nil(t, err)
 	assert.Nil(t, obj.Vector)
 }

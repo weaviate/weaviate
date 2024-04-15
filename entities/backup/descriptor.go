@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ type DistributedBackupDescriptor struct {
 	CompletedAt   time.Time                  `json:"completedAt"`
 	ID            string                     `json:"id"` // User created backup id
 	Nodes         map[string]*NodeDescriptor `json:"nodes"`
+	NodeMapping   map[string]string          `json:"node_mapping"`
 	Status        Status                     `json:"status"`  //
 	Version       string                     `json:"version"` //
 	ServerVersion string                     `json:"serverVersion"`
@@ -121,6 +122,41 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 		return !ok
 	}
 	d.Filter(pred)
+}
+
+// ToMappedNodeName will return nodeName after applying d.NodeMapping translation on it.
+// If nodeName is not contained in d.nodeMapping, returns nodeName unmodified
+func (d *DistributedBackupDescriptor) ToMappedNodeName(nodeName string) string {
+	if newNodeName, ok := d.NodeMapping[nodeName]; ok {
+		return newNodeName
+	}
+	return nodeName
+}
+
+// ToOriginalNodeName will return nodeName after trying to find an original node name from d.NodeMapping values.
+// If nodeName is not contained in d.nodeMapping values, returns nodeName unmodified
+func (d *DistributedBackupDescriptor) ToOriginalNodeName(nodeName string) string {
+	for oldNodeName, newNodeName := range d.NodeMapping {
+		if newNodeName == nodeName {
+			return oldNodeName
+		}
+	}
+	return nodeName
+}
+
+// ApplyNodeMapping applies d.NodeMapping translation to d.Nodes. If a node in d.Nodes is not translated by d.NodeMapping, it will remain
+// unchanged.
+func (d *DistributedBackupDescriptor) ApplyNodeMapping() {
+	if len(d.NodeMapping) == 0 {
+		return
+	}
+
+	for k, v := range d.NodeMapping {
+		if nodeDescriptor, ok := d.Nodes[k]; !ok {
+			d.Nodes[v] = nodeDescriptor
+			delete(d.Nodes, k)
+		}
+	}
 }
 
 // AllExist checks if all classes exist in d.

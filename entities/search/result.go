@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,12 +21,14 @@ import (
 // connector storage
 type Result struct {
 	ID                   strfmt.UUID
+	DocID                *uint64
 	ClassName            string
 	Score                float32
 	SecondarySortValue   float32
 	ExplainScore         string
 	Dist                 float32
 	Vector               []float32
+	Vectors              models.Vectors
 	Beacon               string
 	Certainty            float32
 	Schema               models.PropertySchema
@@ -36,6 +38,7 @@ type Result struct {
 	VectorWeights        map[string]string
 	IsConsistent         bool
 	Tenant               string
+	// Vectors              map[string][]float32
 
 	// Dimensions in case search was vector-based, 0 otherwise
 	Dims int
@@ -69,6 +72,7 @@ func (r Result) ObjectWithVector(includeVector bool) *models.Object {
 
 	if includeVector {
 		t.Vector = r.Vector
+		t.Vectors = r.Vectors
 	}
 
 	return t

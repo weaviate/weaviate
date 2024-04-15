@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,17 +13,17 @@ package db
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
-
-	"github.com/weaviate/weaviate/entities/filters"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []nilProp,
+func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
 	docID uint64,
 ) error {
 	for _, prop := range props {
@@ -109,7 +109,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 	}
 	bucketLength.CheckBucket()
 
-	key, err := s.keyPropertyLength(length)
+	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' length", propName)
 	}
@@ -121,6 +121,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 
 func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
 	key, err := s.keyPropertyNull(isNull)
+
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}
@@ -211,13 +212,13 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterf
 	return b.SetAdd(item.Data, docIDs)
 }
 
-func (s *Shard) addPropLengths(props []inverted.Property) error {
+func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 	for _, prop := range props {
 		if !prop.HasSearchableIndex {
 			continue
 		}
 
-		if err := s.propLengths.TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+		if err := s.GetPropertyLengthTracker().TrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
 
@@ -232,7 +233,7 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 			continue
 		}
 
-		if err := s.propLengths.UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
+		if err := s.GetPropertyLengthTracker().UnTrackProperty(prop.Name, float32(len(prop.Items))); err != nil {
 			return err
 		}
 
@@ -242,26 +243,18 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 }
 
 func (s *Shard) extendDimensionTrackerLSM(
-	count int, docID uint64,
+	dimLength int, docID uint64,
 ) error {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return errors.Errorf("no bucket dimensions")
+	return s.addToDimensionBucket(dimLength, docID, "", false)
+}
+
+func (s *Shard) extendDimensionTrackerForVecLSM(
+	dimLength int, docID uint64, vecName string,
+) error {
+	if vecName == "" {
+		return fmt.Errorf("vector name can not be empty")
 	}
-
-	// 4 bytes for dim count (row key), 8 bytes for doc id (map key), 0 bytes for
-	// map value
-	buf := make([]byte, 12)
-
-	binary.LittleEndian.PutUint32(buf[0:4], uint32(count))
-	binary.LittleEndian.PutUint64(buf[4:12], docID)
-
-	pair := lsmkv.MapPair{
-		Key:   buf[4:12],
-		Value: buf[12:12],
-	}
-
-	return b.MapSet(buf[0:4], pair)
+	return s.addToDimensionBucket(dimLength, docID, vecName, false)
 }
 
 // Key (dimensionality) | Value Doc IDs
@@ -269,27 +262,42 @@ func (s *Shard) extendDimensionTrackerLSM(
 // 128 | 1,2,4,5,17, Tombstone 4,
 
 func (s *Shard) removeDimensionsLSM(
-	count int, docID uint64,
+	dimLength int, docID uint64,
+) error {
+	return s.addToDimensionBucket(dimLength, docID, "", true)
+}
+
+func (s *Shard) removeDimensionsForVecLSM(
+	dimLength int, docID uint64, vecName string,
+) error {
+	if vecName == "" {
+		return fmt.Errorf("vector name can not be empty")
+	}
+	return s.addToDimensionBucket(dimLength, docID, vecName, true)
+}
+
+func (s *Shard) addToDimensionBucket(
+	dimLength int, docID uint64, vecName string, tombstone bool,
 ) error {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return errors.Errorf("no bucket dimensions")
 	}
 
-	// 4 bytes for dim count (row key), 8 bytes for doc id (map key), 0 bytes for
-	// map value
-	buf := make([]byte, 12)
+	tv := []byte(vecName)
+	// 8 bytes for doc id (map key)
+	// 4 bytes for dim count (row key)
+	// len(vecName) bytes for vector name (prefix of row key)
+	buf := make([]byte, 12+len(tv))
+	binary.LittleEndian.PutUint64(buf[:8], docID)
+	binary.LittleEndian.PutUint32(buf[8+len(tv):], uint32(dimLength))
+	copy(buf[8:], tv)
 
-	binary.LittleEndian.PutUint32(buf[0:4], uint32(count))
-	binary.LittleEndian.PutUint64(buf[4:12], docID)
-
-	pair := lsmkv.MapPair{
-		Key:       buf[4:12],
-		Value:     buf[12:12],
-		Tombstone: true,
-	}
-
-	return b.MapSet(buf[0:4], pair)
+	return b.MapSet(buf[8:], lsmkv.MapPair{
+		Key:       buf[:8],
+		Value:     []byte{},
+		Tombstone: tombstone,
+	})
 }
 
 func isMetaCountProperty(property inverted.Property) bool {

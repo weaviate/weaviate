@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -56,7 +57,7 @@ func (m *Manager) AddClass(ctx context.Context, principal *models.Principal,
 	// TODO gh-846: Rollback state update if migration fails
 }
 
-func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -105,6 +106,7 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	}
 
 	shardingState.MigrateFromOldFormat()
+	shardingState.ApplyNodeMapping(nodeMapping)
 
 	payload, err := CreateClassPayload(class, &shardingState)
 	if err != nil {
@@ -113,7 +115,6 @@ func (m *Manager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) e
 	shardingState.SetLocalName(m.clusterState.LocalName())
 	m.schemaCache.addClass(class, &shardingState)
 
-	// payload.Shards
 	if err := m.repo.NewClass(ctx, payload); err != nil {
 		return err
 	}
@@ -226,19 +227,22 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
-	if class.Vectorizer == "" {
-		class.Vectorizer = m.config.DefaultVectorizerModule
-	}
+	// set only when no target vectors configured
+	if !hasTargetVectors(class) {
+		if class.Vectorizer == "" {
+			class.Vectorizer = m.config.DefaultVectorizerModule
+		}
 
-	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
-	}
+		if class.VectorIndexType == "" {
+			class.VectorIndexType = "hnsw"
+		}
 
-	if m.config.DefaultVectorDistanceMetric != "" {
-		if class.VectorIndexConfig == nil {
-			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
-		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
-			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+		if m.config.DefaultVectorDistanceMetric != "" {
+			if class.VectorIndexConfig == nil {
+				class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
+			} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+				class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+			}
 		}
 	}
 
@@ -266,7 +270,11 @@ func setPropertyDefaultTokenization(prop *models.Property) {
 		}
 	case schema.DataTypeText, schema.DataTypeTextArray:
 		if prop.Tokenization == "" {
-			prop.Tokenization = models.PropertyTokenizationWord
+			if os.Getenv("DEFAULT_TOKENIZATION") != "" {
+				prop.Tokenization = os.Getenv("DEFAULT_TOKENIZATION")
+			} else {
+				prop.Tokenization = models.PropertyTokenizationWord
+			}
 		}
 	default:
 		// tokenization not supported for other data types
@@ -439,13 +447,13 @@ func (m *Manager) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := m.validateVectorSettings(ctx, class); err != nil {
+	if err := m.validateVectorSettings(class); err != nil {
 		return err
 	}
 
@@ -462,7 +470,7 @@ func (m *Manager) validateCanAddClass(
 }
 
 func (m *Manager) validateProperty(
-	property *models.Property, className string,
+	property *models.Property, class *models.Class,
 	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
@@ -474,14 +482,15 @@ func (m *Manager) validateProperty(
 	}
 
 	if existingPropertyNames[strings.ToLower(property.Name)] {
-		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, className)
+		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times",
+			class.Class, property.Name)
 	}
 
 	// Validate data type of property.
 	sch := m.getSchema()
 
 	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
-		relaxCrossRefValidation, schema.ClassName(className))
+		relaxCrossRefValidation, schema.ClassName(class.Class))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
@@ -505,6 +514,10 @@ func (m *Manager) validateProperty(
 		return err
 	}
 
+	if err := m.validatePropModuleConfig(class, property); err != nil {
+		return err
+	}
+
 	// all is fine!
 	return nil
 }
@@ -512,20 +525,51 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	if class.VectorIndexType != "hnsw" {
-		return errors.Errorf(
-			"parse vector index config: unsupported vector index type: %q",
-			class.VectorIndexType)
+	if !hasTargetVectors(class) {
+		parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+		if err != nil {
+			return err
+		}
+		class.VectorIndexConfig = parsed
+		return nil
 	}
 
-	parsed, err := m.hnswConfigParser(class.VectorIndexConfig)
-	if err != nil {
-		return errors.Wrap(err, "parse vector index config")
+	if class.VectorIndexConfig != nil {
+		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
 	}
 
-	class.VectorIndexConfig = parsed
-
+	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (m *Manager) parseTargetVectorsVectorIndexConfig(class *models.Class) error {
+	for targetVector, vectorConfig := range class.VectorConfig {
+		parsed, err := m.parseGivenVectorIndexConfig(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig)
+		if err != nil {
+			return fmt.Errorf("parse vector config for %s: %w", targetVector, err)
+		}
+		vectorConfig.VectorIndexConfig = parsed
+		class.VectorConfig[targetVector] = vectorConfig
+	}
+	return nil
+}
+
+func (m *Manager) parseGivenVectorIndexConfig(vectorIndexType string,
+	vectorIndexConfig interface{},
+) (schema.VectorIndexConfig, error) {
+	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
+		return nil, errors.Errorf(
+			"parse vector index config: unsupported vector index type: %q",
+			vectorIndexType)
+	}
+
+	parsed, err := m.configParser(vectorIndexConfig, vectorIndexType)
+	if err != nil {
+		return nil, errors.Wrap(err, "parse vector index config")
+	}
+	return parsed, nil
 }
 
 func (m *Manager) parseShardingConfig(ctx context.Context, class *models.Class) (err error) {
@@ -591,4 +635,8 @@ func CreateClassPayload(class *models.Class,
 		}
 	}
 	return pl, nil
+}
+
+func hasTargetVectors(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
 }

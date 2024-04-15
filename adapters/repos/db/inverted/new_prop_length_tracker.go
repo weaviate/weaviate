@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -224,24 +224,6 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	return int(bucket)
 }
 
-// Returns the value that the given bucket represents
-//
-//nolint:unused
-func (t *JsonPropertyLengthTracker) valueFromBucket(bucket int) float32 {
-	if t.UnlimitedBuckets {
-		return float32(bucket)
-	}
-	if bucket <= 5 {
-		return float32(bucket + 1)
-	}
-
-	if bucket > MAX_BUCKETS-1 {
-		return -1
-	}
-
-	return float32(4 * math.Pow(1.25, float64(bucket)-3.5))
-}
-
 // Returns the average length of the given property
 func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	t.Lock()
@@ -296,7 +278,7 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
 
-	err = os.WriteFile(tempfile, bytes, 0o666)
+	err = WriteFile(tempfile, bytes, 0o666)
 	if err != nil {
 		return err
 	}
@@ -305,6 +287,24 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func WriteFile(name string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(data)
+	if err != nil {
+		return err
+	}
+
+	// TODO: f.Sync() is introducing performance penalization at this point
+	// it will be addressed as part of another PR
 
 	return nil
 }

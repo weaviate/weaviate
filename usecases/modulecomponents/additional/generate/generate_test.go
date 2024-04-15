@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,8 @@ package generate
 import (
 	"context"
 	"testing"
+
+	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,8 +27,9 @@ import (
 func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should answer", func(t *testing.T) {
 		// given
+		logger, _ := test.NewNullLogger()
 		openaiClient := &fakeOpenAIClient{}
-		answerProvider := New(openaiClient)
+		answerProvider := New(openaiClient, logger)
 		in := []search.Result{
 			{
 				ID: "some-uuid",

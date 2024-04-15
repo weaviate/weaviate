@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/bmatcuk/doublestar"
 )
@@ -38,9 +39,11 @@ func init() {
 func main() {
 	fileNames, err := doublestar.Glob("**/*.go")
 	fatal(err)
-
-	for _, fname := range fileNames {
-		fatal(processSingleFile(fname))
+	for _, name := range fileNames {
+		if len := len(name); len > 5 && name[len-6:] == ".pb.go" || strings.HasPrefix(name, "vendor/") {
+			continue
+		}
+		fatal(processSingleFile(name))
 	}
 }
 

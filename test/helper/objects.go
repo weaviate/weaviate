@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -209,6 +209,12 @@ func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tena
 func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
+	return resp, err
+}
+
+func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
+	params := schema.NewTenantExistsParams().WithClassName(class).WithTenantName(tenant)
+	resp, err := Client(t).Schema.TenantExists(params, nil)
 	return resp, err
 }
 

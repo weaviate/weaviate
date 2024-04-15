@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,11 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+type PropertyInterface interface {
+	GetName() string
+	GetNestedProperties() []*models.NestedProperty
+}
 
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
@@ -52,6 +57,49 @@ func GetPropertyByName(c *models.Class, propName string) (*models.Property, erro
 func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, error) {
 	// Get the class-property
 	prop, err := GetPropertyByName(class, propertyName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Init the return value
+	var returnDataType DataType
+
+	// For each data type
+	for _, dataType := range prop.DataType {
+		if len(dataType) == 0 {
+			return nil, fmt.Errorf("invalid-dataType")
+		}
+		// Get the first letter to see if it is a capital
+		firstLetter := string(dataType[0])
+		if strings.ToUpper(firstLetter) == firstLetter {
+			returnDataType = DataTypeCRef
+		} else {
+			// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
+			valueDataType, err := GetValueDataTypeFromString(dataType)
+			if err != nil {
+				return nil, err
+			}
+			returnDataType = *valueDataType
+		}
+	}
+	return &returnDataType, nil
+}
+
+func GetNestedPropertyByName[P PropertyInterface](p P, propName string) (*models.NestedProperty, error) {
+	// For each nested-property
+	for _, prop := range p.GetNestedProperties() {
+		// Check if the name of the property is the given name, that's the property we need
+		if prop.Name == strings.Split(propName, ".")[0] {
+			return prop, nil
+		}
+	}
+
+	return nil, fmt.Errorf(ErrorNoSuchProperty, propName, p.GetName())
+}
+
+func GetNestedPropertyDataType[P PropertyInterface](p P, propertyName string) (*DataType, error) {
+	// Get the class-property
+	prop, err := GetNestedPropertyByName(p, propertyName)
 	if err != nil {
 		return nil, err
 	}

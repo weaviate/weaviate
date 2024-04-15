@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,11 @@ package vectorizer
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+
+	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,6 +36,7 @@ func TestVectorizingTexts(t *testing.T) {
 		modelVersion         string
 		expectedModelVersion string
 	}
+	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -137,21 +143,24 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, 40*time.Second, logger)
 
-			settings := &fakeSettings{
-				openAIType:         test.openAIType,
-				openAIModel:        test.openAIModel,
-				openAIModelVersion: test.modelVersion,
+			cfg := &FakeClassConfig{
+				classConfig: map[string]interface{}{
+					"type":         test.openAIType,
+					"model":        test.openAIModel,
+					"modelVersion": test.modelVersion,
+				},
 			}
-			vec, err := v.Texts(context.Background(), test.input, settings)
+			vec, err := v.Texts(context.Background(), test.input, cfg)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			assert.Equal(t, client.lastConfig.Type, test.expectedOpenAIType)
-			assert.Equal(t, client.lastConfig.Model, test.expectedOpenAIModel)
-			assert.Equal(t, client.lastConfig.ModelVersion, test.expectedModelVersion)
+			conf := ent.NewClassSettings(client.lastConfig)
+			assert.Equal(t, conf.Type(), test.expectedOpenAIType)
+			assert.Equal(t, conf.Model(), test.expectedOpenAIModel)
+			assert.Equal(t, conf.ModelVersion(), test.expectedModelVersion)
 		})
 	}
 }

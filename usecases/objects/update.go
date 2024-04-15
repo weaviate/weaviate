@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,6 +61,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
+	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("invalid object: %v", err)
+	}
+
 	m.logger.
 		WithField("object", "kinds_update_requested").
 		WithField("original", obj).
@@ -68,8 +73,9 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("id", id).
 		Debug("received update kind request")
 
+	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, obj.Object())
+		ctx, principal, repl, updates, prevObj)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -85,12 +91,13 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, nil, m.findObject, m.logger)
+
+	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

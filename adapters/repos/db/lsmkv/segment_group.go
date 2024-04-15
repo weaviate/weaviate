@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -20,9 +21,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -55,89 +55,190 @@ type SegmentGroup struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	mmapContents bool
+	mmapContents            bool
+	keepTombstones          bool // see bucket for more datails
+	useBloomFilter          bool // see bucket for more datails
+	calcCountNetAdditions   bool // see bucket for more datails
+	compactLeftOverSegments bool // see bucket for more datails
 }
 
-func newSegmentGroup(dir string, logger logrus.FieldLogger,
-	mapRequiresSorting bool, metrics *Metrics, strategy string,
-	monitorCount bool, compactionCallbacks cyclemanager.CycleCallbackGroup, mmapContents bool,
+type sgConfig struct {
+	dir                   string
+	strategy              string
+	mapRequiresSorting    bool
+	monitorCount          bool
+	mmapContents          bool
+	keepTombstones        bool
+	useBloomFilter        bool
+	calcCountNetAdditions bool
+	forceCompaction       bool
+}
+
+func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
 ) (*SegmentGroup, error) {
-	list, err := os.ReadDir(dir)
+	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
 		return nil, err
 	}
 
-	out := &SegmentGroup{
-		segments:           make([]*segment, len(list)),
-		dir:                dir,
-		logger:             logger,
-		metrics:            metrics,
-		monitorCount:       monitorCount,
-		mapRequiresSorting: mapRequiresSorting,
-		strategy:           strategy,
-		mmapContents:       mmapContents,
+	sg := &SegmentGroup{
+		segments:                make([]*segment, len(list)),
+		dir:                     cfg.dir,
+		logger:                  logger,
+		metrics:                 metrics,
+		monitorCount:            cfg.monitorCount,
+		mapRequiresSorting:      cfg.mapRequiresSorting,
+		strategy:                cfg.strategy,
+		mmapContents:            cfg.mmapContents,
+		keepTombstones:          cfg.keepTombstones,
+		useBloomFilter:          cfg.useBloomFilter,
+		calcCountNetAdditions:   cfg.calcCountNetAdditions,
+		compactLeftOverSegments: cfg.forceCompaction,
 	}
 
 	segmentIndex := 0
+
+	segmentsAlreadyRecoveredFromCompaction := make(map[string]struct{})
+
+	// Note: it's important to process first the compacted segments
+	// TODO: a single iteration may be possible
+
+	for _, entry := range list {
+		if filepath.Ext(entry.Name()) != ".tmp" {
+			continue
+		}
+
+		potentialCompactedSegmentFileName := strings.TrimSuffix(entry.Name(), ".tmp")
+
+		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
+			// another kind of temporal file, ignore at this point but it may need to be deleted...
+			continue
+		}
+
+		jointSegments := segmentID(potentialCompactedSegmentFileName)
+		jointSegmentsIDs := strings.Split(jointSegments, "_")
+
+		if len(jointSegmentsIDs) != 2 {
+			return nil, fmt.Errorf("invalid compacted segment file name %q", entry.Name())
+		}
+
+		leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
+		rightSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[1])
+
+		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
+		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
+
+		leftSegmentFound, err := fileExists(leftSegmentPath)
+		if err != nil {
+			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
+		}
+
+		rightSegmentFound, err := fileExists(rightSegmentPath)
+		if err != nil {
+			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
+		}
+
+		if leftSegmentFound && rightSegmentFound {
+			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
+			}
+			continue
+		}
+
+		if leftSegmentFound && !rightSegmentFound {
+			return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
+		}
+
+		if !leftSegmentFound && rightSegmentFound {
+			rightSegment, err := newSegment(rightSegmentPath, logger,
+				metrics, sg.makeExistsOnLower(segmentIndex),
+				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+			if err != nil {
+				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = rightSegment.drop()
+			if err != nil {
+				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+		}
+
+		if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
+			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
+		}
+
+		segment, err := newSegment(rightSegmentPath, logger,
+			metrics, sg.makeExistsOnLower(segmentIndex),
+			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+		if err != nil {
+			return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+		}
+
+		sg.segments[segmentIndex] = segment
+		segmentIndex++
+
+		segmentsAlreadyRecoveredFromCompaction[rightSegmentFilename] = struct{}{}
+	}
+
 	for _, entry := range list {
 		if filepath.Ext(entry.Name()) != ".db" {
 			// skip, this could be commit log, etc.
 			continue
 		}
 
+		_, alreadyRecoveredFromCompaction := segmentsAlreadyRecoveredFromCompaction[entry.Name()]
+		if alreadyRecoveredFromCompaction {
+			// the .db file was already removed and restored from a compacted segment
+			continue
+		}
+
 		// before we can mount this file, we need to check if a WAL exists for it.
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
-		potentialWALFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(dir, potentialWALFileName))
+		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
+		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
 		if err != nil {
-			return nil, errors.Wrapf(err, "check for presence of wals for segment %s",
-				entry.Name())
+			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
+				entry.Name(), err)
 		}
-
 		if ok {
-			if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil {
-				return nil, errors.Wrapf(err, "delete corrupt segment %s", entry.Name())
+			// the segment will be recovered from the WAL
+			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
+			if err != nil {
+				return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)
 			}
 
 			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(dir, entry.Name())).
-				WithField("wal_path", potentialWALFileName).
+				WithField("path", filepath.Join(sg.dir, entry.Name())).
+				WithField("wal_path", walFileName).
 				Info("Discarded (partially written) LSM segment, because an active WAL for " +
 					"the same segment was found. A recovery from the WAL will follow.")
 
 			continue
 		}
 
-		info, err := entry.Info()
+		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
+			metrics, sg.makeExistsOnLower(segmentIndex),
+			sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 		if err != nil {
-			return nil, errors.Wrapf(err, "obtain file info")
+			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
 
-		if info.Size() == 0 {
-			continue
-		}
-
-		segment, err := newSegment(filepath.Join(dir, entry.Name()), logger,
-			metrics, out.makeExistsOnLower(segmentIndex), mmapContents)
-		if err != nil {
-			return nil, errors.Wrapf(err, "init segment %s", entry.Name())
-		}
-
-		out.segments[segmentIndex] = segment
+		sg.segments[segmentIndex] = segment
 		segmentIndex++
 	}
 
-	out.segments = out.segments[:segmentIndex]
+	sg.segments = sg.segments[:segmentIndex]
 
-	if out.monitorCount {
-		out.metrics.ObjectCount(out.count())
+	if sg.monitorCount {
+		sg.metrics.ObjectCount(sg.count())
 	}
 
-	id := "segmentgroup/compaction/" + out.dir
-	out.compactionCallbackCtrl = compactionCallbacks.Register(id, out.compactIfLevelsMatch)
+	id := "segmentgroup/compaction/" + sg.dir
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactIfLevelsMatch)
 
-	return out, nil
+	return sg, nil
 }
 
 func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSegmentsFn {
@@ -150,8 +251,8 @@ func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSeg
 
 		v, err := sg.getWithUpperSegmentBoundary(key, nextSegmentIndex-1)
 		if err != nil {
-			return false, errors.Wrapf(err, "check exists on segments lower than %d",
-				nextSegmentIndex)
+			return false, fmt.Errorf("check exists on segments lower than %d: %w",
+				nextSegmentIndex, err)
 		}
 
 		return v != nil, nil
@@ -163,10 +264,11 @@ func (sg *SegmentGroup) add(path string) error {
 	defer sg.maintenanceLock.Unlock()
 
 	newSegmentIndex := len(sg.segments)
-	segment, err := newSegment(path, sg.logger, sg.metrics,
-		sg.makeExistsOnLower(newSegmentIndex), sg.mmapContents)
+	segment, err := newSegment(path, sg.logger,
+		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
+		sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
 	if err != nil {
-		return errors.Wrapf(err, "init segment %s", path)
+		return fmt.Errorf("init segment %s: %w", path, err)
 	}
 
 	sg.segments = append(sg.segments, segment)
@@ -190,11 +292,11 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	for i := topMostSegment; i >= 0; i-- {
 		v, err := sg.segments[i].get(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
-			if err == lsmkv.Deleted {
+			if errors.Is(err, lsmkv.Deleted) {
 				return nil, nil
 			}
 
@@ -218,11 +320,11 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	for i := len(sg.segments) - 1; i >= 0; i-- {
 		v, err, allocatedBuff := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
-			if err == lsmkv.Deleted {
+			if errors.Is(err, lsmkv.Deleted) {
 				return nil, nil, nil
 			}
 
@@ -245,7 +347,7 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
@@ -273,7 +375,7 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
@@ -297,7 +399,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, erro
 	for _, segment := range sg.segments {
 		rs, err := segment.roaringSetGet(key)
 		if err != nil {
-			if err == lsmkv.NotFound {
+			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
@@ -324,7 +426,7 @@ func (sg *SegmentGroup) count() int {
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(ctx.Err(), "long-running compaction in progress")
+		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
@@ -353,7 +455,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (sg *SegmentGroup) updateStatus(status storagestate.Status) {
+func (sg *SegmentGroup) UpdateStatus(status storagestate.Status) {
 	sg.statusLock.Lock()
 	defer sg.statusLock.Unlock()
 

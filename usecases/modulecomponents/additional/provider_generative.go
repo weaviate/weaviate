@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,8 @@ package additional
 
 import (
 	"context"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -30,8 +32,8 @@ type GraphQLAdditionalGenerativeProvider struct {
 	generative AdditionalProperty
 }
 
-func NewGenerativeProvider(client generativeClient) *GraphQLAdditionalGenerativeProvider {
-	return &GraphQLAdditionalGenerativeProvider{generativegenerate.New(client)}
+func NewGenerativeProvider(client generativeClient, logger logrus.FieldLogger) *GraphQLAdditionalGenerativeProvider {
+	return &GraphQLAdditionalGenerativeProvider{generativegenerate.New(client, logger)}
 }
 
 func (p *GraphQLAdditionalGenerativeProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

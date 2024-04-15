@@ -11,15 +11,15 @@ jobs:
     name: golangci
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.20'
+          go-version: '1.21'
       - uses: actions/checkout@v4
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v4
         with:
           # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
-          version: v1.53
+          version: v1.54
           args: --timeout=5m
   protolint:
     name: protolint
@@ -27,3 +27,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: yoheimuta/action-protolint@v1
+  python:
+    name: python checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: psf/black@stable
+        with:
+          version: "24.2.0"
+  custom:
+    name: custom checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Error groups checks
+        run: ./tools/linter_error_groups.sh
+      - name: goroutine checks
+        run: ./tools/linter_go_routines.sh

@@ -136,6 +136,21 @@
         "format": "float"
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
+    },
     "C11yVectorBasedQuestion": {
       "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
@@ -623,6 +638,12 @@
           "description": "Name of the class as URI relative to the schema URL.",
           "type": "string"
         },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
+        },
         "vectorIndexType": {
           "description": "Name of the vector index to use, eg. (HNSW)",
           "type": "string"
@@ -709,7 +730,9 @@
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "trigram",
+            "gse"
           ]
         },
         "nestedProperties": {
@@ -720,6 +743,23 @@
             "type": "array",
             "x-omitempty": true
           }
+      },
+      "type": "object"
+    },
+    "VectorConfig": {
+      "properties": {
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        }
       },
       "type": "object"
     },
@@ -781,6 +821,11 @@
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -859,6 +904,53 @@
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",      
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 80,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "minimum": 2,
+          "maximum": 512,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "x-nullable": false,
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ]
+        }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",      
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "minimum": 1,
+          "maximum": 80,
+          "x-nullable": false
+        }       
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
@@ -868,7 +960,8 @@
         },
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "include": {
           "description": "List of classes to include in the backup creation process",
@@ -931,7 +1024,8 @@
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "include": {
           "description": "List of classes to include in the backup restoration process",
@@ -944,6 +1038,13 @@
           "description": "List of classes to exclude from the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
@@ -1013,7 +1114,8 @@
           "description": "How many objects are currently in the batch queue.",
           "format": "int",
           "type": "number",
-          "x-omitempty": false
+          "x-omitempty": true,
+          "x-nullable": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -1041,6 +1143,27 @@
           "format": "int64",
           "type": "number",
           "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
+          "format": "int64",
+          "type": "number",
+          "x-omitempty": false
+        },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -1058,7 +1181,8 @@
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -1321,8 +1445,12 @@
           "type": "integer"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         },
         "tenant": {
           "description": "Name of the Objects tenant.",
@@ -1847,7 +1975,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.21.5"
+    "version": "1.24.6"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -1922,6 +2050,14 @@
       "name": "class",
       "required": false,
       "type": "string"
+    },
+    "CommonOutputVerbosityParameterQuery": {
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "in": "query",
+      "name": "output",
+      "required": false,
+      "type": "string",
+      "default": "minimal"
     }
   },
   "paths": {
@@ -4052,6 +4188,11 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "tenant",
+            "in": "query",
+            "type": "string"
           }
         ],
         "responses": {
@@ -4371,6 +4512,58 @@
         }
       }
     },
+    "/schema/{className}/tenants/{tenantName}": {
+      "head": {
+        "description": "Check if a tenant exists for a specific class",
+        "operationId": "tenant.exists",
+        "tags": [
+          "schema"
+        ],
+        "parameters": [
+          {
+            "name": "className",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "tenantName",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant exists in the specified class"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The tenant not found"
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },    
     "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
@@ -4628,6 +4821,11 @@
         "tags": [
           "nodes"
         ],
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -4681,6 +4879,9 @@
             "in": "path",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
         "responses": {

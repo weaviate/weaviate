@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
@@ -127,6 +128,66 @@ func Test_classSettings_Validate(t *testing.T) {
 				"topK has to be an integer value between 1 and 40, " +
 				"topP has to be float value between 0 and 1"),
 		},
+		{
+			name: "Generative AI",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+				},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "chat-bison-001",
+			wantTemperature: 0.2,
+			wantTokenLimit:  256,
+			wantTopK:        40,
+			wantTopP:        0.95,
+			wantErr:         nil,
+		},
+		{
+			name: "Generative AI with model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "chat-bison-001",
+				},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "chat-bison-001",
+			wantTemperature: 0.2,
+			wantTokenLimit:  256,
+			wantTopK:        40,
+			wantTopP:        0.95,
+			wantErr:         nil,
+		},
+		{
+			name: "Generative AI with gemini-ultra model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "gemini-ultra",
+				},
+			},
+			wantApiEndpoint: "generativelanguage.googleapis.com",
+			wantProjectID:   "",
+			wantModelID:     "gemini-ultra",
+			wantTemperature: 0.2,
+			wantTokenLimit:  256,
+			wantTopK:        40,
+			wantTopP:        0.95,
+			wantErr:         nil,
+		},
+		{
+			name: "Generative AI with not supported model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "unsupported-model",
+				},
+			},
+			wantErr: fmt.Errorf("unsupported-model is not supported available models are: [chat-bison-001 gemini-pro gemini-pro-vision gemini-ultra]"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -164,4 +225,8 @@ func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interfa
 
 func (f fakeClassConfig) Property(propName string) map[string]interface{} {
 	return nil
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

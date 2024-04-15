@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,7 @@ package db
 import (
 	"context"
 	"os"
-	"strings"
+	"path"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -106,9 +106,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -139,7 +139,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
 		require.Nil(t, err)
 	}
 
@@ -166,10 +166,10 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 
 	err = index.addUUIDProperty(context.TODO())
@@ -201,7 +201,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}), nil)
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
 		require.Nil(t, err)
 	}
 
@@ -214,6 +214,18 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	assert.Equal(t, 8, len(indexFilesBeforeDelete))
+	// update the index vectorIndexUserConfig
+	beforeVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	require.Equal(t, -1, beforeVectorConfig.EF)
+	require.True(t, ok)
+	beforeVectorConfig.EF = 99
+	err = index.updateVectorIndexConfig(context.TODO(), beforeVectorConfig)
+	require.Nil(t, err)
+	afterVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
+	require.True(t, ok)
+	require.Equal(t, 99, afterVectorConfig.EF)
+
+	assert.Equal(t, 6, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
 	assert.Equal(t, 8, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
@@ -230,7 +242,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.name, storagestate.StatusReadOnly.String())
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -265,9 +277,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 
 	productsIds := []strfmt.UUID{
@@ -298,13 +310,13 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
 		require.Nil(t, err)
 	}
 
 	// set all shards to readonly
-	index.ForEachShard(func(name string, shard *Shard) error {
-		err = shard.updateStatus(storagestate.StatusReadOnly.String())
+	index.ForEachShard(func(name string, shard ShardLike) error {
+		err = shard.UpdateStatus(storagestate.StatusReadOnly.String())
 		require.Nil(t, err)
 		return nil
 	})
@@ -318,11 +330,13 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	shardState := singleShardState()
 
 	idx, err := NewIndex(testCtx(), IndexConfig{
-		RootPath: rootDir, ClassName: schema.ClassName(class.Class),
+		RootPath:              rootDir,
+		ClassName:             schema.ClassName(class.Class),
+		DisableLazyLoadShards: true,
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
-		hnsw.NewDefaultUserConfig(), &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil)
 	require.Nil(t, err)
 	return idx
 }
@@ -338,16 +352,22 @@ func invertedConfig() *models.InvertedIndexConfig {
 	}
 }
 
-func getIndexFilenames(dirName string, className string) ([]string, error) {
-	filenames := []string{}
-	infos, err := os.ReadDir(dirName)
+func getIndexFilenames(rootDir, indexName string) ([]string, error) {
+	var filenames []string
+	indexRoot, err := os.ReadDir(path.Join(rootDir, indexName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			// index was dropped, or never existed
+			return filenames, nil
+		}
+		return nil, err
+	}
+	shardFiles, err := os.ReadDir(path.Join(rootDir, indexName, indexRoot[0].Name()))
 	if err != nil {
 		return filenames, err
 	}
-	for _, i := range infos {
-		if strings.Contains(i.Name(), className) {
-			filenames = append(filenames, i.Name())
-		}
+	for _, f := range shardFiles {
+		filenames = append(filenames, f.Name())
 	}
 	return filenames, nil
 }

@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package weaviate.v1;
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoBase";
+
+enum ConsistencyLevel {
+  CONSISTENCY_LEVEL_UNSPECIFIED = 0;
+  CONSISTENCY_LEVEL_ONE = 1;
+  CONSISTENCY_LEVEL_QUORUM = 2;
+  CONSISTENCY_LEVEL_ALL = 3;
+}
+
+message NumberArrayProperties {
+  repeated double values = 1 [deprecated = true];  // will be removed in the future, use vector_bytes
+  string prop_name = 2;
+  bytes values_bytes = 3;
+}
+
+message IntArrayProperties {
+  repeated int64 values = 1;
+  string prop_name = 2;
+}
+
+message TextArrayProperties {
+  repeated string values = 1;
+  string prop_name = 2;
+}
+
+message BooleanArrayProperties {
+  repeated bool values = 1;
+  string prop_name = 2;
+}
+
+message ObjectPropertiesValue {
+  google.protobuf.Struct non_ref_properties = 1;
+  repeated NumberArrayProperties number_array_properties = 2;
+  repeated IntArrayProperties int_array_properties = 3;
+  repeated TextArrayProperties text_array_properties = 4;
+  repeated BooleanArrayProperties boolean_array_properties = 5;
+  repeated ObjectProperties object_properties = 6;
+  repeated ObjectArrayProperties object_array_properties = 7;
+  repeated string empty_list_props = 10;
+}
+
+message ObjectArrayProperties {
+  repeated ObjectPropertiesValue values = 1;
+  string prop_name = 2;
+}
+
+message ObjectProperties {
+  ObjectPropertiesValue value = 1;
+  string prop_name = 2;
+}
+
+
+message TextArray {
+  repeated string values = 1;
+}
+
+message IntArray {
+  repeated int64 values = 1;
+}
+
+message NumberArray {
+  repeated double values = 1;
+}
+
+message BooleanArray {
+  repeated bool values = 1;
+}
+
+message Filters {
+  enum Operator {
+    OPERATOR_UNSPECIFIED = 0;
+    OPERATOR_EQUAL = 1;
+    OPERATOR_NOT_EQUAL = 2;
+    OPERATOR_GREATER_THAN = 3;
+    OPERATOR_GREATER_THAN_EQUAL = 4;
+    OPERATOR_LESS_THAN = 5;
+    OPERATOR_LESS_THAN_EQUAL = 6;
+    OPERATOR_AND = 7;
+    OPERATOR_OR = 8;
+    OPERATOR_WITHIN_GEO_RANGE = 9;
+    OPERATOR_LIKE = 10;
+    OPERATOR_IS_NULL = 11;
+    OPERATOR_CONTAINS_ANY = 12;
+    OPERATOR_CONTAINS_ALL = 13;
+  }
+
+  Operator operator = 1;
+  // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
+  repeated string on = 2  [deprecated = true];  // will be removed in the future, use path
+  repeated Filters filters = 3;
+  oneof test_value {
+    string value_text = 4;
+    int64 value_int = 5;
+    bool value_boolean = 6;
+    double value_number = 7;
+    TextArray value_text_array = 9;
+    IntArray value_int_array = 10;
+    BooleanArray value_boolean_array = 11;
+    NumberArray value_number_array = 12;
+    GeoCoordinatesFilter value_geo = 13;
+  };
+  FilterTarget target = 20; // leave space for more filter values
+}
+
+message FilterReferenceSingleTarget {
+  string on = 1;
+  FilterTarget target = 2;
+}
+
+message FilterReferenceMultiTarget {
+  string on = 1;
+  FilterTarget target = 2;
+  string target_collection = 3;
+}
+
+message FilterReferenceCount {
+  string on = 1;
+}
+
+message FilterTarget {
+  oneof target{
+    string property = 1;
+    FilterReferenceSingleTarget single_target = 2;
+    FilterReferenceMultiTarget multi_target = 3;
+    FilterReferenceCount count = 4;
+  };
+}
+
+message GeoCoordinatesFilter {
+  float latitude = 1;
+  float longitude = 2;
+  float distance = 3;
+}
+
+message Vectors {
+  string name = 1;
+  uint64 index = 2;  // for multi-vec
+  bytes vector_bytes = 3;
+}

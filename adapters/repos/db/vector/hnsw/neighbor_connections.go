@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,47 +13,66 @@ package hnsw
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
-	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
-	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, targetLevel,
-		currentMaxLevel, denyList)
+	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
+		currentMaxLevel, denyList, false)
+
+	return nfc.Do()
+}
+
+func (h *hnsw) reconnectNeighboursOf(node *vertex,
+	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	denyList helpers.AllowList,
+) error {
+	nfc := newNeighborFinderConnector(h, node, entryPointID, nodeVec, distancer, targetLevel,
+		currentMaxLevel, denyList, true)
 
 	return nfc.Do()
 }
 
 type neighborFinderConnector struct {
+	ctx             context.Context
 	graph           *hnsw
 	node            *vertex
 	entryPointID    uint64
 	entryPointDist  float32
 	nodeVec         []float32
+	distancer       compressionhelpers.CompressorDistancer
 	targetLevel     int
 	currentMaxLevel int
 	denyList        helpers.AllowList
 	// bufLinksLog     BufferedLinksLogger
+	tombstoneCleanupNodes bool
 }
 
 func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
-	nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList helpers.AllowList,
+	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
+	denyList helpers.AllowList, tombstoneCleanupNodes bool,
 ) *neighborFinderConnector {
 	return &neighborFinderConnector{
-		graph:           graph,
-		node:            node,
-		entryPointID:    entryPointID,
-		nodeVec:         nodeVec,
-		targetLevel:     targetLevel,
-		currentMaxLevel: currentMaxLevel,
-		denyList:        denyList,
+		ctx:                   graph.shutdownCtx,
+		graph:                 graph,
+		node:                  node,
+		entryPointID:          entryPointID,
+		nodeVec:               nodeVec,
+		distancer:             distancer,
+		targetLevel:           targetLevel,
+		currentMaxLevel:       currentMaxLevel,
+		denyList:              denyList,
+		tombstoneCleanupNodes: tombstoneCleanupNodes,
 	}
 }
 
@@ -68,27 +87,146 @@ func (n *neighborFinderConnector) Do() error {
 	return nil
 }
 
+func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
+	var dist float32
+	var ok bool
+	var err error
+
+	if n.distancer == nil {
+		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+	} else {
+		dist, ok, err = n.distancer.DistanceToNode(id)
+	}
+	if err != nil {
+		// not an error we could recover from - fail!
+		return math.MaxFloat32, errors.Wrapf(err,
+			"calculate distance between insert node and entrypoint")
+	}
+	if !ok {
+		return math.MaxFloat32, nil
+	}
+	return dist, nil
+}
+
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+	if err := n.ctx.Err(); err != nil {
+		return err
+	}
+
+	var pending []uint64
+	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
+		n.graph.handleDeletedNode(from)
+		return nil
+	}
+	n.graph.nodes[from].Lock()
+	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
+	copy(connections, n.graph.nodes[from].connections[level])
+	n.graph.nodes[from].Unlock()
+	for _, id := range connections {
+		if visited.Visited(id) {
+			continue
+		}
+		visited.Visit(id)
+		if n.denyList.Contains(id) {
+			pending = append(pending, id)
+			continue
+		}
+
+		dist, err := n.processNode(id)
+		if err != nil {
+			return err
+		}
+		if results.Len() >= top && dist < results.Top().Dist {
+			results.Pop()
+			results.Insert(id, dist)
+		} else if results.Len() < top {
+			results.Insert(id, dist)
+		}
+	}
+	for _, id := range pending {
+		if results.Len() >= top {
+			dist, err := n.processNode(id)
+			if err != nil {
+				return err
+			}
+			if dist > results.Top().Dist {
+				continue
+			}
+		}
+		err := n.processRecursively(id, results, visited, level, top)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (n *neighborFinderConnector) doAtLevel(level int) error {
 	before := time.Now()
-	if err := n.pickEntrypoint(); err != nil {
-		return errors.Wrap(err, "pick entrypoint at level beginning")
+
+	var results *priorityqueue.Queue[any]
+	var extraIDs []uint64 = nil
+	var total int = 0
+	var maxConnections int = n.graph.maximumConnections
+
+	if n.tombstoneCleanupNodes {
+		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
+
+		n.graph.pools.visitedListsLock.RLock()
+		visited := n.graph.pools.visitedLists.Borrow()
+		n.graph.pools.visitedListsLock.RUnlock()
+		n.node.Lock()
+		connections := make([]uint64, len(n.node.connections[level]))
+		copy(connections, n.node.connections[level])
+		n.node.Unlock()
+		visited.Visit(n.node.id)
+		top := n.graph.efConstruction
+		var pending []uint64 = nil
+
+		for _, id := range connections {
+			visited.Visit(id)
+			if n.denyList.Contains(id) {
+				pending = append(pending, id)
+				continue
+			}
+			extraIDs = append(extraIDs, id)
+			top--
+			total++
+		}
+		for _, id := range pending {
+			visited.Visit(id)
+			err := n.processRecursively(id, results, visited, level, top)
+			if err != nil {
+				return err
+			}
+		}
+		n.graph.pools.visitedListsLock.RLock()
+		n.graph.pools.visitedLists.Return(visited)
+		n.graph.pools.visitedListsLock.RUnlock()
+		if err := n.pickEntrypoint(); err != nil {
+			return errors.Wrap(err, "pick entrypoint at level beginning")
+		}
+		// use dynamic max connections only during tombstone cleanup
+		maxConnections = n.maximumConnections(level)
+	} else {
+		if err := n.pickEntrypoint(); err != nil {
+			return errors.Wrap(err, "pick entrypoint at level beginning")
+		}
+		eps := priorityqueue.NewMin[any](1)
+		eps.Insert(n.entryPointID, n.entryPointDist)
+		var err error
+
+		results, err = n.graph.searchLayerByVectorWithDistancer(n.nodeVec, eps, n.graph.efConstruction,
+			level, nil, n.distancer)
+		if err != nil {
+			return errors.Wrapf(err, "search layer at level %d", level)
+		}
+
+		n.graph.insertMetrics.findAndConnectSearch(before)
+		before = time.Now()
 	}
 
-	eps := priorityqueue.NewMin(1)
-	eps.Insert(n.entryPointID, n.entryPointDist)
-
-	results, err := n.graph.searchLayerByVector(n.nodeVec, eps, n.graph.efConstruction,
-		level, nil)
-	if err != nil {
-		return errors.Wrapf(err, "search layer at level %d", level)
-	}
-
-	n.graph.insertMetrics.findAndConnectSearch(before)
-	before = time.Now()
-
-	// max := n.maximumConnections(level)
-	max := n.graph.maximumConnections
-	if err := n.graph.selectNeighborsHeuristic(results, max, n.denyList); err != nil {
+	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
 		return errors.Wrap(err, "heuristic")
 	}
 
@@ -98,7 +236,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	// // for distributed spike
 	// neighborsAtLevel[level] = neighbors
 
-	neighbors := make([]uint64, 0, results.Len())
+	neighbors := make([]uint64, total, total+results.Len())
+	copy(neighbors, extraIDs)
 	for results.Len() > 0 {
 		id := results.Pop().ID
 		neighbors = append(neighbors, id)
@@ -169,7 +308,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return nil
 		}
 
-		candidates := priorityqueue.NewMax(len(currentConnections) + 1)
+		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
@@ -290,7 +429,14 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	dist, ok, err := n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	var dist float32
+	var ok bool
+	var err error
+	if n.distancer == nil {
+		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+	} else {
+		dist, ok, err = n.distancer.DistanceToNode(candidate)
+	}
 	if err != nil {
 		// not an error we could recover from - fail!
 		return false, errors.Wrapf(err,

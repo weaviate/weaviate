@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/runtime"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/graphql"
 	graphql_client "github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
@@ -112,4 +113,14 @@ func Vec2String(v []float32) (s string) {
 	}
 	s = strings.TrimLeft(s, ", ")
 	return fmt.Sprintf("[%s]", s)
+}
+
+func ParseVec(t *testing.T, iVec []interface{}) []float32 {
+	vec := make([]float32, len(iVec))
+	for i, val := range iVec {
+		parsed, err := val.(json.Number).Float64()
+		require.Nil(t, err)
+		vec[i] = float32(parsed)
+	}
+	return vec
 }

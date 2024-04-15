@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -103,7 +105,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	meta, err := store.Meta(ctx, req.ID, false)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, BackupFile)
-		return reqStat{}, fmt.Errorf("%w: %q: %v", errMetaNotFound, path, err)
+		return reqStat{}, fmt.Errorf("cannot get status while backing up: %w: %q: %v", errMetaNotFound, path, err)
 	}
 	if err != nil || meta.Error != "" {
 		return reqStat{}, errors.New(meta.Error)
@@ -141,7 +143,7 @@ func (b *backupper) backup(ctx context.Context,
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 	// waits for ack from coordinator in order to processed with the backup
-	go func() {
+	f := func() {
 		defer b.lastOp.reset()
 		if err := b.waitForCoordinator(expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
@@ -151,7 +153,7 @@ func (b *backupper) backup(ctx context.Context,
 
 		}
 		provider := newUploader(b.sourcer, store, req.ID, b.lastOp.set, b.logger).
-			withCompression(newZipConfig(req.CompressionLevel, req.CPUPercentage, req.ChunkSize))
+			withCompression(newZipConfig(req.Compression))
 
 		result := backup.BackupDescriptor{
 			StartedAt:     time.Now().UTC(),
@@ -163,17 +165,20 @@ func (b *backupper) backup(ctx context.Context,
 
 		// the coordinator might want to abort the backup
 		done := make(chan struct{})
-		ctx := b.withCancellation(context.Background(), id, done)
+		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
 		if err := provider.all(ctx, req.Classes, &result); err != nil {
-			b.logger.WithField("action", "create_backup").
-				Error(err)
+			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
+		} else {
+			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
 		result.CompletedAt = time.Now().UTC()
-	}()
+	}
+	enterrors.GoWrapper(f, b.logger)
 
 	return ret, nil
 }

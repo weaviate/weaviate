@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -56,7 +56,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (s *Shard) commit(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
+func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
@@ -68,7 +68,7 @@ func (s *Shard) commit(ctx context.Context, requestID string, backupReadLock *ba
 	return f(ctx)
 }
 
-func (s *Shard) abort(ctx context.Context, requestID string) replica.SimpleResponse {
+func (s *Shard) abortReplication(ctx context.Context, requestID string) replica.SimpleResponse {
 	s.replicationMap.delete(requestID)
 	return replica.SimpleResponse{}
 }
@@ -150,9 +150,9 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 	return replica.SimpleResponse{}
 }
 
-func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
-		result := newDeleteObjectsBatcher(s).Delete(ctx, docIDs, dryRun)
+		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
 		resp := replica.DeleteBatchResponse{
 			Batch: make([]replica.UUID2Error, len(result)),
 		}

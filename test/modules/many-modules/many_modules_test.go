@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,185 +12,67 @@
 package test
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
+	"context"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
-func Test_ManyModules(t *testing.T) {
-	helper.SetupClient(os.Getenv(weaviateEndpoint))
+func Test_ManyModules_SingleNode(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+	t.Run("many modules", manyModulesTests(endpoint))
+	t.Run("create schema with specific text2vec-openai settings", createSchemaOpenAISanityChecks(endpoint))
+}
 
-	t.Run("check enabled modules", func(t *testing.T) {
-		meta := helper.GetMeta(t)
-		require.NotNil(t, meta)
+func Test_ManyModules_Cluster(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createClusterEnvironment(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+	t.Run("many modules", manyModulesTests(endpoint))
+	t.Run("create schema with specific text2vec-openai settings", createSchemaOpenAISanityChecks(endpoint))
+}
 
-		expectedModuleNames := []string{
-			"generative-cohere", "generative-palm", "generative-openai",
-			"text2vec-cohere", "text2vec-contextionary", "text2vec-openai",
-			"text2vec-palm", "text2vec-transformers", "sum-transformers", "qna-openai",
-		}
+func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
+	compose, err = composeModules().
+		WithWeaviate().
+		Start(ctx)
+	return
+}
 
-		modules, ok := meta.Modules.(map[string]interface{})
-		require.True(t, ok)
-		assert.Len(t, modules, len(expectedModuleNames))
+func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
+	compose, err = composeModules().
+		WithWeaviateCluster().
+		Start(ctx)
+	return
+}
 
-		moduleNames := []string{}
-		for name := range modules {
-			moduleNames = append(moduleNames, name)
-		}
-		assert.ElementsMatch(t, expectedModuleNames, moduleNames)
-	})
-
-	booksClass := books.ClassContextionaryVectorizer()
-	multiShardClass := multishard.ClassContextionaryVectorizer()
-	helper.CreateClass(t, booksClass)
-	helper.CreateClass(t, multiShardClass)
-	defer helper.DeleteClass(t, booksClass.Class)
-	defer helper.DeleteClass(t, multiShardClass.Class)
-
-	t.Run("import data", func(t *testing.T) {
-		for _, book := range books.Objects() {
-			helper.CreateObject(t, book)
-			helper.AssertGetObjectEventually(t, book.Class, book.ID)
-		}
-		for _, multishard := range multishard.Objects() {
-			helper.CreateObject(t, multishard)
-			helper.AssertGetObjectEventually(t, multishard.Class, multishard.ID)
-		}
-	})
-
-	t.Run("sanity checks", func(t *testing.T) {
-		concepts := []string{
-			"Frank", "Herbert", "Dune", "Book", "Project", "Hail", "Mary",
-			"The Lord of the Ice Garden", "Ice Garden", "science", "fiction",
-			"fantasy novel", "novelist",
-		}
-		checkResults := func(query string) {
-			result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-			books := result.Get("Get", "Books").AsSlice()
-			require.True(t, len(books) > 0)
-			results, ok := books[0].(map[string]interface{})
-			require.True(t, ok)
-			assert.True(t, results["title"] != nil)
-		}
-
-		t.Run("nearText queries", func(t *testing.T) {
-			queryTemplate := `
-			{
-				Get {
-					Books(
-						nearText: {
-							concepts: ["%s"]
-						}
-					){
-						title
-					}
-				}
-			}`
-			for _, concept := range concepts {
-				checkResults(fmt.Sprintf(queryTemplate, concept))
-			}
-		})
-		t.Run("nearObject queries", func(t *testing.T) {
-			queryTemplate := `
-			{
-				Get {
-					Books(
-						nearObject: {
-							id: "%s"
-						}
-					){
-						title
-					}
-				}
-			}`
-			ids := []strfmt.UUID{books.Dune, books.ProjectHailMary, books.TheLordOfTheIceGarden}
-			for _, id := range ids {
-				checkResults(fmt.Sprintf(queryTemplate, id))
-			}
-		})
-		t.Run("nearVector queries", func(t *testing.T) {
-			getVectors := func() []string {
-				query := `
-				{
-					Get {
-						Books(limit: 3){ _additional{ vector } }
-					}
-				}`
-				result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-				books := result.Get("Get", "Books").AsSlice()
-				require.True(t, len(books) == 3)
-				vectors := make([]string, 3)
-				for i := 0; i < 3; i++ {
-					results, ok := books[i].(map[string]interface{})
-					require.True(t, ok)
-					vector, ok := results["_additional"].(map[string]interface{})["vector"].([]interface{})
-					require.True(t, ok)
-					vec, err := json.Marshal(vector)
-					require.Nil(t, err)
-					vectors[i] = string(vec)
-				}
-				return vectors
-			}
-			vectors := getVectors()
-			queryTemplate := `
-			{
-				Get {
-					Books(
-						nearVector: {
-							vector: %s
-						}
-					){
-						title
-					}
-				}
-			}`
-			for _, vector := range vectors {
-				checkResults(fmt.Sprintf(queryTemplate, vector))
-			}
-		})
-		t.Run("hybrid queries", func(t *testing.T) {
-			queryTemplate := `
-			{
-				Get {
-					Books(
-						hybrid: {
-							query: "%s"
-						}
-					){
-						title
-					}
-				}
-			}`
-			for _, concept := range concepts {
-				checkResults(fmt.Sprintf(queryTemplate, concept))
-			}
-		})
-		t.Run("bm25 queries", func(t *testing.T) {
-			queryTemplate := `
-			{
-				Get {
-					Books(
-						bm25:{
-							query: "%s"
-						}
-					){
-						title
-					}
-				}
-			}`
-			for _, concept := range []string{"Frank", "Project Hail Mary", "Dune", "Project", "Hail", "Mary"} {
-				checkResults(fmt.Sprintf(queryTemplate, concept))
-			}
-		})
-	})
+func composeModules() (composeModules *docker.Compose) {
+	composeModules = docker.New().
+		WithText2VecContextionary().
+		WithText2VecTransformers().
+		WithText2VecOpenAI().
+		WithText2VecCohere().
+		WithText2VecVoyageAI().
+		WithText2VecPaLM().
+		WithText2VecHuggingFace().
+		WithText2VecAWS().
+		WithGenerativeOpenAI().
+		WithGenerativeCohere().
+		WithGenerativePaLM().
+		WithGenerativeAWS().
+		WithGenerativeAnyscale().
+		WithQnAOpenAI().
+		WithRerankerCohere()
+	return
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,8 +26,8 @@ type Counter struct {
 	f *os.File
 }
 
-func New(shardID string, rootPath string) (*Counter, error) {
-	fileName := fmt.Sprintf("%s/%s.indexcount", rootPath, shardID)
+func New(shardPath string) (*Counter, error) {
+	fileName := fmt.Sprintf("%s/indexcount", shardPath)
 	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err

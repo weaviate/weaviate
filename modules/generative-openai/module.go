@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,7 +73,7 @@ func (m *GenerativeOpenAIModule) initAdditional(ctx context.Context, timeout tim
 
 	m.generative = client
 
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
 
 	return nil
 }

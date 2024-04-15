@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"os"
 	"path"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -406,10 +408,10 @@ func (r *store) load(ctx context.Context) <-chan ucs.ClassPayload {
 		}
 		return nil
 	}
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer close(ch)
 		r.db.View(f)
-	}()
+	}, r.log)
 	return ch
 }
 

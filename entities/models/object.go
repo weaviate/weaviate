@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,11 +52,14 @@ type Object struct {
 	// Name of the Objects tenant.
 	Tenant string `json:"tenant,omitempty"`
 
-	// This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.
+	// This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.
 	Vector C11yVector `json:"vector,omitempty"`
 
 	// vector weights
 	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
+
+	// This field returns vectors associated with the Object.
+	Vectors Vectors `json:"vectors,omitempty"`
 }
 
 // Validate validates this object
@@ -72,6 +75,10 @@ func (m *Object) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateVector(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVectors(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -129,6 +136,25 @@ func (m *Object) validateVector(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Object) validateVectors(formats strfmt.Registry) error {
+	if swag.IsZero(m.Vectors) { // not required
+		return nil
+	}
+
+	if m.Vectors != nil {
+		if err := m.Vectors.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("vectors")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("vectors")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ContextValidate validate this object based on the context it is used
 func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -138,6 +164,10 @@ func (m *Object) ContextValidate(ctx context.Context, formats strfmt.Registry) e
 	}
 
 	if err := m.contextValidateVector(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVectors(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -168,6 +198,20 @@ func (m *Object) contextValidateVector(ctx context.Context, formats strfmt.Regis
 			return ve.ValidateName("vector")
 		} else if ce, ok := err.(*errors.CompositeError); ok {
 			return ce.ValidateName("vector")
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (m *Object) contextValidateVectors(ctx context.Context, formats strfmt.Registry) error {
+
+	if err := m.Vectors.ContextValidate(ctx, formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("vectors")
+		} else if ce, ok := err.(*errors.CompositeError); ok {
+			return ce.ValidateName("vectors")
 		}
 		return err
 	}

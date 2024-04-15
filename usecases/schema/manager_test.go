@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,11 @@ func (n *NilMigrator) UpdateClass(ctx context.Context, className string, newClas
 	return nil
 }
 
-func (n *NilMigrator) GetShardsStatus(ctx context.Context, className string) (map[string]string, error) {
+func (n *NilMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	return nil, nil
+}
+
+func (n *NilMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 
@@ -81,11 +85,27 @@ func (n *NilMigrator) DropProperty(ctx context.Context, className string, propNa
 	return nil
 }
 
-func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schema.VectorIndexConfig) error {
+func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+	old, updated schema.VectorIndexConfig,
+) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
+func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string,
+	updated schema.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (n *NilMigrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
+	old, updated map[string]schema.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
+	updated map[string]schema.VectorIndexConfig,
+) error {
 	return nil
 }
 

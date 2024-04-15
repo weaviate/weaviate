@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package validation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -103,6 +104,9 @@ func (v *Validator) ValidateSingleRef(cref *models.SingleRef) (*crossref.Ref, er
 	if err != nil {
 		return nil, fmt.Errorf("invalid reference: %w", err)
 	}
+
+	// target id must be lowercase
+	ref.TargetID = strfmt.UUID(strings.ToLower(ref.TargetID.String()))
 
 	if !ref.Local {
 		return nil, fmt.Errorf("unrecognized cross-ref ref format")

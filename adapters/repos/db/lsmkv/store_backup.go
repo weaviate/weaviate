@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,11 @@ func (s *Store) PauseCompaction(ctx context.Context) error {
 
 	// TODO common_cycle_manager maybe not necessary, or to be replaced with store pause stats
 	for _, b := range s.bucketsByName {
-		if metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(b.dir); err == nil {
+		label := b.dir
+		if monitoring.GetMetrics().Group {
+			label = "n/a"
+		}
+		if metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label); err == nil {
 			b.pauseTimer = prometheus.NewTimer(metric)
 		}
 	}

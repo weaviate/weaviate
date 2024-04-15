@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -87,7 +88,9 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
-			AllowedMethods:     []string{"POST", "PUT", "DELETE", "GET", "PATCH"},
+			AllowedMethods:     strings.Split(appState.ServerConfig.Config.CORS.AllowMethods, ","),
+			AllowedHeaders:     strings.Split(appState.ServerConfig.Config.CORS.AllowHeaders, ","),
+			AllowedOrigins:     strings.Split(appState.ServerConfig.Config.CORS.AllowOrigin, ","),
 		}).Handler
 		handler = handleCORS(handler)
 		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
@@ -95,7 +98,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
-		handler = addPreflight(handler)
+		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
@@ -140,13 +143,13 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 	}
 }
 
-func addPreflight(next http.Handler) http.Handler {
+func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", cfg.AllowOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", cfg.AllowMethods)
+		w.Header().Set("Access-Control-Allow-Headers", cfg.AllowHeaders)
+
 		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "*")
-			w.Header().Set("Access-Control-Allow-Headers",
-				"Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key")
 			return
 		}
 

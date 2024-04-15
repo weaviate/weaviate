@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,12 +12,12 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -28,6 +28,7 @@ const (
 	presencePenaltyProperty  = "presencePenalty"
 	topPProperty             = "topP"
 	baseURLProperty          = "baseURL"
+	apiVersionProperty       = "apiVersion"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -38,8 +39,10 @@ var availableOpenAILegacyModels = []string{
 var availableOpenAIModels = []string{
 	"gpt-3.5-turbo",
 	"gpt-3.5-turbo-16k",
+	"gpt-3.5-turbo-1106",
 	"gpt-4",
 	"gpt-4-32k",
+	"gpt-4-1106-preview",
 }
 
 var (
@@ -50,16 +53,30 @@ var (
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
 	DefaultOpenAIBaseURL          = "https://api.openai.com"
+	DefaultApiVersion             = "2023-05-15"
 )
 
 // todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
 var defaultMaxTokens = map[string]float64{
-	"text-davinci-002":  4097,
-	"text-davinci-003":  4097,
-	"gpt-3.5-turbo":     4097,
-	"gpt-3.5-turbo-16k": 16384,
-	"gpt-4":             8192,
-	"gpt-4-32k":         32768,
+	"text-davinci-002":   4097,
+	"text-davinci-003":   4097,
+	"gpt-3.5-turbo":      4097,
+	"gpt-3.5-turbo-16k":  16384,
+	"gpt-3.5-turbo-1106": 16385,
+	"gpt-4":              8192,
+	"gpt-4-32k":          32768,
+	"gpt-4-1106-preview": 128000,
+}
+
+var availableApiVersions = []string{
+	"2022-12-01",
+	"2023-03-15-preview",
+	"2023-05-15",
+	"2023-06-01-preview",
+	"2023-07-01-preview",
+	"2023-08-01-preview",
+	"2023-09-01-preview",
+	"2023-12-01-preview",
 }
 
 type ClassSettings interface {
@@ -76,14 +93,16 @@ type ClassSettings interface {
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
 	BaseURL() string
+	ApiVersion() string
 }
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-openai")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -122,6 +141,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
 	}
 
+	apiVersion := ic.ApiVersion()
+	if !ic.validateApiVersion(apiVersion) {
+		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
+	}
+
 	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
 	if err != nil {
 		return err
@@ -131,53 +155,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("generative-openai")[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			return &asString
-		}
-		var empty string
-		return &empty
-	}
-	return &defaultValue
+	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
+	return &asString
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-openai")[name]
-	if ok {
-		asFloat, ok := val.(float64)
-		if ok {
-			return &asFloat
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			return &asFloat
-		}
-		asInt, ok := val.(int)
-		if ok {
-			asFloat := float64(asInt)
-			return &asFloat
-		}
-		var wrongVal float64 = -1.0
-		return &wrongVal
-	}
-
-	if defaultValue != nil {
-		return defaultValue
-	}
-	return nil
+	var wrongVal float64 = -1.0
+	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) GetMaxTokensForModel(model string) float64 {
@@ -186,6 +170,10 @@ func (ic *classSettings) GetMaxTokensForModel(model string) float64 {
 
 func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
+}
+
+func (ic *classSettings) validateApiVersion(apiVersion string) bool {
+	return contains(availableApiVersions, apiVersion)
 }
 
 func (ic *classSettings) IsLegacy() bool {
@@ -202,6 +190,10 @@ func (ic *classSettings) MaxTokens() float64 {
 
 func (ic *classSettings) BaseURL() string {
 	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
+}
+
+func (ic *classSettings) ApiVersion() string {
+	return *ic.getStringProperty(apiVersionProperty, DefaultApiVersion)
 }
 
 func (ic *classSettings) Temperature() float64 {

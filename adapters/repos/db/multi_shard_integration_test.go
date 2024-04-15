@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -58,7 +59,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import all individually", func(t *testing.T) {
 		for _, obj := range data {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 		}
 	})
 
@@ -71,7 +72,7 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 	t.Run("import refs individually", func(t *testing.T) {
 		for _, obj := range refData {
-			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
 		}
 	})
 
@@ -100,7 +101,6 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 			batch[i] = objects.BatchObject{
 				OriginalIndex: i,
 				Object:        obj,
-				Vector:        obj.Vector,
 				UUID:          obj.ID,
 			}
 		}
@@ -126,7 +126,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 				Properties: map[string]interface{}{}, // empty so we remove the ref
 			}
 
-			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil))
+			require.Nil(t, repo.PutObject(context.Background(), withoutRef, withoutRef.Vector, nil, nil))
 		}
 
 		index := 0
@@ -279,7 +279,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 	repo, err := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -296,7 +296,10 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 		} else {
 			shardState = multiShardState()
 		}
-		schemaGetter := &fakeSchemaGetter{shardState: shardState}
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: shardState,
+		}
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
@@ -431,7 +434,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, 0, limit, nil)
+				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, "", 0, limit, nil)
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {
@@ -641,7 +644,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 
 func testNodesAPI(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
-		nodeStatues, err := repo.GetNodeStatus(context.Background(), "")
+		nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
 		require.Nil(t, err)
 		require.NotNil(t, nodeStatues)
 
@@ -665,10 +668,11 @@ func testNodesAPI(repo *DB) func(t *testing.T) {
 			}
 		}
 		assert.Equal(t, int64(3), testClassShardsCount)
-		assert.Equal(t, int64(20), testClassObjectsCount)
+		// a previous version of this test made assertions on object counts,
+		// however with object count becoming async, we can no longer make exact
+		// assertions here. See https://github.com/weaviate/weaviate/issues/4193
+		// for details.
 		assert.Equal(t, int64(3), testRefClassShardsCount)
-		assert.Equal(t, int64(0), testRefClassObjectsCount)
-		assert.Equal(t, int64(20), nodeStatus.Stats.ObjectCount)
 		assert.Equal(t, int64(6), nodeStatus.Stats.ShardCount)
 	}
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,13 +22,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/additional"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/additional/projector"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2vec-openai"
+const (
+	Name          = "text2vec-openai"
+	OpenAITimeout = 40 * time.Second
+)
 
 func New() *OpenAIModule {
 	return &OpenAIModule{}
@@ -45,15 +47,11 @@ type OpenAIModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
+	Object(ctx context.Context, obj *models.Object,
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	// TODO all of these should be moved out of here, gh-1470
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
+	ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, map[int]error)
 }
 
 type metaProvider interface {
@@ -111,15 +109,14 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, OpenAITimeout, m.logger)
 	m.metaProvider = client
 
 	return nil
 }
 
 func (m *OpenAIModule) initAdditionalPropertiesProvider() error {
-	projector := projector.New()
-	m.additionalPropertiesProvider = additional.New(projector)
+	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
@@ -129,10 +126,15 @@ func (m *OpenAIModule) RootHandler() http.Handler {
 }
 
 func (m *OpenAIModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+
+	return vecs, nil, errs
 }
 
 func (m *OpenAIModule) MetaInfo() (map[string]interface{}, error) {
@@ -146,8 +148,11 @@ func (m *OpenAIModule) AdditionalProperties() map[string]modulecapabilities.Addi
 func (m *OpenAIModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Texts(ctx, []string{input}, icheck)
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *OpenAIModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 // verify we implement the modules.Module interface

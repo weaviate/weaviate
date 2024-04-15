@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,12 +22,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
 )
 
 // TODO adjust or make configurable
@@ -35,18 +36,20 @@ const (
 	storeTimeout = 24 * time.Hour
 	metaTimeout  = 20 * time.Minute
 
-	// defaultChunkSize if size is not specified
-	defaultChunkSize = 1 << 27 // 128MB
+	// DefaultChunkSize if size is not specified
+	DefaultChunkSize = 1 << 27 // 128MB
 
 	// maxChunkSize is the upper bound on the chunk size
 	maxChunkSize = 1 << 29 // 512MB
 
-	//
+	// minChunkSize is the lower bound on the chunk size
 	minChunkSize = 1 << 21 // 2MB
 
-	// goPoolPercentage specifies maximal number of go routines which can be allocated
-	goPoolMaxPercentage     = 80
-	goPoolDefaultPercentage = 50
+	// maxCPUPercentage max CPU percentage can be consumed by the file writer
+	maxCPUPercentage = 80
+
+	// DefaultCPUPercentage default CPU percentage can be consumed by the file writer
+	DefaultCPUPercentage = 50
 )
 
 const (
@@ -182,7 +185,11 @@ func newUploader(sourcer Sourcer, backend nodeStore,
 	return &uploader{
 		sourcer, backend,
 		backupID,
-		newZipConfig(0, 50, defaultChunkSize),
+		newZipConfig(Compression{
+			Level:         DefaultCompression,
+			CPUPercentage: DefaultCPUPercentage,
+			ChunkSize:     DefaultChunkSize,
+		}),
 		setstatus,
 		l,
 	}
@@ -241,14 +248,18 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor) (err error) {
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), desc.Name)
+	classLabel := desc.Name
+	if monitoring.GetMetrics().Group {
+		classLabel = "n/a"
+	}
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), classLabel)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
 	defer func() {
 		// backups need to be released anyway
-		go u.sourcer.ReleaseBackup(context.Background(), id, desc.Name)
+		enterrors.GoWrapper(func() { u.sourcer.ReleaseBackup(context.Background(), id, desc.Name) }, u.log)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
@@ -271,7 +282,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	// jobs produces work for the processor
 	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
 		sendCh := make(chan *backup.ShardDescriptor)
-		go func() {
+		f := func() {
 			defer close(sendCh)
 			defer hasJobs.Store(false)
 
@@ -285,16 +296,17 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					return
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return sendCh
 	}
 
 	// processor
 	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
-		eg, ctx := errgroup.WithContext(ctx)
+		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
 		recvCh := make(chan chuckShards, nWorker)
-		go func() {
+		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
 				eg.Go(func() error {
@@ -316,7 +328,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 				})
 			}
 			err = eg.Wait()
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return recvCh
 	}
 
@@ -364,7 +377,7 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, reader); err != nil {
 			return err
@@ -388,10 +401,12 @@ type fileWriter struct {
 	movedFiles []string // files successfully moved to destination folder
 	compressed bool
 	GoPoolSize int
+	migrator   func(classPath string) error
+	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	backupID string, compressed bool,
+	compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -402,6 +417,7 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		movedFiles: make([]string, 0, 64),
 		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
+		logger:     logger,
 	}
 }
 
@@ -409,6 +425,8 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	fw.GoPoolSize = routinePoolSize(p)
 	return fw
 }
+
+func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (rollback func() error, err error) {
@@ -418,7 +436,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 	defer func() {
 		if err != nil {
-			if rerr := fw.rollBack(classTempDir); rerr != nil {
+			if rerr := fw.rollBack(); rerr != nil {
 				err = fmt.Errorf("%w: %v", err, rerr)
 			}
 		}
@@ -428,10 +446,18 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 	if err := fw.writeTempFiles(ctx, classTempDir, desc); err != nil {
 		return nil, fmt.Errorf("get files: %w", err)
 	}
+
+	if fw.migrator != nil {
+		if err := fw.migrator(classTempDir); err != nil {
+			return nil, fmt.Errorf("migrate from pre 1.23: %w", err)
+		}
+	}
+
 	if err := fw.moveAll(classTempDir); err != nil {
 		return nil, fmt.Errorf("move files to destination: %w", err)
 	}
-	return func() error { return fw.rollBack(classTempDir) }, nil
+
+	return func() error { return fw.rollBack() }, nil
 }
 
 // writeTempFiles writes class files into a temporary directory
@@ -448,12 +474,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 	defer cancel()
 
 	// no compression processed as before
-	eg, ctx := errgroup.WithContext(ctx)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
 	if !fw.compressed {
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) }, shard.Name)
 		}
 		return eg.Wait()
 	}
@@ -465,9 +491,9 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
 			uz, w := NewUnzip(classTempDir)
-			go func() {
+			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, w)
-			}()
+			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err
 		})
@@ -521,7 +547,7 @@ func (fw *fileWriter) moveAll(classTempDir string) (err error) {
 }
 
 // rollBack successfully written files
-func (fw *fileWriter) rollBack(classTempDir string) (err error) {
+func (fw *fileWriter) rollBack() (err error) {
 	// rollback successfully moved files
 	for _, fpath := range fw.movedFiles {
 		if rerr := os.RemoveAll(fpath); rerr != nil && err == nil {
@@ -537,9 +563,9 @@ func chunkKey(class string, id int32) string {
 
 func routinePoolSize(percentage int) int {
 	if percentage == 0 { // default value
-		percentage = goPoolDefaultPercentage
-	} else if percentage > goPoolMaxPercentage {
-		percentage = goPoolMaxPercentage
+		percentage = DefaultCPUPercentage
+	} else if percentage > maxCPUPercentage {
+		percentage = maxCPUPercentage
 	}
 	if x := (_NUMCPU * percentage) / 100; x > 0 {
 		return x

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -90,7 +90,7 @@ func (a *Aggregator) buildAllowList(ctx context.Context) (helpers.AllowList, err
 
 	if a.params.Filters != nil {
 		s := a.getSchema.GetSchemaSkipAuth()
-		allow, err = inverted.NewSearcher(a.logger, a.store, s, nil, a.propertyIds, a.classSearcher, a.deletedDocIDs, a.stopwords, a.shardVersion, a.isFallbackToSearchable, a.tenant, a.nestedCrossRefLimit).DocIDs(ctx, a.params.Filters, additional.Properties{}, a.params.ClassName)
+		allow, err = inverted.NewSearcher(a.logger, a.store, s, nil, a.propertyIds, a.classSearcher, a.deletedDocIDs, a.stopwords, a.shardVersion, a.isFallbackToSearchable, a.tenant, a.nestedCrossRefLimit, a.bitmapFactory).DocIDs(ctx, a.params.Filters, additional.Properties{}, a.params.ClassName)
 		if err != nil {
 			return nil, fmt.Errorf("retrieve doc IDs from searcher: %w", err)
 		}

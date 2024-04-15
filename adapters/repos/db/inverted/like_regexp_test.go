@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -92,6 +92,41 @@ func TestLikeRegexp(t *testing.T) {
 
 		run(t, tests)
 	})
+
+	t.Run("with special characters", func(t *testing.T) {
+		input := []byte("car)")
+		tests := []test{
+			{input: input, subject: []byte("car)"), shouldMatch: true},
+			{input: input, subject: []byte("car))"), shouldMatch: false},
+			{input: input, subject: []byte("care}}"), shouldMatch: false},
+			{input: input, subject: []byte("/s/up{e)rca\\r"), shouldMatch: false},
+		}
+
+		run(t, tests)
+	})
+
+	t.Run("with complex special characters", func(t *testing.T) {
+		input := []byte("this-/is(my complex).text!")
+		tests := []test{
+			{input: input, subject: []byte("this-/is(my complex).text!"), shouldMatch: true},
+			{input: input, subject: []byte("this-/is(my complex).text!))"), shouldMatch: false},
+			{input: input, subject: []byte("///this-/is(my complex).text!}}"), shouldMatch: false},
+		}
+
+		run(t, tests)
+	})
+
+	t.Run("with special characters and wildcard", func(t *testing.T) {
+		subject := []byte("I love this fast car) that is yellow")
+		tests := []test{
+			{input: []byte("*car)*"), subject: subject, shouldMatch: true},
+			{input: []byte("*car))*"), subject: subject, shouldMatch: false},
+			{input: []byte("*care}}*"), subject: subject, shouldMatch: false},
+			{input: []byte("*/s/up{e)rca\\r*"), subject: subject, shouldMatch: false},
+		}
+
+		run(t, tests)
+	})
 }
 
 func TestLikeRegexp_ForOptimizability(t *testing.T) {
@@ -121,6 +156,8 @@ func TestLikeRegexp_ForOptimizability(t *testing.T) {
 		{input: []byte("car?tak*?*er"), shouldBeOptimizable: true, expectedMin: []byte("car")},
 		{input: []byte("?car"), shouldBeOptimizable: false, expectedMin: []byte{}},
 		{input: []byte("*car"), shouldBeOptimizable: false, expectedMin: []byte{}},
+		{input: []byte("*ca}r"), shouldBeOptimizable: false, expectedMin: []byte{}},
+		{input: []byte("*car)"), shouldBeOptimizable: false, expectedMin: []byte{}},
 	}
 
 	run(t, tests)

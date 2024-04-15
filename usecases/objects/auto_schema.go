@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,9 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -48,16 +50,16 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 }
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object,
+	object *models.Object, allowCreateClass bool,
 ) error {
 	if m.config.Enabled {
-		return m.performAutoSchema(ctx, principal, object)
+		return m.performAutoSchema(ctx, principal, object, allowCreateClass)
 	}
 	return nil
 }
 
 func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object,
+	object *models.Object, allowCreateClass bool,
 ) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -76,7 +78,13 @@ func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *mo
 	if err != nil {
 		return err
 	}
-	properties := m.getProperties(object)
+	if schemaClass == nil && !allowCreateClass {
+		return fmt.Errorf("given class does not exist")
+	}
+	properties, err := m.getProperties(object)
+	if err != nil {
+		return err
+	}
 	if schemaClass == nil {
 		return m.createClass(ctx, principal, object.Class, properties)
 	}
@@ -153,23 +161,29 @@ func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.P
 	return nil
 }
 
-func (m *autoSchemaManager) getProperties(object *models.Object) []*models.Property {
+func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
 			now := time.Now()
-			dt := m.determineType(value, false)
+			dt, err := m.determineType(value, false)
+			if err != nil {
+				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
+			}
 
 			var nestedProperties []*models.NestedProperty
 			if len(dt) == 1 {
 				switch dt[0] {
 				case schema.DataTypeObject:
-					nestedProperties = m.determineNestedProperties(value.(map[string]interface{}), now)
+					nestedProperties, err = m.determineNestedProperties(value.(map[string]interface{}), now)
 				case schema.DataTypeObjectArray:
-					nestedProperties = m.determineNestedPropertiesOfArray(value.([]interface{}), now)
+					nestedProperties, err = m.determineNestedPropertiesOfArray(value.([]interface{}), now)
 				default:
 					// do nothing
 				}
+			}
+			if err != nil {
+				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
 			}
 
 			property := &models.Property{
@@ -181,7 +195,7 @@ func (m *autoSchemaManager) getProperties(object *models.Object) []*models.Prope
 			properties = append(properties, property)
 		}
 	}
-	return properties
+	return properties, nil
 }
 
 func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
@@ -192,74 +206,155 @@ func (m *autoSchemaManager) getDataTypes(dataTypes []schema.DataType) []string {
 	return dtypes
 }
 
-func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) []schema.DataType {
+func (m *autoSchemaManager) determineType(value interface{}, ofNestedProp bool) ([]schema.DataType, error) {
 	fallbackDataType := []schema.DataType{schema.DataTypeText}
+	fallbackArrayDataType := []schema.DataType{schema.DataTypeTextArray}
 
-	switch v := value.(type) {
+	switch typedValue := value.(type) {
 	case string:
-		_, err := time.Parse(time.RFC3339, v)
-		if err == nil {
-			return []schema.DataType{schema.DataType(m.config.DefaultDate)}
+		if _, err := time.Parse(time.RFC3339, typedValue); err == nil {
+			return []schema.DataType{schema.DataType(m.config.DefaultDate)}, nil
+		}
+		if _, err := uuid.Parse(typedValue); err == nil {
+			return []schema.DataType{schema.DataTypeUUID}, nil
 		}
 		if m.config.DefaultString != "" {
-			return []schema.DataType{schema.DataType(m.config.DefaultString)}
+			return []schema.DataType{schema.DataType(m.config.DefaultString)}, nil
 		}
-		return []schema.DataType{schema.DataTypeText}
+		return []schema.DataType{schema.DataTypeText}, nil
 	case json.Number:
-		return []schema.DataType{schema.DataType(m.config.DefaultNumber)}
+		return []schema.DataType{schema.DataType(m.config.DefaultNumber)}, nil
+	case float64:
+		return []schema.DataType{schema.DataTypeNumber}, nil
+	case int64:
+		return []schema.DataType{schema.DataTypeInt}, nil
 	case bool:
-		return []schema.DataType{schema.DataTypeBoolean}
+		return []schema.DataType{schema.DataTypeBoolean}, nil
 	case map[string]interface{}:
 		// nested properties does not support phone and geo data types
 		if !ofNestedProp {
-			if dt, ok := m.asGeoCoordinatesType(v); ok {
-				return dt
+			if dt, ok := m.asGeoCoordinatesType(typedValue); ok {
+				return dt, nil
 			}
-			if dt, ok := m.asPhoneNumber(v); ok {
-				return dt
+			if dt, ok := m.asPhoneNumber(typedValue); ok {
+				return dt, nil
 			}
 		}
-		return []schema.DataType{schema.DataTypeObject}
+		return []schema.DataType{schema.DataTypeObject}, nil
 	case []interface{}:
-		if len(v) > 0 {
-			dataType := []schema.DataType{}
-			for i := range v {
-				switch arrayVal := v[i].(type) {
-				case map[string]interface{}:
-					if ofNestedProp {
-						return []schema.DataType{schema.DataTypeObjectArray}
-					}
-					if dt, ok := m.asRef(arrayVal); ok {
-						dataType = append(dataType, dt)
-					} else {
-						return []schema.DataType{schema.DataTypeObjectArray}
-					}
-				case string:
-					_, err := time.Parse(time.RFC3339, arrayVal)
-					if err == nil {
-						return []schema.DataType{schema.DataTypeDateArray}
-					}
-					if schema.DataType(m.config.DefaultString) == schema.DataTypeString {
-						return []schema.DataType{schema.DataTypeStringArray}
-					}
-					return []schema.DataType{schema.DataTypeTextArray}
-				case json.Number:
-					if schema.DataType(m.config.DefaultNumber) == schema.DataTypeInt {
-						return []schema.DataType{schema.DataTypeIntArray}
-					}
-					return []schema.DataType{schema.DataTypeNumberArray}
-				case bool:
-					return []schema.DataType{schema.DataTypeBooleanArray}
-				}
-			}
-			if len(dataType) == 0 {
-				return fallbackDataType
-			}
-			return dataType
+		if len(typedValue) == 0 {
+			return fallbackArrayDataType, nil
 		}
-		return fallbackDataType
+
+		refDataTypes := []schema.DataType{}
+		var isRef bool
+		var determinedDataType schema.DataType
+
+		for i := range typedValue {
+			dataType, refDataType, err := m.determineArrayType(typedValue[i], ofNestedProp)
+			if err != nil {
+				return nil, fmt.Errorf("element [%d]: %w", i, err)
+			}
+			if i == 0 {
+				isRef = refDataType != ""
+				determinedDataType = dataType
+			}
+			if dataType != "" {
+				if isRef {
+					return nil, fmt.Errorf("element [%d]: mismatched data type - reference expected, got '%s'",
+						i, asSingleDataType(dataType))
+				}
+				if dataType != determinedDataType {
+					return nil, fmt.Errorf("element [%d]: mismatched data type - '%s' expected, got '%s'",
+						i, asSingleDataType(determinedDataType), asSingleDataType(dataType))
+				}
+			} else {
+				if !isRef {
+					return nil, fmt.Errorf("element [%d]: mismatched data type - '%s' expected, got reference",
+						i, asSingleDataType(determinedDataType))
+				}
+				refDataTypes = append(refDataTypes, refDataType)
+			}
+		}
+		if len(refDataTypes) > 0 {
+			return refDataTypes, nil
+		}
+		return []schema.DataType{determinedDataType}, nil
+	case nil:
+		return fallbackDataType, nil
 	default:
-		return fallbackDataType
+		allowed := []string{
+			schema.DataTypeText.String(),
+			schema.DataTypeNumber.String(),
+			schema.DataTypeInt.String(),
+			schema.DataTypeBoolean.String(),
+			schema.DataTypeDate.String(),
+			schema.DataTypeUUID.String(),
+			schema.DataTypeObject.String(),
+		}
+		if !ofNestedProp {
+			allowed = append(allowed, schema.DataTypePhoneNumber.String(), schema.DataTypeGeoCoordinates.String())
+		}
+		return nil, fmt.Errorf("unrecognized data type of value '%v' - one of '%s' expected",
+			typedValue, strings.Join(allowed, "', '"))
+	}
+}
+
+func asSingleDataType(arrayDataType schema.DataType) schema.DataType {
+	if dt, isArray := schema.IsArrayType(arrayDataType); isArray {
+		return dt
+	}
+	return arrayDataType
+}
+
+func (m *autoSchemaManager) determineArrayType(value interface{}, ofNestedProp bool,
+) (schema.DataType, schema.DataType, error) {
+	switch typedValue := value.(type) {
+	case string:
+		if _, err := time.Parse(time.RFC3339, typedValue); err == nil {
+			return schema.DataTypeDateArray, "", nil
+		}
+		if _, err := uuid.Parse(typedValue); err == nil {
+			return schema.DataTypeUUIDArray, "", nil
+		}
+		if schema.DataType(m.config.DefaultString) == schema.DataTypeString {
+			return schema.DataTypeStringArray, "", nil
+		}
+		return schema.DataTypeTextArray, "", nil
+	case json.Number:
+		if schema.DataType(m.config.DefaultNumber) == schema.DataTypeInt {
+			return schema.DataTypeIntArray, "", nil
+		}
+		return schema.DataTypeNumberArray, "", nil
+	case float64:
+		return schema.DataTypeNumberArray, "", nil
+	case int64:
+		return schema.DataTypeIntArray, "", nil
+	case bool:
+		return schema.DataTypeBooleanArray, "", nil
+	case map[string]interface{}:
+		if ofNestedProp {
+			return schema.DataTypeObjectArray, "", nil
+		}
+		if refDataType, ok := m.asRef(typedValue); ok {
+			return "", refDataType, nil
+		}
+		return schema.DataTypeObjectArray, "", nil
+	default:
+		allowed := []string{
+			schema.DataTypeText.String(),
+			schema.DataTypeNumber.String(),
+			schema.DataTypeInt.String(),
+			schema.DataTypeBoolean.String(),
+			schema.DataTypeDate.String(),
+			schema.DataTypeUUID.String(),
+			schema.DataTypeObject.String(),
+		}
+		if !ofNestedProp {
+			allowed = append(allowed, schema.DataTypeCRef.String())
+		}
+		return "", "", fmt.Errorf("unrecognized data type of value '%v' - one of '%s' expected",
+			typedValue, strings.Join(allowed, "', '"))
 	}
 }
 
@@ -306,46 +401,63 @@ func (m *autoSchemaManager) asRef(val map[string]interface{}) (schema.DataType, 
 	return "", false
 }
 
-func (m *autoSchemaManager) determineNestedProperties(values map[string]interface{}, now time.Time) []*models.NestedProperty {
+func (m *autoSchemaManager) determineNestedProperties(values map[string]interface{}, now time.Time,
+) ([]*models.NestedProperty, error) {
 	i := 0
 	nestedProperties := make([]*models.NestedProperty, len(values))
 	for name, value := range values {
-		nestedProperties[i] = m.determineNestedProperty(name, value, now)
+		np, err := m.determineNestedProperty(name, value, now)
+		if err != nil {
+			return nil, fmt.Errorf("nested property '%s': %w", name, err)
+		}
+		nestedProperties[i] = np
 		i++
 	}
-	return nestedProperties
+	return nestedProperties, nil
 }
 
-func (m *autoSchemaManager) determineNestedProperty(name string, value interface{}, now time.Time) *models.NestedProperty {
-	dt := m.determineType(value, true)
+func (m *autoSchemaManager) determineNestedProperty(name string, value interface{}, now time.Time,
+) (*models.NestedProperty, error) {
+	dt, err := m.determineType(value, true)
+	if err != nil {
+		return nil, err
+	}
 
 	var np []*models.NestedProperty
 	if len(dt) == 1 {
 		switch dt[0] {
 		case schema.DataTypeObject:
-			np = m.determineNestedProperties(value.(map[string]interface{}), now)
+			np, err = m.determineNestedProperties(value.(map[string]interface{}), now)
 		case schema.DataTypeObjectArray:
-			np = m.determineNestedPropertiesOfArray(value.([]interface{}), now)
+			np, err = m.determineNestedPropertiesOfArray(value.([]interface{}), now)
 		default:
 			// do nothing
 		}
 	}
+	if err != nil {
+		return nil, err
+	}
 
 	return &models.NestedProperty{
-		Name:             name,
-		DataType:         m.getDataTypes(dt),
-		Description:      "This nested property was generated by Weaviate's auto-schema feature on " + now.Format(time.ANSIC),
+		Name:     name,
+		DataType: m.getDataTypes(dt),
+		Description: "This nested property was generated by Weaviate's auto-schema feature on " +
+			now.Format(time.ANSIC),
 		NestedProperties: np,
-	}
+	}, nil
 }
 
-func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interface{}, now time.Time) []*models.NestedProperty {
+func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interface{}, now time.Time,
+) ([]*models.NestedProperty, error) {
 	if len(valArray) == 0 {
-		return []*models.NestedProperty{}
+		return []*models.NestedProperty{}, nil
 	}
-	nestedProperties := m.determineNestedProperties(valArray[0].(map[string]interface{}), now)
+	nestedProperties, err := m.determineNestedProperties(valArray[0].(map[string]interface{}), now)
+	if err != nil {
+		return nil, err
+	}
 	if len(valArray) == 1 {
-		return nestedProperties
+		return nestedProperties, nil
 	}
 
 	nestedPropertiesIndexMap := map[string]int{}
@@ -358,12 +470,19 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 		for name, value := range values {
 			index, ok := nestedPropertiesIndexMap[name]
 			if !ok {
+				np, err := m.determineNestedProperty(name, value, now)
+				if err != nil {
+					return nil, err
+				}
 				nestedPropertiesIndexMap[name] = len(nestedProperties)
-				nestedProperties = append(nestedProperties, m.determineNestedProperty(name, value, now))
+				nestedProperties = append(nestedProperties, np)
 			} else if _, isNested := schema.AsNested(nestedProperties[index].DataType); isNested {
+				np, err := m.determineNestedProperty(name, value, now)
+				if err != nil {
+					return nil, err
+				}
 				if mergedNestedProperties, merged := schema.MergeRecursivelyNestedProperties(
-					nestedProperties[index].NestedProperties,
-					m.determineNestedProperty(name, value, now).NestedProperties,
+					nestedProperties[index].NestedProperties, np.NestedProperties,
 				); merged {
 					nestedProperties[index].NestedProperties = mergedNestedProperties
 				}
@@ -371,5 +490,5 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 		}
 	}
 
-	return nestedProperties
+	return nestedProperties, nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -116,7 +116,7 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 

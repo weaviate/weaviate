@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,11 +14,12 @@ package db
 import (
 	"context"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
-	"golang.org/x/sync/errgroup"
 )
 
 func (s *Shard) initProperties(class *models.Class) error {
@@ -59,7 +60,7 @@ func (s *Shard) initProperties_old(class *models.Class) error {
 		return nil
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 	for _, prop := range class.Properties {
 		s.createPropertyIndex_old(context.TODO(), prop, eg)
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -67,7 +67,7 @@ func (s *schemaCache) ShardOwner(class, shard string) (string, error) {
 	return x.BelongsToNodes[0], nil
 }
 
-// ShardOwner returns the node owner of the specified shard
+// ShardReplicas returns the nodes owning shard in class
 func (s *schemaCache) ShardReplicas(class, shard string) ([]string, error) {
 	s.RLock()
 	defer s.RUnlock()

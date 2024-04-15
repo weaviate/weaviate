@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -46,9 +46,12 @@ func TestRestartJourney(t *testing.T) {
 		},
 	}
 	shardState := singleShardState()
-	schemaGetter := &fakeSchemaGetter{shardState: shardState}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: shardState,
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -78,7 +81,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "the band is just fantastic that is really what I think",
 			},
-		}, []float32{0.1, 0.2, 0.3}, nil)
+		}, []float32{0.1, 0.2, 0.3}, nil, nil)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -87,7 +90,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "oh by the way, which one's pink?",
 			},
-		}, []float32{-0.1, 0.2, -0.3}, nil)
+		}, []float32{-0.1, 0.2, -0.3}, nil, nil)
 		require.Nil(t, err)
 	})
 
@@ -164,7 +167,7 @@ func TestRestartJourney(t *testing.T) {
 		repo = nil
 
 		newRepo, err = New(logger, Config{
-			MemtablesFlushIdleAfter:   60,
+			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,

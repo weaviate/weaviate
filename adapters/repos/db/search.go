@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
@@ -67,14 +69,21 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		return nil, nil, errors.Wrapf(err, "invalid pagination params")
 	}
 
-	res, dist, err := idx.objectSearch(ctx, totalLimit,
+	// if this is reference search and tenant is given (as origin class is MT)
+	// but searched class is non-MT, then skip tenant to pass validation
+	tenant := params.Tenant
+	if !idx.partitioningEnabled && params.IsRefOrigin {
+		tenant = ""
+	}
+
+	res, scores, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.Pagination.Autocut)
+		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	return res, dist, nil
+	return res, scores, nil
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -82,13 +91,14 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
-	res, _, err := db.SparseObjectSearch(ctx, params)
+	res, scores, err := db.SparseObjectSearch(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
+	res, scores = db.getStoreObjectsWithScores(res, scores, params.Pagination)
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties, params.Tenant),
+		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
@@ -110,7 +120,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	}
 
 	targetDist := extractDistanceFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector,
+	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, params.TargetVector,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
 		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
 	if err != nil {
@@ -143,8 +153,8 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 // Class VectorSearch method fit this need. Later on, other use cases presented the need
 // for the raw storage objects, such as hybrid search.
 func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []float32,
-	offset int, limit int, filters *filters.LocalFilter, addl additional.Properties,
-	tenant string,
+	targetVector string, offset int, limit int, filters *filters.LocalFilter,
+	addl additional.Properties, tenant string,
 ) ([]*storobj.Object, []float32, error) {
 	totalLimit := offset + limit
 
@@ -154,7 +164,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 	}
 
 	// TODO: groupBy think of this
-	objs, dist, err := index.objectVectorSearch(ctx, vector, 0,
+	objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector, 0,
 		totalLimit, filters, nil, nil, addl, nil, tenant)
 	if err != nil {
 		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
@@ -163,7 +173,7 @@ func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []floa
 	return objs, dist, nil
 }
 
-func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offset, limit int,
+func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	var found search.Results
@@ -176,10 +186,11 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offs
 	db.indexLock.RLock()
 	for _, index := range db.indices {
 		wg.Add(1)
-		go func(index *Index, wg *sync.WaitGroup) {
+		index := index
+		f := func() {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, vector,
+			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
 				0, totalLimit, filters, nil, nil,
 				additional.Properties{}, nil, "")
 			if err != nil {
@@ -191,7 +202,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, offs
 			mutex.Lock()
 			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
 			mutex.Unlock()
-		}(index, wg)
+		}
+		enterrors.GoWrapper(f, index.logger)
 	}
 	db.indexLock.RUnlock()
 
@@ -397,6 +409,14 @@ func (db *DB) getStoreObjects(res []*storobj.Object, pagination *filters.Paginat
 		return nil
 	}
 	return res[offset:limit]
+}
+
+func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32, pagination *filters.Pagination) ([]*storobj.Object, []float32) {
+	offset, limit := db.getOffsetLimit(len(res), pagination.Offset, pagination.Limit)
+	if offset == 0 && limit == 0 {
+		return nil, nil
+	}
+	return res[offset:limit], scores[offset:limit]
 }
 
 func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {

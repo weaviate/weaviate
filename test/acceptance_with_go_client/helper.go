@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,9 @@ var (
 func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []string {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Data)
+	for _, err := range resp.Errors {
+		t.Logf("GetIds error: %v", err)
+	}
 	require.Empty(t, resp.Errors)
 
 	classMap, ok := resp.Data["Get"].(map[string]interface{})
@@ -46,4 +49,53 @@ func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []stri
 	}
 
 	return ids
+}
+
+func GetVectors(t *testing.T,
+	resp *models.GraphQLResponse,
+	className string,
+	withCertainty bool,
+	targetVectors ...string,
+) map[string][]float32 {
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Data)
+	require.Empty(t, resp.Errors)
+
+	classMap, ok := resp.Data["Get"].(map[string]interface{})
+	require.True(t, ok)
+
+	class, ok := classMap[className].([]interface{})
+	require.True(t, ok)
+
+	targetVectorsMap := make(map[string][]float32)
+	for i := range class {
+		resultMap, ok := class[i].(map[string]interface{})
+		require.True(t, ok)
+
+		additional, ok := resultMap["_additional"].(map[string]interface{})
+		require.True(t, ok)
+
+		if withCertainty {
+			certainty, ok := additional["certainty"].(float64)
+			require.True(t, ok)
+			require.True(t, certainty >= 0)
+		}
+
+		vectors, ok := additional["vectors"].(map[string]interface{})
+		require.True(t, ok)
+
+		for _, targetVector := range targetVectors {
+			vector, ok := vectors[targetVector].([]interface{})
+			require.True(t, ok)
+
+			vec := make([]float32, len(vector))
+			for i := range vector {
+				vec[i] = float32(vector[i].(float64))
+			}
+
+			targetVectorsMap[targetVector] = vec
+		}
+	}
+
+	return targetVectorsMap
 }

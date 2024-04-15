@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
 func Test_UserConfig(t *testing.T) {
@@ -37,14 +38,14 @@ func Test_UserConfig(t *testing.T) {
 				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
 				MaxConnections:         DefaultMaxConnections,
 				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
 				EF:                     DefaultEF,
 				Skip:                   DefaultSkip,
 				FlatSearchCutoff:       DefaultFlatSearchCutoff,
 				DynamicEFMin:           DefaultDynamicEFMin,
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -68,13 +69,13 @@ func Test_UserConfig(t *testing.T) {
 				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
 				MaxConnections:         100,
 				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  DefaultVectorCacheMaxObjects,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
 				EF:                     DefaultEF,
 				FlatSearchCutoff:       DefaultFlatSearchCutoff,
 				DynamicEFMin:           DefaultDynamicEFMin,
 				DynamicEFMax:           DefaultDynamicEFMax,
 				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -236,7 +237,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -285,7 +286,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:       true,
 					Segments:      64,
@@ -318,7 +319,7 @@ func Test_UserConfig(t *testing.T) {
 					"centroids":      float64(DefaultPQCentroids),
 					"trainingLimit":  float64(DefaultPQTrainingLimit),
 					"encoder": map[string]interface{}{
-						"type": "kmeans",
+						"type": PQEncoderTypeKMeans,
 					},
 				},
 			},
@@ -332,7 +333,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:       true,
 					Segments:      64,
@@ -398,7 +399,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMin:           17,
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
-				Distance:               DefaultDistanceMetric,
+				Distance:               common.DefaultDistanceMetric,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -447,6 +448,64 @@ func Test_UserConfig(t *testing.T) {
 			expectErr: true,
 			expectErrMsg: "efConstruction must be a positive integer " +
 				"with a minimum of 4",
+		},
+		{
+			name: "with bq",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(11),
+				"maxConnections":         float64(12),
+				"efConstruction":         float64(13),
+				"vectorCacheMaxObjects":  float64(14),
+				"ef":                     float64(15),
+				"flatSearchCutoff":       float64(16),
+				"dynamicEfMin":           float64(17),
+				"dynamicEfMax":           float64(18),
+				"dynamicEfFactor":        float64(19),
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+				EF:                     15,
+				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:       false,
+					Segments:      0,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				BQ: BQConfig{
+					Enabled: true,
+				},
+			},
+		},
+		{
+			name: "with invalid compression",
+			input: map[string]interface{}{
+				"pq": map[string]interface{}{
+					"enabled": true,
+					"encoder": map[string]interface{}{
+						"type": "kmeans",
+					},
+				},
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hnsw config: two compression methods enabled: PQ and BQ",
 		},
 	}
 

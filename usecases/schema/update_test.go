@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -380,12 +380,252 @@ func TestClassUpdates(t *testing.T) {
 	})
 }
 
+func TestClassUpdate_ValidateVectorIndexConfigs(t *testing.T) {
+	type testCase struct {
+		name           string
+		initial        *models.Class
+		updated        *models.Class
+		expectedErrMsg string
+	}
+
+	createClass := func(cfg map[string]models.VectorConfig) *models.Class {
+		return &models.Class{
+			Class:        "TargetVectors",
+			VectorConfig: cfg,
+		}
+	}
+
+	vcFlatContextionary := models.VectorConfig{
+		VectorIndexType: "flat",
+		Vectorizer: map[string]interface{}{
+			"text2vec-contextionary": "some-settings",
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"setting-flat": "value-flat",
+		},
+	}
+	vcHnswContextionary := models.VectorConfig{
+		VectorIndexType: "hnsw",
+		Vectorizer: map[string]interface{}{
+			"text2vec-contextionary": "some-settings",
+		},
+		VectorIndexConfig: map[string]interface{}{
+			"setting-hnsw": "value-hnsw",
+		},
+	}
+
+	_ = vcFlatContextionary
+	_ = vcHnswContextionary
+
+	testCases := []testCase{
+		{
+			name:           "same settings with nil vectors config",
+			initial:        createClass(nil),
+			updated:        createClass(nil),
+			expectedErrMsg: "",
+		},
+		{
+			name:           "same settings with nil+empty vectors config",
+			initial:        createClass(nil),
+			updated:        createClass(map[string]models.VectorConfig{}),
+			expectedErrMsg: "",
+		},
+		{
+			name:           "same settings with empty+nil vectors config",
+			initial:        createClass(map[string]models.VectorConfig{}),
+			updated:        createClass(nil),
+			expectedErrMsg: "",
+		},
+		{
+			name:           "same settings with empty vectors config",
+			initial:        createClass(map[string]models.VectorConfig{}),
+			updated:        createClass(map[string]models.VectorConfig{}),
+			expectedErrMsg: "",
+		},
+		{
+			name: "same settings with single vector",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector": vcFlatContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector": vcFlatContextionary,
+			}),
+			expectedErrMsg: "",
+		},
+		{
+			name: "same settings with multi vectors",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+				"vector2": vcHnswContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector2": vcHnswContextionary,
+				"vector1": vcFlatContextionary,
+			}),
+			expectedErrMsg: "",
+		},
+		{
+			name:    "no initial vectors",
+			initial: createClass(nil),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector2": vcHnswContextionary,
+				"vector1": vcFlatContextionary,
+			}),
+			expectedErrMsg: "additional configs for vectors",
+		},
+		{
+			name: "no updated vectors",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+				"vector2": vcHnswContextionary,
+			}),
+			updated:        createClass(nil),
+			expectedErrMsg: "missing configs for vectors",
+		},
+		{
+			name: "more updated vectors",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector2": vcHnswContextionary,
+				"vector1": vcFlatContextionary,
+			}),
+			expectedErrMsg: "additional config for vector \"vector2\"",
+		},
+		{
+			name: "more initial vectors",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+				"vector2": vcHnswContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+			}),
+			expectedErrMsg: "missing config for vector \"vector2\"",
+		},
+		{
+			name: "index type changed",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+				"vector2": vcHnswContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+				"vector2": vcFlatContextionary,
+			}),
+			expectedErrMsg: "vector index type of vector \"vector2\" is immutable: attempted change from \"hnsw\" to \"flat\"",
+		},
+		{
+			name: "vectorizer changed",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector1": {
+					VectorIndexType: "flat",
+					Vectorizer: map[string]interface{}{
+						"not-contextionary": "some-settings",
+					},
+				},
+			}),
+			expectedErrMsg: "vectorizer of vector \"vector1\" is immutable: attempted change from \"text2vec-contextionary\" to \"not-contextionary\"",
+		},
+		{
+			name: "vectorizer config not map",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector1": {
+					VectorIndexType: "flat",
+					Vectorizer:      "not-map",
+				},
+			}),
+			expectedErrMsg: "invalid vectorizer config for vector \"vector1\"",
+		},
+		{
+			name: "vectorizer config multiple keys",
+			initial: createClass(map[string]models.VectorConfig{
+				"vector1": vcFlatContextionary,
+			}),
+			updated: createClass(map[string]models.VectorConfig{
+				"vector1": {
+					VectorIndexType: "flat",
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": "some-settings",
+						"additional-key":         "value",
+					},
+				},
+			}),
+			expectedErrMsg: "invalid vectorizer config for vector \"vector1\"",
+		},
+	}
+
+	t.Run("validation only", func(t *testing.T) {
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := validateVectorConfigsParityAndImmutables(tc.initial, tc.updated)
+
+				if tc.expectedErrMsg == "" {
+					assert.NoError(t, err)
+				} else {
+					assert.ErrorContains(t, err, tc.expectedErrMsg)
+				}
+			})
+		}
+	})
+
+	t.Run("full update", func(t *testing.T) {
+		ctx := context.Background()
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				sm := newSchemaManager()
+				m := &configMigrator{}
+				sm.migrator = m
+
+				err := sm.AddClass(ctx, nil, tc.initial)
+				require.NoError(t, err)
+
+				err = sm.UpdateClass(ctx, nil, tc.updated.Class, tc.updated)
+
+				if tc.expectedErrMsg == "" {
+					assert.NoError(t, err)
+				} else {
+					assert.ErrorContains(t, err, tc.expectedErrMsg)
+				}
+
+				// migrator's validation and update are called only for configured target vectors
+				if tc.expectedErrMsg == "" && len(tc.updated.VectorConfig) > 0 {
+					cfgs := map[string]schema.VectorIndexConfig{}
+					for vecName, vecCfg := range tc.updated.VectorConfig {
+						cfgs[vecName] = vecCfg.VectorIndexConfig.(schema.VectorIndexConfig)
+					}
+
+					assert.True(t, m.vectorConfigsUpdateCalled)
+					assert.Equal(t, cfgs, m.vectorConfigsValidateCalledWith)
+					assert.Equal(t, cfgs, m.vectorConfigsUpdateCalledWith)
+				} else {
+					assert.False(t, m.vectorConfigsUpdateCalled)
+					assert.Nil(t, m.vectorConfigsValidateCalledWith)
+					assert.Nil(t, m.vectorConfigsUpdateCalledWith)
+				}
+			})
+		}
+	})
+}
+
 type configMigrator struct {
 	NilMigrator
-	vectorConfigValidationError    error
-	vectorConfigValidateCalledWith schema.VectorIndexConfig
-	vectorConfigUpdateCalled       bool
-	vectorConfigUpdateCalledWith   schema.VectorIndexConfig
+	vectorConfigValidationError     error
+	vectorConfigValidateCalledWith  schema.VectorIndexConfig
+	vectorConfigUpdateCalled        bool
+	vectorConfigUpdateCalledWith    schema.VectorIndexConfig
+	vectorConfigsValidationError    error
+	vectorConfigsValidateCalledWith map[string]schema.VectorIndexConfig
+	vectorConfigsUpdateCalled       bool
+	vectorConfigsUpdateCalledWith   map[string]schema.VectorIndexConfig
 }
 
 func (m *configMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
@@ -400,5 +640,20 @@ func (m *configMigrator) UpdateVectorIndexConfig(ctx context.Context,
 ) error {
 	m.vectorConfigUpdateCalledWith = updated
 	m.vectorConfigUpdateCalled = true
+	return nil
+}
+
+func (m *configMigrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
+	old, updated map[string]schema.VectorIndexConfig,
+) error {
+	m.vectorConfigsValidateCalledWith = updated
+	return m.vectorConfigsValidationError
+}
+
+func (m *configMigrator) UpdateVectorIndexConfigs(ctx context.Context,
+	className string, updated map[string]schema.VectorIndexConfig,
+) error {
+	m.vectorConfigsUpdateCalledWith = updated
+	m.vectorConfigsUpdateCalled = true
 	return nil
 }

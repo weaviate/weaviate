@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,8 @@ import (
 // SchemaObjectsShardsGetURL generates an URL for the schema objects shards get operation
 type SchemaObjectsShardsGetURL struct {
 	ClassName string
+
+	Tenant *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -65,6 +67,18 @@ func (o *SchemaObjectsShardsGetURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var tenantQ string
+	if o.Tenant != nil {
+		tenantQ = *o.Tenant
+	}
+	if tenantQ != "" {
+		qs.Set("tenant", tenantQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

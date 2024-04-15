@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -418,7 +418,7 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, limit int, filters *filters.LocalFilter,
+	shardName string, vector []float32, targetVector string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
@@ -447,16 +447,22 @@ func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) FindDocIDs(ctx context.Context, hostName, indexName, shardName string,
+func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
 	filters *filters.LocalFilter,
-) ([]uint64, error) {
+) ([]strfmt.UUID, error) {
 	return nil, nil
 }
 
 func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) objects.BatchSimpleObjects {
 	return nil
+}
+
+func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
+	hostName, indexName, shardName string,
+) (int64, error) {
+	return 0, nil
 }
 
 func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
@@ -485,7 +491,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string, className string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
@@ -516,7 +522,7 @@ func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, sh
 }
 
 func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }

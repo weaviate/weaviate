@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -313,7 +313,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		// first
 		fs.selector.On("Backupable", ctx, req1.Include).Return(nil)
-		fs.selector.On("Shards", ctx, cls).Return([]string{node})
+		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
 
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
@@ -383,7 +383,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.selector.On("Backupable", ctx, req.Include).Return(nil)
-		fs.selector.On("Shards", ctx, cls).Return([]string{node})
+		fs.selector.On("Shards", ctx, cls).Return([]string{node}, nil)
 
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,12 +53,15 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			IndexSearchable: &vFalse,
 		}},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
@@ -93,7 +96,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil)
 
 		assert.Nil(t, err)
 	})

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
 )
@@ -136,7 +138,16 @@ func (c *cycleCallbackGroup) cycleCallbackSequential(shouldAbort ShouldAbortCall
 		func() {
 			// cancel called in recover, regardless of panic occurred or not
 			defer c.recover(meta.customId, cancel)
-			executed := meta.cycleCallback(shouldAbort)
+			executed := meta.cycleCallback(func() bool {
+				if shouldAbort() {
+					return true
+				}
+
+				c.Lock()
+				defer c.Unlock()
+
+				return meta.shouldAbort
+			})
 			anyExecuted = executed || anyExecuted
 
 			if meta.intervals != nil {
@@ -161,7 +172,7 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 
 	i := 0
 	for r := 0; r < routinesLimit; r++ {
-		go func() {
+		f := func() {
 			for callbackId := range ch {
 				if shouldAbort() {
 					// keep reading from channel until it is closed
@@ -190,7 +201,17 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 				func() {
 					// cancel called in recover, regardless of panic occurred or not
 					defer c.recover(meta.customId, cancel)
-					executed := meta.cycleCallback(shouldAbort)
+					executed := meta.cycleCallback(func() bool {
+						if shouldAbort() {
+							return true
+						}
+
+						c.Lock()
+						defer c.Unlock()
+
+						return meta.shouldAbort
+					})
+
 					if executed {
 						lock.Lock()
 						anyExecuted = true
@@ -206,7 +227,8 @@ func (c *cycleCallbackGroup) cycleCallbackParallel(shouldAbort ShouldAbortCallba
 				}()
 			}
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, c.logger)
 	}
 
 	for {
@@ -253,8 +275,8 @@ func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.Can
 }
 
 func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint32,
-	onNotFound func(callbackId uint32) error,
-	onFound func(callbackId uint32, meta *cycleCallbackMeta) error,
+	onMetaNotFound func(callbackId uint32) error,
+	onMetaFound func(callbackId uint32, meta *cycleCallbackMeta, running bool) error,
 ) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -265,15 +287,20 @@ func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint
 		c.Lock()
 		meta, ok := c.callbacks[callbackId]
 		if !ok {
-			err := onNotFound(callbackId)
+			err := onMetaNotFound(callbackId)
 			c.Unlock()
 			return err
 		}
 		runningCtx := meta.runningCtx
-		if runningCtx == nil || runningCtx.Err() != nil {
-			err := onFound(callbackId, meta)
+		running := runningCtx != nil && runningCtx.Err() == nil
+
+		if err := onMetaFound(callbackId, meta, running); err != nil {
 			c.Unlock()
 			return err
+		}
+		if !running {
+			c.Unlock()
+			return nil
 		}
 		c.Unlock()
 
@@ -302,8 +329,12 @@ func (c *cycleCallbackGroup) unregister(ctx context.Context, callbackId uint32, 
 		func(callbackId uint32) error {
 			return nil
 		},
-		func(callbackId uint32, meta *cycleCallbackMeta) error {
-			delete(c.callbacks, callbackId)
+		func(callbackId uint32, meta *cycleCallbackMeta, running bool) error {
+			meta.shouldAbort = true
+			if !running {
+				meta.active = false
+				delete(c.callbacks, callbackId)
+			}
 			return nil
 		},
 	)
@@ -315,8 +346,11 @@ func (c *cycleCallbackGroup) deactivate(ctx context.Context, callbackId uint32, 
 		func(callbackId uint32) error {
 			return ErrorCallbackNotFound
 		},
-		func(callbackId uint32, meta *cycleCallbackMeta) error {
-			meta.active = false
+		func(callbackId uint32, meta *cycleCallbackMeta, running bool) error {
+			meta.shouldAbort = true
+			if !running {
+				meta.active = false
+			}
 			return nil
 		},
 	)
@@ -332,6 +366,7 @@ func (c *cycleCallbackGroup) activate(callbackId uint32, callbackCustomId string
 		return errorActivateCallback(callbackCustomId, c.customId, ErrorCallbackNotFound)
 	}
 
+	meta.shouldAbort = false
 	meta.active = true
 	return nil
 }
@@ -356,6 +391,8 @@ type cycleCallbackMeta struct {
 	runningCtx context.Context
 	started    time.Time
 	intervals  CycleIntervals
+	// true if deactivate or unregister were requested to abort callback when running
+	shouldAbort bool
 }
 
 type cycleCallbackGroupNoop struct{}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,139 +13,78 @@ package schema
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidateOKClassName(t *testing.T) {
-	_, err := ValidateClassName("FooBar")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("FooBar2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("Foo_______bar__with_numbers___1234567890_and_2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("C_123456___foo_bar_2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("NormalClassNameWithNumber1")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("Normal__Class__Name__With__Number__1")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("CClassName")
-	if err != nil {
-		t.Fail()
+	for _, name := range []string{
+		"A",
+		"FooBar",
+		"FooBar2",
+		"Foo_______bar__with_numbers___1234567890_and_2",
+		"C_123456___foo_bar_2",
+		"NormalClassNameWithNumber1",
+		"Normal__Class__Name__With__Number__1",
+		"CClassName",
+		"ThisClassNameHasExactly255Characters_MaximumAllowed____________________qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidateClassName(name)
+			assert.NoError(t, err)
+		})
 	}
 }
 
 func TestFailValidateBadClassName(t *testing.T) {
-	_, err := ValidateClassName("Foo Bar")
-	if err == nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("foo")
-	if err == nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("fooBar")
-	if err == nil {
-		t.Fail()
-	}
-
-	_, err = ValidateClassName("_foo")
-	if err == nil {
-		t.Fail()
+	for _, name := range []string{
+		"",
+		"Foo Bar",
+		"foo",
+		"fooBar",
+		"_foo",
+		"ThisClassNameHasMoreThan255Characters_MaximumAllowed____________________qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidateClassName(name)
+			assert.Error(t, err)
+		})
 	}
 }
 
 func TestValidateOKPropertyName(t *testing.T) {
-	// valid proper names
-	_, err := ValidatePropertyName("fooBar")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("fooBar2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("_fooBar2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("intField")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("hasAction")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("_foo_bar_2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("______foo_bar_2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("___123456___foo_bar_2")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("a_very_Long_property_Name__22_with_numbers_9")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("a_very_Long_property_Name__22_with_numbers_9880888800888800008")
-	if err != nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("FooBar")
-	if err != nil {
-		t.Fail()
+	for _, name := range []string{
+		"fooBar",
+		"fooBar2",
+		"_fooBar2",
+		"intField",
+		"hasAction",
+		"_foo_bar_2",
+		"______foo_bar_2",
+		"___123456___foo_bar_2",
+		"a_very_Long_property_Name__22_with_numbers_9",
+		"a_very_Long_property_Name__22_with_numbers_9880888800888800008",
+		"FooBar",
+		"ThisPropertyNameHasExactly231Characters_MaximumAllowed______________________________qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidatePropertyName(name)
+			assert.NoError(t, err)
+		})
 	}
 }
 
 func TestFailValidateBadPropertyName(t *testing.T) {
-	_, err := ValidatePropertyName("foo Bar")
-	if err == nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("a_very_Long_property_Name__22_with-dash_9")
-	if err == nil {
-		t.Fail()
-	}
-
-	_, err = ValidatePropertyName("1_FooBar")
-	if err == nil {
-		t.Fail()
+	for _, name := range []string{
+		"foo Bar",
+		"a_very_Long_property_Name__22_with-dash_9",
+		"1_FooBar",
+		"ThisPropertyNameHasMoreThan231Characters_MaximumAllowed______________________________qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890_qwertyuiopasdfghjklzxcvbnm1234567890",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidatePropertyName(name)
+			assert.Error(t, err)
+		})
 	}
 }
 

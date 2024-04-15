@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,11 @@
 package hnsw
 
 import (
+	"os"
 	"sync/atomic"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -95,52 +99,55 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
 
-	if !parsed.PQ.Enabled {
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled {
 		callback()
 		return nil
 	}
 
-	// compression got enabled in this update
-	if h.compressedVectorsCache == (*compressedShardedLockCache)(nil) {
-		h.compressedVectorsCache = newCompressedShardedLockCache(h.getCompressedVectorForID, parsed.VectorCacheMaxObjects, h.logger)
-	} else {
-		if h.compressed.Load() {
-			h.compressedVectorsCache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
-		} else {
-			h.cache.updateMaxSize(int64(parsed.VectorCacheMaxObjects))
-		}
+	h.pqConfig = parsed.PQ
+	if asyncEnabled() {
+		callback()
+		return nil
 	}
 
-	// ToDo: check atomic operation
 	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
-		h.turnOnCompression(parsed, callback)
+		return h.TurnOnCompression(callback)
 	} else {
-		// without a compression we need to fire the callback right away
+		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
 		callback()
+		return nil
 	}
-
-	return nil
 }
 
-func (h *hnsw) turnOnCompression(cfg ent.UserConfig, callback func()) error {
+func asyncEnabled() bool {
+	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
+}
+
+func (h *hnsw) TurnOnCompression(callback func()) error {
 	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 
-	err := ent.ValidatePQConfig(cfg.PQ)
+	err := ent.ValidatePQConfig(h.pqConfig)
 	if err != nil {
 		callback()
 		return err
 	}
 
-	go h.compressThenCallback(cfg, callback)
+	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }
 
-func (h *hnsw) compressThenCallback(cfg ent.UserConfig, callback func()) {
+func (h *hnsw) compressThenCallback(callback func()) {
 	defer callback()
 
-	if err := h.Compress(cfg.PQ); err != nil {
+	uc := ent.UserConfig{
+		PQ: h.pqConfig,
+		BQ: ent.BQConfig{
+			Enabled: !h.pqConfig.Enabled,
+		},
+	}
+	if err := h.compress(uc); err != nil {
 		h.logger.Error(err)
 		return
 	}

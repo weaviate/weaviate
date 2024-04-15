@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -91,10 +91,11 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Classes: classes,
+		Method:      OpCreate,
+		ID:          req.ID,
+		Backend:     req.Backend,
+		Classes:     classes,
+		Compression: req.Compression,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -140,7 +141,14 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Path:    store.HomeDir(),
 		Classes: meta.Classes(),
 	}
-	err = s.restorer.Restore(ctx, store, req.Backend, meta)
+
+	rReq := Request{
+		Method:      OpRestore,
+		ID:          req.ID,
+		Backend:     req.Backend,
+		Compression: req.Compression,
+	}
+	err = s.restorer.Restore(ctx, store, &rReq, meta)
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
@@ -261,7 +269,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
-			return nil, fmt.Errorf("%w: %q", errMetaNotFound, destPath)
+			return nil, fmt.Errorf("backup id %q does not exist: %v: %w", req.ID, notFoundErr, errMetaNotFound)
 		}
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
@@ -289,6 +297,10 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
+	}
+	if len(req.NodeMapping) > 0 {
+		meta.NodeMapping = req.NodeMapping
+		meta.ApplyNodeMapping()
 	}
 	return meta, nil
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,10 +13,8 @@ package inverted
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -54,12 +52,17 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.Bucke
 func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.BucketInterface, limit int, pv *propValuePair) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
-	var readFn RoaringSetReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
+	var readFn ReadFn = func(k []byte, docIDs *sroar.Bitmap) (bool, error) {
 		if isEmpty {
 			out.DocIDs = docIDs
 			isEmpty = false
 		} else {
 			out.DocIDs.Or(docIDs)
+		}
+
+		// NotEqual requires the full set of potentially existing doc ids
+		if pv.operator == filters.OperatorNotEqual {
+			return true, nil
 		}
 
 		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
@@ -68,9 +71,9 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 		return true, nil
 	}
 
-	rr := NewRowReaderRoaringSet(b, pv.Value(), pv.operator, false)
+	rr := NewRowReaderRoaringSet(b, pv.Value(), pv.operator, false, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
-		return out, errors.Wrap(err, "read row")
+		return out, fmt.Errorf("read row: %w", err)
 	}
 
 	if isEmpty {
@@ -79,11 +82,20 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int, pv *propValuePair) (docBitmap, error) {
-	out := newDocBitmap()
-	var readFn ReadFn = func(k []byte, ids [][]byte) (bool, error) {
-		for _, asBytes := range ids {
-			out.DocIDs.Set(binary.LittleEndian.Uint64(asBytes))
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b *lsmkv.Bucket, limit int, pv *propValuePair) (docBitmap, error) {
+	out := newUninitializedDocBitmap()
+	isEmpty := true
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+		if isEmpty {
+			out.docIDs = ids
+			isEmpty = false
+		} else {
+			out.docIDs.Or(ids)
+		}
+
+		// NotEqual requires the full set of potentially existing doc ids
+		if pv.operator == filters.OperatorNotEqual {
+			return true, nil
 		}
 
 		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
@@ -92,25 +104,31 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-	rr := NewRowReader(b, pv.Value(), pv.operator, false)
+	rr := NewRowReader(b, pv.Value(), pv.operator, false, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
-		return out, errors.Wrap(err, "read row")
+		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	if isEmpty {
+		return newDocBitmap(), nil
+	}
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int, pv *propValuePair) (docBitmap, error) {
-	out := newDocBitmap()
-	var readFn ReadFnFrequency = func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
-		for _, pair := range pairs {
-			// this entry has a frequency, but that's only used for bm25, not for
-			// pure filtering, so we can ignore it here
-			if s.shardVersion < 2 {
-				out.DocIDs.Set(binary.LittleEndian.Uint64(pair.Key))
-			} else {
-				out.DocIDs.Set(binary.BigEndian.Uint64(pair.Key))
-			}
+func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket, property []byte, limit int, pv *propValuePair) (docBitmap, error) {
+	out := newUninitializedDocBitmap()
+	isEmpty := true
+	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
+		if isEmpty {
+			out.docIDs = ids
+			isEmpty = false
+		} else {
+			out.docIDs.Or(ids)
+		}
+
+		// NotEqual requires the full set of potentially existing doc ids
+		if pv.operator == filters.OperatorNotEqual {
+			return true, nil
 		}
 
 		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
@@ -119,11 +137,14 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b 
 		return true, nil
 	}
 
-	rr := NewRowReaderFrequency(b, pv.Value(), pv.operator, false, s.shardVersion)
+	rr := NewRowReaderFrequency(b, pv.Value(), pv.operator, false, s.shardVersion, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
-		return out, errors.Wrap(err, "read row")
+		return out, fmt.Errorf("read row: %w", err)
 	}
 
+	if isEmpty {
+		return newDocBitmap(), nil
+	}
 	return out, nil
 }
 
@@ -137,7 +158,7 @@ func (s *Searcher) docBitmapGeo(ctx context.Context, pv *propValuePair) (docBitm
 
 	res, err := propIndex.GeoIndex.WithinRange(ctx, *pv.valueGeoRange)
 	if err != nil {
-		return out, errors.Wrapf(err, "geo index range search on prop %q", pv.prop)
+		return out, fmt.Errorf("geo index range search on prop %q: %w", pv.prop, err)
 	}
 
 	out.DocIDs.SetMany(res)

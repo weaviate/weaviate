@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,7 +52,7 @@ func TestVectorizingTexts(t *testing.T) {
 
 			v := New(client)
 
-			settings := &fakeSettings{}
+			settings := &fakeClassConfig{}
 			vec, err := v.Texts(context.Background(), test.input, settings)
 
 			require.Nil(t, err)

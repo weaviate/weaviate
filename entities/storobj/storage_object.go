@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 
 	"github.com/buger/jsonparser"
@@ -24,13 +23,25 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+var bufPool *bufferPool
+
+type Vectors map[string][]float32
+
+func init() {
+	// a 10kB buffer should be large enough for typical cases, it can fit a
+	// 1536d uncompressed vector and about 3kB of object payload. If the
+	// initial size is not large enoug, the caller can always allocate a larger
+	// buffer and return that to the pool instead.
+	bufPool = newBufferPool(10 * 1024)
+}
 
 type Object struct {
 	MarshallerVersion uint8
@@ -40,18 +51,18 @@ type Object struct {
 	BelongsToNode     string        `json:"-"`
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
-
-	docID uint64
+	DocID             uint64
+	Vectors           map[string][]float32 `json:"vectors"`
 }
 
 func New(docID uint64) *Object {
 	return &Object{
 		MarshallerVersion: 1,
-		docID:             docID,
+		DocID:             docID,
 	}
 }
 
-func FromObject(object *models.Object, vector []float32) *Object {
+func FromObject(object *models.Object, vector []float32, vectors models.Vectors) *Object {
 	// clear out nil entries of properties to make sure leaving a property out and setting it nil is identical
 	properties, ok := object.Properties.(map[string]interface{})
 	if ok {
@@ -63,11 +74,20 @@ func FromObject(object *models.Object, vector []float32) *Object {
 		object.Properties = properties
 	}
 
+	var vecs map[string][]float32
+	if vectors != nil {
+		vecs = make(map[string][]float32)
+		for targetVector, vector := range vectors {
+			vecs[targetVector] = vector
+		}
+	}
+
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
 		MarshallerVersion: 1,
 		VectorLen:         len(vector),
+		Vectors:           vecs,
 	}
 }
 
@@ -89,7 +109,9 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	ko.docID = rw.ReadUint64()
+	ko.MarshallerVersion = version
+
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // ignore kind-byte
 	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
 	if err != nil {
@@ -111,94 +133,103 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 func FromBinaryOptional(data []byte,
 	addProp additional.Properties,
 ) (*Object, error) {
-	if addProp.NoProps {
-		return FromBinaryUUIDOnly(data)
-	}
-
 	ko := &Object{}
 
-	var version uint8
-	r := bytes.NewReader(data)
-	le := binary.LittleEndian
-	if err := binary.Read(r, le, &version); err != nil {
-		return nil, err
+	rw := byteops.NewReadWriter(data)
+	ko.MarshallerVersion = rw.ReadUint8()
+	if ko.MarshallerVersion != 1 {
+		return nil, errors.Errorf("unsupported binary marshaller version %d", ko.MarshallerVersion)
 	}
-
-	if version != 1 {
-		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
+	ko.DocID = rw.ReadUint64()
+	rw.MoveBufferPositionForward(1) // ignore kind-byte
+	uuidObj, err := uuid.FromBytes(rw.ReadBytesFromBuffer(16))
+	if err != nil {
+		return nil, fmt.Errorf("parse uuid: %w", err)
 	}
+	uuidParsed := strfmt.UUID(uuidObj.String())
 
-	ko.MarshallerVersion = version
-
-	var (
-		kindByte            uint8
-		uuidBytes           = make([]byte, 16)
-		createTime          int64
-		updateTime          int64
-		vectorLength        uint16
-		classNameLength     uint16
-		schemaLength        uint32
-		metaLength          uint32
-		vectorWeightsLength uint32
-	)
-
-	ec := &errorcompounder.ErrorCompounder{}
-	ec.AddWrap(binary.Read(r, le, &ko.docID), "doc id")
-	ec.AddWrap(binary.Read(r, le, &kindByte), "kind")
-	_, err := r.Read(uuidBytes)
-	ec.AddWrap(err, "uuid")
-	ec.AddWrap(binary.Read(r, le, &createTime), "create time")
-	ec.AddWrap(binary.Read(r, le, &updateTime), "update time")
-	ec.AddWrap(binary.Read(r, le, &vectorLength), "vector length")
+	createTime := int64(rw.ReadUint64())
+	updateTime := int64(rw.ReadUint64())
+	vectorLength := rw.ReadUint16()
+	// The vector length should always be returned (for usage metrics purposes) even if the vector itself is skipped
 	ko.VectorLen = int(vectorLength)
 	if addProp.Vector {
-		ko.Vector = make([]float32, vectorLength)
-		ec.AddWrap(binary.Read(r, le, &ko.Vector), "read vector")
+		ko.Object.Vector = make([]float32, vectorLength)
+		vectorBytes := rw.ReadBytesFromBuffer(uint64(vectorLength) * 4)
+		for i := 0; i < int(vectorLength); i++ {
+			bits := binary.LittleEndian.Uint32(vectorBytes[i*4 : (i+1)*4])
+			ko.Object.Vector[i] = math.Float32frombits(bits)
+		}
 	} else {
-		io.CopyN(io.Discard, r, int64(vectorLength)*4)
+		rw.MoveBufferPositionForward(uint64(vectorLength) * 4)
+		ko.Object.Vector = nil
 	}
-	ec.AddWrap(binary.Read(r, le, &classNameLength), "class name length")
-	className := make([]byte, classNameLength)
-	_, err = r.Read(className)
-	ec.AddWrap(err, "class name")
-	ec.AddWrap(binary.Read(r, le, &schemaLength), "schema length")
-	schema := make([]byte, schemaLength)
-	_, err = r.Read(schema)
-	ec.AddWrap(err, "schema")
-	ec.AddWrap(binary.Read(r, le, &metaLength), "additional length")
+	ko.Vector = ko.Object.Vector
+
+	classNameLen := rw.ReadUint16()
+	className := string(rw.ReadBytesFromBuffer(uint64(classNameLen)))
+
+	propLength := rw.ReadUint32()
+	var props []byte
+	if addProp.NoProps {
+		rw.MoveBufferPositionForward(uint64(propLength))
+	} else {
+		props = rw.ReadBytesFromBuffer(uint64(propLength))
+	}
+
 	var meta []byte
+	metaLength := rw.ReadUint32()
 	if addProp.Classification || len(addProp.ModuleParams) > 0 {
-		meta = make([]byte, metaLength)
-		_, err = r.Read(meta)
-		ec.AddWrap(err, "read additional")
+		meta = rw.ReadBytesFromBuffer(uint64(metaLength))
 	} else {
-		io.CopyN(io.Discard, r, int64(metaLength))
+		rw.MoveBufferPositionForward(uint64(metaLength))
 	}
 
-	ec.AddWrap(binary.Read(r, le, &vectorWeightsLength), "vector weights length")
-	vectorWeights := make([]byte, vectorWeightsLength)
-	_, err = r.Read(vectorWeights)
-	ec.AddWrap(err, "vector weights")
+	vectorWeightsLength := rw.ReadUint32()
+	vectorWeights := rw.ReadBytesFromBuffer(uint64(vectorWeightsLength))
 
-	if err := ec.ToError(); err != nil {
-		return nil, errors.Wrap(err, "compound err")
+	if len(addProp.Vectors) > 0 {
+		vectors, err := unmarshalTargetVectors(&rw)
+		if err != nil {
+			return nil, err
+		}
+		ko.Vectors = vectors
+
+		if vectors != nil {
+			ko.Object.Vectors = make(models.Vectors)
+			for vecName, vec := range vectors {
+				ko.Object.Vectors[vecName] = vec
+			}
+		}
 	}
 
-	uuidParsed, err := uuid.FromBytes(uuidBytes)
-	if err != nil {
-		return nil, err
-	}
+	// some object members need additional "enrichment". Only do this if necessary, ie if they are actually present
+	if len(props) > 0 ||
+		len(meta) > 0 ||
+		vectorWeightsLength > 0 &&
+			!( // if the length is 4 and the encoded value is "null" (in ascii), vectorweights are not actually present
+			vectorWeightsLength == 4 &&
+				vectorWeights[0] == 110 && // n
+				vectorWeights[1] == 117 && // u
+				vectorWeights[2] == 108 && // l
+				vectorWeights[3] == 108) { // l
 
-	if err := ko.parseObject(
-		strfmt.UUID(uuidParsed.String()),
-		createTime,
-		updateTime,
-		string(className),
-		schema,
-		meta,
-		vectorWeights,
-	); err != nil {
-		return nil, errors.Wrap(err, "parse")
+		if err := ko.parseObject(
+			uuidParsed,
+			createTime,
+			updateTime,
+			className,
+			props,
+			meta,
+			vectorWeights,
+		); err != nil {
+			return nil, errors.Wrap(err, "parse")
+		}
+	} else {
+		ko.Object.ID = uuidParsed
+		ko.Object.CreationTimeUnix = createTime
+		ko.Object.LastUpdateTimeUnix = updateTime
+		ko.Object.Class = className
 	}
 
 	return ko, nil
@@ -206,6 +237,7 @@ func FromBinaryOptional(data []byte,
 
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
+	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
@@ -219,14 +251,21 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		docIDBuf = make([]byte, 8)
 		out      = make([]*Object, len(ids))
 		i        = 0
+		lsmBuf   = bufPool.Get()
 	)
+
+	defer func() {
+		bufPool.Put(lsmBuf)
+	}()
 
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
-		res, err := bucket.GetBySecondary(0, docIDBuf)
+		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
 		if err != nil {
 			return nil, err
 		}
+
+		lsmBuf = newBuf // may have changed, e.g. because it was grown
 
 		if res == nil {
 			continue
@@ -249,26 +288,15 @@ func (ko *Object) Class() schema.ClassName {
 }
 
 func (ko *Object) SetDocID(id uint64) {
-	ko.docID = id
+	ko.DocID = id
 }
 
-func (ko *Object) DocID() uint64 {
-	return ko.docID
+func (ko *Object) GetDocID() uint64 {
+	return ko.DocID
 }
 
 func (ko *Object) CreationTimeUnix() int64 {
 	return ko.Object.CreationTimeUnix
-}
-
-func (ko *Object) Score() float32 {
-	props := ko.AdditionalProperties()
-	if props != nil {
-		iface := props["score"]
-		if iface != nil {
-			return iface.(float32)
-		}
-	}
-	return 0
 }
 
 func (ko *Object) ExplainScore() string {
@@ -376,26 +404,51 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 
 	return &search.Result{
 		ID:        ko.ID(),
+		DocID:     &ko.DocID,
 		ClassName: ko.Class().String(),
 		Schema:    ko.Properties(),
 		Vector:    ko.Vector,
+		Vectors:   ko.asVectors(ko.Vectors),
 		Dims:      ko.VectorLen,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
 		AdditionalProperties: additionalProperties,
-		Score:                ko.Score(),
-		ExplainScore:         ko.ExplainScore(),
-		IsConsistent:         ko.IsConsistent,
-		Tenant:               tenant, // not part of the binary
+		// Score is filled in later
+		ExplainScore: ko.ExplainScore(),
+		IsConsistent: ko.IsConsistent,
+		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
+}
+
+func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
+	if len(in) > 0 {
+		out := make(models.Vectors)
+		for targetVector, vector := range in {
+			out[targetVector] = vector
+		}
+		return out
+	}
+	return nil
 }
 
 func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
 	res := ko.SearchResult(addl, "")
 	res.Dist = dist
 	res.Certainty = float32(additional.DistToCertainty(float64(dist)))
+	return *res
+}
+
+func (ko *Object) SearchResultWithScore(addl additional.Properties, score float32) search.Result {
+	res := ko.SearchResult(addl, "")
+	res.Score = score
+	return *res
+}
+
+func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, tenant string) search.Result {
+	res := ko.SearchResult(addl, tenant)
+	res.Score = score
 	return *res
 }
 
@@ -409,6 +462,17 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 
 	for i, elem := range in {
 		out[i] = *(elem.SearchResult(additional, tenant))
+	}
+
+	return out
+}
+
+func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, tenant string) search.Results {
+	out := make(search.Results, len(in))
+
+	for i, elem := range in {
+		score := scores[i]
+		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
 	}
 
 	return out
@@ -448,24 +512,29 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // followed by the payload which depends on the specific version
 //
 // Version 1
-// No. of B   | Type      | Content
+// No. of B   | Type          | Content
 // ------------------------------------------------
-// 1          | uint8     | MarshallerVersion = 1
-// 8          | uint64    | index id, keep early so id-only lookups are maximum efficient
-// 1          | uint8     | kind, 0=action, 1=thing - deprecated
-// 16         | uint128   | uuid
-// 8          | int64     | create time
-// 8          | int64     | update time
-// 2          | uint16    | VectorLength
-// n*4        | []float32 | vector of length n
-// 2          | uint16    | length of class name
-// n          | []byte    | className
-// 4          | uint32    | length of schema json
-// n          | []byte    | schema as json
-// 2          | uint32    | length of meta json
-// n          | []byte    | meta as json
-// 2          | uint32    | length of vectorweights json
-// n          | []byte    | vectorweights as json
+// 1          | uint8         | MarshallerVersion = 1
+// 8          | uint64        | index id, keep early so id-only lookups are maximum efficient
+// 1          | uint8         | kind, 0=action, 1=thing - deprecated
+// 16         | uint128       | uuid
+// 8          | int64         | create time
+// 8          | int64         | update time
+// 2          | uint16        | VectorLength
+// n*4        | []float32     | vector of length n
+// 2          | uint16        | length of class name
+// n          | []byte        | className
+// 4          | uint32        | length of schema json
+// n          | []byte        | schema as json
+// 4          | uint32        | length of meta json
+// n          | []byte        | meta as json
+// 4          | uint32        | length of vectorweights json
+// n          | []byte        | vectorweights as json
+// 4          | uint32        | length of packed target vectors offsets (in bytes)
+// n          | []byte        | packed target vectors offsets map { name : offset_in_bytes }
+// 4          | uint32        | length of target vectors segment (in bytes)
+// n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
+
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -502,11 +571,39 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
-	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + 2 + vectorLength*4 + 2 + classNameLength + 4 + schemaLength + 4 + metaLength + 4 + vectorWeightsLength
+	var targetVectorsOffsets []byte
+	targetVectorsOffsetsLength := uint32(0)
+	targetVectorsSegmentLength := uint32(0)
+
+	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
+	if len(ko.Vectors) > 0 {
+		offsetsMap := map[string]uint32{}
+		for name, vec := range ko.Vectors {
+			offsetsMap[name] = targetVectorsSegmentLength
+			targetVectorsSegmentLength += 2 + 4*uint32(len(vec)) // 2 for vec length + vec bytes
+			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
+		}
+
+		targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
+		if err != nil {
+			return nil, fmt.Errorf("Could not marshal target vectors offsets: %w", err)
+		}
+		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
+	}
+
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
+		2 + vectorLength*4 +
+		2 + classNameLength +
+		4 + schemaLength +
+		4 + metaLength +
+		4 + vectorWeightsLength +
+		4 + targetVectorsOffsetsLength +
+		4 + targetVectorsSegmentLength
+
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
 	rw.WriteByte(ko.MarshallerVersion)
-	rw.WriteUint64(ko.docID)
+	rw.WriteUint64(ko.DocID)
 	rw.WriteByte(kindByte)
 
 	rw.CopyBytesToBuffer(idBytes)
@@ -536,10 +633,30 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy meta")
 	}
+
 	rw.WriteUint32(vectorWeightsLength)
 	err = rw.CopyBytesToBuffer(vectorWeights)
 	if err != nil {
 		return byteBuffer, errors.Wrap(err, "Could not copy vectorWeights")
+	}
+
+	rw.WriteUint32(targetVectorsOffsetsLength)
+	if targetVectorsOffsetsLength > 0 {
+		err = rw.CopyBytesToBuffer(targetVectorsOffsets)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy targetVectorsOffsets")
+		}
+	}
+
+	rw.WriteUint32(targetVectorsSegmentLength)
+	for _, name := range targetVectorsOffsetOrder {
+		vec := ko.Vectors[name]
+		vecLen := len(vec)
+
+		rw.WriteUint16(uint16(vecLen))
+		for j := 0; j < vecLen; j++ {
+			rw.WriteUint32(math.Float32bits(vec[j]))
+		}
 	}
 
 	return byteBuffer, nil
@@ -642,7 +759,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	ko.MarshallerVersion = version
 
 	rw := byteops.NewReadWriter(data, byteops.WithPosition(1))
-	ko.docID = rw.ReadUint64()
+	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
 	uuidParsed, err := uuid.FromBytes(data[rw.Position : rw.Position+16])
@@ -685,6 +802,12 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		return errors.Wrap(err, "Could not copy vectorWeights")
 	}
 
+	vectors, err := unmarshalTargetVectors(&rw)
+	if err != nil {
+		return err
+	}
+	ko.Vectors = vectors
+
 	return ko.parseObject(
 		strfmt.UUID(uuidParsed.String()),
 		createTime,
@@ -694,6 +817,39 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		meta,
 		vectorWeights,
 	)
+}
+
+func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error) {
+	// This check prevents from panic when somebody is upgrading from version that
+	// didn't have multi vector support. This check is needed bc with named vectors
+	// feature storage object can have vectors data appended at the end of the file
+	if rw.Position < uint64(len(rw.Buffer)) {
+		targetVectorsOffsets := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+		targetVectorsSegmentLength := rw.ReadUint32()
+		pos := rw.Position
+
+		if len(targetVectorsOffsets) > 0 {
+			var tvOffsets map[string]uint32
+			if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
+				return nil, fmt.Errorf("Could not unmarshal target vectors offset: %w", err)
+			}
+
+			targetVectors := map[string][]float32{}
+			for name, offset := range tvOffsets {
+				rw.MoveBufferToAbsolutePosition(pos + uint64(offset))
+				vecLen := rw.ReadUint16()
+				vec := make([]float32, vecLen)
+				for j := uint16(0); j < vecLen; j++ {
+					vec[j] = math.Float32frombits(rw.ReadUint32())
+				}
+				targetVectors[name] = vec
+			}
+
+			rw.MoveBufferToAbsolutePosition(pos + uint64(targetVectorsSegmentLength))
+			return targetVectors, nil
+		}
+	}
+	return nil, nil
 }
 
 func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
@@ -732,14 +888,14 @@ func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	schemaB []byte, additionalB []byte, vectorWeightsB []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte,
 ) error {
-	var schema map[string]interface{}
-	if err := json.Unmarshal(schemaB, &schema); err != nil {
+	var props map[string]interface{}
+	if err := json.Unmarshal(propsB, &props); err != nil {
 		return err
 	}
 
-	if err := enrichSchemaTypes(schema, false); err != nil {
+	if err := enrichSchemaTypes(props, false); err != nil {
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
@@ -806,7 +962,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
-		Properties:         schema,
+		Properties:         props,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
 	}
@@ -821,12 +977,15 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 // "Dangerous". If needed, make sure everything is copied and remove the
 // suffix.
 func (ko *Object) DeepCopyDangerous() *Object {
-	return &Object{
+	o := &Object{
 		MarshallerVersion: ko.MarshallerVersion,
-		docID:             ko.docID,
+		DocID:             ko.DocID,
 		Object:            deepCopyObject(ko.Object),
 		Vector:            deepCopyVector(ko.Vector),
+		Vectors:           deepCopyVectors(ko.Vectors),
 	}
+
+	return o
 }
 
 func AddOwnership(objs []*Object, node, shard string) {
@@ -842,6 +1001,14 @@ func deepCopyVector(orig []float32) []float32 {
 	return out
 }
 
+func deepCopyVectors[V []float32 | models.Vector](orig map[string]V) map[string]V {
+	out := make(map[string]V, len(orig))
+	for key, vec := range orig {
+		out[key] = deepCopyVector(vec)
+	}
+	return out
+}
+
 func deepCopyObject(orig models.Object) models.Object {
 	return models.Object{
 		Class:              orig.Class,
@@ -852,6 +1019,7 @@ func deepCopyObject(orig models.Object) models.Object {
 		VectorWeights:      orig.VectorWeights,
 		Additional:         orig.Additional, // WARNING: not a deep copy!!
 		Properties:         deepCopyProperties(orig.Properties),
+		Vectors:            deepCopyVectors(orig.Vectors),
 	}
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -68,10 +68,11 @@ func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
 	// 	return nil, backup.NewErrUnprocessable(err)
 	// }
 	rreq := Request{
-		Method:  OpRestore,
-		ID:      meta.ID,
-		Backend: req.Backend,
-		Classes: cs,
+		Method:      OpRestore,
+		ID:          meta.ID,
+		Backend:     req.Backend,
+		Classes:     cs,
+		NodeMapping: req.NodeMapping,
 	}
 	data, err := m.restorer.Restore(ctx, &rreq, meta, store)
 	if err != nil {
@@ -102,7 +103,7 @@ type fakeSchemaManger struct {
 	nodeName        string
 }
 
-func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor,
+func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string,
 ) error {
 	return f.errRestoreClass
 }

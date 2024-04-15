@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,15 +17,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/additional"
-	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/additional/projector"
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-gpt4all/vectorizer"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
 const Name = "text2vec-gpt4all"
@@ -45,15 +46,10 @@ type GPT4AllModule struct {
 }
 
 type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		settings vectorizer.ClassSettings) error
+	Object(ctx context.Context, obj *models.Object,
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
-		settings vectorizer.ClassSettings) ([]float32, error)
-	// TODO all of these should be moved out of here, gh-1470
-
-	MoveTo(source, target []float32, weight float32) ([]float32, error)
-	MoveAwayFrom(source, target []float32, weight float32) ([]float32, error)
-	CombineVectors([][]float32) []float32
+		cfg moduletools.ClassConfig) ([]float32, error)
 }
 
 type metaProvider interface {
@@ -122,8 +118,7 @@ func (m *GPT4AllModule) initVectorizer(ctx context.Context, timeout time.Duratio
 }
 
 func (m *GPT4AllModule) initAdditionalPropertiesProvider() error {
-	projector := projector.New()
-	m.additionalPropertiesProvider = additional.New(projector)
+	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
@@ -133,10 +128,13 @@ func (m *GPT4AllModule) RootHandler() http.Handler {
 }
 
 func (m *GPT4AllModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, objDiff *moduletools.ObjectDiff, cfg moduletools.ClassConfig,
-) error {
-	icheck := vectorizer.NewClassSettings(cfg)
-	return m.vectorizer.Object(ctx, obj, objDiff, icheck)
+	obj *models.Object, cfg moduletools.ClassConfig,
+) ([]float32, models.AdditionalProperties, error) {
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *GPT4AllModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *GPT4AllModule) MetaInfo() (map[string]interface{}, error) {
@@ -147,10 +145,14 @@ func (m *GPT4AllModule) AdditionalProperties() map[string]modulecapabilities.Add
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
+func (m *GPT4AllModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
+}
+
 func (m *GPT4AllModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
-	return m.vectorizer.Texts(ctx, []string{input}, vectorizer.NewClassSettings(cfg))
+	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
 // verify we implement the modules.Module interface

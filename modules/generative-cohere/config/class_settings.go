@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,14 +12,14 @@
 package config
 
 import (
-	"encoding/json"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
+	baseURLProperty           = "baseURL"
 	modelProperty             = "model"
 	temperatureProperty       = "temperature"
 	maxTokensProperty         = "maxTokens"
@@ -36,6 +36,7 @@ var availableCohereModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
+	DefaultBaseURL                 = "https://api.cohere.ai"
 	DefaultCohereModel             = "command-nightly"
 	DefaultCohereTemperature       = 0
 	DefaultCohereMaxTokens         = 2048
@@ -45,11 +46,12 @@ var (
 )
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-cohere")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -66,54 +68,13 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return &defaultValue
-	}
-
-	model, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			return &asString
-		}
-		var empty string
-		return &empty
-	}
-	return &defaultValue
+	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
+	return &asString
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
-	if ok {
-		asInt, ok := val.(int)
-		if ok {
-			return &asInt
-		}
-		asFloat, ok := val.(float64)
-		if ok {
-			asInt := int(asFloat)
-			return &asInt
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			asInt := int(asFloat)
-			return &asInt
-		}
-		var wrongVal int = -1
-		return &wrongVal
-	}
-
-	if defaultValue != nil {
-		return defaultValue
-	}
-	return nil
+	var wrongVal int = -1
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
@@ -140,6 +101,10 @@ func (ic *classSettings) GetMaxTokensForModel(model string) int {
 
 func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableCohereModels, model)
+}
+
+func (ic *classSettings) BaseURL() string {
+	return *ic.getStringProperty(baseURLProperty, DefaultBaseURL)
 }
 
 func (ic *classSettings) Model() string {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,7 @@ type RemoteIncomingRepo interface {
 	ReplicateDeletion(ctx context.Context, indexName,
 		shardName, requestID string, uuid strfmt.UUID) SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName,
-		shardName, requestID string, docIDs []uint64, dryRun bool) SimpleResponse
+		shardName, requestID string, uuids []strfmt.UUID, dryRun bool) SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName,
 		shardName, requestID string, refs []objects.BatchReference) SimpleResponse
 	CommitReplication(indexName,
@@ -83,9 +83,9 @@ func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexNa
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
-	shardName, requestID string, docIDs []uint64, dryRun bool,
+	shardName, requestID string, uuids []strfmt.UUID, dryRun bool,
 ) SimpleResponse {
-	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, docIDs, dryRun)
+	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, dryRun)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, indexName,

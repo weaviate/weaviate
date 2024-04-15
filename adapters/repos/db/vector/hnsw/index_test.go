@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -82,7 +85,7 @@ func TestHnswIndexGrow(t *testing.T) {
 		// we get: panic: runtime error: index out of range [25001] with length 25000
 		// in order to avoid this, insertInitialElement method is now able
 		// to grow it's size at initial state
-		err := index.Add(uint64(initialSize+1), vector)
+		err := index.Add(uint64(cache.InitialSize+1), vector)
 		require.Nil(t, err)
 	})
 
@@ -91,46 +94,46 @@ func TestHnswIndexGrow(t *testing.T) {
 		// in growIndexToAccomodateNode method which was leading to panic:
 		// panic: runtime error: index out of range [170001] with length 170001
 		vector := []float32{0.11, 0.22}
-		id := uint64(5*initialSize + 1)
+		id := uint64(5*cache.InitialSize + 1)
 		err := index.Add(id, vector)
 		require.Nil(t, err)
 		// index should grow to 5001
-		assert.Equal(t, int(id)+minimumIndexGrowthDelta, len(index.nodes))
-		assert.Equal(t, int32(id+2*minimumIndexGrowthDelta), index.cache.len())
+		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 		// try to add a vector with id: 8001
-		id = uint64(6*initialSize + minimumIndexGrowthDelta + 1)
+		id = uint64(6*cache.InitialSize + cache.MinimumIndexGrowthDelta + 1)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
 		// index should grow to at least 8001
 		assert.GreaterOrEqual(t, len(index.nodes), 8001)
-		assert.GreaterOrEqual(t, index.cache.len(), int32(8001))
+		assert.GreaterOrEqual(t, index.cache.Len(), int32(8001))
 	})
 
 	t.Run("should grow index", func(t *testing.T) {
 		// should not increase the nodes size
 		sizeBefore := len(index.nodes)
-		cacheBefore := index.cache.len()
-		idDontGrowIndex := uint64(6*initialSize - 1)
+		cacheBefore := index.cache.Len()
+		idDontGrowIndex := uint64(6*cache.InitialSize - 1)
 		err := index.Add(idDontGrowIndex, vector)
 		require.Nil(t, err)
 		assert.Equal(t, sizeBefore, len(index.nodes))
-		assert.Equal(t, cacheBefore, index.cache.len())
+		assert.Equal(t, cacheBefore, index.cache.Len())
 		// should increase nodes
-		id := uint64(8*initialSize + 1)
+		id := uint64(8*cache.InitialSize + 1)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
 		assert.GreaterOrEqual(t, len(index.nodes), int(id))
-		assert.GreaterOrEqual(t, index.cache.len(), int32(id))
+		assert.GreaterOrEqual(t, index.cache.Len(), int32(id))
 		// should increase nodes when a much greater id is passed
-		id = uint64(20*initialSize + 22)
+		id = uint64(20*cache.InitialSize + 22)
 		err = index.Add(id, vector)
 		require.Nil(t, err)
-		assert.Equal(t, int(id)+minimumIndexGrowthDelta, len(index.nodes))
-		assert.Equal(t, int32(id+2*minimumIndexGrowthDelta), index.cache.len())
+		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
+		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
 	})
 }
 
-func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn VectorForID) *hnsw {
+func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
 	// mock out commit logger before adding data so we don't leave a disk
 	// footprint. Commit logging and deserializing from a (condensed) commit log
 	// is tested in a separate integration test that takes care of providing and
@@ -144,8 +147,8 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn VectorForID) *hnsw {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 60,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index
 }

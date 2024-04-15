@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // Class class
@@ -54,6 +55,9 @@ type Class struct {
 	// Manage how the index should be sharded and distributed in the cluster
 	ShardingConfig interface{} `json:"shardingConfig,omitempty"`
 
+	// vector config
+	VectorConfig map[string]VectorConfig `json:"vectorConfig,omitempty"`
+
 	// Vector-index config, that is specific to the type of index selected in vectorIndexType
 	VectorIndexConfig interface{} `json:"vectorIndexConfig,omitempty"`
 
@@ -81,6 +85,10 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateReplicationConfig(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVectorConfig(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -173,6 +181,32 @@ func (m *Class) validateReplicationConfig(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Class) validateVectorConfig(formats strfmt.Registry) error {
+	if swag.IsZero(m.VectorConfig) { // not required
+		return nil
+	}
+
+	for k := range m.VectorConfig {
+
+		if err := validate.Required("vectorConfig"+"."+k, "body", m.VectorConfig[k]); err != nil {
+			return err
+		}
+		if val, ok := m.VectorConfig[k]; ok {
+			if err := val.Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("vectorConfig" + "." + k)
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("vectorConfig" + "." + k)
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 // ContextValidate validate this class based on the context it is used
 func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
@@ -190,6 +224,10 @@ func (m *Class) ContextValidate(ctx context.Context, formats strfmt.Registry) er
 	}
 
 	if err := m.contextValidateReplicationConfig(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateVectorConfig(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -262,6 +300,21 @@ func (m *Class) contextValidateReplicationConfig(ctx context.Context, formats st
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *Class) contextValidateVectorConfig(ctx context.Context, formats strfmt.Registry) error {
+
+	for k := range m.VectorConfig {
+
+		if val, ok := m.VectorConfig[k]; ok {
+			if err := val.ContextValidate(ctx, formats); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	return nil

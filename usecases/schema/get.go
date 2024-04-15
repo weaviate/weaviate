@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,14 +104,18 @@ func (m *Manager) ClusterHealthScore() int {
 }
 
 func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Principal,
-	className string,
+	className, tenant string,
 ) (models.ShardStatusList, error) {
 	err := m.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", className))
 	if err != nil {
 		return nil, err
 	}
 
-	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className)
+	shardsStatus, err := m.migrator.GetShardsStatus(ctx, className, tenant)
+	if err != nil {
+		return nil, err
+	}
+	shardsQueueSize, err := m.migrator.GetShardsQueueSize(ctx, className, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -120,8 +124,9 @@ func (m *Manager) GetShardsStatus(ctx context.Context, principal *models.Princip
 
 	for name, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:   name,
-			Status: status,
+			Name:            name,
+			Status:          status,
+			VectorQueueSize: shardsQueueSize[name],
 		})
 	}
 

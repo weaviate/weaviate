@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,12 +16,13 @@ import (
 	"fmt"
 	"runtime"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/sync/errgroup"
 )
 
 // TODOs: Performance
@@ -141,7 +142,7 @@ func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *shard
 		ssAfter.Physical[name] = shard
 	}
 	lDist, nodeDist := distributions(ssBefore, &ssAfter)
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	// resolve hosts beforehand
 	nodes := nodeDist.nodes()
 	hosts, err := hosts(nodes, s.cluster)
@@ -210,7 +211,7 @@ func (s *Scaler) LocalScaleOut(ctx context.Context,
 		}
 	}()
 	rsync := newRSync(s.client, s.cluster, s.persistenceRoot)
-	return rsync.Push(ctx, bak.Shards, dist, className)
+	return rsync.Push(ctx, bak.Shards, dist, className, s.logger)
 }
 
 func (s *Scaler) scaleIn(ctx context.Context, className string,

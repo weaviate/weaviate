@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -62,7 +62,7 @@ func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
 		fmt.Println(err)
 	}()
 
-	bucket, err := NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
+	bucket, err := NewBucketCreator().NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))

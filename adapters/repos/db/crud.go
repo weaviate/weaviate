@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,9 +30,9 @@ import (
 )
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, repl *additional.ReplicationProperties,
+	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
 ) error {
-	object := storobj.FromObject(obj, vector)
+	object := storobj.FromObject(obj, vector, vectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())

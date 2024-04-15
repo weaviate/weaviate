@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,12 +49,20 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if err != nil {
 			return nil, err
 		}
-		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
+		searchVector, targetVector, err := t.nearParamsVector.vectorFromParams(ctx,
 			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant)
 		if err != nil {
 			return nil, err
 		}
+
+		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+			className, targetVector)
+		if err != nil {
+			return nil, err
+		}
+		params.TargetVector = targetVector
 		params.SearchVector = searchVector
+
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
 			params.NearObject, params.ModuleParams)
 
@@ -65,8 +73,17 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 
 	if params.Hybrid != nil && params.Hybrid.Vector == nil && params.Hybrid.Query != "" {
+		targetVector := ""
+		if len(params.Hybrid.TargetVectors) == 1 {
+			targetVector = params.Hybrid.TargetVectors[0]
+		}
+		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+			params.ClassName.String(), targetVector)
+		if err != nil {
+			return nil, err
+		}
 		vec, err := t.nearParamsVector.modulesProvider.
-			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query)
+			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query, targetVector)
 		if err != nil {
 			return nil, err
 		}

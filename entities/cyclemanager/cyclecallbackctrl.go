@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,8 +15,10 @@ import (
 	"context"
 	"sync"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"golang.org/x/sync/errgroup"
 )
 
 // Used to control of registered in CycleCallbacks container callback
@@ -57,17 +59,18 @@ func (c *cycleCallbackCtrl) Unregister(ctx context.Context) error {
 type cycleCombinedCallbackCtrl struct {
 	routinesLimit int
 	ctrls         []CycleCallbackCtrl
+	logger        logrus.FieldLogger
 }
 
 // Creates combined controller to manage all provided controllers at once as it was single instance.
 // Methods (activate, deactivate, unregister) calls nested controllers' methods in parallel by number of
 // goroutines given as argument. If < 1 value given, NumCPU is used.
-func NewCombinedCallbackCtrl(routinesLimit int, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
+func NewCombinedCallbackCtrl(routinesLimit int, logger logrus.FieldLogger, ctrls ...CycleCallbackCtrl) CycleCallbackCtrl {
 	if routinesLimit <= 0 {
 		routinesLimit = _NUMCPU
 	}
 
-	return &cycleCombinedCallbackCtrl{routinesLimit: routinesLimit, ctrls: ctrls}
+	return &cycleCombinedCallbackCtrl{routinesLimit: routinesLimit, logger: logger, ctrls: ctrls}
 }
 
 func (c *cycleCombinedCallbackCtrl) IsActive() bool {
@@ -84,7 +87,7 @@ func (c *cycleCombinedCallbackCtrl) Activate() error {
 }
 
 func (c *cycleCombinedCallbackCtrl) activate() []error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
 	lock := new(sync.Mutex)
 
@@ -111,7 +114,7 @@ func (c *cycleCombinedCallbackCtrl) Deactivate(ctx context.Context) error {
 	}
 
 	// try activating back deactivated
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
 	for _, id := range deactivated {
 		id := id
@@ -125,7 +128,7 @@ func (c *cycleCombinedCallbackCtrl) Deactivate(ctx context.Context) error {
 }
 
 func (c *cycleCombinedCallbackCtrl) deactivate(ctx context.Context) ([]error, []int) {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
 	lock := new(sync.Mutex)
 
@@ -140,7 +143,7 @@ func (c *cycleCombinedCallbackCtrl) deactivate(ctx context.Context) ([]error, []
 			}
 			c.locked(lock, func() { deactivated = append(deactivated, id) })
 			return nil
-		})
+		}, id, ctrl)
 	}
 
 	eg.Wait()
@@ -152,7 +155,7 @@ func (c *cycleCombinedCallbackCtrl) Unregister(ctx context.Context) error {
 }
 
 func (c *cycleCombinedCallbackCtrl) unregister(ctx context.Context) []error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(c.logger)
 	eg.SetLimit(c.routinesLimit)
 	lock := new(sync.Mutex)
 

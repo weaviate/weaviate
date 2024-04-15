@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package multi_node
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -31,11 +32,12 @@ var paragraphs = []string{
 }
 
 func TestBm25MultiNode(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for i := 0; i < 5; i++ {
-		runBM25MultinodeTest(t, ctx)
+		t.Run(fmt.Sprintf("iteration: %v", i), func(t *testing.T) {
+			runBM25MultinodeTest(t, ctx)
+		})
 	}
 }
 
@@ -43,7 +45,7 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	compose, err := docker.New().
 		WithWeaviateCluster().
 		Start(ctx)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -57,7 +59,6 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 		obj := articles.NewParagraph().
 			WithContents(par).
 			Object()
-		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateObject(t, obj)
 	}
 
@@ -73,7 +74,4 @@ func runBM25MultinodeTest(t *testing.T, ctx context.Context) {
 	result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
 	resParagraph := result.Get("Get", "Paragraph").AsSlice()
 	require.Equal(t, resParagraph[0].(map[string]interface{})["contents"], paragraphs[0])
-	timeout := time.Second
-	require.Nil(t, compose.Stop(ctx, compose.GetWeaviate().Name(), &timeout))
-	require.Nil(t, compose.Stop(ctx, compose.GetWeaviateNode2().Name(), &timeout))
 }

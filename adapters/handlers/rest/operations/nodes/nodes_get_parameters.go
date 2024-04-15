@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,15 +20,24 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 )
 
 // NewNodesGetParams creates a new NodesGetParams object
-//
-// There are no default values defined in the spec.
+// with the default values initialized.
 func NewNodesGetParams() NodesGetParams {
 
-	return NodesGetParams{}
+	var (
+		// initialize parameters with default values
+
+		outputDefault = string("minimal")
+	)
+
+	return NodesGetParams{
+		Output: &outputDefault,
+	}
 }
 
 // NodesGetParams contains all the bound params for the nodes get operation
@@ -39,6 +48,12 @@ type NodesGetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
+
+	/*Controls the verbosity of the output, possible values are: "minimal", "verbose". Defaults to "minimal".
+	  In: query
+	  Default: "minimal"
+	*/
+	Output *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -50,8 +65,33 @@ func (o *NodesGetParams) BindRequest(r *http.Request, route *middleware.MatchedR
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
+	qOutput, qhkOutput, _ := qs.GetOK("output")
+	if err := o.bindOutput(qOutput, qhkOutput, route.Formats); err != nil {
+		res = append(res, err)
+	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindOutput binds and validates parameter Output from query.
+func (o *NodesGetParams) bindOutput(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		// Default values have been previously initialized by NewNodesGetParams()
+		return nil
+	}
+	o.Output = &raw
+
 	return nil
 }

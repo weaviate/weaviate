@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func GetApiKeyFromGRPC(ctx context.Context, key string) []string {
+func GetValueFromGRPC(ctx context.Context, key string) []string {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		// the grpc library will lowercase all md keys, so we need to make sure to check a lowercase key

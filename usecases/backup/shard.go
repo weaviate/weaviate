@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -117,9 +120,9 @@ func (c *shardSyncChan) waitForCoordinator(d time.Duration, id string) error {
 
 // withCancellation return a new context which will be cancelled if the coordinator
 // want to abort the commit phase
-func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done chan struct{}) context.Context {
+func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done chan struct{}, logger logrus.FieldLogger) context.Context {
 	ctx, cancel := context.WithCancel(ctx)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer cancel()
 		for {
 			select {
@@ -134,7 +137,7 @@ func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done ch
 				return
 			}
 		}
-	}()
+	}, logger)
 	return ctx
 }
 

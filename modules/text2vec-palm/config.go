@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,8 @@ package modpalm
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-palm/config"
+	"github.com/weaviate/weaviate/modules/qna-openai/config"
+	"github.com/weaviate/weaviate/modules/text2vec-palm/vectorizer"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -24,7 +25,7 @@ import (
 
 func (m *PalmModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"vectorizeClassName": config.DefaultVectorizeClassName,
+		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
 	}
 }
 
@@ -32,8 +33,8 @@ func (m *PalmModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"skip":                  !config.DefaultPropertyIndexed,
-		"vectorizePropertyName": config.DefaultVectorizePropertyName,
+		"skip":                  !vectorizer.DefaultPropertyIndexed,
+		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
 	}
 }
 

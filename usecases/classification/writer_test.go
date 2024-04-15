@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,10 +15,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/search"
 )
+
+var logger, _ = test.NewNullLogger()
 
 func testParallelBatchWrite(batchWriter Writer, items search.Results, resultChannel chan<- WriterResults) {
 	batchWriter.Start()
@@ -49,7 +53,7 @@ func TestWriter_SimpleWrite(t *testing.T) {
 	// given
 	searchResultsToBeSaved := testDataToBeClassified()
 	vectorRepo := newFakeVectorRepoKNN(searchResultsToBeSaved, testDataAlreadyClassified())
-	batchWriter := newBatchWriter(vectorRepo)
+	batchWriter := newBatchWriter(vectorRepo, logger)
 	// when
 	batchWriter.Start()
 	for _, item := range searchResultsToBeSaved {
@@ -67,7 +71,7 @@ func TestWriter_LoadWrites(t *testing.T) {
 	searchResultsCount := 640
 	searchResultsToBeSaved := generateSearchResultsToSave(searchResultsCount)
 	vectorRepo := newFakeVectorRepoKNN(searchResultsToBeSaved, testDataAlreadyClassified())
-	batchWriter := newBatchWriter(vectorRepo)
+	batchWriter := newBatchWriter(vectorRepo, logger)
 	// when
 	batchWriter.Start()
 	for _, item := range searchResultsToBeSaved {
@@ -87,10 +91,10 @@ func TestWriter_ParallelLoadWrites(t *testing.T) {
 	searchResultsToBeSaved1 := generateSearchResultsToSave(searchResultsToBeSavedCount1)
 	searchResultsToBeSaved2 := generateSearchResultsToSave(searchResultsToBeSavedCount2)
 	vectorRepo1 := newFakeVectorRepoKNN(searchResultsToBeSaved1, testDataAlreadyClassified())
-	batchWriter1 := newBatchWriter(vectorRepo1)
+	batchWriter1 := newBatchWriter(vectorRepo1, logger)
 	resChannel1 := make(chan WriterResults)
 	vectorRepo2 := newFakeVectorRepoKNN(searchResultsToBeSaved2, testDataAlreadyClassified())
-	batchWriter2 := newBatchWriter(vectorRepo2)
+	batchWriter2 := newBatchWriter(vectorRepo2, logger)
 	resChannel2 := make(chan WriterResults)
 	// when
 	go testParallelBatchWrite(batchWriter1, searchResultsToBeSaved1, resChannel1)

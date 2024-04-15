@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,8 @@ package modules
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 var (
@@ -35,10 +38,12 @@ var (
 )
 
 type Provider struct {
-	registered             map[string]modulecapabilities.Module
-	altNames               map[string]string
-	schemaGetter           schemaGetter
-	hasMultipleVectorizers bool
+	vectorsLock               sync.RWMutex
+	registered                map[string]modulecapabilities.Module
+	altNames                  map[string]string
+	schemaGetter              schemaGetter
+	hasMultipleVectorizers    bool
+	targetVectorNameValidator *regexp.Regexp
 }
 
 type schemaGetter interface {
@@ -47,8 +52,9 @@ type schemaGetter interface {
 
 func NewProvider() *Provider {
 	return &Provider{
-		registered: map[string]modulecapabilities.Module{},
-		altNames:   map[string]string{},
+		registered:                map[string]modulecapabilities.Module{},
+		altNames:                  map[string]string{},
+		targetVectorNameValidator: regexp.MustCompile(`^` + schema.TargetVectorNameRegex + `$`),
 	}
 }
 
@@ -257,6 +263,13 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 	moduleType modulecapabilities.ModuleType,
 ) bool {
 	if p.isVectorizerModule(moduleType) {
+		for _, vectorConfig := range class.VectorConfig {
+			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+				if _, ok := vectorizer[module]; ok {
+					return true
+				}
+			}
+		}
 		return class.Vectorizer == module
 	}
 	if moduleConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
@@ -290,6 +303,50 @@ func (p *Provider) shouldIncludeArgument(schema *models.Schema, module string,
 	return false
 }
 
+func (p *Provider) shouldAddGenericArgument(class *models.Class, moduleType modulecapabilities.ModuleType) bool {
+	return p.hasMultipleVectorizersConfig(class) && p.isVectorizerModule(moduleType)
+}
+
+func (p *Provider) hasMultipleVectorizersConfig(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
+}
+
+func (p *Provider) shouldCrossClassAddGenericArgument(schema *models.Schema, moduleType modulecapabilities.ModuleType) bool {
+	for _, c := range schema.Classes {
+		if p.shouldAddGenericArgument(c, moduleType) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Provider) getGenericArgument(name, className string,
+	argumentType modulecomponents.ArgumentType,
+) *graphql.ArgumentConfig {
+	var nearTextTransformer modulecapabilities.TextTransform
+	if name == "nearText" {
+		// nearText argument might be exposed with an extension, we need to check
+		// if text transformers module is enabled if so then we need to init nearText
+		// argument with this extension
+		for _, mod := range p.GetAll() {
+			if arg, ok := mod.(modulecapabilities.TextTransformers); ok {
+				if arg != nil && arg.TextTransformers() != nil {
+					nearTextTransformer = arg.TextTransformers()["nearText"]
+					break
+				}
+			}
+		}
+	}
+	return modulecomponents.GetGenericArgument(name, className, argumentType, nearTextTransformer)
+}
+
+func (p *Provider) getGenericAdditionalProperty(name string, class *models.Class) *modulecapabilities.AdditionalProperty {
+	if p.hasMultipleVectorizersConfig(class) {
+		return modulecomponents.GetGenericAdditionalProperty(name, class.Class)
+	}
+	return nil
+}
+
 // GetArguments provides GraphQL Get arguments
 func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig {
 	arguments := map[string]*graphql.ArgumentConfig{}
@@ -298,7 +355,13 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.GetArgumentsFunction != nil {
-						arguments[name] = argument.GetArgumentsFunction(class.Class)
+						if p.shouldAddGenericArgument(class, module.Type()) {
+							if _, ok := arguments[name]; !ok {
+								arguments[name] = p.getGenericArgument(name, class.Class, modulecomponents.Get)
+							}
+						} else {
+							arguments[name] = argument.GetArgumentsFunction(class.Class)
+						}
 					}
 				}
 			}
@@ -315,7 +378,13 @@ func (p *Provider) AggregateArguments(class *models.Class) map[string]*graphql.A
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.AggregateArgumentsFunction != nil {
-						arguments[name] = argument.AggregateArgumentsFunction(class.Class)
+						if p.shouldAddGenericArgument(class, module.Type()) {
+							if _, ok := arguments[name]; !ok {
+								arguments[name] = p.getGenericArgument(name, class.Class, modulecomponents.Aggregate)
+							}
+						} else {
+							arguments[name] = argument.AggregateArgumentsFunction(class.Class)
+						}
 					}
 				}
 			}
@@ -332,7 +401,13 @@ func (p *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 			if arg, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for name, argument := range arg.Arguments() {
 					if argument.ExploreArgumentsFunction != nil {
-						arguments[name] = argument.ExploreArgumentsFunction()
+						if p.shouldCrossClassAddGenericArgument(schema, module.Type()) {
+							if _, ok := arguments[name]; !ok {
+								arguments[name] = p.getGenericArgument(name, "", modulecomponents.Explore)
+							}
+						} else {
+							arguments[name] = argument.ExploreArgumentsFunction()
+						}
 					}
 				}
 			}
@@ -416,7 +491,15 @@ func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					if additionalProperty.GraphQLFieldFunction != nil {
-						additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+						if genericAdditionalProperty := p.getGenericAdditionalProperty(name, class); genericAdditionalProperty != nil {
+							if genericAdditionalProperty.GraphQLFieldFunction != nil {
+								if _, ok := additionalProperties[name]; !ok {
+									additionalProperties[name] = genericAdditionalProperty.GraphQLFieldFunction(class.Class)
+								}
+							}
+						} else {
+							additionalProperties[name] = additionalProperty.GraphQLFieldFunction(class.Class)
+						}
 					}
 				}
 			}
@@ -436,9 +519,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
 					if additionalProperty, ok := additionalProperties[name]; ok {
-						if additionalProperty.GraphQLExtractFunction != nil {
-							return additionalProperty.GraphQLExtractFunction(params)
-						}
+						return additionalProperty.GraphQLExtractFunction(params)
 					}
 				}
 			}
@@ -507,7 +588,7 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
 			}
-			cfg := NewClassBasedModuleConfig(class, "", "")
+			cfg := NewClassBasedModuleConfig(class, "", "", "")
 			for name, value := range moduleParams {
 				additionalPropertyFn := p.getAdditionalPropertyFn(allAdditionalProperties[name], capability)
 				if additionalPropertyFn != nil && value != nil {
@@ -607,39 +688,46 @@ func (p *Provider) RestApiAdditionalProperties(includeProp string, class *models
 func (p *Provider) VectorFromSearchParam(ctx context.Context,
 	className string, param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn, tenant string,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	class, err := p.getClass(className)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	targetVector, err := p.getTargetVector(class, params)
+	if err != nil {
+		return nil, "", err
+	}
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
 		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
 			var moduleName string
 			var vectorSearches modulecapabilities.ArgumentVectorForParams
 			if searcher, ok := mod.(modulecapabilities.Searcher); ok {
-				moduleName = mod.Name()
-				vectorSearches = searcher.VectorSearches()
+				if mod.Name() == targetModule {
+					moduleName = mod.Name()
+					vectorSearches = searcher.VectorSearches()
+				}
 			} else if searchers, ok := mod.(modulecapabilities.DependencySearcher); ok {
 				if dependencySearchers := searchers.VectorSearches(); dependencySearchers != nil {
-					moduleName = class.Vectorizer
-					vectorSearches = dependencySearchers[class.Vectorizer]
+					moduleName = targetModule
+					vectorSearches = dependencySearchers[targetModule]
 				}
 			}
 			if vectorSearches != nil {
 				if searchVectorFn := vectorSearches[param]; searchVectorFn != nil {
-					cfg := NewClassBasedModuleConfig(class, moduleName, tenant)
+					cfg := NewClassBasedModuleConfig(class, moduleName, tenant, targetVector)
 					vector, err := searchVectorFn(ctx, params, class.Class, findVectorFn, cfg)
 					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
+						return nil, "", errors.Errorf("vectorize params: %v", err)
 					}
-					return vector, nil
+					return vector, targetVector, nil
 				}
 			}
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	panic("VectorFromSearchParam was called without any known params present")
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
@@ -648,7 +736,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 	param string, params interface{},
 	findVectorFn modulecapabilities.FindVectorFn,
-) ([]float32, error) {
+) ([]float32, string, error) {
 	for _, mod := range p.GetAll() {
 		if searcher, ok := mod.(modulecapabilities.Searcher); ok {
 			if vectorSearches := searcher.VectorSearches(); vectorSearches != nil {
@@ -656,36 +744,74 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 					cfg := NewCrossClassModuleConfig()
 					vector, err := searchVectorFn(ctx, params, "", findVectorFn, cfg)
 					if err != nil {
-						return nil, errors.Errorf("vectorize params: %v", err)
+						return nil, "", errors.Errorf("vectorize params: %v", err)
 					}
-					return vector, nil
+					targetVector, err := p.getTargetVector(nil, params)
+					if err != nil {
+						return nil, "", errors.Errorf("get target vector: %v", err)
+					}
+					return vector, targetVector, nil
 				}
 			}
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	panic("CrossClassVectorFromSearchParam was called without any known params present")
+}
+
+func (p *Provider) getTargetVector(class *models.Class, params interface{}) (string, error) {
+	if nearParam, ok := params.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) == 1 {
+		return nearParam.GetTargetVectors()[0], nil
+	}
+	if class != nil {
+		if len(class.VectorConfig) > 1 {
+			return "", fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
+		}
+
+		if len(class.VectorConfig) == 1 {
+			for name := range class.VectorConfig {
+				return name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func (p *Provider) getModuleNameForTargetVector(class *models.Class, targetVector string) string {
+	if len(class.VectorConfig) > 0 {
+		if vectorConfig, ok := class.VectorConfig[targetVector]; ok {
+			if vectorizer, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(vectorizer) == 1 {
+				for moduleName := range vectorizer {
+					return moduleName
+				}
+			}
+		}
+	}
+	return class.Vectorizer
 }
 
 func (p *Provider) VectorFromInput(ctx context.Context,
-	className string, input string,
+	className, input, targetVector string,
 ) ([]float32, error) {
 	class, err := p.getClass(className)
 	if err != nil {
 		return nil, err
 	}
+	targetModule := p.getModuleNameForTargetVector(class, targetVector)
 
 	for _, mod := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
-			if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
-				// does not access any objects, therefore tenant is irrelevant
-				cfg := NewClassBasedModuleConfig(class, mod.Name(), "")
-				return vectorizer.VectorizeInput(ctx, input, cfg)
+		if mod.Name() == targetModule {
+			if p.shouldIncludeClassArgument(class, mod.Name(), mod.Type()) {
+				if vectorizer, ok := mod.(modulecapabilities.InputVectorizer); ok {
+					// does not access any objects, therefore tenant is irrelevant
+					cfg := NewClassBasedModuleConfig(class, mod.Name(), "", targetVector)
+					return vectorizer.VectorizeInput(ctx, input, cfg)
+				}
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("VectorFromInput was called without vectorizer")
+	return nil, fmt.Errorf("VectorFromInput was called without vectorizer on class %v for input %v", className, input)
 }
 
 // ParseClassifierSettings parses and adds classifier specific settings

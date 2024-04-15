@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,11 +18,22 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
-func (s *Shard) aggregate(ctx context.Context,
-	params aggregation.Params,
-) (*aggregation.Result, error) {
-	return aggregator.New(s.store, params, s.index.getSchema,
-		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords, s.versioner.Version(),
-		s.vectorIndex, s.index.logger, s.propLengths, s.isFallbackToSearchable, s.tenant(), s.propIds, s.index.Config.QueryNestedRefLimit).
+func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
+	var queue *IndexQueue
+
+	// we only need the index queue for vector search
+	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.GroupBy != nil || params.SearchVector != nil {
+		var err error
+		queue, err = s.getIndexQueue(params.TargetVector)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		queue = nil
+	}
+
+	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
+		s.index.stopwords, s.versioner.Version(), queue, s.index.logger, s.GetPropertyLengthTracker(),
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		Do(ctx)
 }

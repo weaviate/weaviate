@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -204,7 +204,7 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	repl *additional.ReplicationProperties,
+	vectors models.Vectors, repl *additional.ReplicationProperties,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
@@ -341,7 +341,7 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 }
 
 func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-	objectDiff *moduletools.ObjectDiff, findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
 	args := p.Called(object, findObjFn)
 	switch vec := args.Get(0).(type) {
@@ -354,6 +354,25 @@ func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.O
 	default:
 		return args.Error(1)
 	}
+}
+
+func (p *fakeModulesProvider) BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+	findObjectFn modulecapabilities.FindObjectFn,
+	logger logrus.FieldLogger,
+) (map[int]error, error) {
+	args := p.Called()
+
+	for _, obj := range objects {
+		switch vec := args.Get(0).(type) {
+		case models.C11yVector:
+			obj.Vector = vec
+		case []float32:
+			obj.Vector = vec
+		default:
+		}
+	}
+
+	return nil, nil
 }
 
 func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {
