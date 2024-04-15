@@ -47,7 +47,7 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
-      RAFT_JOIN="node1,node2:8302,node3:8304" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -69,7 +69,7 @@ case $CONFIG in
       CLUSTER_JOIN="localhost:7100" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
-      RAFT_JOIN="node1:8300,node2:8302,node3:8304" \
+      RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
@@ -94,7 +94,7 @@ case $CONFIG in
         CLUSTER_JOIN="localhost:7100" \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
-        RAFT_JOIN="node1:8300,node2:8302,node3:8304" \
+        RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
         CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
