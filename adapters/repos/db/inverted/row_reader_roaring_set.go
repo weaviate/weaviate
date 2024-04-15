@@ -98,7 +98,7 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReaderRoaringSet) equal(ctx context.Context, readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
+	v, err := rr.equalHelper(ctx, helpers.MakePropertyKey(rr.PropPrefix, rr.value))
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
+	v, err := rr.equalHelper(ctx, helpers.MakePropertyKey(rr.PropPrefix, rr.value))
 	if err != nil {
 		return err
 	}
@@ -168,37 +168,6 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,readFn ReadFn, allow
 		}
 
 		if bytes.Equal(k, rr.value) && !allowEqual {
-			continue
-		}
-
-		if continueReading, err := readFn(k, v); err != nil {
-			return err
-		} else if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,readFn RoaringSetReadFn) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
-			continue
-		}
-
-		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
 			continue
 		}
 
@@ -272,10 +241,10 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,readFn ReadFn) error {
 }
 
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
-func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context) (*sroar.Bitmap, error) {
+func (rr *RowReaderRoaringSet) equalHelper(ctx context.Context, value []byte) (*sroar.Bitmap, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return rr.getter(rr.value)
+	return rr.getter(value)
 }

@@ -82,15 +82,15 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b *lsmkv.Bucket, limit int, pv *propValuePair) (docBitmap, error) {
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int, pv *propValuePair) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
 		if isEmpty {
-			out.docIDs = ids
+			out.DocIDs = ids
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.DocIDs.Or(ids)
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
@@ -115,15 +115,15 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b 
 	return out, nil
 }
 
-func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket, property []byte, limit int, pv *propValuePair) (docBitmap, error) {
+func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte,  b lsmkv.BucketInterface,limit int, pv *propValuePair) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
 		if isEmpty {
-			out.docIDs = ids
+			out.DocIDs = ids
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.DocIDs.Or(ids)
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids

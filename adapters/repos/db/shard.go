@@ -168,7 +168,6 @@ type Shard struct {
 	metrics         *Metrics
 	promMetrics     *monitoring.PrometheusMetrics
 	propertyIndices propertyspecific.Indices
-	deletedDocIDs   *docid.InMemDeletedTracker
 	propIds         *tracker.JsonPropertyIdTracker
 	propLengths     *inverted.JsonPropertyLengthTracker
 	versioner       *shardVersioner
@@ -176,10 +175,7 @@ type Shard struct {
 	queue            *IndexQueue
 	queues           map[string]*IndexQueue
 	indexCheckpoints *indexcheckpoint.Checkpoints
-	vectorIndex      VectorIndex
-	propertyIndices  propertyspecific.Indices
 	propLenTracker   *inverted.JsonPropertyLengthTracker
-	versioner        *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex

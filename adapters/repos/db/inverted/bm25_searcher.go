@@ -45,20 +45,16 @@ type BM25Searcher struct {
 	schema        schema.Schema
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
-	propLengths   propLengthRetriever
+	propLenTracker *JsonPropertyLengthTracker
 	logger        logrus.FieldLogger
 	shardVersion  uint16
 	propertyIds   *tracker.JsonPropertyIdTracker
 }
 
-type propLengthRetriever interface {
-	PropertyMean(prop string) (float32, error)
-}
-
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	schema schema.Schema, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher,
-	propLengths propLengthRetriever, logger logrus.FieldLogger,
+	propLengths *JsonPropertyLengthTracker, logger logrus.FieldLogger,
 	shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
@@ -67,7 +63,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		schema:        schema,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
-		propLengths:   propLengths,
+		propLenTracker:   propLengths,
 		logger:        logger.WithField("action", "bm25_search"),
 		shardVersion:  shardVersion,
 		propertyIds:   propertyIds,
@@ -97,7 +93,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 }
 
 func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
-	return b.propLenTracker.(*JsonPropertyLengthTracker)
+	return b.propLenTracker
 }
 
 func (b *BM25Searcher) wand(
