@@ -79,22 +79,6 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 	return nil
 }
 
-// ReadFn will be called 1..n times per match. This means it will also be
-// called on a non-match, in this case v == nil.
-// It is up to the caller to decide if that is an error case or not.
-//
-// Note that because what we are parsing is an inverted index row, it can
-// sometimes become confusing what a key and value actually resembles. The
-// variables k and v are the literal row key and value. So this means, the
-// data-value as in "less than 17" where 17 would be the "value" is in the key
-// variable "k". The value will contain the docCount, hash and list of pointers
-// (with optional frequency) to the docIDs
-//
-// The boolean return argument is a way to stop iteration (e.g. when a limit is
-// reached) without producing an error. In normal operation always return true,
-// if false is returned once, the loop is broken.
-type ReadFn func(k []byte, values [][]byte) (bool, error)
-
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
 // requests involving cursors
@@ -148,9 +132,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 
 // greaterThan reads from the specified value to the end. The first row is only
 // included if allowEqual==true, otherwise it starts with the next one
-func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
-	allowEqual bool,
-) error {
+func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,allowEqual bool) error {
 	c := rr.newCursor()
 	defer c.Close()
 
