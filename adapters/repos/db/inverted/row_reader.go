@@ -17,8 +17,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -65,7 +65,7 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 			return err
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -117,14 +117,18 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	v, err := rr.equalHelper(ctx)
+	v, err := rr.equalHelper(ctx, helpers.MakePropertyKey(rr.PropPrefix, rr.value))
 	if err != nil {
 		return err
 	}
 
 	// Invert the Equal results for an efficient NotEqual
 	inverted := rr.bitmapFactory.GetBitmap()
-	inverted.AndNot(rr.transformToBitmap(v))
+	var compositeKeys [][]byte
+	for _, compositeKey := range v {
+		compositeKeys = append(compositeKeys, helpers.MakePropertyKey(rr.PropPrefix, compositeKey))
+	}
+	inverted.AndNot(rr.transformToBitmap(compositeKeys))
 	_, err = readFn(rr.value, inverted)
 	return err
 }
@@ -181,39 +185,6 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 		}
 
 		if bytes.Equal(k, rr.value) && !allowEqual {
-			continue
-		}
-
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
-			continue
-		}
-		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
 			continue
 		}
 
@@ -308,12 +279,12 @@ func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
 }
 
 // equalHelper exists, because the Equal and NotEqual operators share this functionality
-func (rr *RowReader) equalHelper(ctx context.Context) ([][]byte, error) {
+func (rr *RowReader) equalHelper(ctx context.Context, value []byte) ([][]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	v, err := rr.bucket.SetList(rr.value)
+	v, err := rr.bucket.SetList(value)
 	if err != nil {
 		return nil, err
 	}
