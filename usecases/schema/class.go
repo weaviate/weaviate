@@ -355,19 +355,6 @@ func migratePropertySettings(props ...*models.Property) {
 	migratePropertyIndexInverted(props...)
 }
 
-func mergeClassExistedProp(class *models.Class, props ...*models.Property) {
-	existingNames := map[string]int{}
-	for idx, p := range class.Properties {
-		existingNames[strings.ToLower(p.Name)] = idx
-	}
-
-	for _, p := range props {
-		if idx, ok := existingNames[strings.ToLower(p.Name)]; ok {
-			class.Properties[idx].NestedProperties, _ = schema.MergeRecursivelyNestedProperties(class.Properties[idx].NestedProperties, p.NestedProperties)
-		}
-	}
-}
-
 // as of v1.19 DataTypeString and DataTypeStringArray are deprecated
 // here both are changed to Text/TextArray
 // and proper, backward compatible tokenization
