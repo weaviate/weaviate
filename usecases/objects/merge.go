@@ -15,13 +15,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type MergeDocument struct {
@@ -50,6 +50,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
+		return &Error{path, StatusInternalServerError, err}
+	}
 
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {

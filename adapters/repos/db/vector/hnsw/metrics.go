@@ -19,19 +19,23 @@ import (
 )
 
 type Metrics struct {
-	enabled          bool
-	tombstones       prometheus.Gauge
-	threads          prometheus.Gauge
-	insert           prometheus.Gauge
-	insertTime       prometheus.ObserverVec
-	delete           prometheus.Gauge
-	deleteTime       prometheus.ObserverVec
-	cleaned          prometheus.Counter
-	size             prometheus.Gauge
-	grow             prometheus.Observer
-	startupProgress  prometheus.Gauge
-	startupDurations prometheus.ObserverVec
-	startupDiskIO    prometheus.ObserverVec
+	enabled                       bool
+	tombstones                    prometheus.Gauge
+	threads                       prometheus.Gauge
+	insert                        prometheus.Gauge
+	insertTime                    prometheus.ObserverVec
+	delete                        prometheus.Gauge
+	deleteTime                    prometheus.ObserverVec
+	cleaned                       prometheus.Counter
+	size                          prometheus.Gauge
+	grow                          prometheus.Observer
+	startupProgress               prometheus.Gauge
+	startupDurations              prometheus.ObserverVec
+	startupDiskIO                 prometheus.ObserverVec
+	tombstoneReassignNeighbors    prometheus.Counter
+	tombstoneFindGlobalEntrypoint prometheus.Counter
+	tombstoneFindLocalEntrypoint  prometheus.Counter
+	tombstoneDeleteListSize       prometheus.Gauge
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -112,21 +116,77 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
+	tombstoneReassignNeighbors := prom.TombstoneReassignNeighbors.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
 	return &Metrics{
-		enabled:          true,
-		tombstones:       tombstones,
-		threads:          threads,
-		cleaned:          cleaned,
-		insert:           insert,
-		insertTime:       insertTime,
-		delete:           del,
-		deleteTime:       deleteTime,
-		size:             size,
-		grow:             grow,
-		startupProgress:  startupProgress,
-		startupDurations: startupDurations,
-		startupDiskIO:    startupDiskIO,
+		enabled:                       true,
+		tombstones:                    tombstones,
+		threads:                       threads,
+		cleaned:                       cleaned,
+		insert:                        insert,
+		insertTime:                    insertTime,
+		delete:                        del,
+		deleteTime:                    deleteTime,
+		size:                          size,
+		grow:                          grow,
+		startupProgress:               startupProgress,
+		startupDurations:              startupDurations,
+		startupDiskIO:                 startupDiskIO,
+		tombstoneReassignNeighbors:    tombstoneReassignNeighbors,
+		tombstoneFindGlobalEntrypoint: tombstoneFindGlobalEntrypoint,
+		tombstoneFindLocalEntrypoint:  tombstoneFindLocalEntrypoint,
+		tombstoneDeleteListSize:       tombstoneDeleteListSize,
 	}
+}
+
+func (m *Metrics) TombstoneReassignNeighbor() {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneReassignNeighbors.Inc()
+}
+
+func (m *Metrics) TombstoneFindGlobalEntrypoint() {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneFindGlobalEntrypoint.Inc()
+}
+
+func (m *Metrics) TombstoneFindLocalEntrypoint() {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneFindLocalEntrypoint.Inc()
+}
+
+func (m *Metrics) SetTombstoneDeleteListSize(size int) {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneDeleteListSize.Set(float64(size))
 }
 
 func (m *Metrics) AddTombstone() {
