@@ -109,7 +109,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+	class, _, err := m.schemaManager.GetClass(ctx, principal, object.Class)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	class, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
+	class, _, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
 	if err != nil {
 		return nil, err
 	}

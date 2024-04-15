@@ -71,7 +71,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		schemaClass, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+		schemaClass, _, err := m.schemaManager.GetClass(ctx, principal, object.Class)
 		if err != nil {
 			return err
 		}
