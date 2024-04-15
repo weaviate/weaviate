@@ -878,6 +878,48 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
+
+func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
+	if err != nil {
+		return fmt.Errorf("attempt to mark read-only: %w", err)
+	}
+
+	return s.VectorIndex().UpdateUserConfig(updated, func() {
+		s.UpdateStatus(storagestate.StatusReady.String())
+	})
+}
+
+func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
+		return fmt.Errorf("attempt to mark read-only: %w", err)
+	}
+
+	wg := new(sync.WaitGroup)
+	var err error
+	for targetName, targetCfg := range updated {
+		wg.Add(1)
+		if err = s.VectorIndexForName(targetName).UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			break
+		}
+	}
+
+	f := func() {
+		wg.Wait()
+		s.UpdateStatus(storagestate.StatusReady.String())
+	}
+	enterrors.GoWrapper(f, s.index.logger)
+
+	return err
+}
+
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
