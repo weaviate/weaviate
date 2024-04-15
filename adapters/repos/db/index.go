@@ -24,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+
 	"github.com/pkg/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -373,7 +375,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	promMetrics *monitoring.PrometheusMetrics,
 ) (ShardLike, error) {
 	if i.Config.DisableLazyLoadShards {
-		if err := i.allocChecker.CheckMapping(4); err != nil {
+		if err := i.allocChecker.CheckMappingAndReserve(4, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 

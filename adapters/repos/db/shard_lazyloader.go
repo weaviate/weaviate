@@ -92,7 +92,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if err := l.memMonitor.CheckMapping(4); err != nil {
+	if err := l.memMonitor.CheckMappingAndReserve(4, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 		return errors.Wrap(err, "memory pressure: cannot load shard")
 	}
 

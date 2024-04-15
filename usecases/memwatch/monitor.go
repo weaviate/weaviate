@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -47,10 +48,13 @@ type Monitor struct {
 	maxMemoryMappings int64
 
 	// state
-	mu           sync.Mutex
-	limit        int64
-	usedMemory   int64
-	usedMappings int64
+	mu                     sync.Mutex
+	limit                  int64
+	usedMemory             int64
+	usedMappings           int64
+	reservedMappings       int64
+	reservedMappingsBuffer []int64
+	lastRefresh            time.Time
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -74,10 +78,12 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 	maxRatio float64,
 ) *Monitor {
 	m := &Monitor{
-		metricsReader:     metricsReader,
-		limitSetter:       limitSetter,
-		maxRatio:          maxRatio,
-		maxMemoryMappings: getMaxMemoryMappings(),
+		metricsReader:          metricsReader,
+		limitSetter:            limitSetter,
+		maxRatio:               maxRatio,
+		maxMemoryMappings:      getMaxMemoryMappings(),
+		reservedMappingsBuffer: make([]int64, 60), // one entry per second
+		lastRefresh:            time.Now(),
 	}
 	m.Refresh()
 	return m
@@ -94,15 +100,57 @@ func (m *Monitor) CheckAlloc(sizeInBytes int64) error {
 	return nil
 }
 
-func (m *Monitor) CheckMapping(numberMappings int64) error {
+func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if float64(m.usedMappings+numberMappings) > float64(m.maxMemoryMappings) {
-		return ErrNotEnoughMappings
+	if reservationTimeInS > len(m.reservedMappingsBuffer) {
+		reservationTimeInS = len(m.reservedMappingsBuffer)
 	}
 
+	// expire old mappings
+	now := time.Now()
+	m.reservedMappings -= clearReservedMappings(m.lastRefresh, now, m.reservedMappingsBuffer)
+
+	if float64(m.usedMappings+numberMappings+m.reservedMappings) > float64(m.maxMemoryMappings) {
+		return ErrNotEnoughMappings
+	}
+	if reservationTimeInS > 0 {
+		m.reservedMappings += numberMappings
+		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%60] += numberMappings
+	}
+
+	m.lastRefresh = now
+
 	return nil
+}
+
+func clearReservedMappings(lastRefresh time.Time, now time.Time, reservedMappingsBuffer []int64) int64 {
+	clearedMappings := int64(0)
+	if now.Sub(lastRefresh) >= time.Minute {
+		for i := 0; i < len(reservedMappingsBuffer); i++ {
+			clearedMappings += reservedMappingsBuffer[i]
+			reservedMappingsBuffer[i] = 0
+		}
+	} else if now.Second() == lastRefresh.Second() {
+		// do nothing
+	} else if now.Second() > lastRefresh.Second() {
+		for i := lastRefresh.Second(); i <= now.Second(); i++ {
+			clearedMappings += reservedMappingsBuffer[i]
+			reservedMappingsBuffer[i] = 0
+		}
+	} else {
+		// wrap around
+		for i := lastRefresh.Second(); i < 60; i++ {
+			clearedMappings += reservedMappingsBuffer[i]
+			reservedMappingsBuffer[i] = 0
+		}
+		for i := 0; i < now.Second(); i++ {
+			clearedMappings += reservedMappingsBuffer[i]
+			reservedMappingsBuffer[i] = 0
+		}
+	}
+	return clearedMappings
 }
 
 func (m *Monitor) Ratio() float64 {
@@ -244,7 +292,7 @@ type metricsReader func() int64
 
 type AllocChecker interface {
 	CheckAlloc(sizeInBytes int64) error
-	CheckMapping(numberMappings int64) error
+	CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error
 	Refresh()
 }
 
