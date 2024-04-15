@@ -1000,7 +1000,6 @@ func TestHybridOverSearch(t *testing.T) {
 	})
 }
 
-<<<<<<< HEAD
 func TestHybridBug(t *testing.T) {
 	dirName := t.TempDir()
 	logger := logrus.New()
@@ -1110,7 +1109,9 @@ func TestHybridBug(t *testing.T) {
 	require.Equal(t, 3, len(res))
 
 	fmt.Printf("query for %s returned %d results\n", "Exact Online HR", len(res))
-=======
+	//FIXME truncated?
+}
+
 type TesterModule struct {
 	vectors map[string][]float32
 }
@@ -1168,5 +1169,4 @@ func (m *TesterModule) AddVector(text string, vector []float32) error {
 	}
 	m.vectors[text] = vector
 	return nil
->>>>>>> master
 }
