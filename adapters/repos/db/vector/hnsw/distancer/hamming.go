@@ -20,7 +20,7 @@ var hammingImpl func(a, b []float32) float32 = func(a, b []float32) float32 {
 
 	for i := range a {
 		if a[i] != b[i] {
-			sum += float32(1)
+			sum += 1
 		}
 	}
 
@@ -38,6 +38,16 @@ func (l Hamming) Distance(b []float32) (float32, bool, error) {
 	}
 
 	return hammingImpl(l.a, b), true, nil
+}
+
+func HammingDistanceGo(a, b []float32) float32 {
+	var sum float32
+	for i := range a {
+		if a[i] != b[i] {
+			sum += float32(1)
+		}
+	}
+	return sum
 }
 
 type HammingProvider struct{}
