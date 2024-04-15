@@ -218,6 +218,14 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (ui
 	return s.Execute(command)
 }
 
+func (s *Service) RestoreToV0() error {
+	command := &cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V0,
+	}
+	_, err := s.Execute(command)
+	return err
+}
+
 func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
 	if s.store.IsLeader() {
 		return s.store.Execute(req)

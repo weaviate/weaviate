@@ -87,6 +87,10 @@ func (f *fakeMetaHandler) Stats() map[string]string {
 	return map[string]string{}
 }
 
+func (f *fakeMetaHandler) RestoreToV0() error {
+	return nil
+}
+
 func (f *fakeMetaHandler) ClassEqual(name string) string {
 	if f.countClassEqual {
 		args := f.Called(name)

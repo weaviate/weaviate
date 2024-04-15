@@ -154,6 +154,18 @@ func (h RaftHandler) Statistics(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// RestoreToV0 migrate from v1 (RAFT) to v0 (Non-RAFT)
+func (h RaftHandler) RestoreToV0(w http.ResponseWriter, r *http.Request) {
+	restore := h.schemaHandler.RestoreToV0()
+	w.Header().Set("Content-Type", "application/json")
+
+	err := json.NewEncoder(w).Encode(restore)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
 // ClusterRouter returns a *mux.Router that will requests starting with "/v1/cluster".
 // The schemaHandler is kept in memory internally to forward request to once parsed.
 func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
@@ -164,6 +176,7 @@ func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
 	r.HandleFunc(root+"/join", raftHandler.JoinNode)
 	r.HandleFunc(root+"/remove", raftHandler.RemoveNode)
 	r.HandleFunc(root+"/statistics", raftHandler.Statistics)
+	r.HandleFunc(root+"/revert", raftHandler.RestoreToV0)
 
 	return r
 }

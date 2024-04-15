@@ -155,7 +155,9 @@ func Test_Schema_Authorization(t *testing.T) {
 				// internal methods to indicate readiness state
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
-				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes":
+				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
+				// revert to schema v0 (non raft)
+				"RestoreToV0":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing

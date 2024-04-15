@@ -608,3 +608,15 @@ func (r *store) LoadLegacySchema() (map[string]clusterStore.ClassState, error) {
 	}
 	return res, nil
 }
+
+func (r *store) SaveLegacySchema(cluster map[string]clusterStore.ClassState) error {
+	states := ucs.NewState(len(cluster))
+
+	for _, s := range cluster {
+		currState := s // new var to avoid passing pointer to s
+		states.ObjectSchema.Classes = append(states.ObjectSchema.Classes, &currState.Class)
+		states.ShardingState[s.Class.Class] = &currState.Shards
+	}
+
+	return r.Save(context.Background(), states)
+}

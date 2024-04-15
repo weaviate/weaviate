@@ -118,6 +118,8 @@ type Config struct {
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
+	// SaveLegacySchema is responsible for loading new schema into boltDB
+	SaveLegacySchema SaveLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
 }
@@ -170,6 +172,7 @@ type Store struct {
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	loadLegacySchema LoadLegacySchema
+	saveLegacySchema SaveLegacySchema
 }
 
 func New(cfg Config) Store {
@@ -195,6 +198,7 @@ func New(cfg Config) Store {
 
 		// loadLegacySchema is responsible for loading old schema from boltDB
 		loadLegacySchema: cfg.LoadLegacySchema,
+		saveLegacySchema: cfg.SaveLegacySchema,
 	}
 }
 
@@ -330,6 +334,19 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		}
 		return
 	}
+}
+
+// RestoreToV0() is responsible for saving new schema (RAFT) to boltDB
+func (st *Store) RestoreToV0() error {
+	cs := map[string]ClassState{}
+	for _, c := range st.db.Schema.Classes {
+		cs[c.Class.Class] = ClassState{
+			Class:  c.Class,
+			Shards: c.Sharding,
+		}
+	}
+
+	return st.saveLegacySchema(cs)
 }
 
 func (st *Store) Close(ctx context.Context) (err error) {
@@ -517,6 +534,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
+
+	case api.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V0:
+		ret.Error = st.RestoreToV0()
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
