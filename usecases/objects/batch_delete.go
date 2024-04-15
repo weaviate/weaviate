@@ -117,7 +117,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 
 	// Validate schema given in body with the weaviate schema
-	class, err := b.schemaManager.GetClass(ctx, principal, match.Class)
+	class, _, err := b.schemaManager.GetClass(ctx, principal, match.Class)
 	if err != nil || class == nil {
 		return nil, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
 	}

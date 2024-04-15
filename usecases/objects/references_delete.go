@@ -122,7 +122,7 @@ func (req *DeleteReferenceInput) validate(
 		return err
 	}
 
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	class, _, err := sm.GetClass(ctx, principal, req.Class)
 	if err != nil {
 		return err
 	}
