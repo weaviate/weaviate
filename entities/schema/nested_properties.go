@@ -13,9 +13,9 @@ package schema
 
 import "github.com/weaviate/weaviate/entities/models"
 
-// merges nestPropsNew with nestPropsOld
-// returns new slice without changing input ones
-// and bool indicating whether there was changes done comparing to base slice
+// Merges nestPropsNew with nestPropsOld
+// Returns new slice without changing input ones and
+// bool indicating whether merged slice is different than the old one
 func MergeRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.NestedProperty,
 ) ([]*models.NestedProperty, bool) {
 	merged := false
@@ -50,6 +50,7 @@ func MergeRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.Neste
 	return nestPropsMerged, merged
 }
 
+// Determines diff between nestPropsNew and nestPropsOld slices
 func DiffRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.NestedProperty,
 ) []*models.NestedProperty {
 	nestPropsDiff := make([]*models.NestedProperty, 0, len(nestPropsNew))
