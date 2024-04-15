@@ -110,8 +110,8 @@ func TestMappings(t *testing.T) {
 		switch runtime.GOOS {
 		case "linux":
 			// we can read the max value on linux
-			assert.Greater(t, getMaxMemoryMappings(), 0)
-			assert.Less(t, getMaxMemoryMappings(), math.MaxInt64)
+			assert.Greater(t, getMaxMemoryMappings(), int64(0))
+			assert.Less(t, getMaxMemoryMappings(), int64(math.MaxInt64))
 		default:
 			// cant read on other OS so we use max int
 			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))

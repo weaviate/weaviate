@@ -240,7 +240,7 @@ func readMaxMemoryMappingsLinux(defaultValue int64) int64 {
 
 	scanner := bufio.NewScanner(file)
 	// Read the value from the file
-	for scanner.Scan() {
+	if scanner.Scan() {
 		asInt, err := strconv.Atoi(scanner.Text())
 		if err != nil {
 			return defaultValue
