@@ -55,7 +55,7 @@ type Searcher struct {
 	bitmapFactory       *roaringset.BitmapFactory
 }
 
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable, tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory) *Searcher {
+func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable, tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory) *Searcher {
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,

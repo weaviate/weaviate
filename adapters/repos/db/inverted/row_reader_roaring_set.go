@@ -97,9 +97,7 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
-func (rr *RowReaderRoaringSet) equal(ctx context.Context,
-	readFn ReadFn,
-) error {
+func (rr *RowReaderRoaringSet) equal(ctx context.Context, readFn ReadFn) error {
 	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
@@ -109,9 +107,7 @@ func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	return err
 }
 
-func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
-	readFn ReadFn,
-) error {
+func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,readFn ReadFn) error {
 	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
@@ -125,9 +121,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 
 // greaterThan reads from the specified value to the end. The first row is only
 // included if allowEqual==true, otherwise it starts with the next one
-func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
-	readFn ReadFn, allowEqual bool,
-) error {
+func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,readFn ReadFn, allowEqual bool) error {
 	c := rr.newCursor()
 	defer c.Close()
 
@@ -160,9 +154,7 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 // lessThan reads from the very begging to the specified  value. The last
 // matching row is only included if allowEqual==true, otherwise it ends one
 // prior to that.
-func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
-	readFn ReadFn, allowEqual bool,
-) error {
+func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,readFn ReadFn, allowEqual bool) error {
 	c := rr.newCursor()
 	defer c.Close()
 
@@ -191,9 +183,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
-func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
-	readFn RoaringSetReadFn,
-) error {
+func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,readFn RoaringSetReadFn) error {
 	c := rr.newCursor()
 	defer c.Close()
 
@@ -222,9 +212,7 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 	return nil
 }
 
-func (rr *RowReaderRoaringSet) like(ctx context.Context,
-	readFn ReadFn,
-) error {
+func (rr *RowReaderRoaringSet) like(ctx context.Context,readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
 		return fmt.Errorf("parse like value: %w", err)
