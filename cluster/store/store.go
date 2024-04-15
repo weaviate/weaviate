@@ -336,8 +336,8 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	}
 }
 
-// RestoreToV0() is responsible for saving new schema (RAFT) to boltDB
-func (st *Store) RestoreToV0() error {
+// RestoreSchemaToV0() is responsible for saving new schema (RAFT) to boltDB
+func (st *Store) RestoreSchemaToV0() error {
 	cs := map[string]ClassState{}
 	for _, c := range st.db.Schema.Classes {
 		cs[c.Class.Class] = ClassState{
@@ -536,7 +536,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V0:
-		ret.Error = st.RestoreToV0()
+		ret.Error = st.RestoreSchemaToV0()
 
 	default:
 		// This could occur when a new command has been introduced in a later app version

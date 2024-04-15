@@ -87,7 +87,7 @@ func (f *fakeMetaHandler) Stats() map[string]string {
 	return map[string]string{}
 }
 
-func (f *fakeMetaHandler) RestoreToV0() error {
+func (f *fakeMetaHandler) RestoreSchemaToV0() error {
 	return nil
 }
 
