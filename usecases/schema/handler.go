@@ -51,7 +51,7 @@ type metaWriter interface {
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
-	Stats() map[string]string
+	Stats() map[string]any
 	StoreSchemaV1() error
 }
 
@@ -239,7 +239,7 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 }
 
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
-func (h *Handler) Statistics() map[string]string {
+func (h *Handler) Statistics() map[string]any {
 	return h.metaWriter.Stats()
 }
 

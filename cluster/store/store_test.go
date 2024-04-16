@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -242,7 +244,22 @@ func TestServiceEndpoints(t *testing.T) {
 
 	// Stats
 	stats := srv.Stats()
-	assert.Equal(t, "Leader", stats["state"])
+	// stats:raft_state
+	assert.Equal(t, "Leader", stats["raft_state"])
+	// stats:leader_address
+	leaderAddress := string(stats["leader_address"].(raft.ServerAddress))
+	splitAddress := strings.Split(leaderAddress, ":")
+	assert.Len(t, splitAddress, 2)
+	ipAddress, portStr := splitAddress[0], splitAddress[1]
+	assert.Equal(t, "127.0.0.1", ipAddress)
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Errorf("Port should have been parsable as an int but was: %v", portStr)
+	}
+	assert.GreaterOrEqual(t, port, 0)
+	// stats:leader_id
+	leaderID := string(stats["leader_id"].(raft.ServerID))
+	assert.Equal(t, m.store.nodeID, leaderID)
 
 	// create snapshot
 	assert.Nil(t, srv.store.raft.Barrier(2*time.Second).Error())
