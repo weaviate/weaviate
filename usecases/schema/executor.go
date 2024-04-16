@@ -131,6 +131,8 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 	if err := e.migrator.AddProperty(ctx, className, req.Properties...); err != nil {
 		return err
 	}
+
+	e.logger.WithField("action", "add_property").WithField("class", className)
 	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
