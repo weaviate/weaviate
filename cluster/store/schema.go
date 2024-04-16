@@ -318,10 +318,10 @@ func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
 }
 
 func (s *schema) States() map[string]ClassState {
-	s.Lock()
-	defer s.Unlock()
+	s.RLock()
+	defer s.RUnlock()
 
-	cs := map[string]ClassState{}
+	cs := make(map[string]ClassState, len(s.Classes))
 	for _, c := range s.Classes {
 		cs[c.Class.Class] = ClassState{
 			Class:  c.Class,
