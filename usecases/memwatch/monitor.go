@@ -37,7 +37,7 @@ const (
 
 var (
 	ErrNotEnoughMemory   = fmt.Errorf("not enough memory")
-	ErrNotEnoughMappings = fmt.Errorf("not enough mappings")
+	ErrNotEnoughMappings = fmt.Errorf("not enough memory mappings")
 )
 
 // Monitor allows making statements about the memory ratio used by the application
