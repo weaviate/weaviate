@@ -59,14 +59,14 @@ func (db *DB) ReplicateObject(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateObjects(ctx context.Context, class,
-	shard, requestID string, objects []*storobj.Object,
+	shard, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateObjects(ctx, shard, requestID, objects)
+	return index.ReplicateObjects(ctx, shard, requestID, objects, schemaVersion)
 }
 
 func (db *DB) ReplicateUpdate(ctx context.Context, class,
@@ -189,7 +189,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 	return localShard.prepareDeleteObject(ctx, requestID, uuid)
 }
 
-func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr

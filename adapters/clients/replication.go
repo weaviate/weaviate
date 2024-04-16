@@ -49,7 +49,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	additional additional.Properties,
 ) (objects.Replica, error) {
 	resp := objects.Replica{}
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil)
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -67,7 +67,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	}
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodGet, host, index, shard,
-		"", "_digest", bytes.NewReader(body))
+		"", "_digest", bytes.NewReader(body), 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -85,7 +85,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	}
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,
-		"", "_overwrite", bytes.NewReader(body))
+		"", "_overwrite", bytes.NewReader(body), 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -104,7 +104,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 
 	idsEncoded := base64.StdEncoding.EncodeToString(idsBytes)
 
-	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil)
+	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", "", nil, 0)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -123,7 +123,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
 
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil)
+	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -137,7 +137,7 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 	shard, requestID string, uuid strfmt.UUID,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil)
+	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -147,14 +147,14 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) PutObjects(ctx context.Context, host, index,
-	shard, requestID string, objects []*storobj.Object,
+	shard, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
 	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objects)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil)
+	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -174,7 +174,7 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	req, err := newHttpReplicaRequest(ctx, http.MethodPatch, host, index, shard,
-		requestID, doc.ID.String(), nil)
+		requestID, doc.ID.String(), nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -193,7 +193,7 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
 	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard,
-		requestID, "references", nil)
+		requestID, "references", nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -210,7 +210,7 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", nil)
+	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -242,7 +242,7 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 	return resp, err
 }
 
-func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader) (*http.Request, error) {
+func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requestId, suffix string, body io.Reader, schemaVersion uint64) (*http.Request, error) {
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s/objects", index, shard)
 	if suffix != "" {
 		path = fmt.Sprintf("%s/%s", path, suffix)
@@ -253,9 +253,12 @@ func newHttpReplicaRequest(ctx context.Context, method, host, index, shard, requ
 		Path:   path,
 	}
 
+	urlValues := url.Values{}
+	urlValues[replica.SchemaVersionKey] = []string{fmt.Sprint(schemaVersion)}
 	if requestId != "" {
-		u.RawQuery = url.Values{replica.RequestKey: []string{requestId}}.Encode()
+		urlValues[replica.RequestKey] = []string{requestId}
 	}
+	u.RawQuery = urlValues.Encode()
 
 	return http.NewRequestWithContext(ctx, method, u.String(), body)
 }

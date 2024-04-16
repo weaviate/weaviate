@@ -37,7 +37,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingPutObject(ctx context.Context, shardName string,
 		obj *storobj.Object) error
 	IncomingBatchPutObjects(ctx context.Context, shardName string,
-		objs []*storobj.Object) []error
+		objs []*storobj.Object, schemaVersion uint64) []error
 	IncomingBatchAddReferences(ctx context.Context, shardName string,
 		refs objects.BatchReferences) []error
 	IncomingGetObject(ctx context.Context, shardName string, id strfmt.UUID,
@@ -101,7 +101,7 @@ func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
-	shardName string, objs []*storobj.Object,
+	shardName string, objs []*storobj.Object, schemaVersion uint64,
 ) []error {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
@@ -109,7 +109,7 @@ func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 			len(objs))
 	}
 
-	return index.IncomingBatchPutObjects(ctx, shardName, objs)
+	return index.IncomingBatchPutObjects(ctx, shardName, objs, schemaVersion)
 }
 
 func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexName,

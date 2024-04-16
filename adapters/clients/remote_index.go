@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
@@ -76,12 +77,13 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
-	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties,
+	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	url := url.URL{
-		Scheme: "http",
-		Host:   host,
-		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard),
+		Scheme:   "http",
+		Host:     host,
+		Path:     fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard),
+		RawQuery: url.Values{replica.SchemaVersionKey: []string{fmt.Sprint(schemaVersion)}}.Encode(),
 	}
 
 	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs)

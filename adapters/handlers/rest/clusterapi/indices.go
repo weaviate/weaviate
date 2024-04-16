@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -90,7 +91,7 @@ type shards interface {
 	PutObject(ctx context.Context, indexName, shardName string,
 		obj *storobj.Object) error
 	BatchPutObjects(ctx context.Context, indexName, shardName string,
-		objs []*storobj.Object) []error
+		objs []*storobj.Object, schemaVersion uint64) []error
 	BatchAddReferences(ctx context.Context, indexName, shardName string,
 		refs objects.BatchReferences) []error
 	GetObject(ctx context.Context, indexName, shardName string,
@@ -364,7 +365,14 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	errs := index.IncomingBatchPutObjects(r.Context(), shard, objs)
+	var schemaVersion uint64
+	if v := r.URL.Query().Get(replica.SchemaVersionKey); v != "" {
+		if vAsUint64, err := strconv.ParseUint(v, 10, 64); err != nil {
+			schemaVersion = vAsUint64
+		}
+	}
+
+	errs := index.IncomingBatchPutObjects(r.Context(), shard, objs, schemaVersion)
 	if len(errs) > 0 && errors.Is(errs[0], db.ErrShardNotFound) {
 		http.Error(w, errs[0].Error(), http.StatusInternalServerError)
 		return
