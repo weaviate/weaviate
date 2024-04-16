@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -32,7 +33,7 @@ type replicator interface {
 	ReplicateObject(ctx context.Context, indexName, shardName,
 		requestID string, object *storobj.Object) replica.SimpleResponse
 	ReplicateObjects(ctx context.Context, indexName, shardName,
-		requestID string, objects []*storobj.Object) replica.SimpleResponse
+		requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse
 	ReplicateUpdate(ctx context.Context, indexName, shardName,
 		requestID string, mergeDoc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
@@ -273,6 +274,13 @@ func (i *replicatedIndices) postObject() http.Handler {
 			return
 		}
 
+		var schemaVersion uint64
+		if v := r.URL.Query().Get(replica.SchemaVersionKey); v != "" {
+			if vAsUint64, err := strconv.ParseUint(v, 10, 64); err != nil {
+				schemaVersion = vAsUint64
+			}
+		}
+
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
@@ -285,7 +293,7 @@ func (i *replicatedIndices) postObject() http.Handler {
 			i.postObjectSingle(w, r, index, shard, requestID)
 			return
 		case IndicesPayloads.ObjectList.MIME():
-			i.postObjectBatch(w, r, index, shard, requestID)
+			i.postObjectBatch(w, r, index, shard, requestID, schemaVersion)
 			return
 		default:
 			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
@@ -532,7 +540,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 }
 
 func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Request,
-	index, shard, requestID string,
+	index, shard, requestID string, schemaVersion uint64,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -546,7 +554,7 @@ func (i *replicatedIndices) postObjectBatch(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs)
+	resp := i.shards.ReplicateObjects(r.Context(), index, shard, requestID, objs, schemaVersion)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return

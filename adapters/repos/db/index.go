@@ -735,7 +735,7 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 // return value []error gives the error for the index with the positions
 // matching the inputs
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	type objsAndPos struct {
 		objects []*storobj.Object
@@ -785,9 +785,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			var errs []error
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
-					replica.ConsistencyLevel(replProps.ConsistencyLevel))
+					replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else if i.localShard(shardName) == nil {
-				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects)
+				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
 			} else {
 				i.backupMutex.RLockGuard(func() error {
 					if shard := i.localShard(shardName); shard != nil {
@@ -821,7 +821,7 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
-	objects []*storobj.Object,
+	objects []*storobj.Object, schemaVersion uint64,
 ) []error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
