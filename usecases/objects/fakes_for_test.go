@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -45,6 +46,7 @@ type fakeSchemaManager struct {
 	}
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
+	tenantsEnabled    bool
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -66,25 +68,45 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
+func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	return f.GetSchema(principal)
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) { return "", nil }
 func (f *fakeSchemaManager) TenantShard(class, tenant string) string        { return tenant }
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
-) (*models.Class, error) {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, class := range classes {
+) (*models.Class, uint64, error) {
+	if f.GetSchemaResponse.Objects == nil {
+		return nil, 0, f.GetschemaErr
+	}
+	for _, class := range f.GetSchemaResponse.Objects.Classes {
 		if class.Class == name {
-			return class, f.GetschemaErr
+			return class, 0, f.GetschemaErr
 		}
 	}
-	return nil, f.GetschemaErr
+	return nil, 0, f.GetschemaErr
+}
+
+func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *models.Principal,
+	name string, consistency bool,
+) (*models.Class, uint64, error) {
+	return f.GetClass(ctx, principal, name)
+}
+
+func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
+	c, _, err := f.GetClass(context.TODO(), nil, name)
+	if err != nil {
+		return nil
+	}
+	return c
 }
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
-) error {
+) (uint64, error) {
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -98,45 +120,47 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return nil
+	return 0, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
-) error {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, c := range classes {
-		if c.Class == class {
-			props := c.Properties
-			if props != nil {
-				props = append(props, property)
-			} else {
-				props = []*models.Property{property}
+	class *models.Class, merge bool, newProps ...*models.Property,
+) (uint64, error) {
+	existing := map[string]int{}
+	var existedClass *models.Class
+	for _, c := range f.GetSchemaResponse.Objects.Classes {
+		if c.Class == class.Class {
+			existedClass = c
+			for idx, p := range c.Properties {
+				existing[strings.ToLower(p.Name)] = idx
 			}
-			c.Properties = props
 			break
 		}
 	}
-	return nil
+
+	// update existed
+	for _, prop := range newProps {
+		if idx, exists := existing[strings.ToLower(prop.Name)]; exists {
+			prop.NestedProperties, _ = schema.MergeRecursivelyNestedProperties(existedClass.Properties[idx].NestedProperties,
+				prop.NestedProperties)
+			existedClass.Properties[idx] = prop
+		} else {
+			existedClass.Properties = append(existedClass.Properties, prop)
+		}
+	}
+
+	return 0, nil
 }
 
-func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
-) error {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, c := range classes {
-		if c.Class == class {
-			for i, prop := range c.Properties {
-				if prop.Name == property.Name {
-					c.Properties[i].NestedProperties, _ = schema.MergeRecursivelyNestedProperties(
-						c.Properties[i].NestedProperties, property.NestedProperties)
-					break
-				}
-			}
-			break
-		}
-	}
-	return nil
+func (f *fakeSchemaManager) AddTenants(ctx context.Context,
+	principal *models.Principal, class string, tenants []*models.Tenant,
+) (uint64, error) {
+	f.tenantsEnabled = true
+	return 0, nil
+}
+
+func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
+	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
 }
 
 type fakeLocks struct {

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.24.6"
+    "version": "1.25.0-raft"
   },
   "basePath": "/v1",
   "paths": {
@@ -2311,6 +2311,15 @@ func init() {
         ],
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -2423,6 +2432,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -2755,6 +2771,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -4018,6 +4041,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantCreation": {
+          "description": "Nonexistent tenants should (not) be created implicitly",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
@@ -5108,7 +5136,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.24.6"
+    "version": "1.25.0-raft"
   },
   "basePath": "/v1",
   "paths": {
@@ -7493,6 +7521,15 @@ func init() {
         ],
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -7605,6 +7642,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -7937,6 +7981,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -9359,6 +9410,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantCreation": {
+          "description": "Nonexistent tenants should (not) be created implicitly",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",

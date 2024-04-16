@@ -71,6 +71,8 @@ func TestCoordinatedBackup(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		fc := newFakeCoordinator(nodeResolver)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
@@ -107,6 +109,7 @@ func TestCoordinatedBackup(t *testing.T) {
 					Status:  backup.Success,
 				},
 			},
+			Leader: nodes[0],
 		}
 		assert.Equal(t, want, got)
 	})
@@ -116,8 +119,22 @@ func TestCoordinatedBackup(t *testing.T) {
 		fc := newFakeCoordinator(nodeResolver)
 		fc.selector.On("Shards", ctx, classes[0]).Return([]string{}, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
+		fc.client.On("Abort", any, any, any).Return(nil)
 
-		creqWithOneClass := &Request{
+		oneClassReq := &Request{
+			Method:   OpCreate,
+			ID:       backupID,
+			Backend:  backendName,
+			Classes:  []string{classes[1]},
+			Duration: _BookingPeriod,
+			Compression: Compression{
+				Level:         DefaultCompression,
+				ChunkSize:     DefaultChunkSize,
+				CPUPercentage: DefaultCPUPercentage,
+			},
+		}
+
+		twoClassesReqcreq := &Request{
 			Method:   OpCreate,
 			ID:       backupID,
 			Backend:  backendName,
@@ -129,8 +146,8 @@ func TestCoordinatedBackup(t *testing.T) {
 				CPUPercentage: DefaultCPUPercentage,
 			},
 		}
-		fc.client.On("CanCommit", any, nodes[0], creqWithOneClass).Return(cresp, nil)
-		fc.client.On("CanCommit", any, nodes[1], creqWithOneClass).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[0], twoClassesReqcreq).Return(cresp, nil)
+		fc.client.On("CanCommit", any, nodes[1], oneClassReq).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
 		fc.client.On("Commit", any, nodes[1], sReq).Return(nil)
 		fc.client.On("Status", any, nodes[0], sReq).Return(sresp, nil)
@@ -157,14 +174,15 @@ func TestCoordinatedBackup(t *testing.T) {
 			ServerVersion: config.ServerVersion,
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodes[0]: {
-					Classes: classes[:],
+					Classes: twoClassesReqcreq.Classes,
 					Status:  backup.Success,
 				},
 				nodes[1]: {
-					Classes: classes[:],
+					Classes: oneClassReq.Classes,
 					Status:  backup.Success,
 				},
 			},
+			Leader: nodes[0],
 		}
 		assert.Equal(t, want, got)
 	})
@@ -240,6 +258,7 @@ func TestCoordinatedBackup(t *testing.T) {
 					Error:   got.Nodes[nodes[1]].Error,
 				},
 			},
+			Leader: nodes[0],
 		}
 		assert.Equal(t, want, got)
 	})
@@ -294,6 +313,7 @@ func TestCoordinatedBackup(t *testing.T) {
 					Error:   got.Nodes[nodes[0]].Error,
 				},
 			},
+			Leader: nodes[0],
 		}
 		assert.Equal(t, want, got)
 	})
@@ -369,7 +389,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		store := coordStore{objStore{fc.backend, backupID}}
 
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq())
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.Nil(t, err)
 	})
 
@@ -385,7 +405,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		coordinator := *fc.coordinator()
 		store := coordStore{objStore{fc.backend, backupID}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq())
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, errCannotCommit)
 		assert.Contains(t, err.Error(), nodes[1])
 	})
@@ -404,7 +424,7 @@ func TestCoordinatedRestore(t *testing.T) {
 		coordinator := *fc.coordinator()
 		store := coordStore{objStore{fc.backend, backupID}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, genReq())
+		err := coordinator.Restore(ctx, store, &req, genReq(), nil)
 		assert.ErrorIs(t, err, ErrAny)
 		assert.Contains(t, err.Error(), "initial")
 	})
@@ -483,7 +503,7 @@ func TestCoordinatedRestoreWithNodeMapping(t *testing.T) {
 		descReq := genReq()
 		store := coordStore{objStore{fc.backend, descReq.ID}}
 		req := newReq([]string{}, backendName, "")
-		err := coordinator.Restore(ctx, store, &req, descReq)
+		err := coordinator.Restore(ctx, store, &req, descReq, nil)
 		assert.Nil(t, err)
 	})
 }
@@ -510,6 +530,7 @@ func (s *fakeSelector) Backupable(ctx context.Context, classes []string) error {
 type fakeCoordinator struct {
 	selector     fakeSelector
 	client       fakeClient
+	schema       fakeSchemaManger
 	backend      *fakeBackend
 	log          logrus.FieldLogger
 	nodeResolver nodeResolver
@@ -518,6 +539,7 @@ type fakeCoordinator struct {
 func newFakeCoordinator(resolver nodeResolver) *fakeCoordinator {
 	fc := fakeCoordinator{}
 	fc.backend = newFakeBackend()
+	fc.schema = fakeSchemaManger{}
 	logger, _ := test.NewNullLogger()
 	fc.log = logger
 	fc.nodeResolver = resolver
@@ -525,7 +547,8 @@ func newFakeCoordinator(resolver nodeResolver) *fakeCoordinator {
 }
 
 type fakeNodeResolver struct {
-	hosts map[string]string
+	hosts  map[string]string
+	leader string
 }
 
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
@@ -537,6 +560,10 @@ func (r *fakeNodeResolver) NodeCount() int {
 		return len(r.hosts)
 	}
 	return 1
+}
+
+func (r *fakeNodeResolver) LeaderID() string {
+	return r.leader
 }
 
 func (r *fakeNodeResolver) AllNames() []string {
@@ -552,11 +579,15 @@ func newFakeNodeResolver(nodes []string) *fakeNodeResolver {
 	for _, node := range nodes {
 		hosts[node] = node
 	}
-	return &fakeNodeResolver{hosts: hosts}
+	leader := ""
+	if len(nodes) > 0 {
+		leader = nodes[0]
+	}
+	return &fakeNodeResolver{hosts: hosts, leader: leader}
 }
 
 func (fc *fakeCoordinator) coordinator() *coordinator {
-	c := newCoordinator(&fc.selector, &fc.client, fc.log, fc.nodeResolver)
+	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver)
 	c.timeoutNextRound = time.Millisecond * 200
 	return c
 }

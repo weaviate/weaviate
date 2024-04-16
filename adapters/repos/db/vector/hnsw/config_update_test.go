@@ -17,7 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -25,8 +25,8 @@ func TestUserConfigUpdates(t *testing.T) {
 	t.Run("various immutable and mutable fields", func(t *testing.T) {
 		type test struct {
 			name          string
-			initial       schema.VectorIndexConfig
-			update        schema.VectorIndexConfig
+			initial       schemaConfig.VectorIndexConfig
+			update        schemaConfig.VectorIndexConfig
 			expectedError error
 		}
 

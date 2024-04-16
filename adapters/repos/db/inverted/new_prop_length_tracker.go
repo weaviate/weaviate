@@ -318,7 +318,7 @@ func (t *JsonPropertyLengthTracker) Close() error {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data.BucketedData = nil
+	clear(t.data.BucketedData)
 
 	return nil
 }
@@ -330,7 +330,7 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data.BucketedData = nil
+	clear(t.data.BucketedData)
 
 	if err := os.Remove(t.path); err != nil {
 		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)

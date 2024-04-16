@@ -16,25 +16,30 @@ import (
 	"fmt"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/schema/migrate"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type Migrator struct {
 	db     *DB
 	logger logrus.FieldLogger
+}
+
+func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+	return &Migrator{db: db, logger: logger}
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -68,7 +73,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints)
+		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.indexCheckpoints,
+		m.db.memMonitor)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -111,13 +117,144 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) AddProperty(ctx context.Context, className string, prop *models.Property) error {
+// UpdateIndex ensures that the local index is up2date with the latest sharding
+// state (shards/tenants) and index properties that may have been added in the
+// case that the local node was down during a class update operation.
+//
+// This method is relevant when the local node is a part of a cluster,
+// particularly with the introduction of the v2 RAFT-based schema
+func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
+	incomingSS *sharding.State,
+) error {
+	idx := m.db.GetIndex(schema.ClassName(incomingClass.Class))
+
+	{ // add index if missing
+		if idx == nil {
+			if err := m.AddClass(ctx, incomingClass, incomingSS); err != nil {
+				return fmt.Errorf(
+					"add missing class %s during update index: %w",
+					incomingClass.Class, err)
+			}
+			return nil
+		}
+	}
+
+	{ // add/remove missing shards
+		if incomingSS.PartitioningEnabled {
+			if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
+				return err
+			}
+		} else {
+			if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
+				return err
+			}
+		}
+	}
+
+	{ // add missing properties
+		if err := m.updateIndexAddMissingProperties(ctx, idx, incomingClass); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
+	incomingClass *models.Class, incomingSS *sharding.State,
+) error {
+	if err := m.updateIndexAddTenants(ctx, idx, incomingClass, incomingSS); err != nil {
+		return err
+	}
+	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
+}
+
+func (m *Migrator) updateIndexAddTenants(ctx context.Context, idx *Index,
+	incomingClass *models.Class, incomingSS *sharding.State,
+) error {
+	for name, phys := range incomingSS.Physical {
+		// Only load the tenant if activity status == HOT
+		if schemaUC.IsLocalActiveTenant(&phys, m.db.schemaGetter.NodeName()) {
+			loaded := idx.shards.Load(name)
+			if loaded == nil {
+				if err := idx.initAndStoreShard(ctx, name, incomingClass, m.db.promMetrics); err != nil {
+					return fmt.Errorf("add missing tenant shard %s during update index: %w", name, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
+	idx *Index, incomingSS *sharding.State,
+) error {
+	var toRemove []string
+
+	idx.ForEachShard(func(name string, _ ShardLike) error {
+		if _, ok := incomingSS.Physical[name]; !ok {
+			toRemove = append(toRemove, name)
+		}
+		return nil
+	})
+
+	if len(toRemove) > 0 {
+		commit, err := idx.dropShards(toRemove)
+		if err != nil {
+			commit(false)
+			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
+		}
+		commit(true)
+	}
+	return nil
+}
+
+func (m *Migrator) updateIndexAddShards(ctx context.Context, idx *Index,
+	incomingClass *models.Class, incomingSS *sharding.State,
+) error {
+	for _, shard := range incomingSS.AllLocalPhysicalShards() {
+		loaded := idx.shards.Load(shard)
+		if loaded == nil {
+			if err := idx.initAndStoreShard(ctx, shard, incomingClass, m.db.promMetrics); err != nil {
+				return fmt.Errorf("add missing shard %s during update index: %w", shard, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Index,
+	incomingClass *models.Class,
+) error {
+	for _, prop := range incomingClass.Properties {
+		// Returning an error in idx.ForEachShard stops the range.
+		// So if one shard is missing the property bucket, we know
+		// that the property needs to be added to the index, and
+		// don't need to continue iterating over all shards
+		errMissingProp := errors.New("missing prop")
+		err := idx.ForEachShard(func(name string, shard ShardLike) error {
+			bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			if bucket == nil {
+				return errMissingProp
+			}
+			return nil
+		})
+		if errors.Is(err, errMissingProp) {
+			if err := idx.addProperty(ctx, prop); err != nil {
+				return fmt.Errorf("add missing prop %s during update index: %w", prop.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return idx.addProperty(ctx, prop)
+	return idx.addProperty(ctx, prop...)
 }
 
 // DropProperty is ignored, API compliant change
@@ -163,7 +300,7 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions and returns a commit func
 // that can be used to either commit or rollback the partitions
-func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*migrate.CreateTenantPayload) (commit func(success bool), err error) {
+func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*schemaUC.CreateTenantPayload) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
@@ -214,7 +351,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 
 // UpdateTenans activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
-func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*migrate.UpdateTenantPayload) (commit func(success bool), err error) {
+func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) (commit func(success bool), err error) {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return nil, fmt.Errorf("cannot find index for %q", class.Class)
@@ -344,20 +481,16 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 // DeleteTenants deletes tenants and returns a commit func
 // that can be used to either commit or rollback deletion
-func (m *Migrator) DeleteTenants(ctx context.Context, class *models.Class, tenants []string) (commit func(success bool), err error) {
-	idx := m.db.GetIndex(schema.ClassName(class.Class))
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
+	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return func(bool) {}, nil
 	}
 	return idx.dropShards(tenants)
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
-	return &Migrator{db: db, logger: logger}
-}
-
 func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schema.VectorIndexConfig,
+	className string, updated schemaConfig.VectorIndexConfig,
 ) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
@@ -368,7 +501,7 @@ func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
 }
 
 func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
-	className string, updated map[string]schema.VectorIndexConfig,
+	className string, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
@@ -378,8 +511,8 @@ func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
 	return idx.updateVectorIndexConfigs(ctx, updated)
 }
 
-func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
-	old, updated schema.VectorIndexConfig,
+func (m *Migrator) ValidateVectorIndexConfigUpdate(
+	old, updated schemaConfig.VectorIndexConfig,
 ) error {
 	// hnsw is the only supported vector index type at the moment, so no need
 	// to check, we can always use that an hnsw-specific validation should be
@@ -393,19 +526,17 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
 
-func (m *Migrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
-	old, updated map[string]schema.VectorIndexConfig,
+func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	for vecName := range old {
-		if err := m.ValidateVectorIndexConfigUpdate(ctx, old[vecName], updated[vecName]); err != nil {
+		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updated[vecName]); err != nil {
 			return fmt.Errorf("vector %q", vecName)
 		}
 	}
 	return nil
 }
 
-func (m *Migrator) ValidateInvertedIndexConfigUpdate(ctx context.Context,
-	old, updated *models.InvertedIndexConfig,
+func (m *Migrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig,
 ) error {
 	return inverted.ValidateUserConfigUpdate(old, updated)
 }
@@ -716,4 +847,12 @@ func (m *Migrator) AdjustFilterablePropSettings(ctx context.Context) error {
 		return err
 	}
 	return f2sm.switchShardsToFallbackMode(ctx)
+}
+
+func (m *Migrator) WaitForStartup(ctx context.Context) error {
+	return m.db.WaitForStartup(ctx)
+}
+
+func (m *Migrator) Shutdown(ctx context.Context) error {
+	return m.db.Shutdown(ctx)
 }
