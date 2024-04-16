@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	gproto "google.golang.org/protobuf/proto"
@@ -29,10 +30,11 @@ var (
 )
 
 type localDB struct {
-	Schema *schema
-	store  Indexer
-	parser Parser
-	log    *slog.Logger
+	schemaLock sync.Mutex
+	Schema     *schema
+	store      Indexer
+	parser     Parser
+	log        *slog.Logger
 }
 
 func (db *localDB) SetIndexer(idx Indexer) {
