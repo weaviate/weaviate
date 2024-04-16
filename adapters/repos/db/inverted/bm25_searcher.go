@@ -460,6 +460,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 			for _, val := range m {
 				key := binary.BigEndian.Uint64(val.Key)
 				ind, ok := docMapPairsIndices[key]
+				if len(val.Value) < 8 {
+					continue
+				}
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				if ok {
