@@ -180,7 +180,7 @@ func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
 	r.HandleFunc(root+"/join", raftHandler.JoinNode)
 	r.HandleFunc(root+"/remove", raftHandler.RemoveNode)
 	r.HandleFunc(root+"/statistics", raftHandler.Statistics)
-	r.HandleFunc(root+"/schema/v1", raftHandler.StoreSchemaV1)
+	r.HandleFunc(root+"/schema-v1", raftHandler.StoreSchemaV1)
 
 	return r
 }

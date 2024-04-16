@@ -317,6 +317,21 @@ func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
 	return res, meta.RLockGuard(f)
 }
 
+func (s *schema) States() map[string]ClassState {
+	s.Lock()
+	defer s.Unlock()
+
+	cs := map[string]ClassState{}
+	for _, c := range s.Classes {
+		cs[c.Class.Class] = ClassState{
+			Class:  c.Class,
+			Shards: c.Sharding,
+		}
+	}
+
+	return cs
+}
+
 func (s *schema) clear() {
 	s.Lock()
 	defer s.Unlock()

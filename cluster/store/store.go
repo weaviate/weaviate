@@ -192,7 +192,7 @@ func New(cfg Config) Store {
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
 		addResolver:       newAddrResolver(&cfg),
-		db:                &localDB{sync.Mutex{}, NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser, cfg.Logger},
+		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser, cfg.Logger},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
 
@@ -338,19 +338,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 
 // StoreSchemaV1() is responsible for saving new schema (RAFT) to boltDB
 func (st *Store) StoreSchemaV1() error {
-	cs := map[string]ClassState{}
-
-	st.db.schemaLock.Lock()
-	defer st.db.schemaLock.Unlock()
-
-	for _, c := range st.db.Schema.Classes {
-		cs[c.Class.Class] = ClassState{
-			Class:  c.Class,
-			Shards: c.Sharding,
-		}
-	}
-
-	return st.saveLegacySchema(cs)
+	return st.saveLegacySchema(st.db.Schema.States())
 }
 
 func (st *Store) Close(ctx context.Context) (err error) {
