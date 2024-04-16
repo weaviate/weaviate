@@ -286,6 +286,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		LogLevel:           logLevel(),
 		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:   schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:   schemaRepo.SaveLegacySchema,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
