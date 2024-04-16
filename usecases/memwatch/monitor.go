@@ -182,7 +182,7 @@ func getCurrentMappings() int64 {
 }
 
 func currentMappingsCommand() int64 {
-	cmd := exec.Command("wc -l", fmt.Sprintf("/proc/%s/maps", strconv.Itoa(os.Getpid()))) // print mappings
+	cmd := exec.Command("wc", "-l", fmt.Sprintf("/proc/%s/maps", strconv.Itoa(os.Getpid()))) // print mappings
 
 	output, err := cmd.Output()
 	if err != nil {
