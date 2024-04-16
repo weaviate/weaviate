@@ -50,56 +50,47 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 }
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, allowCreateClass bool,
+	allowCreateClass bool, objects ...*models.Object,
 ) error {
-	if m.config.Enabled {
-		return m.performAutoSchema(ctx, principal, object, allowCreateClass)
+	if !m.config.Enabled {
+		return nil
 	}
-	return nil
-}
 
-func (m *autoSchemaManager) performAutoSchema(ctx context.Context, principal *models.Principal,
-	object *models.Object, allowCreateClass bool,
-) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	if object == nil {
-		return fmt.Errorf(validation.ErrorMissingObject)
-	}
 
-	if len(object.Class) == 0 {
-		// stop performing auto schema
-		return fmt.Errorf(validation.ErrorMissingClass)
-	}
+	for _, object := range objects {
+		if object == nil {
+			return fmt.Errorf(validation.ErrorMissingObject)
+		}
 
-	object.Class = schema.UppercaseClassName(object.Class)
+		if len(object.Class) == 0 {
+			// stop performing auto schema
+			return fmt.Errorf(validation.ErrorMissingClass)
+		}
 
-	schemaClass, err := m.getClass(principal, object)
-	if err != nil {
-		return err
-	}
-	if schemaClass == nil && !allowCreateClass {
-		return fmt.Errorf("given class does not exist")
-	}
-	properties, err := m.getProperties(object)
-	if err != nil {
-		return err
-	}
-	if schemaClass == nil {
-		return m.createClass(ctx, principal, object.Class, properties)
-	}
-	return m.updateClass(ctx, principal, object.Class, properties, schemaClass.Properties)
-}
+		object.Class = schema.UppercaseClassName(object.Class)
 
-func (m *autoSchemaManager) getClass(principal *models.Principal,
-	object *models.Object,
-) (*models.Class, error) {
-	s, err := m.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, err
+		schemaClass, _, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+		if err != nil {
+			return err
+		}
+		if schemaClass == nil && !allowCreateClass {
+			return fmt.Errorf("given class does not exist")
+		}
+		properties, err := m.getProperties(object)
+		if err != nil {
+			return err
+		}
+		if schemaClass == nil {
+			return m.createClass(ctx, principal, object.Class, properties)
+		}
+
+		if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...); err != nil {
+			return err
+		}
 	}
-	schemaClass := s.GetClass(schema.ClassName(object.Class))
-	return schemaClass, nil
+	return nil
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
@@ -114,51 +105,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	return m.schemaManager.AddClass(ctx, principal, class)
-}
-
-func (m *autoSchemaManager) updateClass(ctx context.Context, principal *models.Principal,
-	className string, properties []*models.Property, existingProperties []*models.Property,
-) error {
-	existingPropertiesIndexMap := map[string]int{}
-	for index := range existingProperties {
-		existingPropertiesIndexMap[existingProperties[index].Name] = index
-	}
-
-	propertiesToAdd := []*models.Property{}
-	propertiesToUpdate := []*models.Property{}
-	for _, prop := range properties {
-		index, exists := existingPropertiesIndexMap[schema.LowercaseFirstLetter(prop.Name)]
-		if !exists {
-			propertiesToAdd = append(propertiesToAdd, prop)
-		} else if _, isNested := schema.AsNested(existingProperties[index].DataType); isNested {
-			mergedNestedProperties, merged := schema.MergeRecursivelyNestedProperties(existingProperties[index].NestedProperties,
-				prop.NestedProperties)
-			if merged {
-				prop.NestedProperties = mergedNestedProperties
-				propertiesToUpdate = append(propertiesToUpdate, prop)
-			}
-		}
-	}
-	for _, newProp := range propertiesToAdd {
-		m.logger.
-			WithField("auto_schema", "updateClass").
-			Debugf("update class %s add property %s", className, newProp.Name)
-		err := m.schemaManager.AddClassProperty(ctx, principal, className, newProp)
-		if err != nil {
-			return err
-		}
-	}
-	for _, updatedProp := range propertiesToUpdate {
-		m.logger.
-			WithField("auto_schema", "updateClass").
-			Debugf("update class %s merge object property %s", className, updatedProp.Name)
-		err := m.schemaManager.MergeClassObjectProperty(ctx, principal, className, updatedProp)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := m.schemaManager.AddClass(ctx, principal, class)
+	return err
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
@@ -460,7 +408,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 		return nestedProperties, nil
 	}
 
-	nestedPropertiesIndexMap := map[string]int{}
+	nestedPropertiesIndexMap := make(map[string]int, len(nestedProperties))
 	for index := range nestedProperties {
 		nestedPropertiesIndexMap[nestedProperties[index].Name] = index
 	}
@@ -491,4 +439,49 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 	}
 
 	return nestedProperties, nil
+}
+
+func (m *autoSchemaManager) autoTenants(ctx context.Context,
+	principal *models.Principal, objects []*models.Object,
+) error {
+	classTenants := make(map[string]map[string]struct{})
+
+	for _, obj := range objects {
+		// TODO: track the classes we have already checked
+		//       before calling getClass again
+		if m.schemaManager.MultiTenancy(obj.Class).AutoTenantCreation {
+			cls, ok := classTenants[obj.Class]
+			if !ok {
+				classTenants[obj.Class] = map[string]struct{}{obj.Tenant: {}}
+				continue
+			}
+			cls[obj.Tenant] = struct{}{}
+		}
+	}
+
+	for class, tenantNames := range classTenants {
+		tenants := make([]*models.Tenant, len(tenantNames))
+		i := 0
+		for name := range tenantNames {
+			tenants[i] = &models.Tenant{Name: name}
+			i++
+		}
+		if err := m.addTenants(ctx, principal, class, tenants); err != nil {
+			return fmt.Errorf("add tenants to class %q: %w", class, err)
+		}
+	}
+	return nil
+}
+
+func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
+	class string, tenants []*models.Tenant,
+) error {
+	if len(tenants) == 0 {
+		return fmt.Errorf(
+			"tenants must be included for multitenant-enabled class %q", class)
+	}
+	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+		return err
+	}
+	return nil
 }

@@ -24,6 +24,7 @@ dist_tmp
 
 # No weaviate bins
 ./weaviate
+cmd/weaviate-server/weaviate*
 
 # Logs
 logs

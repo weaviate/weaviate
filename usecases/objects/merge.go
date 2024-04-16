@@ -15,13 +15,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type MergeDocument struct {
@@ -51,6 +51,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
+		return &Error{path, StatusInternalServerError, err}
+	}
+
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch err.(type) {
@@ -64,8 +69,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
-	if err != nil {
+	if err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 
@@ -143,7 +147,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	principal *models.Principal, prevVec, nextVec []float32,
 	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
-	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, _, err := m.schemaManager.GetClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}

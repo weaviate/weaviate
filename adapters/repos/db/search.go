@@ -215,7 +215,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 			if i != 0 {
 				msg.WriteString(", ")
 			}
-			msg.WriteString(err.Error())
+			errorMessage := fmt.Sprintf("%v", err)
+			msg.WriteString(errorMessage)
 		}
 		return nil, errors.New(msg.String())
 	}
@@ -236,8 +237,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		return nil, nil
 	}
 	if len(q.Sort) > 0 {
-		scheme := db.schemaGetter.GetSchemaSkipAuth()
-		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
+		if err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
@@ -361,12 +361,9 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 func (db *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
-		// needs to happen before the index lock as they might deadlock each other
-		schema := db.schemaGetter.GetSchemaSkipAuth()
 		db.indexLock.RLock()
 		for _, index := range db.indices {
-			err := filters.ValidateSort(schema,
-				index.Config.ClassName, sort)
+			err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, index.Config.ClassName, sort)
 			if err != nil {
 				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
 				errorMsgs = append(errorMsgs, errorMsg)

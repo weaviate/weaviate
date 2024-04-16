@@ -29,6 +29,22 @@ var dotProductImplementation func(a, b []float32) float32 = func(a, b []float32)
 	return sum
 }
 
+func DotProductFloatGo(a, b []float32) float32 {
+	return -dotProductGo[float32, float32](a, b)
+}
+
+func DotProductByteGo(a, b []uint8) uint32 {
+	return dotProductGo[uint8, uint32](a, b)
+}
+
+func dotProductGo[C uint8 | float32, T uint32 | float32](a, b []C) T {
+	var sum T
+	for i := range a {
+		sum += T(a[i]) * T(b[i])
+	}
+	return sum
+}
+
 type DotProduct struct {
 	a []float32
 }
@@ -47,15 +63,6 @@ type DotProductProvider struct{}
 
 func NewDotProductProvider() DotProductProvider {
 	return DotProductProvider{}
-}
-
-func DotProductGo(a, b []float32) float32 {
-	var sum float32
-	for i := range a {
-		sum += a[i] * b[i]
-	}
-
-	return -sum
 }
 
 func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {

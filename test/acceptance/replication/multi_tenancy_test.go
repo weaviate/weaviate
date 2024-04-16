@@ -39,7 +39,7 @@ func multiTenancyEnabled(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -49,20 +49,20 @@ func multiTenancyEnabled(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled: true,
 		}
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled: true,
@@ -86,15 +86,15 @@ func multiTenancyEnabled(t *testing.T) {
 					WithTenant(tenantID.String()).
 					Object()
 			}
-			createTenantObjects(t, compose.GetWeaviate().URI(), batch)
+			createTenantObjects(t, compose.ContainerURI(1), batch)
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+			stopNodeAt(ctx, t, compose, 1)
 		})
 
 		t.Run("assert objects exist on node 2", func(t *testing.T) {
-			count := countTenantObjects(t, compose.GetWeaviateNode2().URI(),
+			count := countTenantObjects(t, compose.ContainerURI(2),
 				"Paragraph", tenantID.String())
 			assert.Equal(t, int64(len(paragraphIDs)), count)
 		})
@@ -112,23 +112,22 @@ func multiTenancyEnabled(t *testing.T) {
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					WithTenant(tenantID.String()).
 					Object()
-				createTenantObject(t, compose.GetWeaviateNode2().URI(), obj)
+				createTenantObject(t, compose.ContainerURI(2), obj)
 			}
 		})
 
 		t.Run("stop node 2", func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+			stopNodeAt(ctx, t, compose, 2)
 		})
 
 		t.Run("assert objects exist on node 1", func(t *testing.T) {
-			count := countTenantObjects(t, compose.GetWeaviate().URI(),
+			count := countTenantObjects(t, compose.ContainerURI(1),
 				"Article", tenantID.String())
 			assert.Equal(t, int64(len(articleIDs)), count)
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-			require.Nil(t, err)
+			startNodeAt(ctx, t, compose, 2)
 		})
 	})
 
@@ -143,11 +142,11 @@ func multiTenancyEnabled(t *testing.T) {
 		}
 
 		t.Run("add references to node 1", func(t *testing.T) {
-			addTenantReferences(t, compose.GetWeaviate().URI(), refs)
+			addTenantReferences(t, compose.ContainerURI(1), refs)
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+			stopNodeAt(ctx, t, compose, 1)
 		})
 
 		t.Run("assert references were added successfully to node 2", func(t *testing.T) {
@@ -164,7 +163,7 @@ func multiTenancyEnabled(t *testing.T) {
 
 			// maps article id to referenced paragraph id
 			refPairs := make(map[strfmt.UUID]strfmt.UUID)
-			resp := gqlTenantGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One,
+			resp := gqlTenantGet(t, compose.ContainerURI(2), "Article", replica.One,
 				tenantID.String(), "_additional{id}", "hasParagraphs {... on Paragraph {_additional{id}}}")
 			assert.Len(t, resp, len(articleIDs))
 
@@ -191,7 +190,7 @@ func multiTenancyEnabled(t *testing.T) {
 	})
 
 	t.Run("patch an object", func(t *testing.T) {
-		before, err := getTenantObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], tenantID.String())
+		before, err := getTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
 		require.Nil(t, err)
 		newTitle := "Article#9000"
 
@@ -202,15 +201,15 @@ func multiTenancyEnabled(t *testing.T) {
 				Properties: map[string]interface{}{"title": newTitle},
 				Tenant:     tenantID.String(),
 			}
-			patchTenantObject(t, compose.GetWeaviateNode2().URI(), patch)
+			patchTenantObject(t, compose.ContainerURI(2), patch)
 		})
 
 		t.Run("stop node 2", func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+			stopNodeAt(ctx, t, compose, 2)
 		})
 
 		t.Run("assert object is patched on node 1", func(t *testing.T) {
-			after, err := getTenantObjectFromNode(t, compose.GetWeaviate().URI(),
+			after, err := getTenantObjectFromNode(t, compose.ContainerURI(1),
 				"Article", articleIDs[0], "node1", tenantID.String())
 			require.Nil(t, err)
 
@@ -220,22 +219,21 @@ func multiTenancyEnabled(t *testing.T) {
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-			require.Nil(t, err)
+			startNodeAt(ctx, t, compose, 2)
 		})
 	})
 
 	t.Run("delete an object", func(t *testing.T) {
 		t.Run("execute delete object on node 1", func(t *testing.T) {
-			deleteTenantObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], tenantID.String())
+			deleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+			stopNodeAt(ctx, t, compose, 1)
 		})
 
 		t.Run("assert object removed from node 2", func(t *testing.T) {
-			_, err := getTenantObjectFromNode(t, compose.GetWeaviateNode2().URI(),
+			_, err := getTenantObjectFromNode(t, compose.ContainerURI(2),
 				"Article", articleIDs[0], "node2", tenantID.String())
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
@@ -247,22 +245,21 @@ func multiTenancyEnabled(t *testing.T) {
 
 	t.Run("batch delete all objects", func(t *testing.T) {
 		t.Run("execute batch delete on node 2", func(t *testing.T) {
-			deleteTenantObjects(t, compose.GetWeaviateNode2().URI(),
+			deleteTenantObjects(t, compose.ContainerURI(2),
 				"Article", []string{"title"}, "Article#*", tenantID.String())
 		})
 
 		t.Run("stop node 2", func(t *testing.T) {
-			stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+			stopNodeAt(ctx, t, compose, 2)
 		})
 
 		t.Run("assert objects are removed from node 1", func(t *testing.T) {
-			count := countTenantObjects(t, compose.GetWeaviate().URI(), "Article", tenantID.String())
+			count := countTenantObjects(t, compose.ContainerURI(1), "Article", tenantID.String())
 			assert.Zero(t, count)
 		})
 
 		t.Run("restart node 2", func(t *testing.T) {
-			err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-			require.Nil(t, err)
+			startNodeAt(ctx, t, compose, 2)
 		})
 	})
 }

@@ -14,11 +14,14 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -56,6 +59,8 @@ type inputType string
 const (
 	searchDocument inputType = "document"
 	searchQuery    inputType = "query"
+	defaultRPM               = 300 // https://docs.voyageai.com/docs/rate-limits
+	defaultTPM               = 1000000
 )
 
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
@@ -69,21 +74,23 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+func (v *vectorizer) Vectorize(ctx context.Context, input []string, cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	return res, nil, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	config := v.getVectorizationConfig(cfg)
 	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model string, truncate bool, baseURL string, inputType inputType,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Input:      input,
 		Model:      model,
@@ -139,16 +146,16 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		vectors[i] = data.Embeddings
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Data[0].Embeddings),
-		Vectors:    vectors,
+		Vector:     vectors,
 	}, nil
 }
 
 func (v *vectorizer) getVoyageAIUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Voyageai-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Voyageai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
@@ -161,21 +168,8 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Voyageai-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Voyageai-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
@@ -184,4 +178,49 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	return "", errors.New("no api key found " +
 		"neither in request header: X-VoyageAI-Api-Key " +
 		"nor in environment variable under VOYAGEAI_APIKEY")
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	key, err := v.getApiKey(ctx)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Voyageai", defaultRPM, defaultTPM)
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
+		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
+		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
+			limits.RemainingTokens -= tokensUsed
+			return
+		}
+
+		limits.RemainingRequests = rpm
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
+		limits.LimitRequests = rpm
+		limits.LastOverwrite = time.Now()
+
+		limits.RemainingTokens = tpm
+		limits.LimitTokens = tpm
+		limits.ResetTokens = time.Now().Add(time.Duration(61) * time.Second)
+	}
+
+	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	initialRL.ResetAfterRequestFunction(0) // set initial values
+
+	return initialRL
+}
+
+func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	settings := ent.NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		Model:    settings.Model(),
+		Truncate: settings.Truncate(),
+		BaseURL:  settings.BaseURL(),
+	}
 }

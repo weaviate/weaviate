@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // UpdateObject updates object of class.
@@ -45,6 +46,11 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process update object")
+		return nil, fmt.Errorf("cannot process update object: %w", err)
+	}
+
 	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
 }
 
@@ -61,8 +67,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
-	if err != nil {
+	if err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -87,7 +92,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, _, err := m.schemaManager.GetClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}

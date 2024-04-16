@@ -67,7 +67,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	var errorMessages []string
 
-	if err := ic.BaseClassSettings.Validate(); err != nil {
+	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
 

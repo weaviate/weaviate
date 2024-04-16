@@ -24,7 +24,7 @@ const (
 	location = "us-central1"
 )
 
-func TestNamedVectors_SingleNode(t *testing.T) {
+func TestMulti2VecPalm_SingleNode(t *testing.T) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
@@ -44,7 +44,7 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 	t.Run("tests", testMulti2VecPaLM(endpoint, gcpProject, location))
 }
 
-func TestNamedVectors_Cluster(t *testing.T) {
+func TestMulti2VecPalm_Cluster(t *testing.T) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")

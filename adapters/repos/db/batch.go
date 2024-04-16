@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -35,6 +36,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	indexByClass := make(map[string]*Index)
 
 	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
 		return nil, fmt.Errorf("cannot process batch: %w", err)
 	}
 
@@ -188,6 +190,12 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		}
 		matches += docIDsLength
 	}
+
+	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch delete object")
+		return objects.BatchDeleteResult{}, fmt.Errorf("cannot process batch delete object: %w", err)
+	}
+
 	// delete the DocIDs in given shards
 	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
 	if err != nil {
@@ -206,16 +214,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 func estimateBatchMemory(objs objects.BatchObjects) int64 {
 	var sum int64
 	for _, item := range objs {
-		// Note: This is very much oversimplified. It assumes that we always need
-		// the footprint of the full vector and it assumes a fixed overhead of 30B
-		// per vector. In reality this depends on the HNSW settings - and possibly
-		// in the future we might have completely different index types.
-		//
-		// However, in the meantime this should be a fairly reasonable estimate, as
-		// it's not meant to fail exactly on the last available byte, but rather
-		// prevent OOM crashes. Given the fuzziness and async style of the
-		// memtrackinga somewhat decent estimate should be good enough.
-		sum += int64(len(item.Object.Vector)*4 + 30)
+		sum += memwatch.EstimateObjectMemory(item.Object)
 	}
 
 	return sum
