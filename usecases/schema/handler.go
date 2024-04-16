@@ -52,7 +52,7 @@ type metaWriter interface {
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]string
-	RestoreSchemaToV0() error
+	StoreSchemaV1() error
 }
 
 type metaReader interface {
@@ -243,6 +243,6 @@ func (h *Handler) Statistics() map[string]string {
 	return h.metaWriter.Stats()
 }
 
-func (h *Handler) RestoreSchemaToV0() error {
-	return h.metaWriter.RestoreSchemaToV0()
+func (h *Handler) StoreSchemaV1() error {
+	return h.metaWriter.StoreSchemaV1()
 }

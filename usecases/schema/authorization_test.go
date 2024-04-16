@@ -157,7 +157,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				// Cluster/nodes related endpoint
 				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
 				// revert to schema v0 (non raft)
-				"RestoreSchemaToV0":
+				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing

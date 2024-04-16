@@ -218,9 +218,9 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (ui
 	return s.Execute(command)
 }
 
-func (s *Service) RestoreSchemaToV0() error {
+func (s *Service) StoreSchemaV1() error {
 	command := &cmd.ApplyRequest{
-		Type: cmd.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V0,
+		Type: cmd.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V1,
 	}
 	_, err := s.Execute(command)
 	return err

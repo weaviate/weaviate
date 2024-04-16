@@ -161,7 +161,7 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 			r.log.Infof("successfully completed schema migration from v%d to v%d", from, to)
 		}
 	}()
-	state, err := r.loadSchemaV1()
+	state, err := r.loadSchemaV2()
 	if err != nil {
 		return fmt.Errorf("load old schema: %w", err)
 	}
@@ -189,8 +189,8 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 	return nil
 }
 
-// saveSchemaV1 might be needed to migrate from v2 to v0
-func (r *store) saveSchemaV1(schema ucs.State) error {
+// saveSchemaV2 might be needed to migrate from v2 to v1
+func (r *store) saveSchemaV2(schema ucs.State) error {
 	schemaJSON, err := json.Marshal(schema)
 	if err != nil {
 		return fmt.Errorf("marshal schema state to json: %w", err)
@@ -202,8 +202,8 @@ func (r *store) saveSchemaV1(schema ucs.State) error {
 	})
 }
 
-// loadSchemaV1 is needed to migrate from v0 to v2
-func (r *store) loadSchemaV1() (*ucs.State, error) {
+// loadSchemaV2 is needed to migrate from v1 to v2
+func (r *store) loadSchemaV2() (*ucs.State, error) {
 	var schemaJSON []byte
 	r.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(schemaBucket)

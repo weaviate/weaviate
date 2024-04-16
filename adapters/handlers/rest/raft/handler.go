@@ -154,9 +154,13 @@ func (h RaftHandler) Statistics(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// RestoreSchemaToV0 migrate from v1 (RAFT) to v0 (Non-RAFT)
-func (h RaftHandler) RestoreSchemaToV0(w http.ResponseWriter, r *http.Request) {
-	restore := h.schemaHandler.RestoreSchemaToV0()
+// StoreSchemaV1 migrate from v2 (RAFT) to v1 (Non-RAFT)
+func (h RaftHandler) StoreSchemaV1(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "", http.StatusMethodNotAllowed)
+		return
+	}
+	restore := h.schemaHandler.StoreSchemaV1()
 	w.Header().Set("Content-Type", "application/json")
 
 	err := json.NewEncoder(w).Encode(restore)
@@ -176,7 +180,7 @@ func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
 	r.HandleFunc(root+"/join", raftHandler.JoinNode)
 	r.HandleFunc(root+"/remove", raftHandler.RemoveNode)
 	r.HandleFunc(root+"/statistics", raftHandler.Statistics)
-	r.HandleFunc(root+"/revert", raftHandler.RestoreSchemaToV0)
+	r.HandleFunc(root+"/schema/v1", raftHandler.StoreSchemaV1)
 
 	return r
 }
