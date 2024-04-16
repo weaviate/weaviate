@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -72,6 +73,7 @@ type State struct {
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service
+	TenantActivity *tenantactivity.Handler
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
