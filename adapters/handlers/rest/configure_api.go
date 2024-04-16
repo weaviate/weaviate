@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -139,10 +140,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.TenantActivity = tenantactivity.NewHandler()
+
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
+			mux.Handle("/tenant-activity", appState.TenantActivity)
 			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
 		}, appState.Logger)
 	}
@@ -212,6 +216,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
+	appState.TenantActivity.SetSource(appState.DB)
 	migrator := db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	// migrator = vectorMigrator

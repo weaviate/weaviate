@@ -123,6 +123,10 @@ func (db *DB) init(ctx context.Context) error {
 	return nil
 }
 
+func (db *DB) LocalTenantActivity() map[string]map[string]time.Time {
+	return db.metricsObserver.Usage()
+}
+
 func (db *DB) migrateFileStructureIfNecessary() error {
 	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
 	exists, err := fileExists(fsMigrationPath)
