@@ -526,7 +526,7 @@ func (s *Shard) createPropertyNullIndex_old(ctx context.Context, prop *models.Pr
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 }
 
-func (s *Shard) updateVectorIndexConfig_old(ctx context.Context,
+func (s *Shard) UpdateVectorIndexConfig_old(ctx context.Context,
 	updated schema.VectorIndexConfig,
 ) error {
 	if lsmkv.FeatureUseMergedBuckets {

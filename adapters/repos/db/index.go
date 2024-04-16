@@ -280,9 +280,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	return index, nil
 }
 
-func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics,
-) error {
+func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class, promMetrics *monitoring.PrometheusMetrics) error {
 	if i.Config.DisableLazyLoadShards {
 
 		eg := enterrors.NewErrorGroupWrapper(i.logger)

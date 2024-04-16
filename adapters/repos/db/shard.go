@@ -92,7 +92,7 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper)
+	createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) error
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -136,8 +136,8 @@ type ShardLike interface {
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
 	publishDimensionMetrics()
 
-	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error
+	addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -146,8 +146,8 @@ type ShardLike interface {
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
+	deleteFromPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error
+	batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
@@ -878,48 +878,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
-
-func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-
-	err := s.UpdateStatus(storagestate.StatusReadOnly.String())
-	if err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	return s.VectorIndex().UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String())
-	})
-}
-
-func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
-	if s.isReadOnly() {
-		return storagestate.ErrStatusReadOnly
-	}
-	if err := s.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
-		return fmt.Errorf("attempt to mark read-only: %w", err)
-	}
-
-	wg := new(sync.WaitGroup)
-	var err error
-	for targetName, targetCfg := range updated {
-		wg.Add(1)
-		if err = s.VectorIndexForName(targetName).UpdateUserConfig(targetCfg, wg.Done); err != nil {
-			break
-		}
-	}
-
-	f := func() {
-		wg.Wait()
-		s.UpdateStatus(storagestate.StatusReady.String())
-	}
-	enterrors.GoWrapper(f, s.index.logger)
-
-	return err
-}
-
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
@@ -959,9 +917,9 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	)
 }
 
-func (s *Shard) updateVectorIndexConfig(ctx context.Context,updated schema.VectorIndexConfig) error {
+func (s *Shard) UpdateVectorIndexConfig(ctx context.Context,updated schema.VectorIndexConfig) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.updateVectorIndexConfig_old(ctx, updated)
+		return s.UpdateVectorIndexConfig_old(ctx, updated)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
