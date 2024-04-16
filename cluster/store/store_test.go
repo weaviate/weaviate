@@ -320,7 +320,6 @@ func TestStoreApply(t *testing.T) {
 	doFirst := func(m *MockStore) {
 		m.indexer.On("Open", mock.Anything).Return(nil)
 		m.parser.On("ParseClass", mock.Anything).Return(nil)
-		m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 	}
 
 	cls := &models.Class{Class: "C1"}
@@ -486,7 +485,6 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
-				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				if _, ok := ms.store.db.Schema.Classes["C1"]; ok {
@@ -529,7 +527,7 @@ func TestStoreApply(t *testing.T) {
 			},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				doFirst(m)
+				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -581,7 +579,7 @@ func TestStoreApply(t *testing.T) {
 			})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				doFirst(m)
+				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, &sharding.State{
 					Physical: map[string]sharding.Physical{"T1": {}},
 				}, 1)
@@ -642,7 +640,7 @@ func TestStoreApply(t *testing.T) {
 					BelongsToNodes: []string{"NODE-2"},
 					Status:         models.TenantActivityStatusHOT,
 				}}}
-				doFirst(m)
+				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -685,7 +683,7 @@ func TestStoreApply(t *testing.T) {
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				doFirst(m)
+				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, &sharding.State{Physical: map[string]sharding.Physical{"T1": {}}}, 1)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -716,6 +714,8 @@ func TestStoreApply(t *testing.T) {
 			if err := tc.doAfter(&m); err != nil {
 				t.Errorf("%s check updates: %v", tc.name, err)
 			}
+			m.indexer.AssertExpectations(t)
+			m.parser.AssertExpectations(t)
 		}
 	}
 }
