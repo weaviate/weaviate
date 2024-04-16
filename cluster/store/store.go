@@ -539,7 +539,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
 
-	case api.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V1:
+	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		ret.Error = st.StoreSchemaV1()
 
 	default:

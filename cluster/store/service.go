@@ -220,7 +220,7 @@ func (s *Service) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (ui
 
 func (s *Service) StoreSchemaV1() error {
 	command := &cmd.ApplyRequest{
-		Type: cmd.ApplyRequest_TYPE_RESTORE_SCHEMA_TO_V1,
+		Type: cmd.ApplyRequest_TYPE_STORE_SCHEMA_V1,
 	}
 	_, err := s.Execute(command)
 	return err

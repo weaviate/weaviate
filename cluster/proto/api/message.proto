@@ -51,7 +51,7 @@ message ApplyRequest {
     TYPE_UPDATE_TENANT = 17;
     TYPE_DELETE_TENANT = 18;
 
-    TYPE_RESTORE_SCHEMA_TO_V1 = 99;
+    TYPE_STORE_SCHEMA_V1 = 99;
   }
   Type type = 1;
   string class = 2;
