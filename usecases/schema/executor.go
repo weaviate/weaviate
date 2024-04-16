@@ -128,8 +128,13 @@ func (e *executor) DeleteClass(cls string) error {
 
 func (e *executor) AddProperty(className string, req api.AddPropertyRequest) error {
 	ctx := context.Background()
+	if err := e.migrator.AddProperty(ctx, className, req.Properties...); err != nil {
+		return err
+	}
+
+	e.logger.WithField("action", "add_property").WithField("class", className)
 	e.triggerSchemaUpdateCallbacks()
-	return e.migrator.AddProperty(ctx, className, req.Properties...)
+	return nil
 }
 
 func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
