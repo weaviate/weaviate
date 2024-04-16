@@ -104,4 +104,7 @@ func LegacySnapshot(nodeID string, m map[string]ClassState) (*raft.SnapshotMeta,
 	return store.Open(sink.ID())
 }
 
-type LoadLegacySchema func() (map[string]ClassState, error)
+type (
+	LoadLegacySchema func() (map[string]ClassState, error)
+	SaveLegacySchema func(map[string]ClassState) error
+)

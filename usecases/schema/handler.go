@@ -52,6 +52,7 @@ type metaWriter interface {
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]string
+	StoreSchemaV1() error
 }
 
 type metaReader interface {
@@ -240,4 +241,8 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]string {
 	return h.metaWriter.Stats()
+}
+
+func (h *Handler) StoreSchemaV1() error {
+	return h.metaWriter.StoreSchemaV1()
 }
