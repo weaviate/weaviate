@@ -175,35 +175,22 @@ func (m *Monitor) obtainCurrentMappings() {
 func getCurrentMappings() int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsCommand("cat", "/proc/%s/maps")
-	case "darwin":
-		// command output contains a bunch of extra info
-		return currentMappingsCommand("vmmap", "%s") - currentMappingsCommand("vmmap", "%s -summary")
+		return currentMappingsCommand()
 	default:
 		return 0
 	}
 }
 
-func currentMappingsCommand(command, args string) int64 {
-	cmd1 := exec.Command(command, fmt.Sprintf(args, strconv.Itoa(os.Getpid()))) // print mappings
-	cmd2 := exec.Command("wc", "-l")                                            // count number of mappings
+func currentMappingsCommand() int64 {
+	cmd := exec.Command("wc -l", fmt.Sprintf("/proc/%s/maps", strconv.Itoa(os.Getpid()))) // print mappings
 
-	pipe, err := cmd1.StdoutPipe()
+	output, err := cmd.Output()
 	if err != nil {
 		return 0
 	}
-	cmd2.Stdin = pipe
-
-	if err := cmd1.Start(); err != nil {
-		return 0
-	}
-
-	output, err := cmd2.Output()
-	if err != nil {
-		return 0
-	}
-
-	mappings, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	outputNoSpaces := strings.TrimSpace(string(output))
+	stringsSplit := strings.Split(outputNoSpaces, " ")
+	mappings, err := strconv.Atoi(stringsSplit[0])
 	if err != nil {
 		return 0
 	}
