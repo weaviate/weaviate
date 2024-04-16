@@ -189,8 +189,8 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 	return nil
 }
 
-// saveSchemaV2 might be needed to migrate from v2 to v1
-func (r *store) saveSchemaV2(schema ucs.State) error {
+// saveSchemaV1 might be needed to migrate from v2 to v0
+func (r *store) saveSchemaV1(schema ucs.State) error {
 	schemaJSON, err := json.Marshal(schema)
 	if err != nil {
 		return fmt.Errorf("marshal schema state to json: %w", err)

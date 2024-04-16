@@ -87,7 +87,7 @@ func TestRepositoryMigrate(t *testing.T) {
 	t.Run("SaveOldSchema", func(t *testing.T) {
 		repo, _ := newRepo(dirName, 0, logger)
 		defer repo.Close()
-		if err := repo.saveSchemaV2(schema); err != nil {
+		if err := repo.saveSchemaV1(schema); err != nil {
 			t.Fatalf("save all schema: %v", err)
 		}
 	})
