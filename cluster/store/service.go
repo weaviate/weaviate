@@ -239,6 +239,10 @@ func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
 		return 0, ErrLeaderNotFound
 	}
 	resp, err := s.cl.Apply(leader, req)
+	if err != nil {
+		return 0, err
+	}
+
 	return resp.Version, err
 }
 
