@@ -88,6 +88,7 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 func (c *Service) Close(ctx context.Context) (err error) {
 	err = c.Service.Close(ctx)
 	c.rpcService.Close()
+	c.client.Close()
 	return
 }
 
