@@ -241,28 +241,7 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 	return class
 }
 
-func TestRFJourney(t *testing.T) {
-	dirName := t.TempDir()
-
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
-	}
-	repo, err := New(logger, Config{
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(context.TODO()))
-	defer repo.Shutdown(context.Background())
-
-	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
-	idx := repo.GetIndex("MyClass")
-	require.NotNil(t, idx)
+func TestRankedFusion(t *testing.T) {
 	docId1 := uint64(1)
 	docId2 := uint64(2)
 	docId3 := uint64(3)
@@ -363,9 +342,33 @@ func TestRFJourney(t *testing.T) {
 		require.Equal(t, float32(0.016666668), results[0].Score)
 		require.Equal(t, float32(0.016393442), results[1].Score)
 	})
+}
+
+func TestRFJourney(t *testing.T) {
+	dirName := t.TempDir()
+
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
+	repo, err := New(logger, Config{
+		RootPath:                  dirName,
+		QueryMaximumResults:       10000,
+		MaxImportGoroutinesFactor: 1,
+		QueryLimit:                20,
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	require.Nil(t, err)
+	repo.SetSchemaGetter(schemaGetter)
+	require.Nil(t, repo.WaitForStartup(context.TODO()))
+	defer repo.Shutdown(context.Background())
+
+	class := SetupFusionClass(t, repo, schemaGetter, logger, 1.2, 0.75)
+	idx := repo.GetIndex("MyClass")
+	require.NotNil(t, idx)
 
 	// Check basic search with one property
-	results_set_1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
+	resultsSet1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: peanutsVector(),
 		Pagination: &filters.Pagination{
@@ -375,7 +378,7 @@ func TestRFJourney(t *testing.T) {
 	})
 
 	require.Nil(t, err)
-	results_set_2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
+	resultsSet2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
 		ClassName:    "MyClass",
 		SearchVector: journeyVector(),
 		Pagination: &filters.Pagination{
@@ -386,19 +389,19 @@ func TestRFJourney(t *testing.T) {
 	require.Nil(t, err)
 
 	// convert search.Result to hybrid.Result
-	var results_set_1_hybrid []*search.Result
-	for _, r := range results_set_1 {
+	var resultsSet1Hybrid []*search.Result
+	for _, r := range resultsSet1 {
 		// parse the last 12 digits of the id to get the uint64
 
-		results_set_1_hybrid = append(results_set_1_hybrid, &r)
+		resultsSet1Hybrid = append(resultsSet1Hybrid, &r)
 	}
 
-	var results_set_2_hybrid []*search.Result
-	for _, r := range results_set_2 {
-		results_set_2_hybrid = append(results_set_2_hybrid, &r)
+	var resultsSet2Hybrid []*search.Result
+	for _, r := range resultsSet2 {
+		resultsSet2Hybrid = append(resultsSet2Hybrid, &r)
 	}
 
-	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*search.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
+	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*search.Result{resultsSet1Hybrid, resultsSet2Hybrid}, []string{"set1", "set2"})
 	fmt.Println("--- Start results for Fusion Reciprocal (", len(res), ")---")
 	for _, r := range res {
 
