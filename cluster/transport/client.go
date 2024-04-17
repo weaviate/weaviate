@@ -160,6 +160,8 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 
+	cl.leaderAddr = leaderAddress
+
 	return cl.leaderConn, nil
 }
 
