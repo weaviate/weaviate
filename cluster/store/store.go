@@ -416,7 +416,61 @@ func (f *Store) FindSimilarClass(name string) string {
 	return f.db.Schema.ClassEqual(name)
 }
 
-func (st *Store) Stats() map[string]string { return st.raft.Stats() }
+// Stats returns internal statistics from this store, for informational/debugging purposes only.
+//
+// The statistics directly from raft are nested under the "raft" key. If the raft statistics are
+// not yet available, then the "raft" key will not exist.
+// See https://pkg.go.dev/github.com/hashicorp/raft#Raft.Stats for the default raft stats.
+//
+// The values of "leader_address" and "leader_id" are the respective address/ID for the current
+// leader of the cluster. They may be empty strings if there is no current leader or the leader is
+// unknown.
+//
+// The value of "ready" indicates whether this store is ready, see Store.Ready.
+//
+// The value of "is_voter" indicates whether this store is a voter, see Store.IsVoter.
+//
+// The value of "open" indicates whether this store is open, see Store.open.
+//
+// The value of "bootstrapped" indicates whether this store has completed bootstrapping,
+// see Store.bootstrapped.
+//
+// The value of "candidates" is a map[string]string of the current candidates IDs/addresses,
+// see Store.candidates.
+//
+// The value of "initial_last_applied_index" is the index of the last applied command found when
+// the store was opened, see Store.initialLastAppliedIndex.
+//
+// The value of "last_applied_index" is the index of the latest update to the store,
+// see Store.lastAppliedIndex.
+//
+// The value of "db_loaded" indicates whether the DB has finished loading, see Store.dbLoaded.
+//
+// Since this is for information/debugging we want to avoid enforcing unnecessary restrictions on
+// what can go in these stats, thus we're returning map[string]any. However, any values added to
+// this map should be able to be JSON encoded.
+func (st *Store) Stats() map[string]any {
+	stats := make(map[string]any)
+
+	// Add custom stats for this store
+	currentLeaderAddress, currentLeaderID := st.LeaderWithID()
+	stats["leader_address"] = currentLeaderAddress
+	stats["leader_id"] = currentLeaderID
+	stats["ready"] = st.Ready()
+	stats["is_voter"] = st.IsVoter()
+	stats["open"] = st.open.Load()
+	stats["bootstrapped"] = st.bootstrapped.Load()
+	stats["candidates"] = st.candidates
+	stats["initial_last_applied_index"] = st.initialLastAppliedIndex
+	stats["last_applied_index"] = st.lastAppliedIndex.Load()
+	stats["db_loaded"] = st.dbLoaded.Load()
+
+	// If the raft stats exist, add them as a nested map
+	if st.raft != nil {
+		stats["raft"] = st.raft.Stats()
+	}
+	return stats
+}
 
 // Leader is used to return the current leader address.
 // It may return empty strings if there is no current leader or the leader is unknown.
