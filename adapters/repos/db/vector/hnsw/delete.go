@@ -593,6 +593,8 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 		// we can just use the global one, as the global one is guaranteed to be
 		// present on every level, i.e. it is always chosen from the highest
 		// currently available level
+		h.RLock()
+		defer h.RUnlock()
 		return h.getEntrypoint(), h.currentMaximumLayer, nil
 	}
 
