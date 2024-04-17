@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"sync"
@@ -22,7 +21,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -30,31 +28,21 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 func NewShard_unmerged(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,

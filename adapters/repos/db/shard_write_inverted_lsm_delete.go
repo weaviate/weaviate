@@ -92,10 +92,11 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 	return nil
 }
 
+
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -109,19 +110,12 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInter
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-func (s *Shard) deleteInvertedIndexItemLSM(bucket lsmkv.BucketInterface, item inverted.Countable, docID uint64) error {
-	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
-
-	if bucket.Strategy() == lsmkv.StrategyRoaringSet {
-		return bucket.RoaringSetRemoveOne(item.Data, docID)
+func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, length int) error {
+	bucketLength, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLengthLSM(propName), propName, s.propIds)
+	if err != nil {
+		return errors.Errorf("no bucket for prop '%s' length found: %v", propName, err)
 	}
-
-
-
-	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName)) //FIXME
-	if bucketLength == nil {
-		return errors.Errorf("no bucket for prop '%s' length found", propName)
-	}
+	bucketLength.CheckBucket()
 
 	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
@@ -134,10 +128,11 @@ func (s *Shard) deleteInvertedIndexItemLSM(bucket lsmkv.BucketInterface, item in
 }
 
 func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull, err := lsmkv.FetchMeABucket(s.store, "null_properties", helpers.BucketFromPropertyNameNullLSM(propName), propName, s.propIds)
-	if err != nil{
+	bucketNull, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameNullLSM(propName), propName, s.propIds)
+	if err != nil {
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}
+
 
 	key, err := bucketKeyPropertyNull(isNull)
 	if err != nil {
