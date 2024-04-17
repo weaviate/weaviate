@@ -55,8 +55,8 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 	existingNames := make(map[string]bool, len(class.Properties))
 	if !merge {
-		for _, p := range class.Properties {
-			existingNames[strings.ToLower(p.Name)] = true
+		for _, prop := range class.Properties {
+			existingNames[strings.ToLower(prop.Name)] = true
 		}
 	}
 
@@ -64,48 +64,16 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return 0, err
 	}
 
-	migratePropertySettings(newProps...)
-
 	// TODO-RAFT use UpdateProperty() for adding/merging property when index idempotence exists
 	// revisit when index idempotence exists and/or allowing merging properties on index.
-	new, old := split(class.Properties, newProps)
-	if len(old) > 0 {
-		mergeClassExistedProp(class, old...)
-		if _, err = h.metaWriter.UpdateClass(class, nil); err != nil {
-			return 0, err
-		}
-	}
-
-	if len(new) == 0 {
+	props := schema.DedupProperties(class.Properties, newProps)
+	if len(props) == 0 {
 		return 0, nil
 	}
 
-	return h.metaWriter.AddProperty(class.Class, new...)
-}
+	migratePropertySettings(props...)
 
-// split does split the passed properties based in their existence
-// it shouldn't be needed once we have idempotence on Add/Update Property
-// it's used to diff what need to be added and what to update.
-func split(old, new []*models.Property) (propertiesToAdd, propertiesToUpdate []*models.Property) {
-	exPropMap := make(map[string]int, len(old))
-	for index := range old {
-		exPropMap[old[index].Name] = index
-	}
-
-	for _, prop := range new {
-		index, exists := exPropMap[schema.LowercaseFirstLetter(prop.Name)]
-		if !exists {
-			propertiesToAdd = append(propertiesToAdd, prop)
-		} else if _, isNested := schema.AsNested(old[index].DataType); isNested {
-			mergedNestedProperties, merged := schema.MergeRecursivelyNestedProperties(old[index].NestedProperties,
-				prop.NestedProperties)
-			if merged {
-				prop.NestedProperties = mergedNestedProperties
-				propertiesToUpdate = append(propertiesToUpdate, prop)
-			}
-		}
-	}
-	return
+	return h.metaWriter.AddProperty(class.Class, props...)
 }
 
 // DeleteClassProperty from existing Schema
