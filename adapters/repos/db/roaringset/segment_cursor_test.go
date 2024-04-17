@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -22,62 +24,65 @@ import (
 
 func TestSegmentCursor(t *testing.T) {
 	seg, offsets := createDummySegment(t, 5)
+	testsMMap := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
+	for _, tt := range testsMMap {
 
-	t.Run("starting from beginning", func(t *testing.T) {
-		c := NewSegmentCursor(seg, nil)
-		key, layer, err := c.First()
-		require.Nil(t, err)
-		assert.Equal(t, []byte("00000"), key)
-		assert.True(t, layer.Additions.Contains(0))
-		assert.True(t, layer.Additions.Contains(1))
-		assert.True(t, layer.Deletions.Contains(2))
-		assert.True(t, layer.Deletions.Contains(3))
-	})
-
-	t.Run("starting from beginning, page through all", func(t *testing.T) {
-		c := NewSegmentCursor(seg, nil)
-		it := uint64(0)
-		for key, layer, err := c.First(); key != nil; key, layer, err = c.Next() {
+		t.Run("starting from beginning", func(t *testing.T) {
+			c := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, seg), nil)
+			key, layer, err := c.First()
 			require.Nil(t, err)
-			assert.Equal(t, []byte(fmt.Sprintf("%05d", it)), key)
-			assert.True(t, layer.Additions.Contains(it*4))
-			assert.True(t, layer.Additions.Contains(it*4+1))
-			assert.True(t, layer.Deletions.Contains(it*4+2))
-			assert.True(t, layer.Deletions.Contains(it*4+3))
-			it++
-		}
+			assert.Equal(t, []byte("00000"), key)
+			assert.True(t, layer.Additions.Contains(0))
+			assert.True(t, layer.Additions.Contains(1))
+			assert.True(t, layer.Deletions.Contains(2))
+			assert.True(t, layer.Deletions.Contains(3))
+		})
 
-		assert.Equal(t, uint64(5), it)
-	})
+		t.Run("starting from beginning, page through all", func(t *testing.T) {
+			c := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, seg), nil)
+			it := uint64(0)
+			for key, layer, err := c.First(); key != nil; key, layer, err = c.Next() {
+				require.Nil(t, err)
+				assert.Equal(t, []byte(fmt.Sprintf("%05d", it)), key)
+				assert.True(t, layer.Additions.Contains(it*4))
+				assert.True(t, layer.Additions.Contains(it*4+1))
+				assert.True(t, layer.Deletions.Contains(it*4+2))
+				assert.True(t, layer.Deletions.Contains(it*4+3))
+				it++
+			}
 
-	t.Run("seek and iterate from there", func(t *testing.T) {
-		seeker := createDummySeeker(t, offsets, 3)
-		c := NewSegmentCursor(seg, seeker)
+			assert.Equal(t, uint64(5), it)
+		})
 
-		// start on it 3 as this is where the seeker points us
-		it := uint64(3)
-		for key, layer, err := c.Seek([]byte("dummyseeker")); key != nil; key, layer, err = c.Next() {
-			require.Nil(t, err)
-			assert.Equal(t, []byte(fmt.Sprintf("%05d", it)), key)
-			assert.True(t, layer.Additions.Contains(it*4))
-			assert.True(t, layer.Additions.Contains(it*4+1))
-			assert.True(t, layer.Deletions.Contains(it*4+2))
-			assert.True(t, layer.Deletions.Contains(it*4+3))
-			it++
-		}
+		t.Run("seek and iterate from there", func(t *testing.T) {
+			seeker := createDummySeeker(t, offsets, 3)
+			c := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, seg), seeker)
 
-		assert.Equal(t, uint64(5), it)
-	})
+			// start on it 3 as this is where the seeker points us
+			it := uint64(3)
+			for key, layer, err := c.Seek([]byte("dummyseeker")); key != nil; key, layer, err = c.Next() {
+				require.Nil(t, err)
+				assert.Equal(t, []byte(fmt.Sprintf("%05d", it)), key)
+				assert.True(t, layer.Additions.Contains(it*4))
+				assert.True(t, layer.Additions.Contains(it*4+1))
+				assert.True(t, layer.Deletions.Contains(it*4+2))
+				assert.True(t, layer.Deletions.Contains(it*4+3))
+				it++
+			}
 
-	t.Run("seeker returns error", func(t *testing.T) {
-		seeker := createDummySeeker(t, offsets, 3)
-		seeker.err = fmt.Errorf("seek and fail")
-		c := NewSegmentCursor(seg, seeker)
+			assert.Equal(t, uint64(5), it)
+		})
 
-		_, _, err := c.Seek([]byte("dummyseeker"))
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "seek and fail")
-	})
+		t.Run("seeker returns error", func(t *testing.T) {
+			seeker := createDummySeeker(t, offsets, 3)
+			seeker.err = fmt.Errorf("seek and fail")
+			c := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, seg), seeker)
+
+			_, _, err := c.Seek([]byte("dummyseeker"))
+			require.NotNil(t, err)
+			assert.Contains(t, err.Error(), "seek and fail")
+		})
+	}
 }
 
 func createDummySegment(t *testing.T, count uint64) ([]byte, []uint64) {

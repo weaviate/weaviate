@@ -13,21 +13,18 @@ package lsmkv
 
 import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type segmentCursorReplace struct {
 	segment      *segment
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
-	reusableBORW byteops.ReadWriter
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
 	return &segmentCursorReplace{
 		segment:      s,
 		reusableNode: &segmentReplaceNode{},
-		reusableBORW: byteops.NewReadWriter(nil),
 	}
 }
 
@@ -48,8 +45,7 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
-		s.segment.contents[node.Start:node.End])
+	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -67,8 +63,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
-		s.segment.contents[s.nextOffset:])
+	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -82,8 +77,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
-	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
-		s.segment.contents[s.nextOffset:])
+	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -139,44 +133,48 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 	return out, err
 }
 
-func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
-		return s.parse(buf)
-	}
-
-	r, err := s.segment.newNodeReader(offset)
+func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error {
+	contentReader, err := s.segment.contentReader.NewWithOffsetStart(readOffset.start)
 	if err != nil {
 		return err
 	}
+	offset := uint64(0)
+	tombstoneByte, offset := contentReader.ReadValue(offset)
+	s.reusableNode.tombstone = tombstoneByte != 0
 
-	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
-	if err != nil {
-		return err
+	valueLength, offset := contentReader.ReadUint64(offset)
+	if valueLength > uint64(len(s.reusableNode.value)) {
+		s.reusableNode.value = make([]byte, valueLength)
+	} else {
+		s.reusableNode.value = s.reusableNode.value[:valueLength]
+	}
+	_, offset = contentReader.ReadRange(offset, valueLength, s.reusableNode.value)
+
+	keyLength, offset := contentReader.ReadUint32(offset)
+	if keyLength > uint32(len(s.reusableNode.primaryKey)) {
+		s.reusableNode.primaryKey = make([]byte, keyLength)
+	} else {
+		s.reusableNode.primaryKey = s.reusableNode.primaryKey[:keyLength]
+	}
+	_, offset = contentReader.ReadRange(offset, uint64(keyLength), s.reusableNode.primaryKey)
+
+	if s.segment.secondaryIndexCount > 0 {
+		s.reusableNode.secondaryKeys = make([][]byte, s.segment.secondaryIndexCount)
 	}
 
+	var secKeyLen uint32
+	for j := 0; j < int(s.segment.secondaryIndexCount); j++ {
+		secKeyLen, offset = contentReader.ReadUint32(offset)
+		if secKeyLen == 0 {
+			continue
+		}
+		secKey := make([]byte, secKeyLen)
+		_, offset = contentReader.ReadRange(offset, uint64(secKeyLen), secKey)
+		s.reusableNode.secondaryKeys[j] = secKey
+	}
+	s.reusableNode.offset = int(offset)
 	if s.reusableNode.tombstone {
 		return lsmkv.Deleted
 	}
-
-	return nil
-}
-
-func (s *segmentCursorReplace) parse(in []byte) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	s.reusableBORW.ResetBuffer(in)
-
-	err := ParseReplaceNodeIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount,
-		s.reusableNode)
-	if err != nil {
-		return err
-	}
-
-	if s.reusableNode.tombstone {
-		return lsmkv.Deleted
-	}
-
 	return nil
 }

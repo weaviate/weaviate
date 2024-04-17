@@ -16,6 +16,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +33,7 @@ func TestSerialization_HappyPath(t *testing.T) {
 	buf := sn.ToBuffer()
 	assert.Equal(t, sn.Len(), uint64(len(buf)))
 
-	newSN := NewSegmentNodeFromBuffer(buf)
+	newSN := NewSegmentNodeFromBuffer(contentReader.GetContentReaderFromBytes(t, false, buf))
 	assert.Equal(t, newSN.Len(), uint64(len(buf)))
 
 	// without copying
@@ -66,7 +68,7 @@ func TestSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	bufTooLarge := make([]byte, 3*len(buf))
 	copy(bufTooLarge, buf)
 
-	newSN := NewSegmentNodeFromBuffer(bufTooLarge)
+	newSN := NewSegmentNodeFromBuffer(contentReader.GetContentReaderFromBytes(t, false, buf))
 	// assert that the buffer self reports the useful length, not the length of
 	// the initialization buffer
 	assert.Equal(t, newSN.Len(), uint64(len(buf)))
@@ -104,7 +106,7 @@ func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
 	res := buf.Bytes()
 	assert.Equal(t, keyIndex.ValueEnd, len(res))
 
-	newSN := NewSegmentNodeFromBuffer(res[keyIndex.ValueStart:keyIndex.ValueEnd])
+	newSN := NewSegmentNodeFromBuffer(contentReader.GetContentReaderFromBytes(t, false, res[keyIndex.ValueStart:keyIndex.ValueEnd]))
 	newAdditions := newSN.Additions()
 	assert.True(t, newAdditions.Contains(4))
 	assert.False(t, newAdditions.Contains(5))

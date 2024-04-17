@@ -51,57 +51,67 @@ func TestPrecomputeForCompaction(t *testing.T) {
 func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// first build a complete reference segment of which we can then strip its
 	// meta
-	dirName := t.TempDir()
 
-	logger, _ := test.NewNullLogger()
-
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
-	require.Nil(t, err)
-	defer b.Shutdown(ctx)
-
-	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
-		WithSecondaryKey(0, []byte("bonjour"))))
-	require.Nil(t, b.FlushMemtable())
-
-	for _, ext := range []string{".secondary.0.bloom", ".bloom", ".cna"} {
-		files, err := os.ReadDir(dirName)
-		require.Nil(t, err)
-		fname, ok := findFileWithExt(files, ext)
-		require.True(t, ok)
-
-		err = os.RemoveAll(path.Join(dirName, fname))
-		require.Nil(t, err)
-
-		files, err = os.ReadDir(dirName)
-		require.Nil(t, err)
-		_, ok = findFileWithExt(files, ext)
-		require.False(t, ok, "verify the file is really gone")
+	tests := []struct {
+		mmap bool
+	}{
+		{mmap: true}, {mmap: false},
 	}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			dirName := t.TempDir()
 
-	require.Nil(t, b.Shutdown(ctx))
+			logger, _ := test.NewNullLogger()
 
-	// now identify the segment file and rename it to be a tmp file
-	files, err := os.ReadDir(dirName)
-	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, ".db")
-	require.True(t, ok)
+			b, err := NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
+			require.Nil(t, err)
+			defer b.Shutdown(ctx)
 
-	segmentTmp := path.Join(dirName, fmt.Sprintf("%s.tmp", fname))
-	err = os.Rename(path.Join(dirName, fname), segmentTmp)
-	require.Nil(t, err)
+			require.Nil(t, b.Put([]byte("hello"), []byte("world"),
+				WithSecondaryKey(0, []byte("bonjour"))))
+			require.Nil(t, b.FlushMemtable())
 
-	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true)
-	require.Nil(t, err)
+			for _, ext := range []string{".secondary.0.bloom", ".bloom", ".cna"} {
+				files, err := os.ReadDir(dirName)
+				require.Nil(t, err)
+				fname, ok := findFileWithExt(files, ext)
+				require.True(t, ok)
 
-	// there should be 4 files and they should all have a .tmp suffix:
-	// segment.db.tmp
-	// segment.cna.tmp
-	// segment.bloom.tmp
-	// segment.secondary.0.bloom.tmp
-	assert.Len(t, fileNames, 4)
-	for _, fName := range fileNames {
-		assert.True(t, strings.HasSuffix(fName, ".tmp"))
+				err = os.RemoveAll(path.Join(dirName, fname))
+				require.Nil(t, err)
+
+				files, err = os.ReadDir(dirName)
+				require.Nil(t, err)
+				_, ok = findFileWithExt(files, ext)
+				require.False(t, ok, "verify the file is really gone")
+			}
+
+			require.Nil(t, b.Shutdown(ctx))
+
+			// now identify the segment file and rename it to be a tmp file
+			files, err := os.ReadDir(dirName)
+			require.Nil(t, err)
+			fname, ok := findFileWithExt(files, ".db")
+			require.True(t, ok)
+
+			segmentTmp := path.Join(dirName, fmt.Sprintf("%s.tmp", fname))
+			err = os.Rename(path.Join(dirName, fname), segmentTmp)
+			require.Nil(t, err)
+
+			fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, tt.mmap)
+			require.Nil(t, err)
+
+			// there should be 4 files and they should all have a .tmp suffix:
+			// segment.db.tmp
+			// segment.cna.tmp
+			// segment.bloom.tmp
+			// segment.secondary.0.bloom.tmp
+			assert.Len(t, fileNames, 4)
+			for _, fName := range fileNames {
+				assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			}
+		})
 	}
 }
 
@@ -148,33 +158,60 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	err = os.Rename(path.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
-	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true)
-	require.Nil(t, err)
+	tests := []struct {
+		mmap bool
+	}{
+		{mmap: true}, {mmap: false},
+	}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, tt.mmap)
+			require.Nil(t, err)
 
-	// there should be 2 files and they should all have a .tmp suffix:
-	// segment.db.tmp
-	// segment.bloom.tmp
-	assert.Len(t, fileNames, 2)
-	for _, fName := range fileNames {
-		assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			// there should be 4 files and they should all have a .tmp suffix:
+			// segment.db.tmp
+			// segment.bloom.tmp
+			assert.Len(t, fileNames, 2)
+			for _, fName := range fileNames {
+				assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			}
+		})
 	}
 }
 
 func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 	t.Run("file without .tmp suffix", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		_, err := preComputeSegmentMeta("a-path-without-the-required-suffix", 7, logger, true, true)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "expects a .tmp segment")
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err := preComputeSegmentMeta("a-path-without-the-required-suffix", 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "expects a .tmp segment")
+			})
+		}
 	})
 
 	t.Run("file does not exist", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger, true, true)
-		require.NotNil(t, err)
-		unixErr := "no such file or directory"
-		windowsErr := "The system cannot find the file specified."
-		assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				unixErr := "no such file or directory"
+				windowsErr := "The system cannot find the file specified."
+				assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
+			})
+		}
 	})
 
 	t.Run("segment header can't be parsed", func(t *testing.T) {
@@ -195,9 +232,18 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		err = f.Close()
 		require.Nil(t, err)
 
-		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "parse header")
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "parse header")
+			})
+		}
 	})
 
 	t.Run("unsupported strategy", func(t *testing.T) {
@@ -219,8 +265,17 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		err = f.Close()
 		require.Nil(t, err)
 
-		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "unsupported strategy")
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "unsupported strategy")
+			})
+		}
 	})
 }
