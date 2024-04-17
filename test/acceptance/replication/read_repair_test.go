@@ -108,7 +108,7 @@ func readRepair(t *testing.T) {
 	t.Run("stop node 1", func(t *testing.T) {
 		time.Sleep(3 * time.Second) // wait before killing a leader so that data replicated to followers
 		stopNodeAt(ctx, t, compose, 1)
-		time.Sleep(10 * time.Second)
+		time.Sleep(15 * time.Second)
 	})
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
