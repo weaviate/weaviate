@@ -290,7 +290,6 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
-
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
@@ -336,7 +335,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		defer i.allShardsReady.Store(true)
-		i.ForEachShard(func(name string, shard ShardLike) error {
+		err := i.ForEachShard(func(name string, shard ShardLike) error {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
@@ -350,11 +349,21 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 					// break loop by returning error
 					return i.closingCtx.Err()
 				default:
-					shard.(*LazyLoadShard).Load(context.Background())
+					if err := shard.(*LazyLoadShard).Load(context.Background()); err != nil {
+						i.logger.
+							WithField("action", "load_shard").
+							WithField("shard_name", shard.Name()).
+							Errorf("failed to load shard: %v", err)
+					}
 					return nil
 				}
 			}
 		})
+		if err != nil {
+			i.logger.
+				WithField("action", "load_all_shards").
+				Errorf("failed to load all shards: %v", err)
+		}
 	}
 	enterrors.GoWrapper(f, i.logger)
 
