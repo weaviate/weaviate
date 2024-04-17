@@ -264,6 +264,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		centralJobQueue:       repo.jobQueueCh,
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
+		allocChecker:          memwatch.NewDummyMonitor(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
