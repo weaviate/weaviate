@@ -81,6 +81,7 @@ func readRepair(t *testing.T) {
 
 	t.Run("stop node 2", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
+		time.Sleep(5 * time.Second)
 	})
 
 	repairObj := models.Object{
@@ -106,6 +107,7 @@ func readRepair(t *testing.T) {
 
 	t.Run("stop node 1", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 1)
+		time.Sleep(10 * time.Second)
 	})
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
