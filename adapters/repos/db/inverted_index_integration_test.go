@@ -551,7 +551,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
 			index.ForEachShard(func(_ string, shard ShardLike) error {
-				bucketNull := shard.store.Bucket("filterable_properties")
+				bucketNull := shard.Store().Bucket("filterable_properties")
 				require.NotNil(t, bucketNull)
 				n++
 				return nil
@@ -563,9 +563,9 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
 			index.ForEachShard(func(_ string, shard ShardLike) error {
-				bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
+				bucketPropLengthName := shard.Store().Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
 				require.NotNil(t, bucketPropLengthName)
-				bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
+				bucketPropLengthIntArray := shard.Store().Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
 				require.NotNil(t, bucketPropLengthIntArray)
 				n++
 				return nil

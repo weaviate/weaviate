@@ -32,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+
+	"github.com/weaviate/weaviate/sroar"
 )
 
 const (
@@ -46,24 +48,11 @@ func Test_Filters_String(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	propIds, err := tracker.NewJsonPropertyIdTracker("tempfile_propertyIds")
-	defer propIds.Drop()
-	require.Nil(t, err)
-
 	propName := "inverted-with-frequency"
-
-	bucketName := "searchable_properties"
-	var bWithFrequency lsmkv.BucketInterface
-	if lsmkv.FeatureUseMergedBuckets {
-		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName))))
-		bWithFrequency, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
-		require.Nil(t, err)
-	} else {
-		bucketName = helpers.BucketSearchableFromPropertyNameLSM(propName)
-		require.Nil(t, store.CreateOrLoadBucket(context.Background(), bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName))))
-		bWithFrequency, err = lsmkv.FetchMeABucket(store, bucketName, helpers.BucketSearchableFromPropertyNameLSM(propName), propName, propIds)
-		require.Nil(t, err)
-	}
+	bucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
+	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
+		bucketName, lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+	bWithFrequency := store.Bucket(bucketName)
 
 	defer store.Shutdown(context.Background())
 
@@ -96,7 +85,11 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	searcher := NewSearcher(logger, store, createSchema(), nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
+
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -315,11 +308,13 @@ func Test_Filters_String(t *testing.T) {
 	}
 }
 
+
+
 func DumpBucketToString(bucket lsmkv.BucketInterface) string {
 	var out string
 	rr := NewRowReader(bucket, nil, filters.OperatorAnd, false)
 
-	rr.Iterate(context.Background(), func(id []byte, values [][]byte) (bool, error) {
+	rr.Iterate(context.Background(), func(id []byte, v *sroar.Bitmap) (bool, error) {
 		out += fmt.Sprintf("id: %v\n", id)
 		// Marshall values
 		out += "values: \n"

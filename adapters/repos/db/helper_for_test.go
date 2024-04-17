@@ -208,14 +208,14 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
+func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (*Shard, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, indexOpts...)
 }
 
 func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
 	vic schema.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
-) (ShardLike, *Index) {
+) (*Shard, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
@@ -276,7 +276,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	require.NoError(t, err)
 
 	idx.shards.Store(shardName, shard)
-	return shard, idx
+	return shard.(*Shard), idx
 }
 
 func testObject(className string) *storobj.Object {
