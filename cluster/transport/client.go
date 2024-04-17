@@ -151,7 +151,7 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.Dial(
+	cl.leaderConn, err = grpc.Dial(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
@@ -160,7 +160,7 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 
-	return conn, nil
+	return cl.leaderConn, nil
 }
 
 func NewRPCResolver(isLocalHost bool, rpcPort int) rpcAddressResolver {
