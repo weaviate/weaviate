@@ -27,7 +27,7 @@ type retrySchema struct {
 }
 
 func (rs retrySchema) ClassInfo(class string) (ci ClassInfo) {
-	res, _ := rs.ClassInfoWithVersion(class, 0)
+	res := rs.ClassInfoWithVersion(class, 0)
 	return res
 }
 
@@ -45,7 +45,7 @@ func (rs retrySchema) MultiTenancy(class string) models.MultiTenancyConfig {
 // Read performs a read operation `reader` on the specified class and sharding state
 func (rs retrySchema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
 	return rs.retry(func(s *schema) error {
-		return s.Read(class, reader, 0)
+		return s.Read(class, reader)
 	})
 }
 

@@ -164,7 +164,9 @@ func TestServiceEndpoints(t *testing.T) {
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
+	assert.Nil(t, srv.store.WaitForUpdate(ctx, time.Millisecond*10, version))
 	assert.Equal(t, info, schema.ClassInfo("C"))
+	assert.ErrorIs(t, srv.store.WaitForUpdate(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), ErrDeadlineExceeded)
 
 	// DeleteClass
 	_, err = srv.DeleteClass("X")
@@ -271,7 +273,7 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
-	clInfo, _ := srv.store.db.Schema.ClassInfo("C", 0)
+	clInfo := srv.store.db.Schema.ClassInfo("C")
 	assert.Equal(t, info, clInfo)
 }
 
@@ -806,6 +808,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Parser:            parser,
 			AddrResolver:      &MockAddressResolver{},
 			Logger:            logger.Logger,
+			UpdateWaitTimeout: time.Millisecond * 50,
 		},
 	}
 	s := New(ms.cfg)

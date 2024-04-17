@@ -16,9 +16,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (rs retrySchema) ClassInfoWithVersion(class string, version uint64) (ci ClassInfo, resultVersion uint64) {
+func (rs retrySchema) ClassInfoWithVersion(class string, version uint64) (ci ClassInfo) {
 	rs.retry(func(s *schema) error {
-		ci, resultVersion = s.ClassInfo(class, version)
+		ci = s.ClassInfo(class)
 		if !ci.Exists {
 			return errClassExists
 		}
@@ -44,9 +44,9 @@ func (rs retrySchema) ReadOnlyClassWithVersion(class string, version uint64) (cl
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (rs retrySchema) ShardOwnerWithVersion(class, shard string, version uint64) (owner string, resultVersion uint64, err error) {
+func (rs retrySchema) ShardOwnerWithVersion(class, shard string, version uint64) (owner string, v uint64, err error) {
 	err = rs.retry(func(s *schema) error {
-		owner, err, resultVersion = s.ShardOwner(class, shard)
+		owner, v, err = s.ShardOwner(class, shard)
 		return err
 	})
 	return
@@ -66,7 +66,7 @@ func (rs retrySchema) ShardFromUUIDWithVersion(class string, uuid []byte, versio
 // ShardReplicas returns the replica nodes of a shard
 func (rs retrySchema) ShardReplicasWithVersion(class, shard string, version uint64) (nodes []string, resultVersion uint64, err error) {
 	rs.retry(func(s *schema) error {
-		nodes, err, resultVersion = s.ShardReplicas(class, shard)
+		nodes, resultVersion, err = s.ShardReplicas(class, shard)
 		return err
 	})
 	return

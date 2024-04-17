@@ -114,9 +114,9 @@ func (f *fakeMetaHandler) ClassInfo(class string) (ci store.ClassInfo) {
 	return args.Get(0).(store.ClassInfo)
 }
 
-func (f *fakeMetaHandler) ClassInfoWithVersion(class string, version uint64) (store.ClassInfo, uint64) {
+func (f *fakeMetaHandler) ClassInfoWithVersion(class string, version uint64) store.ClassInfo {
 	args := f.Called(class, version)
-	return args.Get(0).(store.ClassInfo), 0
+	return args.Get(0).(store.ClassInfo)
 }
 
 func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
