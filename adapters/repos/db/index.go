@@ -335,6 +335,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		defer i.allShardsReady.Store(true)
+		now := time.Now()
 		err := i.ForEachShard(func(name string, shard ShardLike) error {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
@@ -363,7 +364,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 			i.logger.
 				WithField("action", "load_all_shards").
 				Errorf("failed to load all shards: %v", err)
+			return
 		}
+		i.logger.
+			WithField("action", "load_all_shards").
+			WithField("took", time.Since(now).String()).
+			Debug("finished loading all shards")
 	}
 	enterrors.GoWrapper(f, i.logger)
 
