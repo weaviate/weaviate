@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc"
@@ -59,6 +60,10 @@ type rpcAddressResolver interface {
 // Client is used for communication with remote nodes in a RAFT cluster.
 type Client struct {
 	rpc rpcAddressResolver
+
+	connLock   sync.Mutex
+	leaderAddr string
+	leaderConn *grpc.ClientConn
 }
 
 func NewClient(r rpcAddressResolver) *Client {
@@ -67,17 +72,11 @@ func NewClient(r rpcAddressResolver) *Client {
 
 // Join joins this node to an existing cluster identified by its leader's address.
 // If a new leader has been elected, the request is redirected to the new leader.
-func (cl *Client) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
-	addr, err := cl.rpc.Address(leaderAddr)
+func (cl *Client) Join(ctx context.Context, leaderAddress string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
+	conn, err := cl.getConn(leaderAddress)
 	if err != nil {
-		return nil, fmt.Errorf("resolve address: %w", err)
+		return nil, err
 	}
-
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
-	}
-	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
 	return c.JoinPeer(ctx, req)
 }
@@ -101,49 +100,58 @@ func (cl *Client) Notify(ctx context.Context, rAddr string, req *cmd.NotifyPeerR
 // Remove removes this node from an existing cluster identified by its leader's address.
 // If a new leader has been elected, the request is redirected to the new leader.
 func (cl *Client) Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error) {
-	addr, err := cl.rpc.Address(leaderAddress)
+	conn, err := cl.getConn(leaderAddress)
 	if err != nil {
-		return nil, fmt.Errorf("resolve address: %w", err)
+		return nil, err
 	}
-
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
-	}
-	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
 	return c.RemovePeer(ctx, req)
 }
 
 func (cl *Client) Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
 	ctx := context.Background()
-	addr, err := cl.rpc.Address(leaderAddr)
+	conn, err := cl.getConn(leaderAddr)
 	if err != nil {
-		return nil, fmt.Errorf("resolve address: %w", err)
+		return nil, err
 	}
 
-	conn, err := grpc.DialContext(
-		ctx,
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(serviceConfig),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
-	}
-	defer conn.Close()
 	c := cmd.NewClusterServiceClient(conn)
 	return c.Apply(ctx, req)
 }
 
 func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	conn, err := cl.getConn(leaderAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	c := cmd.NewClusterServiceClient(conn)
+	return c.Query(ctx, req)
+}
+
+func (cl *Client) Close() {
+	cl.leaderConn.Close()
+}
+
+func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
+	cl.connLock.Lock()
+	defer cl.connLock.Unlock()
+
+	if cl.leaderConn != nil && leaderAddress == cl.leaderAddr {
+		return cl.leaderConn, nil
+	}
+
+	if cl.leaderConn != nil {
+		// close open conn if leader addr changed
+		cl.leaderConn.Close()
+	}
+
 	addr, err := cl.rpc.Address(leaderAddress)
 	if err != nil {
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.DialContext(
-		ctx,
+	cl.leaderConn, err = grpc.Dial(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
@@ -151,9 +159,10 @@ func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.Quer
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
-	defer conn.Close()
-	c := cmd.NewClusterServiceClient(conn)
-	return c.Query(ctx, req)
+
+	cl.leaderAddr = leaderAddress
+
+	return cl.leaderConn, nil
 }
 
 func NewRPCResolver(isLocalHost bool, rpcPort int) rpcAddressResolver {
