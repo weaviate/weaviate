@@ -59,20 +59,20 @@ type nodeResolver interface {
 
 type RemoteIndexClient interface {
 	PutObject(ctx context.Context, hostName, indexName, shardName string,
-		obj *storobj.Object) error
+		obj *storobj.Object, schemaVersion uint64) error
 	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
 		objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error
 	BatchAddReferences(ctx context.Context, hostName, indexName, shardName string,
-		refs objects.BatchReferences) []error
+		refs objects.BatchReferences, schemaVersion uint64) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID) error
+		id strfmt.UUID, schemaVersion uint64) error
 	MergeObject(ctx context.Context, hostname, indexName, shardName string,
-		mergeDoc objects.MergeDocument) error
+		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
@@ -97,7 +97,7 @@ type RemoteIndexClient interface {
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
-	obj *storobj.Object,
+	obj *storobj.Object, schemaVersion uint64,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -109,7 +109,7 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.PutObject(ctx, host, ri.class, shardName, obj)
+	return ri.client.PutObject(ctx, host, ri.class, shardName, obj, schemaVersion)
 }
 
 // helper for single errors that affect the entire batch, assign the error to
@@ -141,7 +141,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
-	refs objects.BatchReferences,
+	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -155,7 +155,7 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 			owner), len(refs))
 	}
 
-	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs)
+	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs, schemaVersion)
 }
 
 func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
@@ -175,7 +175,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID,
+	id strfmt.UUID, schemaVersion uint64,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -187,11 +187,11 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id)
+	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id, schemaVersion)
 }
 
 func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
-	mergeDoc objects.MergeDocument,
+	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -203,7 +203,7 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 		return errors.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc)
+	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc, schemaVersion)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,

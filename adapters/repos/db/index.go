@@ -576,7 +576,7 @@ func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, err
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	if err := i.validateMultiTenancy(object.Object.Tenant); err != nil {
 		return err
@@ -597,7 +597,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		if err := i.replicator.PutObject(ctx, shardName, object, cl); err != nil {
+		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
 		}
 		return nil
@@ -605,7 +605,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 
 	// no replication, remote shard
 	if i.localShard(shardName) == nil {
-		if err := i.remote.PutObject(ctx, shardName, object); err != nil {
+		if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
 			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
 		}
 		return nil
@@ -626,7 +626,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 }
 
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
-	object *storobj.Object,
+	object *storobj.Object, schemaVersion uint64,
 ) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
@@ -854,7 +854,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 // return value map[int]error gives the error for the index as it received it
 func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	type refsAndPos struct {
 		refs objects.BatchReferences
@@ -887,10 +887,9 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel))
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else if i.localShard(shardName) == nil {
-			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs)
+			errs = i.remote.BatchAddReferences(ctx, shardName, group.refs, schemaVersion)
 		} else {
 			i.backupMutex.RLockGuard(func() error {
 				if shard := i.localShard(shardName); shard != nil {
@@ -911,7 +910,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 }
 
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
-	refs objects.BatchReferences,
+	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
@@ -1534,7 +1533,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties, tenant string,
+	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
@@ -1550,7 +1549,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		if err := i.replicator.DeleteObject(ctx, shardName, id, cl); err != nil {
+		if err := i.replicator.DeleteObject(ctx, shardName, id, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
 		return nil
@@ -1558,7 +1557,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	// no replication, remote shard
 	if i.localShard(shardName) == nil {
-		if err := i.remote.DeleteObject(ctx, shardName, id); err != nil {
+		if err := i.remote.DeleteObject(ctx, shardName, id, schemaVersion); err != nil {
 			return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
 		}
 		return nil
@@ -1578,7 +1577,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 }
 
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID,
+	id strfmt.UUID, schemaVersion uint64,
 ) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
@@ -1594,7 +1593,7 @@ func (i *Index) localShard(name string) ShardLike {
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties, tenant string,
+	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
@@ -1610,7 +1609,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl); err != nil {
+		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate single update: %w", err)
 		}
 		return nil
@@ -1618,7 +1617,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 
 	// no replication, remote shard
 	if i.localShard(shardName) == nil {
-		if err := i.remote.MergeObject(ctx, shardName, merge); err != nil {
+		if err := i.remote.MergeObject(ctx, shardName, merge, schemaVersion); err != nil {
 			return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
 		}
 		return nil
@@ -1639,7 +1638,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 }
 
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
-	mergeDoc objects.MergeDocument,
+	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()

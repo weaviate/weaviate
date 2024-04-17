@@ -81,7 +81,7 @@ func TestDistributedBackups(t *testing.T) {
 			for _, obj := range data {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0)
 				require.Nil(t, err)
 			}
 		})
@@ -90,7 +90,7 @@ func TestDistributedBackups(t *testing.T) {
 			for _, obj := range refData {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0)
 				require.Nil(t, err)
 			}
 		})

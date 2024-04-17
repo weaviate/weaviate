@@ -69,7 +69,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
-	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
+	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, 0)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
@@ -99,7 +99,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "")
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "", 0)
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

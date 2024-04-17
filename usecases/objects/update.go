@@ -95,7 +95,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	class, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}
