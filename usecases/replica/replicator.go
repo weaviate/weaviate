@@ -181,10 +181,11 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	shard string,
 	objs []*storobj.Object,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs)
+		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}

@@ -123,7 +123,7 @@ func TestNullArrayClass(t *testing.T) {
 				batch := make([]objects.BatchObject, 2)
 				batch[0] = objects.BatchObject{Object: arrayObjNil, UUID: arrayObjNil.ID}
 				batch[1] = objects.BatchObject{Object: arrayObjEmpty, UUID: arrayObjEmpty.ID}
-				_, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				_, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				assert.Nil(t, err)
 			}
 

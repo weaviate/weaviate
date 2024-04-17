@@ -430,7 +430,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	return nil, nil, nil
 }
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
 	return nil
 }
 
@@ -515,7 +515,7 @@ func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, s
 }
 
 func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
-	objs []*storobj.Object,
+	objs []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
