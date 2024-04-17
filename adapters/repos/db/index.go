@@ -412,7 +412,7 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		eg.SetLimit(_NUMCPU)
 
 		i.ForEachShard(func(key string, shard ShardLike) error {
-			shard.createPropertyIndex_old(ctx, prop, eg)
+			shard.CreatePropertyIndex_unmerged(ctx, prop, eg)
 			return nil
 		})
 
@@ -422,7 +422,7 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		return nil
 	} else {
 		return i.ForEachShard(func(key string, shard ShardLike) error {
-			err := shard.createPropertyIndex(ctx, prop)
+			err := shard.CreatePropertyIndex(ctx, prop)
 			if err != nil {
 				return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
 			}

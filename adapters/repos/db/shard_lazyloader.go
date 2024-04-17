@@ -129,6 +129,20 @@ func (l *LazyLoadShard) Store() *lsmkv.Store {
 	return l.shard.Store()
 }
 
+func (l *LazyLoadShard) CreatePropertyIndex(ctx context.Context, prop *models.Property) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.CreatePropertyIndex(ctx, prop)
+}
+
+func (l *LazyLoadShard) CreatePropertyIndex_unmerged(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.CreatePropertyIndex_unmerged(ctx, prop, eg)
+}
+
 func (l *LazyLoadShard) NotifyReady() {
 	l.mustLoad()
 	l.shard.NotifyReady()

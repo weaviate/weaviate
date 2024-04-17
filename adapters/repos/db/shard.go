@@ -22,6 +22,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -92,7 +93,8 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) error
+	CreatePropertyIndex_unmerged(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) error
+	CreatePropertyIndex(ctx context.Context, prop *models.Property) error
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -205,7 +207,7 @@ type Shard struct {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job,indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return NewShard_old(ctx, promMetrics, shardName, index, class, jobQueueCh)
+		return NewShard_unmerged(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
 	}
 	before := time.Now()
 	var err error
@@ -345,7 +347,7 @@ func (s *Shard) initLegacyQueue() error {
 //FIXME need to redo initVectorIndex_old
 func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vectorIndexUserConfig schema.VectorIndexConfig) (VectorIndex, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.initVectorIndex_old(ctx, targetVector, vectorIndexUserConfig)
+		return s.initVectorIndex_unmerged(ctx, targetVector, vectorIndexUserConfig)
 	}
 	var distProv distancer.Provider
 
@@ -446,7 +448,7 @@ func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vector
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.initNonVector_old(ctx, class)
+		return s.initNonVector_unmerged(ctx, class)
 	}
 	err := s.initLSMStore(ctx)
 	if err != nil {
@@ -664,7 +666,7 @@ func (s *Shard) drop() error {
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.addIDProperty_old(ctx)
+		return s.addIDProperty_unmerged(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -685,7 +687,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.addDimensionsProperty_old(ctx)
+		return s.addDimensionsProperty_unmerged(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -706,7 +708,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.addTimestampProperties_old(ctx)
+		return s.addTimestampProperties_unmerged(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -766,7 +768,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) error {
+func (s *Shard) CreatePropertyIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
 	}
@@ -793,6 +795,10 @@ func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property, 
 		}
 	}
 	return nil
+}
+
+func (s *Shard)  CreatePropertyIndex_unmerged(stx context.Context,prop *models.Property, eg errors.ErrorGroupWrapper) error {
+	panic("Invalid bucket mode")
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
@@ -918,7 +924,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context,updated schema.VectorIndexConfig) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.UpdateVectorIndexConfig_old(ctx, updated)
+		return s.UpdateVectorIndexConfig_unmerged(ctx, updated)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
