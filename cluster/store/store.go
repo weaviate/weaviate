@@ -416,8 +416,8 @@ func (f *Store) FindSimilarClass(name string) string {
 	return f.db.Schema.ClassEqual(name)
 }
 
-// Stats returns some internal statistics from this store, for informational/debugging
-// purposes only. The statistics directly from raft have their keys prefixed with "raft_".
+// Stats returns internal statistics from this store, for informational/debugging purposes only.
+// The statistics directly from raft have their keys prefixed with "raft_".
 // See https://pkg.go.dev/github.com/hashicorp/raft#Raft.Stats for the default raft stats.
 //
 // The values of "leader_address" and "leader_id" are the respective address/ID for the current
