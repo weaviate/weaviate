@@ -500,7 +500,7 @@ func (s *Shard) addIDProperty_unmerged(ctx context.Context) error {
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropID),
+		helpers.BucketFromPropertyNameLSM(filters.InternalPropID),
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
@@ -541,7 +541,7 @@ func (s *Shard) addTimestampProperties_unmerged(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty_unmerged(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
+		helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix),
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
@@ -549,7 +549,7 @@ func (s *Shard) addCreationTimeUnixProperty_unmerged(ctx context.Context) error 
 
 func (s *Shard) addLastUpdateTimeUnixProperty_unmerged(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
@@ -618,8 +618,9 @@ func (s *Shard) createPropertyValueIndex_unmerged(ctx context.Context, prop *mod
 		}
 
 		if schema.IsRefDataType(prop.DataType) {
+
 			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+				helpers.BucketFromPropertyNameMetaCountLSM(prop.Name),
 				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 			); err != nil {
 				return err
@@ -627,7 +628,7 @@ func (s *Shard) createPropertyValueIndex_unmerged(ctx context.Context, prop *mod
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
+			helpers.BucketFromPropertyNameLSM(prop.Name),
 			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
 			return err
@@ -642,7 +643,7 @@ func (s *Shard) createPropertyValueIndex_unmerged(ctx context.Context, prop *mod
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			helpers.BucketSearchableFromPropertyNameLSM(prop.Name),
 			searchableBucketOpts...,
 		); err != nil {
 			return err
@@ -666,7 +667,7 @@ func (s *Shard) createPropertyLengthIndex_unmerged(ctx context.Context, prop *mo
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		helpers.BucketFromPropertyNameLengthLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
@@ -677,7 +678,7 @@ func (s *Shard) createPropertyNullIndex_unmerged(ctx context.Context, prop *mode
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
+		helpers.BucketFromPropertyNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }

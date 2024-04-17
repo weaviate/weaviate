@@ -315,7 +315,7 @@ if !lsmkv.FeatureUseMergedBuckets {
 		index := repo.indices["testclass"]
 		n := 0
 		index.ForEachShard(func(_ string, shard ShardLike) error {
-			bucketNull := shard.Store().Bucket(helpers.BucketFromPropNameNullLSM("name"))
+			bucketNull := shard.Store().Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
 			require.NotNil(t, bucketNull)
 			n++
 			return nil

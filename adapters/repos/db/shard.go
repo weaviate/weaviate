@@ -176,6 +176,7 @@ type Shard struct {
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
 	propLenTracker   *inverted.JsonPropertyLengthTracker
+	propIds         *tracker.JsonPropertyIdTracker
 	versioner        *shardVersioner
 
 	status              storagestate.Status

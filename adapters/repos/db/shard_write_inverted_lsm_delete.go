@@ -134,8 +134,8 @@ func (s *Shard) deleteInvertedIndexItemLSM(bucket lsmkv.BucketInterface, item in
 }
 
 func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
-	if bucketNull == nil {
+	bucketNull, err := lsmkv.FetchMeABucket(s.store, "null_properties", helpers.BucketFromPropertyNameNullLSM(propName), propName, s.propIds)
+	if err != nil{
 		return errors.Errorf("no bucket for prop '%s' null found", propName)
 	}
 

@@ -68,7 +68,7 @@ func (b *BucketProxy) GetRegisteredName() string {
 	return b.realBucket.GetRegisteredName()
 }
 
-// Returns either a real bucket or a proxy bucket, depending on whether the merged bucket feature is active or not
+// Returns either a real bucket or a merged proxy bucket, depending on whether the merged bucket feature is active or not
 func FetchMeABucket(store *Store, mergedName string, bucketFileName string, propName string, propids *tracker.JsonPropertyIdTracker) (BucketInterface, error) {
 	if !FeatureUseMergedBuckets {
 		bucket := store.Bucket(bucketFileName)
