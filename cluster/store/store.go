@@ -57,6 +57,8 @@ var (
 	ErrLeaderNotFound = errors.New("leader not found")
 	ErrNotOpen        = errors.New("store not open")
 	ErrUnknownCommand = errors.New("unknown command")
+	// ErrDeadlineExceeded represents an error returned when the deadline for waiting for a specific update is exceeded.
+	ErrDeadlineExceeded = errors.New("deadline exceeded for waiting for update")
 )
 
 // Indexer interface updates both the collection and its indices in the filesystem.
@@ -102,11 +104,13 @@ type Config struct {
 	ServerName2PortMap map[string]int
 	BootstrapExpect    int
 
-	HeartbeatTimeout  time.Duration
-	ElectionTimeout   time.Duration
-	RecoveryTimeout   time.Duration
-	SnapshotInterval  time.Duration
-	BootstrapTimeout  time.Duration
+	HeartbeatTimeout time.Duration
+	ElectionTimeout  time.Duration
+	RecoveryTimeout  time.Duration
+	SnapshotInterval time.Duration
+	BootstrapTimeout time.Duration
+	// UpdateWaitTimeout Timeout duration for waiting for the update to be propagated to this follower node.
+	UpdateWaitTimeout time.Duration
 	SnapshotThreshold uint64
 
 	DB           Indexer
@@ -141,6 +145,9 @@ type Store struct {
 
 	// migrationTimeout is the timeout for restoring the legacy schema
 	migrationTimeout time.Duration
+
+	// UpdateWaitTimeout Timeout duration for waiting for the update to be propagated to this follower node.
+	updateWaitTimeout time.Duration
 
 	snapshotThreshold uint64
 
@@ -188,6 +195,7 @@ func New(cfg Config) Store {
 		snapshotInterval:  cfg.SnapshotInterval,
 		snapshotThreshold: cfg.SnapshotThreshold,
 		migrationTimeout:  cfg.BootstrapTimeout,
+		updateWaitTimeout: cfg.UpdateWaitTimeout,
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
@@ -402,6 +410,28 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 	}
 }
 
+// WaitForUpdate waits until the update with the given version is propagated to this follower node
+func (st *Store) WaitForUpdate(ctx context.Context, period time.Duration, version uint64) error {
+	if idx := st.lastAppliedIndex.Load(); idx >= version {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, st.updateWaitTimeout)
+	defer cancel()
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+	var idx uint64
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: version got=%d  want=%d", ErrDeadlineExceeded, idx, version)
+		case <-ticker.C:
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				return nil
+			}
+		}
+	}
+}
+
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
@@ -409,6 +439,13 @@ func (st *Store) IsLeader() bool {
 
 func (st *Store) SchemaReader() retrySchema {
 	return retrySchema{st.db.Schema}
+}
+
+func (st *Store) VersionedSchemaReader() versionedSchema {
+	f := func(ctx context.Context, version uint64) error {
+		return st.WaitForUpdate(ctx, time.Millisecond*50, version)
+	}
+	return versionedSchema{st.db.Schema, f}
 }
 
 // FindSimilarClass returns the name of an existing class with a similar name, and "" otherwise
@@ -496,7 +533,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
-	classInfo, _ := st.db.Schema.ClassInfo(req.Class, 0)
+	classInfo := st.db.Schema.ClassInfo(req.Class)
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		st.log.Info("class already restored", "class", req.Class)
 		return 0, nil

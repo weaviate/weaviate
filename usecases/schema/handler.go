@@ -72,7 +72,7 @@ type metaReader interface {
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 
 	// WithVersion endpoints return the data with the schema version
-	ClassInfoWithVersion(class string, version uint64) (ci store.ClassInfo, resultVersion uint64)
+	ClassInfoWithVersion(class string, version uint64) store.ClassInfo
 	MultiTenancyWithVersion(class string, version uint64) (models.MultiTenancyConfig, uint64)
 	ReadOnlyClassWithVersion(class string, version uint64) (cls *models.Class, resultVersion uint64)
 	ShardOwnerWithVersion(class, shard string, version uint64) (owner string, resultVersion uint64, err error)
