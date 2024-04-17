@@ -54,8 +54,8 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	}
 
 	existingNames := make(map[string]bool, len(class.Properties))
-	for _, prop := range class.Properties {
-		if !merge {
+	if !merge {
+		for _, prop := range class.Properties {
 			existingNames[strings.ToLower(prop.Name)] = true
 		}
 	}
@@ -64,14 +64,14 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return 0, err
 	}
 
-	migratePropertySettings(newProps...)
-
 	// TODO-RAFT use UpdateProperty() for adding/merging property when index idempotence exists
 	// revisit when index idempotence exists and/or allowing merging properties on index.
 	props := schema.DedupProperties(class.Properties, newProps)
 	if len(props) == 0 {
 		return 0, nil
 	}
+
+	migratePropertySettings(props...)
 
 	return h.metaWriter.AddProperty(class.Class, props...)
 }

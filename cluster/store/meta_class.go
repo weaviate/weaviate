@@ -140,7 +140,7 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 // mergeProps makes sure duplicates are not created by ignoring new props
 // with the same names as old props.
 // If property of nested type is present in both new and old slices,
-// final property is created by merging new propertu into copy of old one
+// final property is created by merging new property into copy of old one
 func mergeProps(old, new []*models.Property) []*models.Property {
 	mergedProps := make([]*models.Property, len(old), len(old)+len(new))
 	copy(mergedProps, old)
