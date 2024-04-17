@@ -325,10 +325,10 @@ if !lsmkv.FeatureUseMergedBuckets {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
-				bucketProps := shard.store.Bucket("filterable_properties")
+			index.ForEachShard(func(_ string, shard ShardLike) error {
+				bucketProps := shard.Store().Bucket("filterable_properties")
 				require.NotNil(t, bucketProps)
-				bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
+				bucketNull := shard.Store().Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
 				require.NotNil(t, bucketNull)
 				n++
 				return nil
@@ -550,7 +550,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
+			index.ForEachShard(func(_ string, shard ShardLike) error {
 				bucketNull := shard.store.Bucket("filterable_properties")
 				require.NotNil(t, bucketNull)
 				n++
@@ -562,7 +562,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
+			index.ForEachShard(func(_ string, shard ShardLike) error {
 				bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
 				require.NotNil(t, bucketPropLengthName)
 				bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
