@@ -469,12 +469,12 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	proptracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 
-	s.propLenTracker = tracker
+	s.propLenTracker = proptracker
 
 	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
 	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
@@ -671,7 +671,6 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),  // TODO MERGE: check if this is needed
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)),

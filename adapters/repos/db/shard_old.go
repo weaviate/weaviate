@@ -40,6 +40,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+//FIXME everything in this file needs to be re-updated from shard.go, there are too many changes
+
 func NewShard_old(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 ) (*Shard, error) {
