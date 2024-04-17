@@ -118,7 +118,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-multi2vec-palm", "--only-module-generative-palm"]
+        test: ["--only-module-multi2vec-palm", "--only-module-generative-palm", "--only-module-text2vec-palm"]
     steps:
       - uses: actions/checkout@v4
         with:
