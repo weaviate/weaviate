@@ -236,3 +236,8 @@ type fakeVectorConfig struct {
 func (f fakeVectorConfig) IndexType() string {
 	return "fake"
 }
+
+func (f fakeVectorConfig) DistanceName() string {
+	return "fake"
+}
+
