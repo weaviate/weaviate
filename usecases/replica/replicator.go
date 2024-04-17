@@ -219,11 +219,11 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	uuids []strfmt.UUID,
 	dryRun bool,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.DeleteObjects(
-			ctx, host, r.class, shard, requestID, uuids, dryRun)
+		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, dryRun, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}

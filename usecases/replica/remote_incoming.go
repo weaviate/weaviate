@@ -30,7 +30,7 @@ type RemoteIncomingRepo interface {
 	ReplicateDeletion(ctx context.Context, indexName,
 		shardName, requestID string, uuid strfmt.UUID) SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName,
-		shardName, requestID string, uuids []strfmt.UUID, dryRun bool) SimpleResponse
+		shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName,
 		shardName, requestID string, refs []objects.BatchReference) SimpleResponse
 	CommitReplication(indexName,
@@ -83,9 +83,9 @@ func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexNa
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
-	shardName, requestID string, uuids []strfmt.UUID, dryRun bool,
+	shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) SimpleResponse {
-	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, dryRun)
+	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, dryRun, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, indexName,
