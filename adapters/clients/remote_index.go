@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -79,11 +80,12 @@ func duplicateErr(in error, count int) []error {
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
 		Host:     host,
 		Path:     fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard),
-		RawQuery: url.Values{replica.SchemaVersionKey: []string{fmt.Sprint(schemaVersion)}}.Encode(),
+		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
 
 	body, err := clusterapi.IndicesPayloads.ObjectList.Marshal(objs)
@@ -499,11 +501,12 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 ) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
 		Host:     hostName,
 		Path:     path,
-		RawQuery: url.Values{replica.SchemaVersionKey: []string{fmt.Sprint(schemaVersion)}}.Encode(),
+		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
 
 	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
