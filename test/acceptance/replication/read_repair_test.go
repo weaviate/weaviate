@@ -31,7 +31,7 @@ func readRepair(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		With2NodeCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -47,12 +47,12 @@ func readRepair(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -81,7 +81,6 @@ func readRepair(t *testing.T) {
 
 	t.Run("stop node 2", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
-		time.Sleep(5 * time.Second)
 	})
 
 	repairObj := models.Object{
@@ -140,15 +139,17 @@ func readRepair(t *testing.T) {
 		require.True(t, exists)
 	})
 
-	t.Run("assert updated object read repair was made", func(t *testing.T) {
+	t.Run("stop node 2", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
+	})
 
-		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+	t.Run("assert updated object read repair was made", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.ContainerURI(1),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
 
-		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
+		resp, err := getObjectCL(t, compose.ContainerURI(1),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, replaceObj.ID, resp.ID)

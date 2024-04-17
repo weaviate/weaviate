@@ -64,7 +64,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		With2NodeCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -80,11 +80,11 @@ func immediateReplicaCRUD(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -438,6 +438,13 @@ func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompo
 		require.Nil(t, compose.StartAt(ctx, 2))
 		return nil
 	})
+	eg.Go(func() error { // restart node 3
+		time.Sleep(3 * time.Second) // wait for member list initialization
+		stopNodeAt(ctx, t, compose, 3)
+		require.Nil(t, compose.StartAt(ctx, 3))
+		return nil
+	})
+
 	eg.Wait()
 	<-time.After(3 * time.Second) // wait for initialization
 }
