@@ -14,6 +14,8 @@ package segmentindex
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -95,7 +97,7 @@ func TestTree(t *testing.T) {
 		bytes, err := tree.MarshalBinary()
 		require.Nil(t, err)
 
-		dTree := NewDiskTree(bytes)
+		dTree := NewDiskTree(contentReader.NewMMap(bytes))
 
 		t.Run("get", func(t *testing.T) {
 			n, err := dTree.Get([]byte("foobar"))

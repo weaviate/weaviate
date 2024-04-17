@@ -14,11 +14,11 @@ package segmentindex
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // DiskTree is a read-only wrapper around a marshalled index search tree, which
@@ -26,7 +26,7 @@ import (
 // thus perfectly suited as an index for an (immutable) LSM disk segment, but
 // pretty much useless for anything else
 type DiskTree struct {
-	data []byte
+	contentReader contentReader.ContentReader
 }
 
 type dtNode struct {
@@ -37,87 +37,85 @@ type dtNode struct {
 	rightChild int64
 }
 
-func NewDiskTree(data []byte) *DiskTree {
+func NewDiskTree(contentReader contentReader.ContentReader) *DiskTree {
 	return &DiskTree{
-		data: data,
+		contentReader: contentReader,
 	}
 }
 
 func (t *DiskTree) Get(key []byte) (Node, error) {
-	if len(t.data) == 0 {
+	if t.contentReader.Length() == 0 {
 		return Node{}, lsmkv.NotFound
 	}
 	var out Node
-	rw := byteops.NewReadWriter(t.data)
+	var buffer []byte
+	var keyLen uint32
+	offset := uint64(0)
 
 	// jump to the buffer until the node with _key_ is found or return a NotFound error.
 	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
 	// extracting the necessary pieces of information while skipping the rest
-	NodeKeyBuffer := make([]byte, len(key))
 	for {
 		// detect if there is no node with the wanted key.
-		if rw.Position+4 > uint64(len(t.data)) || rw.Position+4 < 4 {
+		if offset+4 > t.contentReader.Length() || offset+4 < 4 {
 			return out, lsmkv.NotFound
 		}
 
-		keyLen := rw.ReadUint32()
-		if int(keyLen) > len(NodeKeyBuffer) {
-			NodeKeyBuffer = make([]byte, int(keyLen))
-		} else if int(keyLen) < len(NodeKeyBuffer) {
-			NodeKeyBuffer = NodeKeyBuffer[:keyLen]
-		}
-		_, err := rw.CopyBytesFromBuffer(uint64(keyLen), NodeKeyBuffer)
-		if err != nil {
-			return out, fmt.Errorf("copy node key: %w", err)
-		}
+		keyLen, offset = t.contentReader.ReadUint32(offset)
 
-		keyEqual := bytes.Compare(key, NodeKeyBuffer)
+		buffer, offset = t.contentReader.CopyRange(offset, uint64(keyLen))
+
+		keyEqual := bytes.Compare(key, buffer)
 		if keyEqual == 0 {
-			out.Key = NodeKeyBuffer
-			out.Start = rw.ReadUint64()
-			out.End = rw.ReadUint64()
+			out.Key = buffer
+			out.Start, offset = t.contentReader.ReadUint64(offset)
+			out.End, offset = t.contentReader.ReadUint64(offset)
 			return out, nil
 		} else if keyEqual < 0 {
-			rw.MoveBufferPositionForward(2 * 8) // jump over start+end position
-			rw.Position = rw.ReadUint64()       // left child
+			offset += 2 * 8                                // jump over start+end position
+			offset, _ = t.contentReader.ReadUint64(offset) // left child
 		} else {
-			rw.MoveBufferPositionForward(3 * 8) // jump over start+end position and left child
-			rw.Position = rw.ReadUint64()       // right child
+			offset += 3 * 8                                // jump over start+end position and left child
+			offset, _ = t.contentReader.ReadUint64(offset) // right child
 		}
 	}
 }
 
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
-	retNode, _, err := t.readNode(t.data[offset:])
+	retNode, _, err := t.readNode(uint64(offset))
 	return retNode, err
 }
 
-func (t *DiskTree) readNode(in []byte) (dtNode, int, error) {
+func (t *DiskTree) readNode(offsetRead uint64) (dtNode, int, error) {
 	var out dtNode
+
+	contReader, err := t.contentReader.NewWithOffsetStart(offsetRead)
+	if err != nil {
+		return out, 0, err
+	}
+
 	// in buffer needs at least 36 bytes of data:
 	// 4bytes for key length, 32bytes for position and children
-	if len(in) < 36 {
+	if contReader.Length() < 36 {
 		return out, 0, io.EOF
 	}
 
-	rw := byteops.NewReadWriter(in)
+	keyLen, offset := contReader.ReadUint32(0)
+	copiedBytes, offset := contReader.CopyRange(offset, uint64(keyLen))
 
-	keyLen := uint64(rw.ReadUint32())
-	copiedBytes, err := rw.CopyBytesFromBuffer(keyLen, nil)
-	if err != nil {
-		return out, int(rw.Position), fmt.Errorf("copy node key: %w", err)
-	}
 	out.key = copiedBytes
 
-	out.startPos = rw.ReadUint64()
-	out.endPos = rw.ReadUint64()
-	out.leftChild = int64(rw.ReadUint64())
-	out.rightChild = int64(rw.ReadUint64())
-	return out, int(rw.Position), nil
+	out.startPos, offset = contReader.ReadUint64(offset)
+	out.endPos, offset = contReader.ReadUint64(offset)
+	leftChild, offset := contReader.ReadUint64(offset)
+	rightChild, offset := contReader.ReadUint64(offset)
+	out.leftChild = int64(leftChild)
+	out.rightChild = int64(rightChild)
+	return out, int(offset), nil
 }
 
 func (t *DiskTree) Seek(key []byte) (Node, error) {
-	if len(t.data) == 0 {
+	if t.contentReader.Length() == 0 {
 		return Node{}, lsmkv.NotFound
 	}
 
@@ -177,7 +175,7 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 	var out [][]byte
 	bufferPos := 0
 	for {
-		node, readLength, err := t.readNode(t.data[bufferPos:])
+		node, readLength, err := t.readNode(uint64(bufferPos))
 		bufferPos += readLength
 		if errors.Is(err, io.EOF) {
 			break
@@ -193,5 +191,5 @@ func (t *DiskTree) AllKeys() ([][]byte, error) {
 }
 
 func (t *DiskTree) Size() int {
-	return len(t.data)
+	return int(t.contentReader.Length())
 }

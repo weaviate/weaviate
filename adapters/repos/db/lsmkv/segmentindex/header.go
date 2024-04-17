@@ -17,6 +17,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 )
 
 // HeaderSize describes the general offset in a segment until the data
@@ -53,20 +55,14 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	return int64(HeaderSize), nil
 }
 
-func (h *Header) PrimaryIndex(source []byte) ([]byte, error) {
+func (h *Header) PrimaryIndex(contentReader contentReader.ContentReader) (contentReader.ContentReader, error) {
 	if h.SecondaryIndices == 0 {
-		return source[h.IndexStart:], nil
-	}
-
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
-	if err != nil {
-		return nil, err
+		return contentReader.NewWithOffsetStart(h.IndexStart)
 	}
 
 	// the beginning of the first secondary is also the end of the primary
-	end := offsets[0]
-	return source[h.secondaryIndexOffsetsEnd():end], nil
+	end, _ := contentReader.ReadUint64(h.IndexStart)
+	return contentReader.NewWithOffsetStartEnd(h.secondaryIndexOffsetsEnd(), end)
 }
 
 func (h *Header) secondaryIndexOffsetsEnd() uint64 {
@@ -84,14 +80,14 @@ func (h *Header) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
 	return offsets, nil
 }
 
-func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
+func (h *Header) SecondaryIndex(contentReader contentReader.ContentReader, indexID uint16) (contentReader.ContentReader, error) {
 	if indexID >= h.SecondaryIndices {
 		return nil, fmt.Errorf("retrieve index %d with len %d",
 			indexID, h.SecondaryIndices)
 	}
 
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+	secondaryBytes, _ := contentReader.ReadRange(h.IndexStart, h.secondaryIndexOffsetsEnd())
+	offsets, err := h.parseSecondaryIndexOffsets(secondaryBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +95,11 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 	start := offsets[indexID]
 	if indexID == h.SecondaryIndices-1 {
 		// this is the last index, return until EOF
-		return source[start:], nil
+		return contentReader.NewWithOffsetStart(start)
 	}
 
 	end := offsets[indexID+1]
-	return source[start:end], nil
+	return contentReader.NewWithOffsetStartEnd(start, end)
 }
 
 func ParseHeader(r io.Reader) (*Header, error) {

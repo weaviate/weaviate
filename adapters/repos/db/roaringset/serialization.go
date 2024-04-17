@@ -12,10 +12,11 @@
 package roaringset
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -53,14 +54,15 @@ import (
 //	(x+y+24)-(x+y+28)   | uint32 length indicator for primary key length -> z
 //	(x+y+28)-(x+y+z+28) | primary key
 type SegmentNode struct {
-	data []byte
+	contentReader contentReader.ContentReader
 }
 
 // Len indicates the total length of the [SegmentNode]. When reading multiple
 // segments back-2-back, such as in a cursor situation, the offset of element
 // (n+1) is the offset of element n + Len()
 func (sn *SegmentNode) Len() uint64 {
-	return binary.LittleEndian.Uint64(sn.data[0:8])
+	l, _ := sn.contentReader.ReadUint64(0)
+	return l
 }
 
 // Additions returns the additions roaring bitmap with shared state. Only use
@@ -68,9 +70,9 @@ func (sn *SegmentNode) Len() uint64 {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	length, offset := sn.contentReader.ReadUint64(8) // 8 bytes offset for length
+	buf, _ := sn.contentReader.ReadRange(offset, length)
+	return sroar.FromBuffer(buf)
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -80,9 +82,9 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	return sroar.FromBufferWithCopy(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	length, offset := sn.contentReader.ReadUint64(8) // 8 bytes offset for length
+	buf, _ := sn.contentReader.ReadRange(offset, length)
+	return sroar.FromBufferWithCopy(buf)
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -90,10 +92,10 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
+	buf, _ := sn.contentReader.ReadRange(offset, length)
+	return sroar.FromBuffer(buf)
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
@@ -103,18 +105,19 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Deletions].
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBufferWithCopy(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
+	buf, _ := sn.contentReader.ReadRange(offset, length)
+	return sroar.FromBufferWithCopy(buf)
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	length, offset := sn.contentReader.ReadUint64(8)                  // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length + offset)     // jump over additions
+	length, offset = sn.contentReader.ReadUint64(length + offset)     // jump over deletions
+	lengthKey, offset := sn.contentReader.ReadUint32(length + offset) // jump over additions
+	buf, _ := sn.contentReader.ReadRange(offset, uint64(lengthKey))
+	return buf
 }
 
 func NewSegmentNode(
@@ -129,11 +132,9 @@ func NewSegmentNode(
 
 	// offset + 2*uint64 length indicators + uint32 length indicator + payloads
 	expectedSize := 8 + 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
-	sn := SegmentNode{
-		data: make([]byte, expectedSize),
-	}
+	data := make([]byte, expectedSize)
 
-	rw := byteops.NewReadWriter(sn.data)
+	rw := byteops.NewReadWriter(data)
 
 	// reserve the first 8 bytes for the offset, which we will write at the very
 	// end
@@ -154,7 +155,7 @@ func NewSegmentNode(
 	rw.MoveBufferToAbsolutePosition(0)
 	rw.WriteUint64(uint64(offset))
 
-	return &sn, nil
+	return &SegmentNode{contentReader: contentReader.NewMMap(data)}, nil
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
@@ -168,14 +169,15 @@ func NewSegmentNode(
 // much memory. Truncating at the length prevents this and has no other
 // negative effects.
 func (sn *SegmentNode) ToBuffer() []byte {
-	return sn.data[:sn.Len()]
+	buf, _ := sn.contentReader.ReadRange(0, sn.Len())
+	return buf
 }
 
 // NewSegmentNodeFromBuffer creates a new segment node by using the underlying
 // buffer without copying data. Only use this when you can be sure that it's
 // safe to share the data or create your own copy.
-func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
-	return &SegmentNode{data: buf}
+func NewSegmentNodeFromBuffer(contentReader contentReader.ContentReader) *SegmentNode {
+	return &SegmentNode{contentReader: contentReader}
 }
 
 // KeyIndexAndWriteTo is a helper to flush a memtables full of SegmentNodes. It
@@ -189,7 +191,7 @@ func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
 func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 
-	n, err := w.Write(sn.data)
+	n, err := w.Write(sn.ToBuffer())
 	if err != nil {
 		return out, err
 	}

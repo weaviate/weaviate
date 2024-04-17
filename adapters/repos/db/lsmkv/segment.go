@@ -12,16 +12,16 @@
 package lsmkv
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/willf/bloom"
 )
 
@@ -34,15 +34,12 @@ type segment struct {
 	segmentEndPos       uint64
 	dataStartPos        uint64
 	dataEndPos          uint64
-	contents            []byte
-	contentFile         *os.File
 	strategy            segmentindex.Strategy
 	index               diskIndex
 	secondaryIndices    []diskIndex
 	logger              logrus.FieldLogger
 	metrics             *Metrics
 	size                int64
-	mmapContents        bool
 
 	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
@@ -52,6 +49,8 @@ type segment struct {
 	// the net addition this segment adds with respect to all previous segments
 	calcCountNetAdditions bool // see bucket for more datails
 	countNetAdditions     int
+
+	contentReader contentReader.ContentReader
 }
 
 type diskIndex interface {
@@ -84,12 +83,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+	var contReader contentReader.ContentReader
+	if mmapContents {
+		contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contReader = contentReader.NewMMap(contents)
+	} else {
+		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))
 	}
 
-	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
+	headerByte, _ := contReader.ReadRange(0, segmentindex.HeaderSize)
+	header, err := segmentindex.ParseHeader(bytes.NewReader(headerByte))
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
@@ -101,7 +107,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment")
 	}
 
-	primaryIndex, err := header.PrimaryIndex(contents)
+	primaryIndex, err := header.PrimaryIndex(contReader)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
@@ -111,7 +117,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
-		contents:              contents,
 		version:               header.Version,
 		secondaryIndexCount:   header.SecondaryIndices,
 		segmentStartPos:       header.IndexStart,
@@ -123,22 +128,20 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:                logger,
 		metrics:               metrics,
 		size:                  fileInfo.Size(),
-		mmapContents:          mmapContents,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		contentReader:         contReader,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
-	if seg.mmapContents {
+	if mmapContents {
 		defer file.Close()
-	} else {
-		seg.contentFile = file
 	}
 
 	if seg.secondaryIndexCount > 0 {
 		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
 		for i := range seg.secondaryIndices {
-			secondary, err := header.SecondaryIndex(contents, uint16(i))
+			secondary, err := header.SecondaryIndex(contReader, uint16(i))
 			if err != nil {
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
@@ -161,19 +164,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 }
 
 func (s *segment) close() error {
-	var munmapErr, fileCloseErr error
-
-	m := mmap.MMap(s.contents)
-	munmapErr = m.Unmap()
-	if s.contentFile != nil {
-		fileCloseErr = s.contentFile.Close()
-	}
-
-	if munmapErr != nil || fileCloseErr != nil {
-		return fmt.Errorf("close segment: munmap: %v, close contents file: %w", munmapErr, fileCloseErr)
-	}
-
-	return nil
+	return s.contentReader.Close()
 }
 
 func (s *segment) drop() error {
@@ -229,50 +220,11 @@ type nodeOffset struct {
 }
 
 func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
-	var (
-		r   io.Reader
-		err error
-	)
-	if s.mmapContents {
-		contents := s.contents[offset.start:]
-		if offset.end != 0 {
-			contents = s.contents[offset.start:offset.end]
-		}
-		r, err = s.bytesReaderFrom(contents)
-	} else {
-		r, err = s.bufferedReaderAt(offset.start)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("new nodeReader: %w", err)
-	}
-	return &nodeReader{r: r}, nil
+	return &nodeReader{r: s.contentReader.ReaderFromOffset(offset.start, offset.end)}, nil
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
-	if s.mmapContents {
-		copy(b, s.contents[offset.start:offset.end])
-		return nil
-	}
-	n, err := s.newNodeReader(offset)
-	if err != nil {
-		return fmt.Errorf("copy node: %w", err)
-	}
-	_, err = io.ReadFull(n, b)
-	return err
-}
-
-func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
-	if len(in) == 0 {
-		return nil, lsmkv.NotFound
-	}
-	return bytes.NewReader(in), nil
-}
-
-func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
-	if s.contentFile == nil {
-		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
-	}
-
-	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
-	return bufio.NewReader(r), nil
+	nodeB, _ := s.contentReader.ReadRange(offset.start, offset.end-offset.start)
+	copy(b, nodeB)
+	return nil
 }

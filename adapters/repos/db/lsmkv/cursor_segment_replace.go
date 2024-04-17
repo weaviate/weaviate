@@ -48,8 +48,7 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
-		s.segment.contents[node.Start:node.End])
+	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -67,8 +66,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 		return nil, nil, lsmkv.NotFound
 	}
 
-	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
-		s.segment.contents[s.nextOffset:])
+	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -82,8 +80,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 	s.nextOffset = s.segment.dataStartPos
-	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
-		s.segment.contents[s.nextOffset:])
+	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
 	// could be 'Deleted' which would require that the offset is still advanced
 	// for the next cycle
@@ -139,43 +136,40 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 	return out, err
 }
 
-func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
-		return s.parse(buf)
-	}
-
-	r, err := s.segment.newNodeReader(offset)
+func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error {
+	contentReader, err := s.segment.contentReader.NewWithOffsetStart(readOffset.start)
 	if err != nil {
 		return err
 	}
-
-	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
-	if err != nil {
-		return err
-	}
+	offset := uint64(0)
+	tombstoneByte, offset := contentReader.ReadValue(offset)
+	s.reusableNode.tombstone = tombstoneByte == 0
 
 	if s.reusableNode.tombstone {
 		return lsmkv.Deleted
 	}
 
-	return nil
-}
+	valueLength, offset := contentReader.ReadUint64(offset)
+	val, offset := contentReader.ReadRange(offset, valueLength)
+	s.reusableNode.value = val
 
-func (s *segmentCursorReplace) parse(in []byte) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
+	keyLength, offset := contentReader.ReadUint32(offset)
+	key, offset := contentReader.ReadRange(offset, uint64(keyLength))
+	s.reusableNode.primaryKey = key
+
+	if s.segment.secondaryIndexCount > 0 {
+		s.reusableNode.secondaryKeys = make([][]byte, s.segment.secondaryIndexCount)
 	}
 
-	s.reusableBORW.ResetBuffer(in)
-
-	err := ParseReplaceNodeIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount,
-		s.reusableNode)
-	if err != nil {
-		return err
-	}
-
-	if s.reusableNode.tombstone {
-		return lsmkv.Deleted
+	var secKeyLen uint32
+	var secKey []byte
+	for j := 0; j < int(s.segment.secondaryIndexCount); j++ {
+		secKeyLen, offset = contentReader.ReadUint32(offset)
+		if secKeyLen == 0 {
+			continue
+		}
+		secKey, offset = contentReader.CopyRange(offset, uint64(secKeyLen))
+		s.reusableNode.secondaryKeys[j] = secKey
 	}
 
 	return nil

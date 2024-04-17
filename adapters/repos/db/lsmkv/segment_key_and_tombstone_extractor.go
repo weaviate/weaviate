@@ -13,6 +13,8 @@ package lsmkv
 
 import (
 	"encoding/binary"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 )
 
 // bufferedKeyAndTombstoneExtractor is a tool to build up the count stats for
@@ -29,20 +31,20 @@ type bufferedKeyAndTombstoneExtractor struct {
 	outputBufferOffset  uint64
 	offset              uint64
 	end                 uint64
-	rawSegment          []byte
 	secondaryIndexCount uint16
 	callback            keyAndTombstoneCallbackFn
 	callbackCycle       int
+	contentReader       contentReader.ContentReader
 }
 
 type keyAndTombstoneCallbackFn func(key []byte, tombstone bool)
 
-func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64,
+func newBufferedKeyAndTombstoneExtractor(contentReader contentReader.ContentReader, initialOffset uint64,
 	end uint64, outputBufferSize uint64, secondaryIndexCount uint16,
 	callback keyAndTombstoneCallbackFn,
 ) *bufferedKeyAndTombstoneExtractor {
 	return &bufferedKeyAndTombstoneExtractor{
-		rawSegment:          rawSegment,
+		contentReader:       contentReader,
 		offset:              initialOffset,
 		end:                 end,
 		outputBuffer:        make([]byte, outputBufferSize),
@@ -88,17 +90,18 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 	}
 
 	// copy tombstone value into output buffer
-	e.outputBuffer[e.outputBufferOffset] = e.rawSegment[e.offset]
+	val, _ := e.contentReader.ReadValue(e.offset)
+	e.outputBuffer[e.outputBufferOffset] = val
 	e.offset++
 	e.outputBufferOffset++
 
-	valueLen := binary.LittleEndian.Uint64(e.rawSegment[e.offset : e.offset+8])
+	valueLen, _ := e.contentReader.ReadUint64(e.offset)
 	e.offset += 8
 
 	// we're not actually interested in the value, so we can skip it entirely
 	e.offset += valueLen
 
-	primaryKeyLen := binary.LittleEndian.Uint32(e.rawSegment[e.offset : e.offset+4])
+	primaryKeyLen, _ := e.contentReader.ReadUint32(e.offset)
 	if !e.outputBufferCanFit(uint64(primaryKeyLen) + 4) {
 		e.offset = offsetAtLoopStart
 		e.outputBufferOffset = outputOffsetAtLoopStart
@@ -106,18 +109,19 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 	}
 
 	// copy the primary key len indicator into the output buffer
-	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+4],
-		e.rawSegment[e.offset:e.offset+4])
+	primKeyLenBytes, _ := e.contentReader.ReadRange(e.offset, 4)
+	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+4], primKeyLenBytes)
 	e.offset += 4
 	e.outputBufferOffset += 4
 
 	// then copy the key itself
-	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+uint64(primaryKeyLen)], e.rawSegment[e.offset:e.offset+uint64(primaryKeyLen)])
+	keyBytes, _ := e.contentReader.ReadRange(e.offset, uint64(primaryKeyLen))
+	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+uint64(primaryKeyLen)], keyBytes)
 	e.offset += uint64(primaryKeyLen)
 	e.outputBufferOffset += uint64(primaryKeyLen)
 
 	for i := uint16(0); i < e.secondaryIndexCount; i++ {
-		secKeyLen := binary.LittleEndian.Uint32(e.rawSegment[e.offset : e.offset+4])
+		secKeyLen, _ := e.contentReader.ReadUint32(e.offset)
 		e.offset += 4
 		e.offset += uint64(secKeyLen)
 	}

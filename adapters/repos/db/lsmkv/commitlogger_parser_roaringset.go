@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -91,7 +93,7 @@ func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 		return errors.Wrap(err, "read segment contents")
 	}
 
-	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
+	segment := roaringset.NewSegmentNodeFromBuffer(contentReader.NewMMap(segBuf))
 	key := segment.PrimaryKey()
 	if err := p.memtable.roaringSetAddRemoveBitmaps(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")

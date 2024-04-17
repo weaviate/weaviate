@@ -264,7 +264,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger,
-		sg.useBloomFilter, sg.calcCountNetAdditions)
+		sg.useBloomFilter, sg.calcCountNetAdditions, sg.mmapContents)
 	if err != nil {
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
