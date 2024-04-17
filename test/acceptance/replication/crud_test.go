@@ -438,6 +438,17 @@ func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompo
 		require.Nil(t, compose.StartAt(ctx, 2))
 		return nil
 	})
+
+	// TODO-RAFT: all our tests shall have min. 3 Nodes to form a quorum
+	if len(compose.Containers()) > 2 {
+		eg.Go(func() error { // restart node 3
+			time.Sleep(3 * time.Second) // wait for member list initialization
+			stopNodeAt(ctx, t, compose, 3)
+			require.Nil(t, compose.StartAt(ctx, 3))
+			return nil
+		})
+	}
+
 	eg.Wait()
 	<-time.After(3 * time.Second) // wait for initialization
 }
