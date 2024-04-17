@@ -649,7 +649,7 @@ func (s *Shard) drop() error {
 
 	err = s.propIds.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove prop id tracker at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove prop id tracker at %s", s.pathLSM())
 	}
 
 	s.propertyIndicesLock.Lock()
@@ -797,7 +797,7 @@ func (s *Shard) CreatePropertyIndex(ctx context.Context, prop *models.Property) 
 	return nil
 }
 
-func (s *Shard)  CreatePropertyIndex_unmerged(stx context.Context,prop *models.Property, eg errors.ErrorGroupWrapper) error {
+func (s *Shard)  CreatePropertyIndex_unmerged(stx context.Context,prop *models.Property, eg *enterrors.ErrorGroupWrapper) error {
 	panic("Invalid bucket mode")
 }
 

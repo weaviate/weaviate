@@ -24,7 +24,7 @@ import (
 
 func (s *Shard) initProperties(class *models.Class) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.initProperties_old(class)
+		return s.initProperties_unmerged(class)
 	}
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {
@@ -32,7 +32,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 	}
 
 	for _, prop := range class.Properties {
-		s.createPropertyIndex(context.TODO(), prop)
+		s.CreatePropertyIndex(context.TODO(), prop)
 	}
 
 	if err := s.addIDProperty(context.TODO()); err != nil {
@@ -54,7 +54,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 	return nil
 }
 
-func (s *Shard) initProperties_old(class *models.Class) error {
+func (s *Shard) initProperties_unmerged(class *models.Class) error {
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {
 		return nil
@@ -62,11 +62,11 @@ func (s *Shard) initProperties_old(class *models.Class) error {
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 	for _, prop := range class.Properties {
-		s.createPropertyIndex_old(context.TODO(), prop, eg)
+		s.CreatePropertyIndex_unmerged(context.TODO(), prop, eg)
 	}
 
 	eg.Go(func() error {
-		if err := s.addIDProperty_old(context.TODO()); err != nil {
+		if err := s.addIDProperty_unmerged(context.TODO()); err != nil {
 			return errors.Wrap(err, "create id property index")
 		}
 		return nil
@@ -74,7 +74,7 @@ func (s *Shard) initProperties_old(class *models.Class) error {
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
 		eg.Go(func() error {
-			if err := s.addTimestampProperties_old(context.TODO()); err != nil {
+			if err := s.addTimestampProperties_unmerged(context.TODO()); err != nil {
 				return errors.Wrap(err, "create timestamp properties indexes")
 			}
 			return nil
@@ -83,7 +83,7 @@ func (s *Shard) initProperties_old(class *models.Class) error {
 
 	if s.index.Config.TrackVectorDimensions {
 		eg.Go(func() error {
-			if err := s.addDimensionsProperty_old(context.TODO()); err != nil {
+			if err := s.addDimensionsProperty_unmerged(context.TODO()); err != nil {
 				return errors.Wrap(err, "crreate dimensions property index")
 			}
 			return nil
