@@ -91,17 +91,26 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 	err = os.Rename(path.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
-	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true)
-	require.Nil(t, err)
+	tests := []struct {
+		mmap bool
+	}{
+		{mmap: true}, {mmap: false},
+	}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, tt.mmap)
+			require.Nil(t, err)
 
-	// there should be 4 files and they should all have a .tmp suffix:
-	// segment.db.tmp
-	// segment.cna.tmp
-	// segment.bloom.tmp
-	// segment.secondary.0.bloom.tmp
-	assert.Len(t, fileNames, 4)
-	for _, fName := range fileNames {
-		assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			// there should be 4 files and they should all have a .tmp suffix:
+			// segment.db.tmp
+			// segment.cna.tmp
+			// segment.bloom.tmp
+			// segment.secondary.0.bloom.tmp
+			assert.Len(t, fileNames, 4)
+			for _, fName := range fileNames {
+				assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			}
+		})
 	}
 }
 
@@ -148,33 +157,60 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	err = os.Rename(path.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
-	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true)
-	require.Nil(t, err)
+	tests := []struct {
+		mmap bool
+	}{
+		{mmap: true}, {mmap: false},
+	}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, tt.mmap)
+			require.Nil(t, err)
 
-	// there should be 2 files and they should all have a .tmp suffix:
-	// segment.db.tmp
-	// segment.bloom.tmp
-	assert.Len(t, fileNames, 2)
-	for _, fName := range fileNames {
-		assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			// there should be 4 files and they should all have a .tmp suffix:
+			// segment.db.tmp
+			// segment.bloom.tmp
+			assert.Len(t, fileNames, 2)
+			for _, fName := range fileNames {
+				assert.True(t, strings.HasSuffix(fName, ".tmp"))
+			}
+		})
 	}
 }
 
 func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 	t.Run("file without .tmp suffix", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		_, err := preComputeSegmentMeta("a-path-without-the-required-suffix", 7, logger, true, true)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "expects a .tmp segment")
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err := preComputeSegmentMeta("a-path-without-the-required-suffix", 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "expects a .tmp segment")
+			})
+		}
 	})
 
 	t.Run("file does not exist", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger, true, true)
-		require.NotNil(t, err)
-		unixErr := "no such file or directory"
-		windowsErr := "The system cannot find the file specified."
-		assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				unixErr := "no such file or directory"
+				windowsErr := "The system cannot find the file specified."
+				assert.True(t, strings.Contains(err.Error(), unixErr) || strings.Contains(err.Error(), windowsErr))
+			})
+		}
 	})
 
 	t.Run("segment header can't be parsed", func(t *testing.T) {
@@ -195,9 +231,18 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		err = f.Close()
 		require.Nil(t, err)
 
-		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "parse header")
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "parse header")
+			})
+		}
 	})
 
 	t.Run("unsupported strategy", func(t *testing.T) {
@@ -219,8 +264,17 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		err = f.Close()
 		require.Nil(t, err)
 
-		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "unsupported strategy")
+		tests := []struct {
+			mmap bool
+		}{
+			{mmap: true}, {mmap: false},
+		}
+		for _, tt := range tests {
+			t.Run("", func(t *testing.T) {
+				_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, tt.mmap)
+				require.NotNil(t, err)
+				assert.Contains(t, err.Error(), "unsupported strategy")
+			})
+		}
 	})
 }
