@@ -19,7 +19,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -39,7 +38,7 @@ type replicator interface {
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
 		requestID string, uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
-		requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
+		requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
 		requestID string, refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(indexName,
@@ -274,12 +273,7 @@ func (i *replicatedIndices) postObject() http.Handler {
 			return
 		}
 
-		var schemaVersion uint64
-		if v := r.URL.Query().Get(replica.SchemaVersionKey); v != "" {
-			if vAsUint64, err := strconv.ParseUint(v, 10, 64); err != nil {
-				schemaVersion = vAsUint64
-			}
-		}
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
 
 		index, shard := args[1], args[2]
 
@@ -492,7 +486,9 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun)
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

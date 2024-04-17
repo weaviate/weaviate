@@ -89,9 +89,9 @@ func (f *fakeClient) PutObjects(ctx context.Context, host, index, shard, request
 }
 
 func (f *fakeClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, uuids, dryRun)
+	args := f.Called(ctx, host, index, shard, requestID, uuids, dryRun, schemaVersion)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 

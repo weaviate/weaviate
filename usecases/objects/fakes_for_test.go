@@ -249,7 +249,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
