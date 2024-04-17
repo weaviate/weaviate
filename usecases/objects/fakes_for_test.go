@@ -78,32 +78,34 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { re
 
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
-) (*models.Class, uint64, error) {
+) (*models.Class, error) {
 	if f.GetSchemaResponse.Objects == nil {
-		return nil, 0, f.GetschemaErr
+		return nil, f.GetschemaErr
 	}
 	for _, class := range f.GetSchemaResponse.Objects.Classes {
 		if class.Class == name {
-			return class, 0, f.GetschemaErr
+			return class, f.GetschemaErr
 		}
 	}
-	return nil, 0, f.GetschemaErr
+	return nil, f.GetschemaErr
 }
 
 func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	return f.GetClass(ctx, principal, name)
+	cls, err := f.GetClass(ctx, principal, name)
+	return cls, 0, err
 }
 
 func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 	principal *models.Principal, name string,
 ) (*models.Class, uint64, error) {
-	return f.GetClass(ctx, principal, name)
+	cls, err := f.GetClass(ctx, principal, name)
+	return cls, 0, err
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
-	c, _, err := f.GetClass(context.TODO(), nil, name)
+	c, err := f.GetClass(context.TODO(), nil, name)
 	if err != nil {
 		return nil
 	}

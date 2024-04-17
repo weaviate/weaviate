@@ -34,7 +34,7 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 
 		obj := parent.Object()
 
-		class, _, err := m.schemaManager.GetClass(ctx, principal, className)
+		class, err := m.schemaManager.GetClass(ctx, principal, className)
 		if err != nil {
 			return err
 		}

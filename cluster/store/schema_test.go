@@ -166,7 +166,7 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 	sc := &schema{
 		Classes: make(map[string]*metaClass),
 	}
-	rsc := retrySchema{sc}
+	rsc := retrySchema{sc, versionedSchema{}}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, errClassNotFound)
@@ -194,7 +194,7 @@ func TestSchemaReaderClass(t *testing.T) {
 			Classes:     make(map[string]*metaClass),
 			shardReader: &MockShardReader{},
 		}
-		sc = retrySchema{s}
+		sc = retrySchema{s, versionedSchema{}}
 	)
 
 	// class not found
