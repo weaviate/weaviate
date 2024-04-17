@@ -274,7 +274,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Service) Stats() map[string]string {
+func (s *Service) Stats() map[string]any {
 	// log.Printf("membership.Stats")
 	return s.store.Stats()
 }

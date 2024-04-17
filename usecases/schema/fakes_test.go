@@ -83,8 +83,8 @@ func (f *fakeMetaHandler) Remove(ctx context.Context, nodeID string) error {
 	return args.Error(0)
 }
 
-func (f *fakeMetaHandler) Stats() map[string]string {
-	return map[string]string{}
+func (f *fakeMetaHandler) Stats() map[string]any {
+	return map[string]any{}
 }
 
 func (f *fakeMetaHandler) StoreSchemaV1() error {
