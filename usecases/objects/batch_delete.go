@@ -65,7 +65,7 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant)
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant, 0)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
@@ -77,7 +77,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant)
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, 0)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}

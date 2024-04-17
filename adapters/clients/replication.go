@@ -204,13 +204,13 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) (resp replica.SimpleResponse, err error) {
 	body, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
 	if err != nil {
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", nil, 0)
+	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, "", nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}

@@ -38,7 +38,7 @@ type Replicator interface {
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
+		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(shard,
@@ -92,14 +92,14 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
-	shard, requestID string, uuids []strfmt.UUID, dryRun bool,
+	shard, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun, schemaVersion)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -197,7 +197,7 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
