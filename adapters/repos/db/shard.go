@@ -163,21 +163,20 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index           *Index // a reference to the underlying index, which in turn contains schema information
-	name            string
-	store           *lsmkv.Store
-	counter         *indexcounter.Counter
-	vectorIndex     VectorIndex
-	metrics         *Metrics
-	promMetrics     *monitoring.PrometheusMetrics
-	propertyIndices propertyspecific.Indices
-	propIds         *tracker.JsonPropertyIdTracker
-	versioner       *shardVersioner
-
+	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
 	queues           map[string]*IndexQueue
+	name             string
+	store            *lsmkv.Store
+	counter          *indexcounter.Counter
 	indexCheckpoints *indexcheckpoint.Checkpoints
+	vectorIndex      VectorIndex
+	vectorIndexes    map[string]VectorIndex
+	metrics          *Metrics
+	promMetrics      *monitoring.PrometheusMetrics
+	propertyIndices  propertyspecific.Indices
 	propLenTracker   *inverted.JsonPropertyLengthTracker
+	versioner        *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -204,6 +203,7 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 }
+
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job,indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
