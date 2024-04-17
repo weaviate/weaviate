@@ -61,7 +61,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, 0); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 

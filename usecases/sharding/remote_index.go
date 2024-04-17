@@ -61,7 +61,7 @@ type RemoteIndexClient interface {
 	PutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object) error
 	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
-		objs []*storobj.Object, repl *additional.ReplicationProperties) []error
+		objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error
 	BatchAddReferences(ctx context.Context, hostName, indexName, shardName string,
 		refs objects.BatchReferences) []error
 	GetObject(ctx context.Context, hostname, indexName, shardName string,
@@ -123,7 +123,7 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
-	objs []*storobj.Object,
+	objs []*storobj.Object, schemaVersion uint64,
 ) []error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -137,7 +137,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			owner), len(objs))
 	}
 
-	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil)
+	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
