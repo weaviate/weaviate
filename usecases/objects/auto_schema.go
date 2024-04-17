@@ -71,7 +71,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		schemaClass, _, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+		schemaClass, _, err := m.schemaManager.GetConsistentClass(ctx, principal, object.Class, true)
 		if err != nil {
 			return err
 		}
@@ -83,11 +83,16 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			return err
 		}
 		if schemaClass == nil {
-			return m.createClass(ctx, principal, object.Class, properties)
+			if err := m.createClass(ctx, principal, object.Class, properties); err != nil {
+				return err
+			}
+			continue
 		}
-
-		if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, properties...); err != nil {
-			return err
+		newProps := schema.DedupProperties(schemaClass.Properties, properties)
+		if len(newProps) > 0 {
+			if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, newProps...); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

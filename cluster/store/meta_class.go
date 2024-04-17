@@ -18,6 +18,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
@@ -130,32 +131,44 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	defer m.Unlock()
 
 	// update all at once to prevent race condition with concurrent readers
-	src := filterOutDuplicates(m.Class.Properties, props)
-	dest := make([]*models.Property, len(src)+len(props))
-	copy(dest, append(src, props...))
-	m.Class.Properties = dest
+	mergedProps := mergeProps(m.Class.Properties, props)
+	m.Class.Properties = mergedProps
 	m.ClassVersion = v
 	return nil
 }
 
-// filterOutDuplicates removes from the old any existing property could cause duplication
-func filterOutDuplicates(old, new []*models.Property) []*models.Property {
+// mergeProps makes sure duplicates are not created by ignoring new props
+// with the same names as old props.
+// If property of nested type is present in both new and old slices,
+// final property is created by merging new property into copy of old one
+func mergeProps(old, new []*models.Property) []*models.Property {
+	mergedProps := make([]*models.Property, len(old), len(old)+len(new))
+	copy(mergedProps, old)
+
 	// create memory to avoid duplication
-	var newUnique []*models.Property
-	mem := make(map[string]int, len(new))
-	for idx := range new {
-		mem[strings.ToLower(new[idx].Name)] = idx
-	}
-
-	// pick only what is not in the new proprieties
+	mem := make(map[string]int, len(old))
 	for idx := range old {
-		if _, exists := mem[strings.ToLower(old[idx].Name)]; exists {
-			continue
-		}
-		newUnique = append(newUnique, old[idx])
+		mem[strings.ToLower(old[idx].Name)] = idx
 	}
 
-	return newUnique
+	// pick ones not present in old slice or merge nested properties
+	// if already present
+	for idx := range new {
+		if oldIdx, exists := mem[strings.ToLower(new[idx].Name)]; !exists {
+			mergedProps = append(mergedProps, new[idx])
+		} else {
+			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
+				mergedProps[oldIdx].NestedProperties,
+				new[idx].NestedProperties)
+			if merged {
+				propCopy := *mergedProps[oldIdx]
+				propCopy.NestedProperties = nestedProperties
+				mergedProps[oldIdx] = &propCopy
+			}
+		}
+	}
+
+	return mergedProps
 }
 
 func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, v uint64) error {
