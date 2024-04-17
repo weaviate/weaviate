@@ -96,7 +96,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInterface,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -145,7 +145,7 @@ func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNul
 }
 
 func (s *Shard) deleteFromPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)
