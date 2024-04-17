@@ -158,6 +158,7 @@ type ShardLike interface {
 	Metrics() *Metrics
 }
 
+
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
@@ -171,7 +172,6 @@ type Shard struct {
 	promMetrics     *monitoring.PrometheusMetrics
 	propertyIndices propertyspecific.Indices
 	propIds         *tracker.JsonPropertyIdTracker
-	propLengths     *inverted.JsonPropertyLengthTracker
 	versioner       *shardVersioner
 
 	queue            *IndexQueue
