@@ -76,7 +76,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("wrong modelId available model names are: " +
 				"[textembedding-gecko@001 textembedding-gecko@latest " +
 				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
+				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409]"),
 		},
 		{
 			name: "all wrong",
@@ -90,7 +91,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				"wrong modelId available model names are: " +
 				"[textembedding-gecko@001 textembedding-gecko@latest " +
 				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
+				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409]"),
 		},
 		{
 			name: "Generative AI",

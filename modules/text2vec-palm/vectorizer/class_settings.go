@@ -48,6 +48,8 @@ var availablePalmModels = []string{
 	"textembedding-gecko@002",
 	"textembedding-gecko-multilingual@001",
 	"textembedding-gecko@001",
+	"text-embedding-preview-0409",
+	"text-multilingual-embedding-preview-0409",
 }
 
 var availableGenerativeAIModels = []string{
