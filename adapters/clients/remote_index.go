@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -79,7 +80,7 @@ func duplicateErr(in error, count int) []error {
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
-	value := []string{fmt.Sprint(schemaVersion)}
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
 		Host:     host,
@@ -500,7 +501,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 ) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
-	value := []string{fmt.Sprint(schemaVersion)}
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
 		Host:     hostName,
