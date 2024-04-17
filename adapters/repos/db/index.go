@@ -1983,7 +1983,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]strfmt.UUID,
-	dryRun bool, replProps *additional.ReplicationProperties,
+	dryRun bool, replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
@@ -2008,9 +2008,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids,
-					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
+					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else if i.localShard(shardName) == nil {
-				objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, dryRun)
+				objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, dryRun, schemaVersion)
 			} else {
 				i.backupMutex.RLockGuard(func() error {
 					if shard := i.localShard(shardName); shard != nil {
@@ -2038,7 +2038,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 }
 
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()

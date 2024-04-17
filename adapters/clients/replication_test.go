@@ -320,25 +320,25 @@ func TestReplicationDeleteObjects(t *testing.T) {
 
 	uuids := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, "", "C1", "S1", "", uuids, false)
+		_, err := client.DeleteObjects(ctx, "", "C1", "S1", "", uuids, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestError, uuids, false)
+		resp, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestError, uuids, false, 123)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuids, false)
+		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuids, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestInternalError, uuids, false)
+		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestInternalError, uuids, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})

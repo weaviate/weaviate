@@ -495,11 +495,16 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	url := url.URL{
+		Scheme:   "http",
+		Host:     hostName,
+		Path:     path,
+		RawQuery: url.Values{replica.SchemaVersionKey: []string{fmt.Sprint(schemaVersion)}}.Encode(),
+	}
 
 	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, dryRun)
 	if err != nil {

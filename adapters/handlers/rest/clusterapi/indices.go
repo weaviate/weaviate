@@ -19,7 +19,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -116,7 +115,7 @@ type shards interface {
 	FindUUIDs(ctx context.Context, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-		uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
@@ -365,12 +364,7 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	var schemaVersion uint64
-	if v := r.URL.Query().Get(replica.SchemaVersionKey); v != "" {
-		if vAsUint64, err := strconv.ParseUint(v, 10, 64); err != nil {
-			schemaVersion = vAsUint64
-		}
-	}
+	schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
 
 	errs := index.IncomingBatchPutObjects(r.Context(), shard, objs, schemaVersion)
 	if len(errs) > 0 && errors.Is(errs[0], db.ErrShardNotFound) {
@@ -910,7 +904,9 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun)
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun, schemaVersion)
 
 		resBytes, err := IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
