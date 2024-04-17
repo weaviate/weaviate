@@ -141,17 +141,12 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		return cl.leaderConn, nil
 	}
 
-	if cl.leaderConn != nil {
-		// close open conn if leader addr changed
-		cl.leaderConn.Close()
-	}
-
 	addr, err := cl.rpc.Address(leaderAddress)
 	if err != nil {
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	cl.leaderConn, err = grpc.Dial(
+	conn, err := grpc.Dial(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
@@ -160,6 +155,12 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 
+	if cl.leaderConn != nil {
+		// close open conn if leader addr changed
+		cl.leaderConn.Close()
+	}
+
+	cl.leaderConn = conn
 	cl.leaderAddr = leaderAddress
 
 	return cl.leaderConn, nil
