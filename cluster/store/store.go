@@ -427,6 +427,8 @@ func (st *Store) WaitForUpdate(ctx context.Context, period time.Duration, versio
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
 				return nil
+			} else {
+				st.log.Debug("wait for update version", "got", idx, "want", version) // TODO-RAFT remove
 			}
 		}
 	}
@@ -438,7 +440,7 @@ func (st *Store) IsLeader() bool {
 }
 
 func (st *Store) SchemaReader() retrySchema {
-	return retrySchema{st.db.Schema}
+	return retrySchema{st.db.Schema, st.VersionedSchemaReader()}
 }
 
 func (st *Store) VersionedSchemaReader() versionedSchema {

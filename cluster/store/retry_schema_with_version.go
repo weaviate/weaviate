@@ -12,11 +12,16 @@
 package store
 
 import (
+	"context"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func (rs retrySchema) ClassInfoWithVersion(class string, version uint64) (ci ClassInfo) {
+func (rs retrySchema) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (ci ClassInfo, err error) {
+	if version > 0 {
+		return rs.versionedSchema.ClassInfo(ctx, class, version)
+	}
 	rs.retry(func(s *schema) error {
 		ci = s.ClassInfo(class)
 		if !ci.Exists {
@@ -24,38 +29,51 @@ func (rs retrySchema) ClassInfoWithVersion(class string, version uint64) (ci Cla
 		}
 		return nil
 	})
-	return
+	return ci, nil
 }
 
-func (rs retrySchema) MultiTenancyWithVersion(class string, version uint64) (models.MultiTenancyConfig, uint64) {
-	return rs.metaClass(class).MultiTenancyConfig()
+func (rs retrySchema) MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error) {
+	if version > 0 {
+		return rs.versionedSchema.MultiTenancy(ctx, class, version)
+	}
+	mc, _ := rs.metaClass(class).MultiTenancyConfig()
+	return mc, nil
 }
 
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
-func (rs retrySchema) ReadOnlyClassWithVersion(class string, version uint64) (cls *models.Class, resultVersion uint64) {
+func (rs retrySchema) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (cls *models.Class, err error) {
+	if version > 0 {
+		return rs.versionedSchema.ReadOnlyClass(ctx, class, version)
+	}
 	rs.retry(func(s *schema) error {
-		if cls, resultVersion = s.ReadOnlyClass(class); cls == nil {
+		if cls, _ = s.ReadOnlyClass(class); cls == nil {
 			return errClassNotFound
 		}
 		return nil
 	})
-	return
+	return cls, nil
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (rs retrySchema) ShardOwnerWithVersion(class, shard string, version uint64) (owner string, v uint64, err error) {
+func (rs retrySchema) ShardOwnerWithVersion(ctx context.Context, class, shard string, version uint64) (owner string, err error) {
+	if version > 0 {
+		return rs.versionedSchema.ShardOwner(ctx, class, shard, version)
+	}
 	err = rs.retry(func(s *schema) error {
-		owner, v, err = s.ShardOwner(class, shard)
+		owner, _, err = s.ShardOwner(class, shard)
 		return err
 	})
 	return
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (rs retrySchema) ShardFromUUIDWithVersion(class string, uuid []byte, version uint64) (shard string, resultVersion uint64) {
+func (rs retrySchema) ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (shard string, err error) {
+	if version > 0 {
+		return rs.versionedSchema.ShardFromUUID(ctx, class, uuid, version)
+	}
 	rs.retry(func(s *schema) error {
-		if shard, resultVersion = s.ShardFromUUID(class, uuid); shard == "" {
+		if shard, _ = s.ShardFromUUID(class, uuid); shard == "" {
 			return errClassNotFound
 		}
 		return nil
@@ -64,18 +82,24 @@ func (rs retrySchema) ShardFromUUIDWithVersion(class string, uuid []byte, versio
 }
 
 // ShardReplicas returns the replica nodes of a shard
-func (rs retrySchema) ShardReplicasWithVersion(class, shard string, version uint64) (nodes []string, resultVersion uint64, err error) {
+func (rs retrySchema) ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) (nodes []string, err error) {
+	if version > 0 {
+		return rs.versionedSchema.ShardReplicas(ctx, class, shard, version)
+	}
 	rs.retry(func(s *schema) error {
-		nodes, resultVersion, err = s.ShardReplicas(class, shard)
+		nodes, _, err = s.ShardReplicas(class, shard)
 		return err
 	})
 	return
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (rs retrySchema) TenantShardWithVersion(class, tenant string, version uint64) (name string, st string, resultVersion uint64) {
+func (rs retrySchema) TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (name string, st string, err error) {
+	if version > 0 {
+		return rs.versionedSchema.TenantShard(ctx, class, tenant, version)
+	}
 	rs.retry(func(s *schema) error {
-		if name, st, resultVersion = s.TenantShard(class, tenant); name == "" {
+		if name, st, _ = s.TenantShard(class, tenant); name == "" {
 			return errShardNotFound
 		}
 		return nil
@@ -84,9 +108,12 @@ func (rs retrySchema) TenantShardWithVersion(class, tenant string, version uint6
 	return
 }
 
-func (rs retrySchema) CopyShardingStateWithVersion(class string, version uint64) (ss *sharding.State, resultVersion uint64) {
+func (rs retrySchema) CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (ss *sharding.State, err error) {
+	if version > 0 {
+		return rs.versionedSchema.CopyShardingState(ctx, class, version)
+	}
 	rs.retry(func(s *schema) error {
-		if ss, resultVersion = s.CopyShardingState(class); ss == nil {
+		if ss, _ = s.CopyShardingState(class); ss == nil {
 			return errClassNotFound
 		}
 		return nil
