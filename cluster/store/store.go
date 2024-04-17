@@ -417,7 +417,9 @@ func (f *Store) FindSimilarClass(name string) string {
 }
 
 // Stats returns internal statistics from this store, for informational/debugging purposes only.
-// The statistics directly from raft have their keys prefixed with "raft_".
+//
+// The statistics directly from raft are nested under the "raft" key. If the raft statistics are
+// not yet available, then the "raft" key will not exist.
 // See https://pkg.go.dev/github.com/hashicorp/raft#Raft.Stats for the default raft stats.
 //
 // The values of "leader_address" and "leader_id" are the respective address/ID for the current
@@ -463,15 +465,9 @@ func (st *Store) Stats() map[string]any {
 	stats["last_applied_index"] = st.lastAppliedIndex.Load()
 	stats["db_loaded"] = st.dbLoaded.Load()
 
-	if st.raft == nil {
-		// In this case, the "raft_" prefixed keys won't exist
-		return stats
-	}
-	// Get and add the raft stats
-	raftStats := st.raft.Stats()
-	// Add the "raft_" prefix to the stats keys which come directly from raft
-	for k, v := range raftStats {
-		stats[fmt.Sprintf("raft_%s", k)] = v
+	// If the raft stats exist, add them as a nested map
+	if st.raft != nil {
+		stats["raft"] = st.raft.Stats()
 	}
 	return stats
 }

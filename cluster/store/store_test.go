@@ -245,7 +245,7 @@ func TestServiceEndpoints(t *testing.T) {
 	// Stats
 	stats := srv.Stats()
 	// stats:raft_state
-	assert.Equal(t, "Leader", stats["raft_state"])
+	assert.Equal(t, "Leader", stats["raft"].(map[string]string)["state"])
 	// stats:leader_address
 	leaderAddress := string(stats["leader_address"].(raft.ServerAddress))
 	splitAddress := strings.Split(leaderAddress, ":")
