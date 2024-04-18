@@ -36,7 +36,6 @@ var availableOllamaModels = []string{
 	"neural-chat",
 	"starling-lm",
 	"codellama",
-	"llama3",
 	"llama3:8b",
 	"llama3:instruct",
 	"llama3:8b-instruct-q4_0",
