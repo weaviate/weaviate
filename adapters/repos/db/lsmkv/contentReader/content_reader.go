@@ -155,7 +155,7 @@ func (c Pread) NewWithOffsetStart(start uint64) (ContentReader, error) {
 	if c.startOffset+start > c.endOffset {
 		return nil, fmt.Errorf("start offset %d is greater than the length of the file", c.startOffset+start)
 	}
-	return c.NewWithOffsetStartEnd(start, c.endOffset)
+	return c.NewWithOffsetStartEnd(start, c.Length())
 }
 
 func (c Pread) NewWithOffsetStartEnd(start uint64, end uint64) (ContentReader, error) {

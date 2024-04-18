@@ -76,7 +76,7 @@ func TestContentReader_ReadRange(t *testing.T) {
 	}
 }
 
-func TestContentReader_Offsets(t *testing.T) {
+func TestContentReader_OffsetsStartEnd(t *testing.T) {
 	bytes := []byte{0, 0, 0, 0, 1, 1, 1, 1, 2, 3, 4}
 	tests := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
 	for _, tt := range tests {
@@ -98,6 +98,36 @@ func TestContentReader_Offsets(t *testing.T) {
 			buf, offset = contReader3.ReadRange(0, 4)
 			require.Equal(t, []byte{1, 1, 2, 3}, buf)
 			require.Equal(t, uint64(4), offset)
+		})
+	}
+}
+
+func TestContentReader_OffsetsStart(t *testing.T) {
+	bytes := []byte{0, 0, 0, 0, 1, 1, 1, 1, 2, 3, 4}
+	tests := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			contReader := getContentReaderFromBytes(t, tt.mmap, bytes)
+
+			contReader2, err := contReader.NewWithOffsetStart(4)
+			require.Nil(t, err)
+			require.Equal(t, uint64(len(bytes)-4), contReader2.Length())
+
+			buf, offset := contReader2.ReadRange(0, 4)
+			require.Equal(t, []byte{1, 1, 1, 1}, buf)
+			require.Equal(t, uint64(4), offset)
+
+			contReader3, err := contReader2.NewWithOffsetStart(2)
+			require.Nil(t, err)
+			require.Equal(t, uint64(len(bytes)-6), contReader3.Length())
+
+			buf, offset = contReader3.ReadRange(0, 4)
+			require.Equal(t, []byte{1, 1, 2, 3}, buf)
+			require.Equal(t, uint64(4), offset)
+
+			buf, offset = contReader3.ReadRange(4, 1)
+			require.Equal(t, []byte{4}, buf)
+			require.Equal(t, uint64(5), offset)
 		})
 	}
 }
