@@ -69,7 +69,7 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 		if keyEqual == 0 {
 			out.Key = buffer
 			out.Start, offset = t.contentReader.ReadUint64(offset)
-			out.End, offset = t.contentReader.ReadUint64(offset)
+			out.End, _ = t.contentReader.ReadUint64(offset)
 			return out, nil
 		} else if keyEqual < 0 {
 			offset += 2 * 8                                // jump over start+end position
