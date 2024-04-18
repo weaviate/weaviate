@@ -115,7 +115,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 }
 
 func (c *replicationClient) PutObject(ctx context.Context, host, index,
-	shard, requestID string, obj *storobj.Object,
+	shard, requestID string, obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
 	body, err := clusterapi.IndicesPayloads.SingleObject.Marshal(obj)
@@ -123,7 +123,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
 
-	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, 0)
+	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard, requestID, "", nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -134,10 +134,10 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
-	shard, requestID string, uuid strfmt.UUID,
+	shard, requestID string, uuid strfmt.UUID, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
-	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil, 0)
+	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuid.String(), nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -165,7 +165,7 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 }
 
 func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
-	doc *objects.MergeDocument,
+	doc *objects.MergeDocument, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
 	body, err := clusterapi.IndicesPayloads.MergeDoc.Marshal(*doc)
@@ -174,7 +174,7 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	req, err := newHttpReplicaRequest(ctx, http.MethodPatch, host, index, shard,
-		requestID, doc.ID.String(), nil, 0)
+		requestID, doc.ID.String(), nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -185,7 +185,7 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 }
 
 func (c *replicationClient) AddReferences(ctx context.Context, host, index,
-	shard, requestID string, refs []objects.BatchReference,
+	shard, requestID string, refs []objects.BatchReference, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
 	body, err := clusterapi.IndicesPayloads.ReferenceList.Marshal(refs)
@@ -193,7 +193,7 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 		return resp, fmt.Errorf("encode request: %w", err)
 	}
 	req, err := newHttpReplicaRequest(ctx, http.MethodPost, host, index, shard,
-		requestID, "references", nil, 0)
+		requestID, "references", nil, schemaVersion)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
