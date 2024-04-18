@@ -88,7 +88,7 @@ func Test_Filters_String(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
-		ClassSearcher, fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		nil, fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
@@ -312,14 +312,16 @@ func Test_Filters_String(t *testing.T) {
 
 func DumpBucketToString(bucket lsmkv.BucketInterface) string {
 	var out string
-	rr := NewRowReader(bucket, nil, filters.OperatorAnd, false)
+	rr := NewRowReader(bucket, nil, filters.OperatorAnd, false, nil)
 
-	rr.Iterate(context.Background(), func(id []byte, v *sroar.Bitmap) (bool, error) {
+	rr.Iterate(context.Background(), func(id []byte, values *sroar.Bitmap) (bool, error) {
 		out += fmt.Sprintf("id: %v\n", id)
 		// Marshall values
 		out += "values: \n"
-		for _, v := range values {
-			out += fmt.Sprintf("  %v\n", v)
+		it := values.NewIterator()
+		for it.Next()!=0 {
+			docID := it.Next()
+			out += fmt.Sprintf("  %v\n", docID)
 		}
 		return true, nil
 	})
@@ -397,8 +399,10 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
+
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		nil, propIds, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string
@@ -590,8 +594,10 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
+
 	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+		nil, propIds, nil,  fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
 		name                     string

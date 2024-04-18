@@ -61,9 +61,9 @@ func TestObjects(t *testing.T) {
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			helpers.BucketSearchableFromPropNameLSM(propName),
+			helpers.BucketSearchableFromPropertyNameLSM(propName),
 			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName)))
 	})
 
 	type testCase struct {
@@ -98,7 +98,7 @@ func TestObjects(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -168,9 +168,9 @@ func TestDocIDs(t *testing.T) {
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			helpers.BucketSearchableFromPropNameLSM(propName),
+			helpers.BucketSearchableFromPropertyNameLSM(propName),
 			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName)))
 	})
 
 	t.Run("put objects", func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestDocIDs(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -271,7 +271,7 @@ func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName s
 	err = bucket.Put([]byte(obj.ID()), b, lsmkv.WithSecondaryKey(0, docIDBytes))
 	require.Nil(t, err)
 
-	propBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	propBucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
 	propBucket := store.Bucket(propBucketName)
 	err = propBucket.MapSet(data, pairPropWithFreq(obj.DocID, 1, float32(len(data))))
 	require.Nil(t, err)
