@@ -141,7 +141,7 @@ func (c Pread) ReadUint32(offset uint64) (uint32, uint64) {
 }
 
 func (c Pread) Length() uint64 {
-	return c.size
+	return c.endOffset - c.startOffset
 }
 
 func (c Pread) Close() error {
@@ -169,5 +169,5 @@ func (c Pread) ReaderFromOffset(start uint64, end uint64) io.Reader {
 	if end == 0 {
 		end = c.size
 	}
-	return bufio.NewReader(io.NewSectionReader(c.contentFile, int64(start), int64(end-start)))
+	return bufio.NewReader(io.NewSectionReader(c.contentFile, int64(c.startOffset+start), int64(c.startOffset+end-start)))
 }
