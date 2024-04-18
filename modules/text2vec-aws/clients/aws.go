@@ -37,12 +37,8 @@ var (
 )
 
 func buildBedrockUrl(service, region, model string) string {
-	serviceName := service
-	if strings.HasPrefix(model, "cohere") {
-		serviceName = fmt.Sprintf("%s-runtime", serviceName)
-	}
-	urlTemplate := "https://%s.%s.amazonaws.com/model/%s/invoke"
-	return fmt.Sprintf(urlTemplate, serviceName, region, model)
+	urlTemplate := "https://%s-runtime.%s.amazonaws.com/model/%s/invoke"
+	return fmt.Sprintf(urlTemplate, service, region, model)
 }
 
 func buildSagemakerUrl(service, region, endpoint string) string {
