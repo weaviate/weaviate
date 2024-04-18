@@ -143,7 +143,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error
 	}
 	offset := uint64(0)
 	tombstoneByte, offset := contentReader.ReadValue(offset)
-	s.reusableNode.tombstone = tombstoneByte == 0
+	s.reusableNode.tombstone = tombstoneByte != 0
 
 	if s.reusableNode.tombstone {
 		return lsmkv.Deleted
@@ -171,6 +171,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error
 		secKey, offset = contentReader.CopyRange(offset, uint64(secKeyLen))
 		s.reusableNode.secondaryKeys[j] = secKey
 	}
+	s.reusableNode.offset = int(offset)
 
 	return nil
 }
