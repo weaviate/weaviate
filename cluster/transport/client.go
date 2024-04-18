@@ -35,11 +35,12 @@ const serviceConfig = `
 					"service": "weaviate.internal.cluster.ClusterService", "method": "Query"
 				}
 			],
+			"waitForReady": true,			
 			"retryPolicy": {
 				"MaxAttempts": 5,
 				"BackoffMultiplier": 2,
 				"InitialBackoff": "0.5s",
-				"MaxBackoff": "3s",
+				"MaxBackoff": "5s",
 				"RetryableStatusCodes": [
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
