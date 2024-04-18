@@ -34,7 +34,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{},
 			},
 			wantApiEndpoint: "http://localhost:11434",
-			wantModel:       "llama2",
+			wantModel:       "llama3",
 			wantErr:         nil,
 		},
 		{
