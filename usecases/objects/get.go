@@ -101,14 +101,14 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	class, _, err := m.schemaManager.GetClass(ctx, principal, res.ClassName)
+	class, err := m.schemaManager.GetClass(ctx, principal, res.ClassName)
 	return class, err
 }
 
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
-	class, _, err := m.schemaManager.GetClass(ctx, principal, className)
+	class, err := m.schemaManager.GetClass(ctx, principal, className)
 	return class, err
 }
 

@@ -279,6 +279,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		ElectionTimeout:    appState.ServerConfig.Config.Raft.ElectionTimeout,
 		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		UpdateWaitTimeout:  time.Second * 10, // TODO-RAFT read from the flag
 		DB:                 nil,
 		Parser:             schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
 		AddrResolver:       appState.Cluster,
