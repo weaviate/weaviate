@@ -54,9 +54,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"enabled": false,
 					},
 					"pq": map[string]interface{}{
-						"bitCompression": false,
-						"centroids":      float64(256),
-						"enabled":        false,
+						"centroids": float64(256),
+						"enabled":   false,
 						"encoder": map[string]interface{}{
 							"distribution": "log-normal",
 							"type":         hnsw.PQEncoderTypeKMeans,
