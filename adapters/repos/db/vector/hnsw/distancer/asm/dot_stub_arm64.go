@@ -16,6 +16,7 @@ package asm
 //   go generate
 
 //go:generate goat ../c/dot_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/dot_byte_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 import (
 	"reflect"
@@ -63,4 +64,48 @@ func Dot(x []float32, y []float32) float32 {
 		unsafe.Pointer(&l))
 
 	return res
+}
+
+func DotByteARM64(x []uint8, y []uint8) uint32 {
+	switch len(x) {
+	case 2:
+		return dot2[uint8, uint32](x, y)
+	case 3:
+		return dot3[uint8, uint32](x, y)
+	case 4:
+		return dot4[uint8, uint32](x, y)
+	case 5:
+		return dot5[uint8, uint32](x, y)
+	case 6:
+		return dot6[uint8, uint32](x, y)
+	case 7:
+		return dot7[uint8, uint32](x, y)
+	case 8:
+		// manually inlined dot8(x, y)
+		sum := x[7]*y[7] + x[6]*y[6]
+		return dot6[uint8, uint32](x, y) + uint32(sum)
+	case 10:
+		// manually inlined dot10(x, y)
+		sum := x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
+		return dot6[uint8, uint32](x, y) + uint32(sum)
+	case 12:
+		// manually inlined dot12(x, y)
+		sum := x[11]*y[11] + x[10]*y[10] + x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
+		return dot6[uint8, uint32](x, y) + uint32(sum)
+	}
+
+	var res uint32
+
+	l := len(x)
+	dot_byte_256(
+		// The slice header contains the address of the underlying array.
+		// We only need to cast it to a pointer.
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		// The C function expects pointers to the result and the length of the arrays.
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+
 }
