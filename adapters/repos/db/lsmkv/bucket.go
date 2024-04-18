@@ -33,6 +33,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+const FlushAfterDirtyDefault = 60 * time.Second
+
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
@@ -133,7 +135,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
-	defaultFlushAfterDirty := 60 * time.Second
+	defaultFlushAfterDirty := FlushAfterDirtyDefault
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
