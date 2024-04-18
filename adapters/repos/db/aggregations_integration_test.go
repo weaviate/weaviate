@@ -1096,7 +1096,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 
 			// there is now way to use InEpsilon or InDelta on nested structs with
 			// testify, so unfortunately we have to do a manual deep equal:
-			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, len(expectedResult.Groups), len(res.Groups) )
 			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
 			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
 			expectedProps := expectedResult.Groups[0].Properties
