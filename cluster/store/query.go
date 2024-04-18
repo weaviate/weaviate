@@ -120,7 +120,7 @@ func (st *Store) QueryShardOwner(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the meta class to get both the class and sharding information
-	owner, err, version := st.db.Schema.ShardOwner(subCommand.Class, subCommand.Shard)
+	owner, version, err := st.db.Schema.ShardOwner(subCommand.Class, subCommand.Shard)
 	if err != nil {
 		return []byte{}, err
 	}

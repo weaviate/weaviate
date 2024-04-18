@@ -34,12 +34,12 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, uint64, error) {
+func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	cl, version := h.metaReader.ReadOnlyClassWithVersion(name, 0)
-	return cl, version, nil
+	cl := h.metaReader.ReadOnlyClass(name)
+	return cl, nil
 }
 
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
@@ -52,8 +52,8 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
 		return class, version, err
 	}
-	class, version := h.metaReader.ReadOnlyClassWithVersion(name, 0)
-	return class, version, nil
+	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	return class, 0, nil
 }
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
