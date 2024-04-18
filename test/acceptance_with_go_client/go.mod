@@ -3,6 +3,8 @@ module acceptance_tests_with_client
 go 1.21
 
 replace github.com/weaviate/weaviate => ../..
+
+// we pin github.com/tailor-inc/graphql => github.com/tailor-inc/graphql v0.2.1 because we encountered some issue with later versions
 replace github.com/tailor-inc/graphql => github.com/tailor-inc/graphql v0.2.1
 
 require (
