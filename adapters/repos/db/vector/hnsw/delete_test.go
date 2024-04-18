@@ -681,9 +681,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				Type:         ent.PQEncoderTypeTile,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
-			BitCompression: false,
-			Segments:       3,
-			Centroids:      256,
+			Segments:  3,
+			Centroids: 256,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
@@ -819,9 +818,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				Type:         ent.PQEncoderTypeTile,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
-			BitCompression: false,
-			Segments:       3,
-			Centroids:      256,
+			Segments:  3,
+			Centroids: 256,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
