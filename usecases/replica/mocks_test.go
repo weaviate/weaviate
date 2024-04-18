@@ -61,23 +61,23 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) PutObject(ctx context.Context, host, index, shard, requestID string,
-	obj *storobj.Object,
+	obj *storobj.Object, schemaVersion uint64,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, obj)
+	args := f.Called(ctx, host, index, shard, requestID, obj, schemaVersion)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
-	id strfmt.UUID,
+	id strfmt.UUID, schemaVersion uint64,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, id)
+	args := f.Called(ctx, host, index, shard, requestID, id, schemaVersion)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
 func (f *fakeClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
-	doc *objects.MergeDocument,
+	doc *objects.MergeDocument, schemaVersion uint64,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, doc)
+	args := f.Called(ctx, host, index, shard, requestID, doc, schemaVersion)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 
@@ -96,9 +96,9 @@ func (f *fakeClient) DeleteObjects(ctx context.Context, host, index, shard, requ
 }
 
 func (f *fakeClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
-	refs []objects.BatchReference,
+	refs []objects.BatchReference, schemaVersion uint64,
 ) (SimpleResponse, error) {
-	args := f.Called(ctx, host, index, shard, requestID, refs)
+	args := f.Called(ctx, host, index, shard, requestID, refs, schemaVersion)
 	return args.Get(0).(SimpleResponse), args.Error(1)
 }
 

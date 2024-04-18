@@ -94,13 +94,13 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant)
+	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, 0)
 }
 
 // patchObject patches an existing object obj with updates
 func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	prevObj, updates *models.Object, repl *additional.ReplicationProperties,
-	propertiesToDelete []string, tenant string,
+	propertiesToDelete []string, tenant string, schemaVersion uint64,
 ) *Error {
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
@@ -124,7 +124,7 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
-	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant); err != nil {
+	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 

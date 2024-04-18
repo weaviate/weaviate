@@ -73,7 +73,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, 0); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil
