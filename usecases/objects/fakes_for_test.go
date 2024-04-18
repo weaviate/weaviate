@@ -96,6 +96,12 @@ func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *m
 	return f.GetClass(ctx, principal, name)
 }
 
+func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
+	principal *models.Principal, name string,
+) (*models.Class, uint64, error) {
+	return f.GetClass(ctx, principal, name)
+}
+
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 	c, _, err := f.GetClass(context.TODO(), nil, name)
 	if err != nil {

@@ -54,6 +54,10 @@ type schemaManager interface {
 		name string, consistency bool,
 	) (*models.Class, uint64, error)
 
+	// GetCachedClass extracts class from context. If class was not set it is fetched first
+	GetCachedClass(ctx context.Context, principal *models.Principal, name string,
+	) (*models.Class, uint64, error)
+
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -32,6 +33,8 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	if err != nil {
 		return nil, err
 	}
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
@@ -113,7 +116,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		class, ok := classPerClassName[obj.Class]
 		if !ok {
 			var err2 error
-			if class, _, err2 = b.schemaManager.GetClass(ctx, principal, obj.Class); err2 != nil {
+			if class, _, err2 = b.schemaManager.GetCachedClass(ctx, principal, obj.Class); err2 != nil {
 				batchObjects[i].Err = err2
 				continue
 			}

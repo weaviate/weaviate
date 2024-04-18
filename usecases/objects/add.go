@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -47,6 +48,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }
 
@@ -109,7 +111,8 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-	class, _, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+
+	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +150,7 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	class, _, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
+	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, obj.Class)
 	if err != nil {
 		return nil, err
 	}
