@@ -44,7 +44,9 @@ func NewService(store *Store, client client) *Service {
 	return &Service{store: store, cl: client, log: store.log}
 }
 
-// / RAFT-TODO Documentation
+// Open opens this store service and marked as such.
+// It constructs a new Raft node using the provided configuration.
+// If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored
 func (s *Service) Open(ctx context.Context, db Indexer) error {
 	s.log.Info("starting raft sub-system ...")
 	s.store.SetDB(db)
