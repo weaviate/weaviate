@@ -88,14 +88,8 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
-	time.Sleep(time.Second)
-	assert.True(t, srv.Ready())
-	for i := 0; i < 20; i++ {
-		if srv.store.IsLeader() {
-			break
-		}
-		time.Sleep(time.Millisecond * 100)
-	}
+	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	assert.True(t, srv.store.IsLeader())
 	schema := srv.SchemaReader()
 	assert.Equal(t, schema.Len(), 0)
@@ -275,16 +269,24 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
-	time.Sleep(time.Second)
-	assert.True(t, srv.Ready())
-	for i := 0; i < 20; i++ {
-		if srv.store.IsLeader() {
-			break
-		}
-		time.Sleep(time.Millisecond * 100)
-	}
+	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	clInfo, _ := srv.store.db.Schema.ClassInfo("C", 0)
 	assert.Equal(t, info, clInfo)
+}
+
+// Runs the provided function `predicate` up to `n` times, sleeping `sleepDuration` between each
+// function call until `f` returns true or returns false if all `n` calls return false.
+// Useful in tests which require an unknown but bounded delay where the component under test has
+// a way to indicate when it's ready to proceed.
+func tryNTimesWithWait(n int, sleepDuration time.Duration, predicate func() bool) bool {
+	for i := 0; i < n; i++ {
+		if predicate() {
+			return true
+		}
+		time.Sleep(sleepDuration)
+	}
+	return false
 }
 
 func TestServiceStoreInit(t *testing.T) {
