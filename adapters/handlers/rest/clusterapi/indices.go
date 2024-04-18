@@ -119,7 +119,7 @@ type shards interface {
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
-		targetStatus string) error
+		targetStatus string, schemaVersion uint64) error
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
@@ -1009,8 +1009,9 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
 
-		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus)
+		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

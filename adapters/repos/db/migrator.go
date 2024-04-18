@@ -289,13 +289,13 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 	return idx.getShardsStatus(ctx, tenant)
 }
 
-func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
+func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot update shard status to a non-existing index for %s", className)
 	}
 
-	return idx.updateShardStatus(ctx, shardName, targetStatus)
+	return idx.updateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 }
 
 // NewTenants creates new partitions and returns a commit func

@@ -66,7 +66,7 @@ type RemoteIndexIncomingRepo interface {
 		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
-	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
+	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error
 	IncomingOverwriteObjects(ctx context.Context, shard string,
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	IncomingDigestObjects(ctx context.Context, shardName string,
@@ -251,14 +251,14 @@ func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 }
 
 func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
-	indexName, shardName, targetStatus string,
+	indexName, shardName, targetStatus string, schemaVersion uint64,
 ) error {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus)
+	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 }
 
 func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
