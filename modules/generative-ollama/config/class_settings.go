@@ -40,6 +40,7 @@ var availableOllamaModels = []string{
 	"llama3:8b",
 	"llama3:instruct",
 	"llama3:8b-instruct-q4_0",
+	"llama2",
 	"llama2-uncensored",
 	"llama2:13b",
 	"llama2:70b",
