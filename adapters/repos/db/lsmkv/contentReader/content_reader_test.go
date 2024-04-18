@@ -12,36 +12,17 @@
 package contentReader
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-func getContentReaderFromBytes(t *testing.T, mmap bool, bytes []byte) ContentReader {
-	if mmap {
-		return NewMMap(bytes)
-	} else {
-		path := t.TempDir()
-		fo, err := os.Create(path + "output.txt")
-		require.Nil(t, err)
-		defer fo.Close()
-		_, err = fo.Write(bytes)
-		require.Nil(t, err)
-
-		fi, err := os.Open(path + "output.txt")
-		require.Nil(t, err)
-
-		return NewPread(fi, uint64(len(bytes)))
-	}
-}
 
 func TestContentReader_ReadValue(t *testing.T) {
 	bytes := []byte{0, 1, 2, 3, 4}
 	tests := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			contReader := getContentReaderFromBytes(t, tt.mmap, bytes)
+			contReader := GetContentReaderFromBytes(t, tt.mmap, bytes)
 
 			for i := 0; i < len(bytes); i++ {
 				value, offset := contReader.ReadValue(uint64(i))
@@ -58,7 +39,7 @@ func TestContentReader_ReadRange(t *testing.T) {
 	tests := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			contReader := getContentReaderFromBytes(t, tt.mmap, bytes)
+			contReader := GetContentReaderFromBytes(t, tt.mmap, bytes)
 
 			buf, offset := contReader.ReadRange(0, 4)
 			require.Equal(t, []byte{0, 0, 0, 0}, buf)
@@ -81,7 +62,7 @@ func TestContentReader_OffsetsStartEnd(t *testing.T) {
 	tests := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			contReader := getContentReaderFromBytes(t, tt.mmap, bytes)
+			contReader := GetContentReaderFromBytes(t, tt.mmap, bytes)
 
 			contReader2, err := contReader.NewWithOffsetStartEnd(4, 10)
 			require.Nil(t, err)
@@ -107,7 +88,7 @@ func TestContentReader_OffsetsStart(t *testing.T) {
 	tests := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
 	for _, tt := range tests {
 		t.Run("", func(t *testing.T) {
-			contReader := getContentReaderFromBytes(t, tt.mmap, bytes)
+			contReader := GetContentReaderFromBytes(t, tt.mmap, bytes)
 
 			contReader2, err := contReader.NewWithOffsetStart(4)
 			require.Nil(t, err)

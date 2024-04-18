@@ -112,10 +112,10 @@ func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
-	length, offset := sn.contentReader.ReadUint64(8)                  // 8 bytes offset for length
-	length, offset = sn.contentReader.ReadUint64(length + offset)     // jump over additions
-	length, offset = sn.contentReader.ReadUint64(length + offset)     // jump over deletions
-	lengthKey, offset := sn.contentReader.ReadUint32(length + offset) // jump over additions
+	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
+	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over deletions
+	lengthKey, offset := sn.contentReader.ReadUint32(length + offset)
 	buf, _ := sn.contentReader.ReadRange(offset, uint64(lengthKey))
 	return buf
 }
