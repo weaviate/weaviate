@@ -1,5 +1,7 @@
 module github.com/weaviate/weaviate
 
+replace github.com/tailor-inc/graphql => github.com/tailor-inc/graphql v0.2.1
+
 require (
 	cloud.google.com/go/storage v1.41.0
 	github.com/bmatcuk/doublestar v1.1.3
