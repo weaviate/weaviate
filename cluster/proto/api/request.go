@@ -36,6 +36,7 @@ type DeleteClassRequest struct {
 
 type UpdateShardStatusRequest struct {
 	Class, Shard, Status string
+	SchemaVersion        uint64
 }
 
 type QueryReadOnlyClassRequest struct {
