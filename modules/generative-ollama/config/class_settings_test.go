@@ -55,7 +55,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId": "MarcinLLM",
 				},
 			},
-			wantErr: errors.New("wrong Ollama model name, available model names are: [llama2 mistral dolphin-phi phi neural-chat starling-lm codellama llama2-uncensored llama2:13b llama2:70b orca-mini vicuna llava gemma:2b gemma:7b]"),
+			wantErr: errors.New("wrong Ollama model name, available model names are: [llama2 mistral dolphin-phi phi neural-chat starling-lm codellama llama3 llama3:8b llama3:instruct llama3:8b-instruct-q4_0 llama2-uncensored llama2:13b llama2:70b orca-mini vicuna llava gemma:2b gemma:7b]"),
 		},
 	}
 	for _, tt := range tests {
