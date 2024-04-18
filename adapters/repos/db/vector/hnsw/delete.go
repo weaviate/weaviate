@@ -595,7 +595,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 		// currently available level
 		h.RLock()
 		defer h.RUnlock()
-		return h.getEntrypoint(), h.currentMaximumLayer, nil
+		return h.entryPointID, h.currentMaximumLayer, nil
 	}
 
 	h.metrics.TombstoneFindLocalEntrypoint()
