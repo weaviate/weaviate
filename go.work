@@ -1,6 +1,7 @@
 go 1.21
 
 use (
+	./
 	./test/acceptance_with_go_client
 	./test/benchmark_bm25
 )
