@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 
-	"github.com/weaviate/weaviate/sroar"
+	"github.com/weaviate/sroar"
 )
 
 const (
@@ -88,7 +88,7 @@ func Test_Filters_String(t *testing.T) {
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
-		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		ClassSearcher, fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	type test struct {
