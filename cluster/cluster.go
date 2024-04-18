@@ -23,7 +23,6 @@ import (
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
-
 type Service struct {
 	*store.Service
 	raftAddr string
