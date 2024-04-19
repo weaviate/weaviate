@@ -143,9 +143,13 @@ func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, uint64, 
 	return args.Get(0).(string), 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) QueryTenantShard(class, tenant string) (string, string, uint64, error) {
-	args := f.Called(class, tenant)
-	return args.Get(1).(string), "", 0, args.Error(0)
+func (f *fakeMetaHandler) QueryTenantsShards(class string, tenants ...string) (map[string]string, error) {
+	args := f.Called(class, tenants)
+	res := map[string]string{}
+	for idx := range tenants {
+		res[args.String(idx+1)] = ""
+	}
+	return res, nil
 }
 
 func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
@@ -214,6 +218,15 @@ func (f *fakeMetaHandler) ShardOwnerWithVersion(ctx context.Context, class, shar
 func (f *fakeMetaHandler) TenantShard(class, tenant string) (string, string) {
 	args := f.Called(class, tenant)
 	return args.String(0), args.String(1)
+}
+
+func (f *fakeMetaHandler) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	args := f.Called(class, tenants)
+	res := map[string]string{}
+	for idx := range tenants {
+		res[args.String(idx+1)] = ""
+	}
+	return res, nil
 }
 
 func (f *fakeMetaHandler) TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (string, string, error) {

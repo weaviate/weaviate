@@ -138,10 +138,12 @@ func TestServiceEndpoints(t *testing.T) {
 	}}, getTenants)
 
 	// Query ShardTenant
-	getTenantTenant, getTenantActivityStatus, _, err := srv.QueryTenantShard(cls.Class, "T0")
-	assert.Nil(t, err)
-	assert.Equal(t, "T0", getTenantTenant)
-	assert.Equal(t, models.TenantActivityStatusHOT, getTenantActivityStatus)
+	getTenantShards, err := srv.QueryTenantsShards(cls.Class, "T0")
+	for tenant, status := range getTenantShards {
+		assert.Nil(t, err)
+		assert.Equal(t, "T0", tenant)
+		assert.Equal(t, models.TenantActivityStatusHOT, status)
+	}
 
 	// QueryShardOwner - Err
 	_, _, err = srv.QueryShardOwner(cls.Class, "T0")

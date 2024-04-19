@@ -44,8 +44,8 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get shard owner: %w", err)
 		}
-	case cmd.QueryRequest_TYPE_GET_TENANT_SHARD:
-		payload, err = st.QueryTenantShard(req)
+	case cmd.QueryRequest_TYPE_GET_TENANTS_SHARDS:
+		payload, err = st.QueryTenantsShards(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenant shard: %w", err)
 		}
@@ -139,18 +139,17 @@ func (st *Store) QueryShardOwner(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
-func (st *Store) QueryTenantShard(req *cmd.QueryRequest) ([]byte, error) {
+func (st *Store) QueryTenantsShards(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
-	subCommand := cmd.QueryTenantShardRequest{}
+	subCommand := cmd.QueryTenantsShardsRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
 
 	// Read the meta class to get both the class and sharding information
-	tenant, activityStatus, version := st.db.Schema.TenantShard(subCommand.Class, subCommand.Tenant)
-
+	tenants := st.db.Schema.TenantsShards(subCommand.Class, subCommand.Tenants...)
 	// Build the response, marshal and return
-	response := cmd.QueryTenantShardResponse{Tenant: tenant, ActivityStatus: activityStatus, SchemaVersion: version}
+	response := cmd.QueryTenantsShardsResponse{Tenants: tenants}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)

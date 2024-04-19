@@ -549,6 +549,30 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
+func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shardsStatus map[string]string) (string, error) {
+	if tenant != "" {
+		if status := shardsStatus[tenant]; status != "" {
+			if status == models.TenantActivityStatusHOT {
+				return tenant, nil
+			}
+			return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+		}
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	}
+
+	uuid, err := uuid.Parse(id.String())
+	if err != nil {
+		return "", fmt.Errorf("parse uuid: %q", id.String())
+	}
+
+	uuidBytes, err := uuid.MarshalBinary() // cannot error
+	if err != nil {
+		return "", fmt.Errorf("marshal uuid: %q", id.String())
+	}
+	shard := i.getSchema.ShardFromUUID(i.Config.ClassName.String(), uuidBytes)
+	return shard, err
+}
+
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
 	var shard, status string
 	className := i.Config.ClassName.String()
@@ -753,12 +777,31 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	byShard := map[string]objsAndPos{}
+	// get all tenants shards
+	tenants := []string{}
+	tenantsStatus := map[string]string{}
+	var err error
+	for _, obj := range objects {
+		if obj.Object.Tenant == "" {
+			continue
+		}
+		tenants = append(tenants, obj.Object.Tenant)
+	}
+
+	if len(tenants) > 0 {
+		// TODO : remove any dupp
+		tenantsStatus, err = i.getSchema.TenantsShards(i.Config.ClassName.String(), tenants...)
+		if err != nil {
+			return []error{err}
+		}
+	}
+
 	for pos, obj := range objects {
 		if err := i.validateMultiTenancy(obj.Object.Tenant); err != nil {
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.Tenant)
+		shardName, err := i.determineObjectShardByStatus(obj.ID(), obj.Object.Tenant, tenantsStatus)
 		if err != nil {
 			out[pos] = err
 			continue
