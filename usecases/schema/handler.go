@@ -35,7 +35,7 @@ type metaWriter interface {
 	RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error)
 	UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(name string) (uint64, error)
-	AddProperty(class string, p ...*models.Property) (uint64, error)
+	AddProperty(class string, p []*models.Property) (uint64, error)
 	UpdateShardStatus(class, shard, status string) (uint64, error)
 	AddTenants(class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error)

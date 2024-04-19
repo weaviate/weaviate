@@ -73,7 +73,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 	migratePropertySettings(props...)
 
-	return h.metaWriter.AddProperty(class.Class, props...)
+	return h.metaWriter.AddProperty(class.Class, props)
 }
 
 // DeleteClassProperty from existing Schema
