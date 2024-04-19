@@ -129,25 +129,6 @@ func (s *shardedLockCache[T]) All() [][]T {
 }
 
 func (s *shardedLockCache[T]) Get(ctx context.Context, id uint64) ([]T, error) {
-	if s.allocChecker != nil {
-		// we don't really know the exact size here, but we don't have to be
-		// accurate. If mem pressure is this high, we basically want to prevent any
-		// new permanent heap alloc. If we underestimate the size of a vector a
-		// bit, we might allow one more vector than we can really fit. But the one
-		// after would fail then. Given that vectors are typically somewhat small
-		// (in the single-digit KBs), it doesn't matter much, as long as we stop
-		// allowing vectors when we're out of memory.
-		estimatedSize := int64(1024)
-		if err := s.allocChecker.CheckAlloc(estimatedSize); err != nil {
-			s.logger.WithFields(logrus.Fields{
-				"action": "vector_cache_miss",
-				"event":  "vector_load_skipped_oom",
-				"doc_id": id,
-			}).WithError(err).
-				Warnf("cannot load vector into cache due to memory pressure")
-			return nil, err
-		}
-	}
 	s.shardedLocks.RLock(id)
 	vec := s.cache[id]
 	s.shardedLocks.RUnlock(id)
@@ -172,6 +153,26 @@ func (s *shardedLockCache[T]) Delete(ctx context.Context, id uint64) {
 }
 
 func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([]T, error) {
+	if s.allocChecker != nil {
+		// we don't really know the exact size here, but we don't have to be
+		// accurate. If mem pressure is this high, we basically want to prevent any
+		// new permanent heap alloc. If we underestimate the size of a vector a
+		// bit, we might allow one more vector than we can really fit. But the one
+		// after would fail then. Given that vectors are typically somewhat small
+		// (in the single-digit KBs), it doesn't matter much, as long as we stop
+		// allowing vectors when we're out of memory.
+		estimatedSize := int64(1024)
+		if err := s.allocChecker.CheckAlloc(estimatedSize); err != nil {
+			s.logger.WithFields(logrus.Fields{
+				"action": "vector_cache_miss",
+				"event":  "vector_load_skipped_oom",
+				"doc_id": id,
+			}).WithError(err).
+				Warnf("cannot load vector into cache due to memory pressure")
+			return nil, err
+		}
+	}
+
 	vec, err := s.vectorForID(ctx, id)
 	if err != nil {
 		return nil, err
