@@ -350,8 +350,8 @@ func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant st
 	return args.Get(0).(map[string]string), args.Error(1)
 }
 
-func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
-	args := f.Called(ctx, className, shardName, targetStatus)
+func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
+	args := f.Called(ctx, className, shardName, targetStatus, schemaVersion)
 	return args.Error(0)
 }
 
