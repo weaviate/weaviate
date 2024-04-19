@@ -105,10 +105,11 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		before = time.Now()
 		fmt.Println("Start compressing...")
 		uc.PQ = ent.PQConfig{
-			Enabled:   true,
-			Segments:  dimensions / segments,
-			Centroids: 256,
-			Encoder:   ent.NewDefaultUserConfig().PQ.Encoder,
+			Enabled:      true,
+			Segments:     dimensions / segments,
+			Centroids:    256,
+			Encoder:      ent.NewDefaultUserConfig().PQ.Encoder,
+			RescoreLimit: 256,
 		}
 		uc.EF = 256
 		wg := sync.WaitGroup{}
