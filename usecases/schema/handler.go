@@ -47,6 +47,7 @@ type metaWriter interface {
 	QuerySchema() (models.Schema, error)
 	QueryTenants(class string) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
+	QueryTenantShard(class, tenant string) (string, string, uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
