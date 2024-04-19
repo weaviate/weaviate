@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	Uint64Len = 8
-	Uint32Len = 4
+	uint64Len = 8
+	uint32Len = 4
 )
 
 type ContentReader interface {
@@ -59,11 +59,11 @@ func (c MMap) CopyRange(offset uint64, length uint64) ([]byte, uint64) {
 }
 
 func (c MMap) ReadUint64(offset uint64) (uint64, uint64) {
-	return binary.LittleEndian.Uint64(c.contents[offset : offset+Uint64Len]), offset + Uint64Len
+	return binary.LittleEndian.Uint64(c.contents[offset : offset+uint64Len]), offset + uint64Len
 }
 
 func (c MMap) ReadUint32(offset uint64) (uint32, uint64) {
-	return binary.LittleEndian.Uint32(c.contents[offset : offset+Uint32Len]), offset + Uint32Len
+	return binary.LittleEndian.Uint32(c.contents[offset : offset+uint32Len]), offset + uint32Len
 }
 
 func (c MMap) Length() uint64 {
@@ -131,13 +131,13 @@ func (c Pread) CopyRange(offset uint64, length uint64) ([]byte, uint64) {
 }
 
 func (c Pread) ReadUint64(offset uint64) (uint64, uint64) {
-	val, _ := c.ReadRange(offset, Uint64Len)
-	return binary.LittleEndian.Uint64(val), offset + Uint64Len
+	val, _ := c.ReadRange(offset, uint64Len)
+	return binary.LittleEndian.Uint64(val), offset + uint64Len
 }
 
 func (c Pread) ReadUint32(offset uint64) (uint32, uint64) {
-	val, _ := c.ReadRange(offset, Uint32Len)
-	return binary.LittleEndian.Uint32(val), offset + Uint32Len
+	val, _ := c.ReadRange(offset, uint32Len)
+	return binary.LittleEndian.Uint32(val), offset + uint32Len
 }
 
 func (c Pread) Length() uint64 {
