@@ -71,7 +71,7 @@ func (sn *SegmentNode) Len() uint64 {
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
 	length, offset := sn.contentReader.ReadUint64(8) // 8 bytes offset for length
-	buf, _ := sn.contentReader.ReadRange(offset, length)
+	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBuffer(buf)
 }
 
@@ -83,7 +83,7 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // efficient to use [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 	length, offset := sn.contentReader.ReadUint64(8) // 8 bytes offset for length
-	buf, _ := sn.contentReader.ReadRange(offset, length)
+	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBufferWithCopy(buf)
 }
 
@@ -94,7 +94,7 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
 	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
-	buf, _ := sn.contentReader.ReadRange(offset, length)
+	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBuffer(buf)
 }
 
@@ -107,7 +107,7 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
 	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
 	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
-	buf, _ := sn.contentReader.ReadRange(offset, length)
+	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBufferWithCopy(buf)
 }
 
@@ -115,7 +115,7 @@ func (sn *SegmentNode) PrimaryKey() []byte {
 	length, offset := sn.contentReader.ReadUint64(8)                  // 8 bytes offset for length
 	length, offset = sn.contentReader.ReadUint64(length + offset)     // jump over additions
 	lengthKey, offset := sn.contentReader.ReadUint32(length + offset) // jump over deletions
-	buf, _ := sn.contentReader.ReadRange(offset, uint64(lengthKey))
+	buf, _ := sn.contentReader.ReadRange(offset, uint64(lengthKey), nil)
 	return buf
 }
 
@@ -168,7 +168,7 @@ func NewSegmentNode(
 // much memory. Truncating at the length prevents this and has no other
 // negative effects.
 func (sn *SegmentNode) ToBuffer() []byte {
-	buf, _ := sn.contentReader.ReadRange(0, sn.Len())
+	buf, _ := sn.contentReader.ReadRange(0, sn.Len(), nil)
 	return buf
 }
 

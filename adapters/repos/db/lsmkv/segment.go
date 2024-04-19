@@ -94,7 +94,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))
 	}
 
-	headerByte, _ := contReader.ReadRange(0, segmentindex.HeaderSize)
+	headerByte, _ := contReader.ReadRange(0, segmentindex.HeaderSize, nil)
 	header, err := segmentindex.ParseHeader(bytes.NewReader(headerByte))
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
@@ -224,7 +224,6 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
-	nodeB, _ := s.contentReader.ReadRange(offset.start, offset.end-offset.start)
-	copy(b, nodeB)
+	_, _ = s.contentReader.ReadRange(offset.start, offset.end-offset.start, b)
 	return nil
 }

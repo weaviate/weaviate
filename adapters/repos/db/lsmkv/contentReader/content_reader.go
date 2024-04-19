@@ -29,8 +29,7 @@ const (
 
 type ContentReader interface {
 	ReadValue(offset uint64) (byte, uint64)
-	ReadRange(offset uint64, length uint64) ([]byte, uint64)
-	CopyRange(offset uint64, length uint64) ([]byte, uint64)
+	ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64)
 	ReadUint64(offset uint64) (uint64, uint64)
 	ReadUint32(offset uint64) (uint32, uint64)
 	Length() uint64
@@ -48,14 +47,12 @@ func (c MMap) ReadValue(offset uint64) (byte, uint64) {
 	return c.contents[offset], offset + 1
 }
 
-func (c MMap) ReadRange(offset uint64, length uint64) ([]byte, uint64) {
-	return c.contents[offset : offset+length], offset + length
-}
-
-func (c MMap) CopyRange(offset uint64, length uint64) ([]byte, uint64) {
-	b := make([]byte, length)
-	copy(b, c.contents[offset:offset+length])
-	return b, offset + length
+func (c MMap) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
+	if outBuf == nil {
+		return c.contents[offset : offset+length], offset + length
+	}
+	copy(outBuf, c.contents[offset:offset+length])
+	return outBuf, offset + length
 }
 
 func (c MMap) ReadUint64(offset uint64) (uint64, uint64) {
@@ -120,23 +117,21 @@ func (c Pread) ReadValue(offset uint64) (byte, uint64) {
 	return b[0], offset + 1
 }
 
-func (c Pread) ReadRange(offset uint64, length uint64) ([]byte, uint64) {
-	b := make([]byte, length)
-	c.contentFile.ReadAt(b, int64(c.startOffset+offset))
-	return b, offset + length
-}
-
-func (c Pread) CopyRange(offset uint64, length uint64) ([]byte, uint64) {
-	return c.ReadRange(offset, length)
+func (c Pread) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
+	if outBuf == nil {
+		outBuf = make([]byte, length)
+	}
+	c.contentFile.ReadAt(outBuf, int64(c.startOffset+offset))
+	return outBuf, offset + length
 }
 
 func (c Pread) ReadUint64(offset uint64) (uint64, uint64) {
-	val, _ := c.ReadRange(offset, uint64Len)
+	val, _ := c.ReadRange(offset, uint64Len, nil)
 	return binary.LittleEndian.Uint64(val), offset + uint64Len
 }
 
 func (c Pread) ReadUint32(offset uint64) (uint32, uint64) {
-	val, _ := c.ReadRange(offset, uint32Len)
+	val, _ := c.ReadRange(offset, uint32Len, nil)
 	return binary.LittleEndian.Uint32(val), offset + uint32Len
 }
 

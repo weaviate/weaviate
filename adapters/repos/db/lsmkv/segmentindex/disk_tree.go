@@ -48,10 +48,10 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 		return Node{}, lsmkv.NotFound
 	}
 	var out Node
-	var buffer []byte
+
 	var keyLen uint32
 	offset := uint64(0)
-
+	nodeKeyBuffer := make([]byte, len(key))
 	// jump to the buffer until the node with _key_ is found or return a NotFound error.
 	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
 	// extracting the necessary pieces of information while skipping the rest
@@ -63,11 +63,19 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 
 		keyLen, offset = t.contentReader.ReadUint32(offset)
 
-		buffer, offset = t.contentReader.CopyRange(offset, uint64(keyLen))
+		if int(keyLen) > len(nodeKeyBuffer) {
+			nodeKeyBuffer = make([]byte, int(keyLen))
+		} else if int(keyLen) < len(nodeKeyBuffer) {
+			nodeKeyBuffer = nodeKeyBuffer[:keyLen]
+		}
 
-		keyEqual := bytes.Compare(key, buffer)
+		_, offset = t.contentReader.ReadRange(offset, uint64(keyLen), nodeKeyBuffer)
+
+		keyEqual := bytes.Compare(key, nodeKeyBuffer)
 		if keyEqual == 0 {
-			out.Key = buffer
+			keyBuf := make([]byte, len(nodeKeyBuffer))
+			copy(keyBuf, nodeKeyBuffer)
+			out.Key = keyBuf
 			out.Start, offset = t.contentReader.ReadUint64(offset)
 			out.End, _ = t.contentReader.ReadUint64(offset)
 			return out, nil
@@ -101,9 +109,10 @@ func (t *DiskTree) readNode(offsetRead uint64) (dtNode, int, error) {
 	}
 
 	keyLen, offset := contReader.ReadUint32(0)
-	copiedBytes, offset := contReader.CopyRange(offset, uint64(keyLen))
+	key := make([]byte, keyLen)
+	_, offset = contReader.ReadRange(offset, uint64(keyLen), key)
 
-	out.key = copiedBytes
+	out.key = key
 
 	out.startPos, offset = contReader.ReadUint64(offset)
 	out.endPos, offset = contReader.ReadUint64(offset)

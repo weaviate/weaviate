@@ -109,13 +109,13 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 	}
 
 	// copy the primary key len indicator into the output buffer
-	primKeyLenBytes, _ := e.contentReader.ReadRange(e.offset, 4)
+	primKeyLenBytes, _ := e.contentReader.ReadRange(e.offset, 4, nil)
 	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+4], primKeyLenBytes)
 	e.offset += 4
 	e.outputBufferOffset += 4
 
 	// then copy the key itself
-	keyBytes, _ := e.contentReader.ReadRange(e.offset, uint64(primaryKeyLen))
+	keyBytes, _ := e.contentReader.ReadRange(e.offset, uint64(primaryKeyLen), nil)
 	copy(e.outputBuffer[e.outputBufferOffset:e.outputBufferOffset+uint64(primaryKeyLen)], keyBytes)
 	e.offset += uint64(primaryKeyLen)
 	e.outputBufferOffset += uint64(primaryKeyLen)

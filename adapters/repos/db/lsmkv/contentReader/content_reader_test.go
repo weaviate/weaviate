@@ -14,9 +14,10 @@ package contentReader
 import (
 	"crypto/rand"
 	"fmt"
-	"github.com/weaviate/weaviate/usecases/byteops"
 	"math/big"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/stretchr/testify/require"
 )
@@ -53,15 +54,15 @@ func TestContentReader_ReadRange(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			contReader := GetContentReaderFromBytes(t, tt.mmap, bytes)
 
-			buf, offset := contReader.ReadRange(0, 4)
+			buf, offset := contReader.ReadRange(0, 4, nil)
 			require.Equal(t, []byte{0, 0, 0, 0}, buf)
 			require.Equal(t, uint64(4), offset)
 
-			buf, offset = contReader.ReadRange(offset, 4)
+			buf, offset = contReader.ReadRange(offset, 4, nil)
 			require.Equal(t, []byte{1, 1, 1, 1}, buf)
 			require.Equal(t, uint64(8), offset)
 
-			buf, offset = contReader.ReadRange(offset, 3)
+			buf, offset = contReader.ReadRange(offset, 3, nil)
 			require.Equal(t, []byte{2, 3, 4}, buf)
 			require.Equal(t, uint64(len(bytes)), offset)
 			require.Equal(t, uint64(len(bytes)), contReader.Length())
@@ -80,7 +81,7 @@ func TestContentReader_OffsetsStartEnd(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, uint64(6), contReader2.Length())
 
-			buf, offset := contReader2.ReadRange(0, 4)
+			buf, offset := contReader2.ReadRange(0, 4, nil)
 			require.Equal(t, []byte{1, 1, 1, 1}, buf)
 			require.Equal(t, uint64(4), offset)
 
@@ -88,7 +89,7 @@ func TestContentReader_OffsetsStartEnd(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, uint64(4), contReader3.Length())
 
-			buf, offset = contReader3.ReadRange(0, 4)
+			buf, offset = contReader3.ReadRange(0, 4, nil)
 			require.Equal(t, []byte{1, 1, 2, 3}, buf)
 			require.Equal(t, uint64(4), offset)
 		})
@@ -106,7 +107,7 @@ func TestContentReader_OffsetsStart(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, uint64(len(bytes)-4), contReader2.Length())
 
-			buf, offset := contReader2.ReadRange(0, 4)
+			buf, offset := contReader2.ReadRange(0, 4, nil)
 			require.Equal(t, []byte{1, 1, 1, 1}, buf)
 			require.Equal(t, uint64(4), offset)
 
@@ -114,11 +115,11 @@ func TestContentReader_OffsetsStart(t *testing.T) {
 			require.Nil(t, err)
 			require.Equal(t, uint64(len(bytes)-6), contReader3.Length())
 
-			buf, offset = contReader3.ReadRange(0, 4)
+			buf, offset = contReader3.ReadRange(0, 4, nil)
 			require.Equal(t, []byte{1, 1, 2, 3}, buf)
 			require.Equal(t, uint64(4), offset)
 
-			buf, offset = contReader3.ReadRange(4, 1)
+			buf, offset = contReader3.ReadRange(4, 1, nil)
 			require.Equal(t, []byte{4}, buf)
 			require.Equal(t, uint64(5), offset)
 		})
@@ -173,7 +174,7 @@ func TestContentReader_MixedOperations(t *testing.T) {
 				}
 				val32, offset = contReader.ReadUint32(offset)
 				require.Equal(t, uint64(val32), valuesNumbers[2])
-				buf, offset := contReader.ReadRange(offset, uint64(len(valuesByteArray)))
+				buf, offset := contReader.ReadRange(offset, uint64(len(valuesByteArray)), nil)
 				require.Equal(t, buf, valuesByteArray)
 				val64, offset = contReader.ReadUint64(offset)
 				require.Equal(t, val64, valuesNumbers[3])
@@ -187,7 +188,6 @@ func TestContentReader_MixedOperations(t *testing.T) {
 					val32, offset = contReader.ReadUint32(offset)
 					require.Equal(t, uint64(val32), valuesNumbers[6])
 				}
-
 			})
 		}
 	}

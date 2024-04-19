@@ -62,7 +62,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	} else {
 		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))
 	}
-	headerByte, _ := contReader.ReadRange(0, segmentindex.HeaderSize)
+	headerByte, _ := contReader.ReadRange(0, segmentindex.HeaderSize, nil)
 	header, err := segmentindex.ParseHeader(bytes.NewReader(headerByte))
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)

@@ -86,7 +86,7 @@ func (h *Header) SecondaryIndex(contentReader contentReader.ContentReader, index
 			indexID, h.SecondaryIndices)
 	}
 
-	secondaryBytes, _ := contentReader.ReadRange(h.IndexStart, h.secondaryIndexOffsetsEnd()-h.IndexStart)
+	secondaryBytes, _ := contentReader.ReadRange(h.IndexStart, h.secondaryIndexOffsetsEnd()-h.IndexStart, nil)
 	offsets, err := h.parseSecondaryIndexOffsets(secondaryBytes)
 	if err != nil {
 		return nil, err

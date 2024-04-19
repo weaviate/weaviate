@@ -13,21 +13,18 @@ package lsmkv
 
 import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type segmentCursorReplace struct {
 	segment      *segment
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
-	reusableBORW byteops.ReadWriter
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
 	return &segmentCursorReplace{
 		segment:      s,
 		reusableNode: &segmentReplaceNode{},
-		reusableBORW: byteops.NewReadWriter(nil),
 	}
 }
 
@@ -146,25 +143,33 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error
 	s.reusableNode.tombstone = tombstoneByte != 0
 
 	valueLength, offset := contentReader.ReadUint64(offset)
-	val, offset := contentReader.ReadRange(offset, valueLength)
-	s.reusableNode.value = val
+	if valueLength > uint64(len(s.reusableNode.value)) {
+		s.reusableNode.value = make([]byte, valueLength)
+	} else {
+		s.reusableNode.value = s.reusableNode.value[:valueLength]
+	}
+	_, offset = contentReader.ReadRange(offset, valueLength, s.reusableNode.value)
 
 	keyLength, offset := contentReader.ReadUint32(offset)
-	key, offset := contentReader.ReadRange(offset, uint64(keyLength))
-	s.reusableNode.primaryKey = key
+	if keyLength > uint32(len(s.reusableNode.primaryKey)) {
+		s.reusableNode.primaryKey = make([]byte, keyLength)
+	} else {
+		s.reusableNode.primaryKey = s.reusableNode.primaryKey[:keyLength]
+	}
+	_, offset = contentReader.ReadRange(offset, uint64(keyLength), s.reusableNode.primaryKey)
 
 	if s.segment.secondaryIndexCount > 0 {
 		s.reusableNode.secondaryKeys = make([][]byte, s.segment.secondaryIndexCount)
 	}
 
 	var secKeyLen uint32
-	var secKey []byte
 	for j := 0; j < int(s.segment.secondaryIndexCount); j++ {
 		secKeyLen, offset = contentReader.ReadUint32(offset)
 		if secKeyLen == 0 {
 			continue
 		}
-		secKey, offset = contentReader.CopyRange(offset, uint64(secKeyLen))
+		secKey := make([]byte, secKeyLen)
+		_, offset = contentReader.ReadRange(offset, uint64(secKeyLen), secKey)
 		s.reusableNode.secondaryKeys[j] = secKey
 	}
 	s.reusableNode.offset = int(offset)
