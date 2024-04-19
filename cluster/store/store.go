@@ -236,7 +236,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.loadDatabase(ctx)
 	}
 
-	st.log.Info("construct a new raft node")
+	st.log.Info("construct a new raft node", "name", st.nodeID)
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
@@ -410,8 +410,8 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 	}
 }
 
-// WaitForUpdate waits until the update with the given version is propagated to this follower node
-func (st *Store) WaitForUpdate(ctx context.Context, period time.Duration, version uint64) error {
+// WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
+func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
 	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil
 	}
@@ -445,7 +445,7 @@ func (st *Store) SchemaReader() retrySchema {
 
 func (st *Store) VersionedSchemaReader() versionedSchema {
 	f := func(ctx context.Context, version uint64) error {
-		return st.WaitForUpdate(ctx, time.Millisecond*50, version)
+		return st.WaitForAppliedIndex(ctx, time.Millisecond*50, version)
 	}
 	return versionedSchema{st.db.Schema, f}
 }
