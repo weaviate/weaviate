@@ -348,15 +348,13 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantShard(class, tenant string) (string, string) {
-	var err error
-	var resTenant, resStatus string
-	resTenant, resStatus = m.metaReader.TenantShard(class, tenant)
-	// No tenant present locally, let's query the elader
-	if tenant == "" {
-		resTenant, resStatus, _, err = m.metaWriter.QueryTenantShard(class, tenant)
-		if err != nil {
-			return "", ""
-		}
+	// TODO-RAFT: we always query the leader
+	// we need to make sure what is the side effect of
+	// if the leader says "tenant is HOT", but locally
+	// it's still COLD.
+	resTenant, resStatus, _, err := m.metaWriter.QueryTenantShard(class, tenant)
+	if err != nil {
+		return "", ""
 	}
 	return resTenant, resStatus
 }
