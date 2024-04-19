@@ -240,22 +240,13 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 	return nil
 }
 
-<<<<<<< HEAD
-func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard *Shard) (bool, error) {
-	bucketFilterable := shard.store.Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
-=======
 func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard ShardLike) (bool, error) {
-	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
->>>>>>> main
+	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
 	if bucketFilterable != nil &&
 		bucketFilterable.Strategy() == lsmkv.StrategyMapCollection &&
 		bucketFilterable.DesiredStrategy() == lsmkv.StrategyRoaringSet {
 
-<<<<<<< HEAD
-		bucketSearchable := shard.store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(prop.Name))
-=======
-		bucketSearchable := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
->>>>>>> main
+		bucketSearchable := shard.Store().Bucket(helpers.BucketSearchableFromPropertyNameLSM(prop.Name))
 		if bucketSearchable != nil &&
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 

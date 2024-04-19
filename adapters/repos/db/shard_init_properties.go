@@ -60,15 +60,8 @@ func (s *Shard) initProperties_old(class *models.Class) error {
 		return nil
 	}
 
-<<<<<<< HEAD
-	eg := &errgroup.Group{}
-	for _, prop := range class.Properties {
-		s.createPropertyIndex_old(context.TODO(), prop, eg)
-	}
-=======
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
-	s.createPropertyIndex(context.Background(), eg, class.Properties...)
->>>>>>> main
+	s.createPropertyIndex_old(context.Background(), eg, class.Properties...)
 
 	eg.Go(func() error {
 		if err := s.addIDProperty_old(context.TODO()); err != nil {

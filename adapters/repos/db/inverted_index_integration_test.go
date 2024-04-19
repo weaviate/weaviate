@@ -627,23 +627,6 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		}
 	})
 
-<<<<<<< HEAD
-=======
-	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
-		n := 0
-		index.ForEachShard(func(_ string, shard ShardLike) error {
-			bucketPropLengthName := shard.Store().Bucket(helpers.BucketFromPropNameLengthLSM("name"))
-			require.NotNil(t, bucketPropLengthName)
-			bucketPropLengthIntArray := shard.Store().Bucket(helpers.BucketFromPropNameLengthLSM("int_array"))
-			require.NotNil(t, bucketPropLengthIntArray)
-			n++
-			return nil
-		})
-		require.Equal(t, 1, n)
-	})
-
->>>>>>> main
 	type testCase struct {
 		name        string
 		filter      *filters.LocalFilter
@@ -982,7 +965,6 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 		}
 	})
 
-<<<<<<< HEAD
 	t.Run("by creation date 2", func(t *testing.T) {
 		res, err := repo.Search(context.Background(), dto.GetParams{
 			ClassName:  "TestClass",
@@ -1002,18 +984,6 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 					},
 				},
 			},
-=======
-	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
-		n := 0
-		index.ForEachShard(func(_ string, shard ShardLike) error {
-			bucketCreated := shard.Store().Bucket("property_" + filters.InternalPropCreationTimeUnix)
-			require.NotNil(t, bucketCreated)
-			bucketUpdated := shard.Store().Bucket("property_" + filters.InternalPropLastUpdateTimeUnix)
-			require.NotNil(t, bucketUpdated)
-			n++
-			return nil
->>>>>>> main
 		})
 		require.Nil(t, err)
 		require.Len(t, res, 2)

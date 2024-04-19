@@ -1000,7 +1000,6 @@ func TestHybridOverSearch(t *testing.T) {
 	})
 }
 
-<<<<<<< HEAD
 func TestHybridBug(t *testing.T) {
 	dirName := t.TempDir()
 	logger := logrus.New()
@@ -1009,7 +1008,7 @@ func TestHybridBug(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -1094,7 +1093,7 @@ func TestHybridBug(t *testing.T) {
 		props := map[string]interface{}{}
 		props["title"] = docs[i]
 		obj := &models.Object{Class: "Test_keyword_bug", Properties: props, ID: id}
-		err := repo.PutObject(context.Background(), obj, nil, nil)
+		err := repo.PutObject(context.Background(), obj, nil, nil, nil,0)
 		require.Nil(t, err)
 	}
 
@@ -1110,7 +1109,8 @@ func TestHybridBug(t *testing.T) {
 	require.Equal(t, 3, len(res))
 
 	fmt.Printf("query for %s returned %d results\n", "Exact Online HR", len(res))
-=======
+}
+
 type TesterModule struct {
 	vectors map[string][]float32
 }
@@ -1168,5 +1168,4 @@ func (m *TesterModule) AddVector(text string, vector []float32) error {
 	}
 	m.vectors[text] = vector
 	return nil
->>>>>>> main
 }

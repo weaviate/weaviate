@@ -26,32 +26,19 @@ import (
 // RowReaderRoaringSet reads one or many row(s) depending on the specified
 // operator
 type RowReaderRoaringSet struct {
-<<<<<<< HEAD
-	value      []byte
-	operator   filters.Operator
-	newCursor  func() lsmkv.CursorRoaringSet
-	getter     func(key []byte) (*sroar.Bitmap, error)
-	PropPrefix []byte
-=======
 	value         []byte
 	operator      filters.Operator
 	newCursor     func() lsmkv.CursorRoaringSet
 	getter        func(key []byte) (*sroar.Bitmap, error)
+	PropPrefix []byte
 	bitmapFactory *roaringset.BitmapFactory
->>>>>>> main
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
-<<<<<<< HEAD
-// RoaringSetReadFn will always be empty
-func NewRowReaderRoaringSet(bucket lsmkv.BucketInterface, value []byte,
-	operator filters.Operator, keyOnly bool,
-=======
 // ReadFn will always be empty
-func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
+func NewRowReaderRoaringSet(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator,
 	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
->>>>>>> main
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
 	newCursor := bucket.CursorRoaringSet
@@ -60,19 +47,12 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 	}
 
 	return &RowReaderRoaringSet{
-<<<<<<< HEAD
-		value:      value,
-		operator:   operator,
-		newCursor:  newCursor,
-		getter:     getter,
-		PropPrefix: bucket.PropertyPrefix(),
-=======
 		value:         value,
 		operator:      operator,
 		newCursor:     newCursor,
 		getter:        getter,
+		PropPrefix: bucket.PropertyPrefix(),
 		bitmapFactory: bitmapFactory,
->>>>>>> main
 	}
 }
 
@@ -120,14 +100,7 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	readFn ReadFn,
 ) error {
-<<<<<<< HEAD
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	v, err := rr.getter(rr.value)
-=======
 	v, err := rr.equalHelper(ctx)
->>>>>>> main
 	if err != nil {
 		return err
 	}
@@ -216,42 +189,6 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	return nil
 }
 
-<<<<<<< HEAD
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
-	readFn RoaringSetReadFn,
-) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
-			continue
-		}
-
-		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
-			continue
-		}
-
-		if continueReading, err := readFn(k, v); err != nil {
-			return err
-		} else if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-=======
->>>>>>> main
 func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	readFn ReadFn,
 ) error {

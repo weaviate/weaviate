@@ -27,11 +27,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-<<<<<<< HEAD
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
-=======
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
->>>>>>> main
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -43,7 +40,6 @@ import (
 )
 
 type BM25Searcher struct {
-<<<<<<< HEAD
 	config        schema.BM25Config
 	store         *lsmkv.Store
 	schema        schema.Schema
@@ -54,7 +50,6 @@ type BM25Searcher struct {
 	logger        logrus.FieldLogger
 	shardVersion  uint16
 	propertyIds   *tracker.JsonPropertyIdTracker
-=======
 	config         schema.BM25Config
 	store          *lsmkv.Store
 	getClass       func(string) *models.Class
@@ -63,7 +58,6 @@ type BM25Searcher struct {
 	propLenTracker propLengthRetriever
 	logger         logrus.FieldLogger
 	shardVersion   uint16
->>>>>>> main
 }
 
 type propLengthRetriever interface {
@@ -71,27 +65,9 @@ type propLengthRetriever interface {
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
-<<<<<<< HEAD
-	schema schema.Schema, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker,
-	propLengths propLengthRetriever, logger logrus.FieldLogger,
-	shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
-) *BM25Searcher {
-	return &BM25Searcher{
-		config:        config,
-		store:         store,
-		schema:        schema,
-		propIndices:   propIndices,
-		classSearcher: classSearcher,
-		deletedDocIDs: deletedDocIDs,
-		propLengths:   propLengths,
-		logger:        logger.WithField("action", "bm25_search"),
-		shardVersion:  shardVersion,
-		propertyIds:   propertyIds,
-=======
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
-	logger logrus.FieldLogger, shardVersion uint16,
+	logger logrus.FieldLogger, shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:         config,
@@ -102,7 +78,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker: propLenTracker,
 		logger:         logger.WithField("action", "bm25_search"),
 		shardVersion:   shardVersion,
->>>>>>> main
+		propertyIds:   propertyIds,
 	}
 }
 

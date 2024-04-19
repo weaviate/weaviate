@@ -97,7 +97,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
-<<<<<<< HEAD
 	if err := s.propIds.Flush(false); err != nil {
 		return errors.Wrap(err, "flush prop id tracker to disk")
 	}
@@ -106,8 +105,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
-=======
->>>>>>> main
 	return nil
 }
 
@@ -246,12 +243,9 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	defer s.metrics.PutObject(before)
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-<<<<<<< HEAD
 	bucket.CheckBucket()
-=======
 	var prevObj *storobj.Object
 	var status objectInsertStatus
->>>>>>> main
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
 	// to determine if it is insert or an update.

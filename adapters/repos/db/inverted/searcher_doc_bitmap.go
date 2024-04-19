@@ -37,13 +37,13 @@ func (s *Searcher) docBitmap(ctx context.Context, property []byte, b lsmkv.Bucke
 		}
 
 		// bucket with strategy set serves docIds used to build bitmap
-		return s.docBitmapInvertedSet(ctx, property, b, limit, pv)
+		return s.docBitmapInvertedSet(ctx, b, limit, pv)
 	}
 
 	if pv.hasSearchableIndex {
 		// bucket with strategy map serves docIds used to build bitmap
 		// and frequencies, which are ignored for filtering
-		return s.docBitmapInvertedMap(ctx, property, b, limit, pv)
+		return s.docBitmapInvertedMap(ctx, b, limit, pv)
 	}
 
 	return docBitmap{}, fmt.Errorf("property '%s' is neither filterable nor searchable", pv.prop)
@@ -65,7 +65,7 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 			return true, nil
 		}
 
-		if limit > 0 && out.docIDs.GetCardinality() >= limit {
+		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
 			return false, nil
 		}
 		return true, nil
@@ -82,30 +82,22 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 	return out, nil
 }
 
-<<<<<<< HEAD
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int, pv *propValuePair) (docBitmap, error) {
-	out := newDocBitmap()
-	var readFn ReadFn = func(k []byte, ids [][]byte) (bool, error) {
-		for _, asBytes := range ids {
-			out.DocIDs.Set(binary.LittleEndian.Uint64(asBytes))
-=======
-func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b lsmkv.BucketInterface,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
 		if isEmpty {
-			out.docIDs = ids
+			out.DocIDs = ids
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.DocIDs.Or(ids)
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
 		if pv.operator == filters.OperatorNotEqual {
 			return true, nil
->>>>>>> main
 		}
 
 		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
@@ -114,11 +106,7 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-<<<<<<< HEAD
-	rr := NewRowReader(b, pv.Value(), pv.operator, false)
-=======
-	rr := NewRowReader(b, pv.value, pv.operator, false, s.bitmapFactory)
->>>>>>> main
+	rr := NewRowReader(b, pv.Value(), pv.operator, false, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}
@@ -129,36 +117,22 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 	return out, nil
 }
 
-<<<<<<< HEAD
-func (s *Searcher) docBitmapInvertedMap(ctx context.Context, property []byte, b lsmkv.BucketInterface, limit int, pv *propValuePair) (docBitmap, error) {
-	out := newDocBitmap()
-	var readFn ReadFnFrequency = func(k []byte, pairs []lsmkv.MapPair) (bool, error) {
-		for _, pair := range pairs {
-			// this entry has a frequency, but that's only used for bm25, not for
-			// pure filtering, so we can ignore it here
-			if s.shardVersion < 2 {
-				out.DocIDs.Set(binary.LittleEndian.Uint64(pair.Key))
-			} else {
-				out.DocIDs.Set(binary.BigEndian.Uint64(pair.Key))
-			}
-=======
-func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
+func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b lsmkv.BucketInterface,
 	limit int, pv *propValuePair,
 ) (docBitmap, error) {
 	out := newUninitializedDocBitmap()
 	isEmpty := true
 	var readFn ReadFn = func(k []byte, ids *sroar.Bitmap) (bool, error) {
 		if isEmpty {
-			out.docIDs = ids
+			out.DocIDs = ids
 			isEmpty = false
 		} else {
-			out.docIDs.Or(ids)
+			out.DocIDs.Or(ids)
 		}
 
 		// NotEqual requires the full set of potentially existing doc ids
 		if pv.operator == filters.OperatorNotEqual {
 			return true, nil
->>>>>>> main
 		}
 
 		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
@@ -167,11 +141,7 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 		return true, nil
 	}
 
-<<<<<<< HEAD
-	rr := NewRowReaderFrequency(b, pv.Value(), pv.operator, false, s.shardVersion)
-=======
-	rr := NewRowReaderFrequency(b, pv.value, pv.operator, false, s.shardVersion, s.bitmapFactory)
->>>>>>> main
+	rr := NewRowReaderFrequency(b, pv.Value(), pv.operator, false, s.shardVersion, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}

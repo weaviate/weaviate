@@ -143,21 +143,11 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
-<<<<<<< HEAD
-func (s *Shard) findDocIDs(ctx context.Context,
-	filters *filters.LocalFilter,
-) ([]uint64, error) {
-	allowList, err := inverted.NewSearcher(s.index.logger, s.store,
-		s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices, s.propIds,
-		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords,
-		s.versioner.version, s.isFallbackToSearchable,
-		s.tenant(), s.index.Config.QueryNestedRefLimit).
-=======
 func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
+		s.propertyIndices, //TODO this should be nil?
+		s.propIds, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
->>>>>>> main
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {
 		return nil, err

@@ -55,16 +55,12 @@ type Searcher struct {
 	bitmapFactory       *roaringset.BitmapFactory
 }
 
-<<<<<<< HEAD
-func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store, schema schema.Schema, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker, classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable, tenant string, nestedCrossRefLimit int64) *Searcher {
-=======
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
+	getClass func(string) *models.Class, propIndices propertyspecific.Indices,propIds *tracker.JsonPropertyIdTracker,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
->>>>>>> main
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,
@@ -105,28 +101,15 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	return s.objectsByDocID(it, additional, limit)
 }
 
-<<<<<<< HEAD
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList, additional additional.Properties, className schema.ClassName) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
-=======
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
-	docIDs helpers.AllowList, className schema.ClassName,
-) ([]uint64, error) {
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,docIDs helpers.AllowList, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className)
->>>>>>> main
 	if err != nil {
 		return nil, err
 	}
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-<<<<<<< HEAD
-func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties) ([]*storobj.Object, error) {
-=======
-func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties, limit int,
-) ([]*storobj.Object, error) {
->>>>>>> main
+func (s *Searcher) objectsByDocID(it docIDsIterator,additional additional.Properties, limit int) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -183,10 +166,6 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 // If we already limited the allowList to 1, the vector search would be
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
-<<<<<<< HEAD
-func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName) (helpers.AllowList, error) {
-	return s.docIDs(ctx, filter, additional, className, 0)
-=======
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
@@ -200,7 +179,6 @@ func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	// buffer to ensure that the caller is receiving only the possible range
 	// of docIDs
 	return allow.Truncate(s.bitmapFactory.ActualMaxVal()), nil
->>>>>>> main
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName, limit int) (helpers.AllowList, error) {
@@ -221,15 +199,8 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, addi
 	return helpers.NewAllowListFromBitmap(dbm.DocIDs), nil
 }
 
-<<<<<<< HEAD
-func (s *Searcher) buildPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
-	class := s.schema.FindClassByName(schema.ClassName(className))
-=======
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,
-	className schema.ClassName,
-) (*propValuePair, error) {
+func (s *Searcher) extractPropValuePair(filter *filters.Clause,className schema.ClassName) (*propValuePair, error) {
 	class := s.getClass(className.String())
->>>>>>> main
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
@@ -265,21 +236,17 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {
-<<<<<<< HEAD
-		sch := s.schema.FindClassByName(schema.ClassName(className))
-		lengthIsIndexed := sch.InvertedIndexConfig.IndexPropertyLength
-		if !lengthIsIndexed {
-			return nil, errors.Errorf("Property length must be indexed to be filterable")
-		}
-		property, err := s.schema.GetProperty(className, schema.PropertyName(extractedPropName))
-=======
 		class := s.getClass(schema.ClassName(className).String())
 		if class == nil {
 			return nil, fmt.Errorf("could not find class %s in schema", className)
 		}
 
+		lengthIsIndexed := schema.InvertedIndexConfig.IndexPropertyLength
+		if !lengthIsIndexed {
+			return nil, errors.Errorf("Property length must be indexed to be filterable")
+		}
+
 		property, err := schema.GetPropertyByName(class, extractedPropName)
->>>>>>> main
 		if err != nil {
 			return nil, err
 		}
@@ -344,12 +311,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 			}
 			children[i] = child
 			return nil
-<<<<<<< HEAD
-		})
-
-=======
 		}, clause)
->>>>>>> main
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)

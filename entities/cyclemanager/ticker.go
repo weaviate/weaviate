@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// ===== Tickers =====
+// ----- Tickers -----
 
 type CycleTicker interface {
 	Start()
@@ -129,7 +129,7 @@ func (t *noopTicker) C() <-chan time.Time {
 func (t *noopTicker) CycleExecuted(executed bool) {
 }
 
-// ===== Intervals =====
+// ----- Intervals -----
 
 type CycleIntervals interface {
 	Get() time.Duration
@@ -219,7 +219,7 @@ func NewExpIntervals(minInterval, maxInterval time.Duration, base, steps uint) C
 	return &seriesIntervals{intervals: expToIntervals(minInterval, maxInterval, base, steps), pos: 0}
 }
 
-// ===== Helper funcs =====
+// ----- Helper funcs -----
 
 func linearToIntervals(minInterval, maxInterval time.Duration, steps uint) []time.Duration {
 	delta := float64(maxInterval-minInterval) / float64(steps)

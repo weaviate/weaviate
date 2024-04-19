@@ -59,14 +59,11 @@ type Migrator interface {
 	ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
-<<<<<<< HEAD:usecases/schema/migrate/migrator.go
 	RecalculateVectorDimensions(ctx context.Context) error
 	RecountProperties(ctx context.Context) error
 	InvertedReindex(ctx context.Context, taskNames ...string) error
 
 	AdjustFilterablePropSettings(ctx context.Context) error
-=======
 	WaitForStartup(context.Context) error
 	Shutdown(context.Context) error
->>>>>>> main:usecases/schema/migrator.go
 }

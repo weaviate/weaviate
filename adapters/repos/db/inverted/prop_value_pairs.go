@@ -21,12 +21,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-<<<<<<< HEAD
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
-=======
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
->>>>>>> main
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -46,25 +43,15 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
-<<<<<<< HEAD
-
-	Class *models.Class // The schema
-=======
 	Class              *models.Class // The schema
 	logger             logrus.FieldLogger
->>>>>>> main
 }
 
 func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-<<<<<<< HEAD
-
-	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
-=======
 	return &propValuePair{logger: logger, docIDs: newDocBitmap(), Class: class}, nil
->>>>>>> main
 }
 
 func (pv *propValuePair) SetValue(value []byte) {

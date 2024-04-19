@@ -304,6 +304,8 @@ func (b *Bucket) DumpString() string {
 	})
 	buf.WriteString("Bucket end\n")
 	return buf.String()
+}
+
 func (b *Bucket) GetDir() string {
 	return b.dir
 }
@@ -363,7 +365,6 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
-<<<<<<< HEAD
 // Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
 func (b *Bucket) DumpStringRoaring() string {
 	var buf bytes.Buffer
@@ -374,7 +375,8 @@ func (b *Bucket) DumpStringRoaring() string {
 		buf.WriteString(fmt.Sprintf("%v: %v\n", k, sbmp.ToArray()))
 	}
 	return buf.String()
-=======
+}
+
 func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {
 	cursor := b.MapCursor()
 	defer cursor.Close()
@@ -388,7 +390,6 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 	}
 
 	return nil
->>>>>>> main
 }
 
 func (b *Bucket) SetMemtableThreshold(size uint64) {

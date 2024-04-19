@@ -17,12 +17,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
-<<<<<<< HEAD
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-=======
 	"github.com/weaviate/sroar"
->>>>>>> main
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -30,33 +27,16 @@ import (
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
-<<<<<<< HEAD
-	value        []byte
-	bucket       lsmkv.BucketInterface
-	operator     filters.Operator
-	keyOnly      bool
-	shardVersion uint16
-	PropPrefix   []byte
-}
-
-func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool, shardVersion uint16) *RowReaderFrequency {
-	return &RowReaderFrequency{
-		bucket:       bucket,
-		value:        value,
-		operator:     operator,
-		keyOnly:      keyOnly,
-		shardVersion: shardVersion,
-		PropPrefix:   bucket.PropertyPrefix(),
-=======
 	value         []byte
 	bucket        *lsmkv.Bucket
 	operator      filters.Operator
 	keyOnly       bool
 	shardVersion  uint16
+	PropPrefix   []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
-func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
+func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
 	bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
@@ -66,8 +46,8 @@ func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 		operator:      operator,
 		keyOnly:       keyOnly,
 		shardVersion:  shardVersion,
+		PropPrefix:   bucket.PropertyPrefix(),
 		bitmapFactory: bitmapFactory,
->>>>>>> main
 	}
 }
 
@@ -100,27 +80,9 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
 		return err
 	}
 
-<<<<<<< HEAD
-	var v []lsmkv.MapPair
-	var err error
-	if rr.shardVersion < 2 {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(), lsmkv.MapListLegacySortingRequired())
-		if err != nil {
-			return err
-		}
-	} else {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
-		if err != nil {
-			return err
-		}
-	}
-	// TODO: don't we need to check here if this is a doc id vs a object search?
-	// Or is this not a problem because the latter removes duplicates anyway?
-=======
 	_, err = readFn(rr.value, rr.transformToBitmap(v))
 	return err
 }
->>>>>>> main
 
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
 	v, err := rr.equalHelper(ctx)
@@ -205,44 +167,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	return nil
 }
 
-<<<<<<< HEAD
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequency) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
-			continue
-		}
-		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
-			continue
-		}
-
-		continueReading, err := readFn(k, v)
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
-
-func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) error {
-=======
 func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
->>>>>>> main
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
 		return fmt.Errorf("parse like value: %w", err)

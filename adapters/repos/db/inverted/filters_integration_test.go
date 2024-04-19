@@ -96,16 +96,11 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-<<<<<<< HEAD
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
-=======
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
->>>>>>> main
 
 	type test struct {
 		name                     string
@@ -349,7 +344,6 @@ func Test_Filters_Int(t *testing.T) {
 	require.Nil(t, err)
 
 	propName := "inverted-without-frequency"
-<<<<<<< HEAD
 
 	propIds, err := tracker.NewJsonPropertyIdTracker("temp_propIds")
 	defer propIds.Drop()
@@ -377,13 +371,6 @@ func Test_Filters_Int(t *testing.T) {
 	if err != nil {
 		t.Fail()
 	}
-=======
-	bucketName := helpers.BucketFromPropNameLSM(propName)
-	require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		bucketName, lsmkv.WithStrategy(lsmkv.StrategySetCollection)))
-	bucket := store.Bucket(bucketName)
-	maxDocID := uint64(21)
->>>>>>> main
 
 	defer store.Shutdown(context.Background())
 
@@ -416,16 +403,11 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-<<<<<<< HEAD
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
-=======
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds,nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
->>>>>>> main
 
 	type test struct {
 		name                     string
@@ -617,16 +599,11 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-<<<<<<< HEAD
-	searcher := NewSearcher(logger, store, createSchema(),
-		nil, propIds, nil, nil, fakeStopwordDetector{}, 2, func() bool { return false }, "", config.DefaultQueryNestedCrossReferenceLimit)
-=======
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds,nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
->>>>>>> main
 
 	type test struct {
 		name                     string

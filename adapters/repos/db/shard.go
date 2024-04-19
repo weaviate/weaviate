@@ -147,7 +147,7 @@ type ShardLike interface {
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
+	batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error

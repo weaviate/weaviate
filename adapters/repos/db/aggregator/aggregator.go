@@ -43,21 +43,13 @@ type Aggregator struct {
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
-<<<<<<< HEAD
 	propLengths            *inverted.JsonPropertyLengthTracker
 	propertyIds            *tracker.JsonPropertyIdTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
 	PropertyName           string
-}
-
-func New(store *lsmkv.Store, params aggregation.Params, getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher, deletedDocIDs inverted.DeletedDocIDChecker, stopwords stopwords.StopwordDetector, shardVersion uint16, vectorIndex vectorIndex, logger logrus.FieldLogger, propLengths *inverted.JsonPropertyLengthTracker, isFallbackToSearchable inverted.IsFallbackToSearchable, tenant string, propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64) *Aggregator {
-=======
 	propLenTracker         *inverted.JsonPropertyLengthTracker
-	isFallbackToSearchable inverted.IsFallbackToSearchable
-	tenant                 string
-	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
 }
 
@@ -67,10 +59,9 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLenTracker *inverted.JsonPropertyLengthTracker,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64,
+	tenant string, propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 ) *Aggregator {
->>>>>>> main
 	return &Aggregator{
 		logger:                 logger,
 		store:                  store,
