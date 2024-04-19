@@ -185,7 +185,7 @@ func TestContentReader_MixedOperations(t *testing.T) {
 					require.Equal(t, val64, valuesNumbers[5])
 				}
 				if tt.endOffset > bufLength-uint32Len {
-					val32, offset = contReader.ReadUint32(offset)
+					val32, _ = contReader.ReadUint32(offset)
 					require.Equal(t, uint64(val32), valuesNumbers[6])
 				}
 			})
