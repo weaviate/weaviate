@@ -242,7 +242,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,className schema.
 			return nil, fmt.Errorf("could not find class %s in schema", className)
 		}
 
-		lengthIsIndexed := schema.InvertedIndexConfig.IndexPropertyLength
+		lengthIsIndexed := class.InvertedIndexConfig.IndexPropertyLength
 		if !lengthIsIndexed {
 			return nil, errors.Errorf("Property length must be indexed to be filterable")
 		}
