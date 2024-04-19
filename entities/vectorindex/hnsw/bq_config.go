@@ -15,7 +15,7 @@ import "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 const (
 	DefaultBQEnabled      = false
-	DefaultBQRescoreLimit = 1000
+	DefaultBQRescoreLimit = 256
 )
 
 type BQConfig struct {

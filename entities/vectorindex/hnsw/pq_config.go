@@ -32,7 +32,7 @@ const (
 	DefaultPQEncoderDistribution = PQEncoderDistributionLogNormal
 	DefaultPQCentroids           = 256
 	DefaultPQTrainingLimit       = 100000
-	DefaultPQRescoreLimit        = 1000
+	DefaultPQRescoreLimit        = 256
 )
 
 // Product Quantization encoder configuration
