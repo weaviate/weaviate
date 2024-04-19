@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,26 +49,25 @@ func New(cfg moduletools.ClassConfig, findFn modulecapabilities.FindObjectFn) *V
 	return v
 }
 
-func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) error {
+func (v *Vectorizer) Object(ctx context.Context, obj *models.Object) ([]float32, error) {
 	props := v.config.ReferenceProperties()
 
 	refVecs, err := v.referenceVectorSearch(ctx, obj, props)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(refVecs) == 0 {
 		obj.Vector = nil
-		return nil
+		return nil, nil
 	}
 
 	vec, err := v.calcFn(refVecs...)
 	if err != nil {
-		return fmt.Errorf("calculate vector: %w", err)
+		return nil, fmt.Errorf("calculate vector: %w", err)
 	}
 
-	obj.Vector = vec
-	return nil
+	return vec, nil
 }
 
 func (v *Vectorizer) referenceVectorSearch(ctx context.Context,

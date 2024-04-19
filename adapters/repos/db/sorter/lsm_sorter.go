@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -37,12 +38,12 @@ type lsmSorter struct {
 	valueExtractor  *comparableValueExtractor
 }
 
-func NewLSMSorter(store *lsmkv.Store, sch schema.Schema, className schema.ClassName) (LSMSorter, error) {
+func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className schema.ClassName) (LSMSorter, error) {
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, fmt.Errorf("lsm sorter - bucket %s for class %s not found", helpers.ObjectsBucketLSM, className)
 	}
-	class := sch.GetClass(schema.ClassName(className))
+	class := fn(className.String())
 	if class == nil {
 		return nil, fmt.Errorf("lsm sorter - class %s not found", className)
 	}

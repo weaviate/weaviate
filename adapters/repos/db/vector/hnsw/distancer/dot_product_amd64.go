@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,9 @@ import (
 )
 
 func init() {
-	if cpu.X86.HasAVX2 {
-		dotProductImplementation = asm.Dot
+	if cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512 {
+		dotProductImplementation = asm.DotAVX512
+	} else if cpu.X86.HasAVX2 {
+		dotProductImplementation = asm.DotAVX256
 	}
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -35,7 +36,7 @@ import (
 
 type indices struct {
 	shards                    shards
-	db                        db
+	db                        *db.DB
 	auth                      auth
 	regexpObjects             *regexp.Regexp
 	regexpObjectsOverwrite    *regexp.Regexp
@@ -45,6 +46,7 @@ type indices struct {
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
 	regexpReferences          *regexp.Regexp
+	regexpShardsQueueSize     *regexp.Regexp
 	regexpShardsStatus        *regexp.Regexp
 	regexpShardFiles          *regexp.Regexp
 	regexpShard               *regexp.Regexp
@@ -72,6 +74,8 @@ const (
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`
 	urlPatternReferences = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/references`
+	urlPatternShardsQueueSize = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/queuesize`
 	urlPatternShardsStatus = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/status`
 	urlPatternShardFiles = `\/indices\/(` + cl + `)` +
@@ -84,34 +88,35 @@ const (
 
 type shards interface {
 	PutObject(ctx context.Context, indexName, shardName string,
-		obj *storobj.Object) error
+		obj *storobj.Object, schemaVersion uint64) error
 	BatchPutObjects(ctx context.Context, indexName, shardName string,
-		objs []*storobj.Object) []error
+		objs []*storobj.Object, schemaVersion uint64) []error
 	BatchAddReferences(ctx context.Context, indexName, shardName string,
-		refs objects.BatchReferences) []error
+		refs objects.BatchReferences, schemaVersion uint64) []error
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
-		id strfmt.UUID) error
+		id strfmt.UUID, schemaVersion uint64) error
 	MergeObject(ctx context.Context, indexName, shardName string,
-		mergeDoc objects.MergeDocument) error
+		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
-		vector []float32, distance float32, limit int, filters *filters.LocalFilter,
-		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
-		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+		vector []float32, targetVector string, distance float32, limit int,
+		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
 	Aggregate(ctx context.Context, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
-	FindDocIDs(ctx context.Context, indexName, shardName string,
-		filters *filters.LocalFilter) ([]uint64, error)
+	FindUUIDs(ctx context.Context, indexName, shardName string,
+		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-		docIDs []uint64, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
+	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string) error
@@ -129,20 +134,18 @@ type shards interface {
 	ReInitShard(ctx context.Context, indexName, shardName string) error
 }
 
-type db interface {
-	StartupComplete() bool
-}
-
-func NewIndices(shards shards, db db, auth auth) *indices {
+func NewIndices(shards shards, db *db.DB, auth auth) *indices {
 	return &indices{
-		regexpObjects:             regexp.MustCompile(urlPatternObjects),
-		regexpObjectsOverwrite:    regexp.MustCompile(urlPatternObjectsOverwrite),
-		regexObjectsDigest:        regexp.MustCompile(urlPatternObjectsDigest),
-		regexpObjectsSearch:       regexp.MustCompile(urlPatternObjectsSearch),
-		regexpObjectsFind:         regexp.MustCompile(urlPatternObjectsFind),
+		regexpObjects:          regexp.MustCompile(urlPatternObjects),
+		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
+		regexObjectsDigest:     regexp.MustCompile(urlPatternObjectsDigest),
+		regexpObjectsSearch:    regexp.MustCompile(urlPatternObjectsSearch),
+		regexpObjectsFind:      regexp.MustCompile(urlPatternObjectsFind),
+
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
 		regexpObject:              regexp.MustCompile(urlPatternObject),
 		regexpReferences:          regexp.MustCompile(urlPatternReferences),
+		regexpShardsQueueSize:     regexp.MustCompile(urlPatternShardsQueueSize),
 		regexpShardsStatus:        regexp.MustCompile(urlPatternShardsStatus),
 		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
 		regexpShard:               regexp.MustCompile(urlPatternShard),
@@ -175,7 +178,7 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 				return
 			}
 
-			i.postFindDocIDs().ServeHTTP(w, r)
+			i.postFindUUIDs().ServeHTTP(w, r)
 			return
 		case i.regexpObjectsAggregations.MatchString(path):
 			if r.Method != http.MethodPost {
@@ -238,7 +241,13 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 
 			i.postReferences().ServeHTTP(w, r)
 			return
-
+		case i.regexpShardsQueueSize.MatchString(path):
+			if r.Method == http.MethodGet {
+				i.getGetShardQueueSize().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
 		case i.regexpShardsStatus.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getGetShardStatus().ServeHTTP(w, r)
@@ -326,7 +335,9 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
+	schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+	if err := i.shards.PutObject(r.Context(), index, shard, obj, schemaVersion); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -335,7 +346,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 }
 
 func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
-	index, shard string,
+	class, shard string,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -349,7 +360,19 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
+	index := i.db.GetIndexForIncoming(entschema.ClassName(class))
+	if index == nil {
+		http.Error(w, "index not found", http.StatusInternalServerError)
+		return
+	}
+
+	schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+	errs := index.IncomingBatchPutObjects(r.Context(), shard, objs, schemaVersion)
+	if len(errs) > 0 && errors.Is(errs[0], db.ErrShardNotFound) {
+		http.Error(w, errs[0].Error(), http.StatusInternalServerError)
+		return
+	}
 	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -473,7 +496,8 @@ func (i *indices) deleteObject() http.Handler {
 
 		defer r.Body.Close()
 
-		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -512,7 +536,8 @@ func (i *indices) mergeObject() http.Handler {
 			return
 		}
 
-		if err := i.shards.MergeObject(r.Context(), index, shard, mergeDoc); err != nil {
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err := i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -594,7 +619,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, err := IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, err := IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -603,7 +628,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		}
 
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
-			vector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -651,8 +676,9 @@ func (i *indices) postReferences() http.Handler {
 				http.StatusInternalServerError)
 			return
 		}
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
 
-		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs)
+		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
 		errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -713,7 +739,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 	})
 }
 
-func (i *indices) postFindDocIDs() http.Handler {
+func (i *indices) postFindUUIDs() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpObjectsFind.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
@@ -730,14 +756,14 @@ func (i *indices) postFindDocIDs() http.Handler {
 			return
 		}
 
-		ct, ok := IndicesPayloads.FindDocIDsParams.CheckContentTypeHeaderReq(r)
+		ct, ok := IndicesPayloads.FindUUIDsParams.CheckContentTypeHeaderReq(r)
 		if !ok {
 			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
 				http.StatusUnsupportedMediaType)
 			return
 		}
 
-		filters, err := IndicesPayloads.FindDocIDsParams.
+		filters, err := IndicesPayloads.FindUUIDsParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -745,19 +771,19 @@ func (i *indices) postFindDocIDs() http.Handler {
 			return
 		}
 
-		results, err := i.shards.FindDocIDs(r.Context(), index, shard, filters)
+		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		resBytes, err := IndicesPayloads.FindDocIDsResults.Marshal(results)
+		resBytes, err := IndicesPayloads.FindUUIDsResults.Marshal(results)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		IndicesPayloads.FindDocIDsResults.SetContentTypeHeader(w)
+		IndicesPayloads.FindUUIDsResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
 	})
 }
@@ -875,7 +901,7 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		docIDs, dryRun, err := IndicesPayloads.BatchDeleteParams.
+		uuids, dryRun, err := IndicesPayloads.BatchDeleteParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -883,7 +909,9 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, docIDs, dryRun)
+		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun, schemaVersion)
 
 		resBytes, err := IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
@@ -893,6 +921,33 @@ func (i *indices) deleteObjects() http.Handler {
 
 		IndicesPayloads.BatchDeleteResults.SetContentTypeHeader(w)
 		w.Write(resBytes)
+	})
+}
+
+func (i *indices) getGetShardQueueSize() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpShardsQueueSize.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+
+		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		sizeBytes, err := IndicesPayloads.GetShardQueueSizeResults.Marshal(size)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		IndicesPayloads.GetShardQueueSizeResults.SetContentTypeHeader(w)
+		w.Write(sizeBytes)
 	})
 }
 

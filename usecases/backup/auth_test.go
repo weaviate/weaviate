@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -84,7 +84,7 @@ func Test_Authorization(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				s := NewScheduler(authorizer, nil, nil, nil, nil, logger)
+				s := NewScheduler(authorizer, nil, nil, nil, nil, &fakeSchemaManger{}, logger)
 				require.NotNil(t, s)
 
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)

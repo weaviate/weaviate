@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -327,7 +327,7 @@ func TestObjectsSorter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Run("with distance", func(t *testing.T) {
-				sorter := NewObjectsSorter(sorterCitySchema())
+				sorter := NewObjectsSorter(sorterCitySchema().GetClass)
 				gotObjs, gotDists, err := sorter.Sort(sorterCitySchemaObjects(), sorterCitySchemaDistances(), 0, tt.sort)
 
 				require.Nil(t, err)
@@ -343,7 +343,7 @@ func TestObjectsSorter(t *testing.T) {
 			})
 
 			t.Run("without distance", func(t *testing.T) {
-				sorter := NewObjectsSorter(sorterCitySchema())
+				sorter := NewObjectsSorter(sorterCitySchema().GetClass)
 				gotObjs, gotDists, err := sorter.Sort(sorterCitySchemaObjects(), nil, 0, tt.sort)
 
 				require.Nil(t, err)
@@ -359,7 +359,7 @@ func TestObjectsSorter(t *testing.T) {
 			})
 
 			t.Run("with limit", func(t *testing.T) {
-				sorter := NewObjectsSorter(sorterCitySchema())
+				sorter := NewObjectsSorter(sorterCitySchema().GetClass)
 				gotObjs, gotDists, err := sorter.Sort(sorterCitySchemaObjects(), sorterCitySchemaDistances(), tt.limit, tt.sort)
 
 				require.Nil(t, err)

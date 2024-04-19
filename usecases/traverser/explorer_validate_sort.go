@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,5 @@ func (e *Explorer) validateSort(className string, sort []filters.Sort) error {
 	if len(sort) == 0 {
 		return nil
 	}
-	sch := e.schemaGetter.GetSchemaSkipAuth()
-	return filters.ValidateSort(sch, schema.ClassName(className), sort)
+	return filters.ValidateSort(e.schemaGetter.ReadOnlyClass, schema.ClassName(className), sort)
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,9 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -45,14 +48,17 @@ type cycleManager struct {
 
 	stopContexts []context.Context
 	stopResults  []chan bool
+
+	logger logrus.FieldLogger
 }
 
-func NewManager(cycleTicker CycleTicker, cycleCallback CycleCallback) CycleManager {
+func NewManager(cycleTicker CycleTicker, cycleCallback CycleCallback, logger logrus.FieldLogger) CycleManager {
 	return &cycleManager{
 		cycleCallback: cycleCallback,
 		cycleTicker:   cycleTicker,
 		running:       false,
 		stopSignal:    make(chan struct{}, 1),
+		logger:        logger,
 	}
 }
 
@@ -66,7 +72,7 @@ func (c *cycleManager) Start() {
 		return
 	}
 
-	go func() {
+	enterrors.GoWrapper(func() {
 		c.cycleTicker.Start()
 		defer c.cycleTicker.Stop()
 
@@ -84,7 +90,7 @@ func (c *cycleManager) Start() {
 			}
 			c.cycleTicker.CycleExecuted(c.cycleCallback(c.shouldAbortCycleCallback))
 		}
-	}()
+	}, c.logger)
 
 	c.running = true
 }

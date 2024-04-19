@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -42,29 +43,38 @@ func countNetPathFromSegmentPath(segPath string) string {
 	return fmt.Sprintf("%s.cna", extless)
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}
 
-	ok, err := fileExists(s.countNetPath())
+	path := s.countNetPath()
+
+	ok, err := fileExists(path)
 	if err != nil {
 		return err
 	}
 
 	if ok {
-		err = s.loadCountNetFromDisk()
-		if err == nil {
-			return nil
-		}
+		if overwrite {
+			err := os.Remove(path)
+			if err != nil {
+				return fmt.Errorf("delete existing net additions counter %s: %w", path, err)
+			}
+		} else {
+			err = s.loadCountNetFromDisk()
+			if err == nil {
+				return nil
+			}
 
-		if err != ErrInvalidChecksum {
-			// not a recoverable error
-			return err
-		}
+			if !errors.Is(err, ErrInvalidChecksum) {
+				// not a recoverable error
+				return err
+			}
 
-		// now continue re-calculating
+			// now continue re-calculating
+		}
 	}
 
 	var lastErr error
@@ -106,19 +116,6 @@ func (s *segment) storeCountNetOnDisk() error {
 	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions)
 }
 
-// prefillCountNetAdditions is a helper function that can be used in
-// compactions. A compacted segment behaves exactly as the two segments it
-// replaces. As a result the count net additions of a compacted segment is
-// simply the sum of the old two segments.
-//
-// by "prefilling" which means creating the file on disk, the subsequent
-// newSegment() call can skip re-calculating the count net additions which
-// would have a high cost on large segment groups.
-func prefillCountNetAdditions(segPath string, updatedCountNetAdditions int) error {
-	return storeCountNetOnDisk(countNetPathFromSegmentPath(segPath),
-		updatedCountNetAdditions)
-}
-
 func storeCountNetOnDisk(path string, value int) error {
 	buf := new(bytes.Buffer)
 
@@ -138,4 +135,17 @@ func (s *segment) loadCountNetFromDisk() error {
 	s.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
 
 	return nil
+}
+
+func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error) {
+	if s.strategy != segmentindex.StrategyReplace {
+		// only "replace" has count net additions, so we are done
+		return []string{}, nil
+	}
+
+	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
+	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions); err != nil {
+		return nil, err
+	}
+	return []string{cnaPath}, nil
 }

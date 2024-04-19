@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -53,32 +53,32 @@ func BenchmarkL2InlineVsLoop(b *testing.B) {
 				case 2:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l22(x, y)
+						l22[float32, float32](x, y)
 					}
 				case 4:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l24(x, y)
+						l24[float32, float32](x, y)
 					}
 				case 6:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l26(x, y)
+						l26[float32, float32](x, y)
 					}
 				case 8:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l28(x, y)
+						l28[float32, float32](x, y)
 					}
 				case 10:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l210(x, y)
+						l210[float32, float32](x, y)
 					}
 				case 12:
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
-						l212(x, y)
+						l212[float32, float32](x, y)
 					}
 				default:
 					panic("unsupported length")

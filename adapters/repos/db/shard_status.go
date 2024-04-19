@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,7 +25,7 @@ func (s *Shard) initStatus() {
 	s.status = storagestate.StatusReady
 }
 
-func (s *Shard) getStatus() storagestate.Status {
+func (s *Shard) GetStatus() storagestate.Status {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
@@ -33,13 +33,30 @@ func (s *Shard) getStatus() storagestate.Status {
 }
 
 func (s *Shard) isReadOnly() bool {
-	return s.getStatus() == storagestate.StatusReadOnly
+	return s.GetStatus() == storagestate.StatusReadOnly
 }
 
-func (s *Shard) updateStatus(in string) error {
+func (s *Shard) compareAndSwapStatus(old, new string) (storagestate.Status, error) {
 	s.statusLock.Lock()
 	defer s.statusLock.Unlock()
 
+	if s.status.String() != old {
+		return s.status, nil
+	}
+
+	return s.status, s.updateStatusUnlocked(new)
+}
+
+func (s *Shard) UpdateStatus(in string) error {
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	return s.updateStatusUnlocked(in)
+}
+
+// updateStatusUnlocked updates the status without locking the statusLock.
+// Warning: Use UpdateStatus instead.
+func (s *Shard) updateStatusUnlocked(in string) error {
 	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	if err != nil {
 		return errors.Wrap(err, in)
@@ -47,6 +64,12 @@ func (s *Shard) updateStatus(in string) error {
 
 	s.status = targetStatus
 	s.updateStoreStatus(targetStatus)
+
+	s.index.logger.
+		WithField("action", "update shard status").
+		WithField("class", s.index.Config.ClassName).
+		WithField("shard", s.name).
+		WithField("status", in)
 
 	return nil
 }

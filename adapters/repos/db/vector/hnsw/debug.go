@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -106,7 +107,7 @@ type JSONDumpNodeMap struct {
 	Connections map[int][]uint64 `json:"connections"`
 }
 
-func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
+func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*hnsw, error) {
 	var dump JSONDump
 	err := json.Unmarshal(dumpBytes, &dump)
 	if err != nil {
@@ -122,8 +123,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	return index, nil
 }
 
-func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
+func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) (*hnsw, error) {
 	var dump JSONDumpMap
 	err := json.Unmarshal(dumpBytes, &dump)
 	if err != nil {
@@ -159,8 +159,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID VectorForID) (*hnsw, error) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
-	},
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 	if err != nil {
 		return nil, err
 	}

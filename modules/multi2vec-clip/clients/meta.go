@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,7 +21,7 @@ import (
 )
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", v.url("/meta"), nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", v.url("/meta", ""), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "create GET meta request")
 	}

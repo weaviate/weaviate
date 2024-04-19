@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 func batchDeleteJourney(t *testing.T) {
 	maxObjects := 20
 	var sources []*models.Object
+	var targets []*models.Object
 	equalThisName := "equal-this-name"
 
 	getBatchDelete := func(className string, path []string, valueText string, dryRun bool) *batch.BatchObjectsDeleteParams {
@@ -63,7 +64,7 @@ func batchDeleteJourney(t *testing.T) {
 			sourceUUIDs[i] = uuid
 		}
 
-		targets := make([]*models.Object, maxObjects)
+		targets = make([]*models.Object, maxObjects)
 		for i := range targets {
 			uuid := mustNewUUID()
 
@@ -91,6 +92,18 @@ func batchDeleteJourney(t *testing.T) {
 		for _, elem := range res.Payload {
 			require.Nil(t, elem.Result.Errors)
 		}
+
+		paramsTarget := batch.NewBatchObjectsCreateParams().WithBody(
+			batch.BatchObjectsCreateBody{
+				Objects: targets,
+			},
+		)
+		resTarget, errTarget := helper.Client(t).Batch.BatchObjectsCreate(paramsTarget, nil)
+		require.Nil(t, errTarget)
+
+		for _, elem := range resTarget.Payload {
+			require.Nil(t, elem.Result.Errors)
+		}
 	})
 
 	t.Run("import all batch refs", func(t *testing.T) {
@@ -98,8 +111,8 @@ func batchDeleteJourney(t *testing.T) {
 
 		for i := range batchRefs {
 			batchRefs[i] = &models.BatchReference{
-				From: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s/%s/fromSource", "BulkTestTarget", targetUUIDs[i])),
-				To:   strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", sourceUUIDs[i])),
+				From: strfmt.URI(fmt.Sprintf("weaviate://localhost/BulkTestTarget/%s/fromSource", targetUUIDs[i])),
+				To:   strfmt.URI(fmt.Sprintf("weaviate://localhost/BulkTestSource/%s", sourceUUIDs[i])),
 			}
 		}
 

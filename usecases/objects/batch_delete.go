@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,19 +13,15 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-)
-
-const (
-	OutputMinimal = "minimal"
-	OutputVerbose = "verbose"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -50,6 +46,28 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	return b.deleteObjects(ctx, principal, match, dryRun, output, repl, tenant)
 }
 
+// DeleteObjectsFromGRPC deletes objects in batch based on the match filter
+func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *models.Principal,
+	params BatchDeleteParams,
+	repl *additional.ReplicationProperties, tenant string,
+) (BatchDeleteResult, error) {
+	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
+	if err != nil {
+		return BatchDeleteResult{}, err
+	}
+
+	unlock, err := b.locks.LockConnector()
+	if err != nil {
+		return BatchDeleteResult{}, NewErrInternal("could not acquire lock: %v", err)
+	}
+	defer unlock()
+
+	b.metrics.BatchDeleteInc()
+	defer b.metrics.BatchDeleteDec()
+
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant, 0)
+}
+
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
@@ -59,7 +77,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant)
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, 0)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
@@ -99,14 +117,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 
 	// Validate schema given in body with the weaviate schema
-	s, err := b.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get schema: %s", err)
-	}
-
-	class := s.FindClassByName(schema.ClassName(match.Class))
-	if class == nil {
-		return nil, fmt.Errorf("class: %v doesn't exist", match.Class)
+	class, err := b.schemaManager.GetClass(ctx, principal, match.Class)
+	if err != nil || class == nil {
+		return nil, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
 	}
 
 	filter, err := filterext.Parse(match.Where, class.Class)
@@ -114,7 +127,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, fmt.Errorf("failed to parse where filter: %s", err)
 	}
 
-	err = filters.ValidateFilters(s, filter)
+	err = filters.ValidateFilters(b.schemaManager.ReadOnlyClass, filter)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %s", err)
 	}
@@ -124,15 +137,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		dryRunParam = *dryRun
 	}
 
-	outputParam := OutputMinimal
-	if output != nil {
-		switch *output {
-		case OutputMinimal, OutputVerbose:
-			outputParam = *output
-		default:
-			return nil, fmt.Errorf(`invalid output: "%s", possible values are: "%s", "%s"`,
-				*output, OutputMinimal, OutputVerbose)
-		}
+	outputParam, err := verbosity.ParseOutput(output)
+	if err != nil {
+		return nil, err
 	}
 
 	params := &BatchDeleteParams{

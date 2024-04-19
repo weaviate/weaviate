@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,11 +20,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-type nilProp struct {
-	Name                string
-	AddToPropertyLength bool
-}
-
 func isPropertyForLength(dt schema.DataType) bool {
 	switch dt {
 	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
@@ -34,11 +29,10 @@ func isPropertyForLength(dt schema.DataType) bool {
 	}
 }
 
-func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []nilProp, error) {
-	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Objects
-	c, err := schema.GetClassByName(schemaModel, object.Class().String())
-	if err != nil {
-		return nil, nil, err
+func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+	c := s.index.getSchema.ReadOnlyClass(object.Class().String())
+	if c == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", object.Class().String())
 	}
 
 	var schemaMap map[string]interface{}
@@ -55,7 +49,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 
 	// add nil for all properties that are not part of the object so that they can be added to the inverted index for
 	// the null state (if enabled)
-	var nilProps []nilProp
+	var nilProps []inverted.NilProperty
 	if s.index.invertedIndexConfig.IndexNullState {
 		for _, prop := range c.Properties {
 			dt := schema.DataType(prop.DataType[0])
@@ -69,7 +63,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, []ni
 			// 2. Their inverted index is enabled
 			_, ok := schemaMap[prop.Name]
 			if !ok && inverted.HasInvertedIndex(prop) {
-				nilProps = append(nilProps, nilProp{
+				nilProps = append(nilProps, inverted.NilProperty{
 					Name:                prop.Name,
 					AddToPropertyLength: isPropertyForLength(dt),
 				})

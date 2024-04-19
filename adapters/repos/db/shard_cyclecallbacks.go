@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -63,7 +63,7 @@ func (s *Shard) initCycleCallbacks() {
 	vectorTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
 		vectorTombstoneCleanupId, vectorTombstoneCleanupCallbacks.CycleCallback)
 
-	vectorCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2,
+	vectorCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
 		vectorCommitLoggerCallbacksCtrl, vectorTombstoneCleanupCallbacksCtrl)
 
 	geoPropsCommitLoggerId := id("geo_props", "commit_logger")
@@ -78,7 +78,7 @@ func (s *Shard) initCycleCallbacks() {
 	geoPropsTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.geoPropsTombstoneCleanupCallbacks.Register(
 		geoPropsTombstoneCleanupId, geoPropsTombstoneCleanupCallbacks.CycleCallback)
 
-	geoPropsCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2,
+	geoPropsCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
 		geoPropsCommitLoggerCallbacksCtrl, geoPropsTombstoneCleanupCallbacksCtrl)
 
 	s.cycleCallbacks = &shardCycleCallbacks{

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -775,6 +775,45 @@ func TestNearCustomTextRanker(t *testing.T) {
 						"concepts": []interface{}{"epic"},
 						"force":    float64(0.25),
 					},
+				}),
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("for actions with targetvec", func(t *testing.T) {
+		query := `{ Get { SomeAction(nearCustomText: {
+								concepts: ["c1", "c2", "c3"],
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+								targetVectors: ["epic"]
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+					"targetVectors": []interface{}{"epic"},
 				}),
 			},
 		}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,7 +28,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+// Note: Scaling out feature disabled
+// Reason: The current implementation of scaling out is experimental and deemed unreliable.
+// It has been disabled to prevent potential issues and ensure system stability.
+// Re-enable this feature only after addressing its reliability concerns and implementing a more robust solution.
 func multiShardScaleOut(t *testing.T) {
+	t.Skip("Re-enable this feature only after addressing its reliability concerns and implementing a more robust solution.")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -132,7 +137,7 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNodeAt(ctx, t, compose, 2)
 		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
 		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)

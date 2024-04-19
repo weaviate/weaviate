@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -278,6 +278,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 			require.NotNil(t, response.Data)
 
 			agg := response.Data["Aggregate"].(map[string]interface{})
+			require.NotNil(t, agg)
+
 			objects := agg[className].([]interface{})
 			require.Len(t, objects, 1)
 			obj := objects[0].(map[string]interface{})[fieldName].(map[string]interface{})

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func TestMemtableRoaringSet(t *testing.T) {
@@ -26,7 +26,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	}
 
 	t.Run("inserting individual entries", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -55,7 +58,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	})
 
 	t.Run("inserting lists", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -82,7 +88,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	})
 
 	t.Run("inserting bitmaps", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -111,7 +120,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	})
 
 	t.Run("removing individual entries", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -134,7 +146,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	})
 
 	t.Run("removing lists", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -161,7 +176,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	})
 
 	t.Run("removing bitmaps", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -188,7 +206,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 	})
 
 	t.Run("adding/removing bitmaps", func(t *testing.T) {
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, nil)
+		cl, err := newCommitLogger(memPath())
+		require.NoError(t, err)
+
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")

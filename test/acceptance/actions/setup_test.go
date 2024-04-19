@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -157,7 +158,8 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 	})
 
 	t.Run("set shard to readonly", func(t *testing.T) {
-		nodesResp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+		verbose := verbosity.OutputVerbose
+		nodesResp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(&verbose), nil)
 		require.Nil(t, err)
 		require.NotNil(t, nodesResp.Payload)
 		require.Len(t, nodesResp.Payload.Nodes, 1)
@@ -185,6 +187,6 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 	t.Run("assert class is deleted", func(t *testing.T) {
 		params := clschema.NewSchemaObjectsGetParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
-		require.Equal(t, err, &clschema.SchemaObjectsGetNotFound{})
+		require.Equal(t, &clschema.SchemaObjectsGetNotFound{}, err)
 	})
 }

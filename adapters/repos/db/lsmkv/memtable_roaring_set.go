@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,11 +12,9 @@
 package lsmkv
 
 import (
-	"time"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
@@ -137,7 +135,7 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 	// 2.
 	m.size += uint64(entriesChanged * 2)
 	m.metrics.size(m.size)
-	m.lastWrite = time.Now()
+	m.updateDirtyAt()
 }
 
 func (m *Memtable) roaringSetAddCommitLog(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {

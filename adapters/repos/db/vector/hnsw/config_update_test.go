@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -25,8 +25,8 @@ func TestUserConfigUpdates(t *testing.T) {
 	t.Run("various immutable and mutable fields", func(t *testing.T) {
 		type test struct {
 			name          string
-			initial       schema.VectorIndexConfig
-			update        schema.VectorIndexConfig
+			initial       schemaConfig.VectorIndexConfig
+			update        schemaConfig.VectorIndexConfig
 			expectedError error
 		}
 
@@ -92,6 +92,20 @@ func TestUserConfigUpdates(t *testing.T) {
 					DynamicEFMin:    101,
 					DynamicEFMax:    201,
 					DynamicEFFactor: 6,
+				},
+				expectedError: nil,
+			},
+			{
+				name: "setting bq compression on",
+				initial: ent.UserConfig{
+					BQ: ent.BQConfig{
+						Enabled: false,
+					},
+				},
+				update: ent.UserConfig{
+					BQ: ent.BQConfig{
+						Enabled: true,
+					},
 				},
 				expectedError: nil,
 			},

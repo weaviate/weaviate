@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -61,7 +61,7 @@ func TestQueryReplica(t *testing.T) {
 
 	for _, test := range tests {
 		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
-		got, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
+		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {
 				t.Errorf("%s: want: nil, got: %v", test.name, got)
@@ -69,10 +69,6 @@ func TestQueryReplica(t *testing.T) {
 				t.Errorf("%s: must return an error", test.name)
 			}
 			continue
-		}
-		lastNode, ok := got.(string)
-		if !ok {
-			t.Errorf("%s: result type want: string, got: %t", test.name, got)
 		}
 		if lastNode != test.targetNode {
 			t.Errorf("%s: last responding node want:%s got:%s", test.name, test.targetNode, lastNode)

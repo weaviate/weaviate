@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -202,7 +202,7 @@ func TestDelegateSort(t *testing.T) {
 	delegate.set("N2", NodeInfo{DiskUsage{Available: GB + 128}, now})
 	delegate.set("N3", NodeInfo{DiskUsage{Available: GB + 512}, now})
 	// one block more
-	delegate.set("N4", NodeInfo{DiskUsage{Available: GB + 4096}, now})
+	delegate.set("N4", NodeInfo{DiskUsage{Available: GB + 1<<25}, now})
 	got = delegate.sortCandidates([]string{"N1", "N0", "N2", "N3", "N4"})
 	if got[1] == "N2" {
 		assert.Equal(t, []string{"N4", "N2", "N3", "N1", "N0"}, got)

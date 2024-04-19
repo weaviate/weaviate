@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -112,7 +114,7 @@ type VectorRepo interface {
 type vectorRepo interface {
 	VectorRepo
 	BatchPutObjects(ctx context.Context, objects objects.BatchObjects,
-		repl *additional.ReplicationProperties) (objects.BatchObjects, error)
+		repl *additional.ReplicationProperties, schemaVersion uint64) (objects.BatchObjects, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k
@@ -142,7 +144,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	err = NewValidator(c.schemaGetter, params).Do()
+	err = NewValidator(c.schemaGetter.ReadOnlyClass, params).Do()
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +168,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	go c.run(params, filters)
+	enterrors.GoWrapper(func() { c.run(params, filters) }, c.logger)
 
 	return &params, nil
 }
@@ -230,7 +232,7 @@ func (c *Classifier) validateFilter(filter *libfilters.LocalFilter) error {
 	if filter == nil {
 		return nil
 	}
-	return libfilters.ValidateFilters(c.schemaGetter.GetSchemaSkipAuth(), filter)
+	return libfilters.ValidateFilters(c.schemaGetter.ReadOnlyClass, filter)
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {

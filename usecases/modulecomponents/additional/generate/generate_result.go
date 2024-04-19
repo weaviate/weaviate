@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,8 @@ import (
 	"context"
 	"regexp"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -63,14 +65,15 @@ func (p *GenerateProvider) generatePerSearchResult(ctx context.Context, in []sea
 	sem := make(chan struct{}, p.maximumNumberOfGoroutines)
 	for i, result := range in {
 		wg.Add(1)
+		i := i
 		textProperties := p.getTextProperties(result, nil)
-		go func(result search.Result, textProperties map[string]string, i int) {
+		enterrors.GoWrapper(func() {
 			sem <- struct{}{}
 			defer wg.Done()
 			defer func() { <-sem }()
 			generateResult, err := p.client.GenerateSingleResult(ctx, textProperties, prompt, cfg)
 			p.setIndividualResult(in, i, generateResult, err)
-		}(result, textProperties, i)
+		}, p.logger)
 	}
 	wg.Wait()
 	return in, nil

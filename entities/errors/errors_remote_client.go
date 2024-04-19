@@ -4,14 +4,16 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package errors
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type ErrOpenHttpRequest struct {
 	err error
@@ -31,6 +33,12 @@ type ErrSendHttpRequest struct {
 
 func (e ErrSendHttpRequest) Error() string {
 	return e.err.Error()
+}
+
+// Unwrap returns the original inner error, so it can be
+// used with errors.Is and errors.As
+func (e ErrSendHttpRequest) Unwrap() error {
+	return e.err
 }
 
 func NewErrSendHttpRequest(err error) ErrSendHttpRequest {

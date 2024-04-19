@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,38 +12,44 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func (s *segment) get(key []byte) ([]byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace)
+		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
 	before := time.Now()
 
-	if !s.bloomFilter.Test(key) {
+	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		s.bloomFilterMetrics.trueNegative(before)
 		return nil, lsmkv.NotFound
 	}
 
 	node, err := s.index.Get(key)
 	if err != nil {
-		if err == lsmkv.NotFound {
-			s.bloomFilterMetrics.falsePositive(before)
+		if errors.Is(err, lsmkv.NotFound) {
+			if s.useBloomFilter {
+				s.bloomFilterMetrics.falsePositive(before)
+			}
 			return nil, lsmkv.NotFound
 		} else {
 			return nil, err
 		}
 	}
 
-	defer s.bloomFilterMetrics.truePositive(before)
+	defer func() {
+		if s.useBloomFilter {
+			s.bloomFilterMetrics.truePositive(before)
+		}
+	}()
 
 	// We need to copy the data we read from the segment exactly once in this
 	// place. This means that future processing can share this memory as much as
@@ -66,14 +72,14 @@ func (s *segment) get(key []byte) ([]byte, error) {
 
 func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return nil, errors.Errorf("get only possible for strategy %q", StrategyReplace), nil
+		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace), nil
 	}
 
 	if pos > len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
-		return nil, errors.Errorf("no secondary index at pos %d", pos), nil
+		return nil, fmt.Errorf("no secondary index at pos %d", pos), nil
 	}
 
-	if !s.secondaryBloomFilters[pos].Test(key) {
+	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
 		return nil, lsmkv.NotFound, nil
 	}
 
@@ -124,44 +130,4 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
 
 	return in[9 : 9+valueLength], nil
-}
-
-func (s *segment) replaceStratParseDataWithKey(in []byte) (segmentReplaceNode, error) {
-	if len(in) == 0 {
-		return segmentReplaceNode{}, lsmkv.NotFound
-	}
-
-	r := bytes.NewReader(in)
-
-	out, err := ParseReplaceNode(r, s.secondaryIndexCount)
-	if err != nil {
-		return out, err
-	}
-
-	if out.tombstone {
-		return out, lsmkv.Deleted
-	}
-
-	return out, nil
-}
-
-func (s *segment) replaceStratParseDataWithKeyInto(in []byte,
-	node *segmentReplaceNode,
-) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	r := bytes.NewReader(in)
-
-	err := ParseReplaceNodeInto(r, s.secondaryIndexCount, node)
-	if err != nil {
-		return err
-	}
-
-	if node.tombstone {
-		return lsmkv.Deleted
-	}
-
-	return nil
 }

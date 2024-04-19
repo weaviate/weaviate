@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ type NodeStatus struct {
 	Stats *NodeStats `json:"stats,omitempty"`
 
 	// Node's status.
-	// Enum: [HEALTHY UNHEALTHY UNAVAILABLE]
+	// Enum: [HEALTHY UNHEALTHY UNAVAILABLE TIMEOUT]
 	Status *string `json:"status,omitempty"`
 
 	// The version of Weaviate.
@@ -149,7 +149,7 @@ var nodeStatusTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["HEALTHY","UNHEALTHY","UNAVAILABLE"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["HEALTHY","UNHEALTHY","UNAVAILABLE","TIMEOUT"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -167,6 +167,9 @@ const (
 
 	// NodeStatusStatusUNAVAILABLE captures enum value "UNAVAILABLE"
 	NodeStatusStatusUNAVAILABLE string = "UNAVAILABLE"
+
+	// NodeStatusStatusTIMEOUT captures enum value "TIMEOUT"
+	NodeStatusStatusTIMEOUT string = "TIMEOUT"
 )
 
 // prop value enum

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -36,13 +37,16 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -109,7 +113,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5}, nil)
+		}, []float32{0.5}, nil, nil, 0)
 		require.Nil(t, err)
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
@@ -121,7 +125,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.7}, nil)
+			}, []float32{0.7}, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -175,7 +179,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: i,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs, nil)
+		_, err = repo.AddBatchReferences(context.Background(), refs, nil, 0)
 		assert.Nil(t, err)
 	})
 
@@ -250,7 +254,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: 3*i + 2,
 			}
 		}
-		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil)
+		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil, 0)
 		assert.Nil(t, err)
 		require.Len(t, batchRefs, 6)
 		assert.Nil(t, batchRefs[0].Err)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,12 +17,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -41,6 +43,7 @@ var (
 type repairer struct {
 	class  string
 	client finderClient // needed to commit and abort operation
+	logger logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
@@ -78,7 +81,7 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 	}
 
-	var gr errgroup.Group
+	gr := enterrors.NewErrorGroupWrapper(r.logger)
 	for _, vote := range votes { // repair
 		if vote.UTime == lastUTime {
 			continue
@@ -142,7 +145,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	if resp.UpdateTime() != lastUTime {
 		return false, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 	}
-	gr, ctx := errgroup.WithContext(ctx)
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
 	for _, vote := range votes { // repair
 		if vote.UTime == lastUTime {
 			continue
@@ -235,7 +238,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		partitions = append(partitions, len(ms))
 
 		// concurrent fetches
-		gr, ctx := errgroup.WithContext(ctx)
+		gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
 		start := 0
 		for _, end := range partitions { // fetch diffs
 			rid := ms[start].S
@@ -266,7 +269,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 	}
 
 	// concurrent repairs
-	gr, ctx := errgroup.WithContext(ctx)
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
 	for rid, vote := range votes {
 		query := make([]*objects.VObject, 0, len(ids)/2)
 		m := make(map[string]int, len(ids)/2) //

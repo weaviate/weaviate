@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 )
 
 type TxBroadcaster struct {
@@ -25,6 +27,7 @@ type TxBroadcaster struct {
 	client      Client
 	consensusFn ConsensusFn
 	ideal       *IdealClusterState
+	logger      logrus.FieldLogger
 }
 
 // The Broadcaster is the link between the the current node and all other nodes
@@ -45,12 +48,13 @@ type MemberLister interface {
 	Hostnames() []string
 }
 
-func NewTxBroadcaster(state MemberLister, client Client) *TxBroadcaster {
-	ideal := NewIdealClusterState(state)
+func NewTxBroadcaster(state MemberLister, client Client, logger logrus.FieldLogger) *TxBroadcaster {
+	ideal := NewIdealClusterState(state, logger)
 	return &TxBroadcaster{
 		state:  state,
 		client: client,
 		ideal:  ideal,
+		logger: logger,
 	}
 }
 
@@ -67,7 +71,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 
 	hosts := t.state.Hostnames()
 	resTx := make([]*Transaction, len(hosts))
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for i, host := range hosts {
 		i := i       // https://golang.org/doc/faq#closures_and_goroutines
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
@@ -88,7 +92,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 			}
 
 			return nil
-		})
+		}, host)
 	}
 
 	err := eg.Wait()
@@ -111,7 +115,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 }
 
 func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *Transaction) error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for _, host := range t.state.Hostnames() {
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
@@ -126,7 +130,7 @@ func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *T
 			}
 
 			return nil
-		})
+		}, host)
 	}
 
 	return eg.Wait()
@@ -138,7 +142,7 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 			return fmt.Errorf("tx does not tolerate node failures: %w", err)
 		}
 	}
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for _, host := range t.state.Hostnames() {
 		// make sure we don't block forever if the caller passes in an unlimited
 		// context. If another node does not respond within the timeout, consider
@@ -152,7 +156,7 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 			}
 
 			return nil
-		})
+		}, host)
 	}
 
 	return eg.Wait()

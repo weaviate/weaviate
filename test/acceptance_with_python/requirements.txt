@@ -1,0 +1,6 @@
+weaviate-client==4.5.1
+
+pytest>=8.0.1,<9.0.0
+pytest-xdist==3.5.0
+
+black>=24.2.0,<25.0.0

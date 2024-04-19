@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -37,7 +37,7 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 			panic("NaN")
 		}
 
-		resControl := DotProductGo(vec1, vec2)
+		resControl := DotProductFloatGo(vec1, vec2)
 		delta := float64(0.01)
 		diff := float64(resControl) - float64(res)
 		if diff < -delta || diff > delta {
@@ -77,7 +77,7 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 			panic("NaN")
 		}
 
-		resControl := DotProductGo(vec1s[i], vec2s[i])
+		resControl := DotProductFloatGo(vec1s[i], vec2s[i])
 		delta := float64(0.01)
 		diff := float64(resControl) - float64(res)
 		if diff < -delta || diff > delta {

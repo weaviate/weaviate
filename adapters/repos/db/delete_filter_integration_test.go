@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // This test aims to prevent a regression on
@@ -54,13 +54,16 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 			DataType: []string{string(schema.DataTypeBoolean)},
 		}},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -93,7 +96,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 				Vector: []float32{0.1},
 			}
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -106,7 +109,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			things[i].Properties.(map[string]interface{})["unrelatedProp"] = "updatedValue"
 
-			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil)
+			err := repo.PutObject(context.Background(), things[i], things[i].Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -168,13 +171,16 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Tokenization: "word",
 		}},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -202,13 +208,13 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil)
+		}, []float32{0, 1}, nil, nil, 0)
 
 		require.Nil(t, err)
 	})
 
 	t.Run("delete first object", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "Test", firstID, nil, "")
+		err := repo.DeleteObject(context.Background(), "Test", firstID, nil, "", 0)
 		require.Nil(t, err)
 	})
 
@@ -221,7 +227,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 			Properties: map[string]interface{}{
 				"author": "Simon",
 			},
-		}, []float32{0, 1}, nil)
+		}, []float32{0, 1}, nil, nil, 0)
 
 		require.Nil(t, err)
 	})

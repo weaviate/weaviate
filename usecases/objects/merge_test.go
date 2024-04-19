@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -141,6 +141,7 @@ func Test_MergeObject(t *testing.T) {
 			previous: &models.Object{
 				Class:      cls,
 				Properties: map[string]interface{}{},
+				Vectors:    map[string]models.Vector{},
 			},
 			updated: &models.Object{
 				Class: cls,
@@ -163,6 +164,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
+				Vectors: map[string]models.Vector{},
 			},
 			errMerge: errAny,
 			wantCode: StatusInternalServerError,
@@ -218,6 +220,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
+				Vectors: map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -249,6 +252,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "another name",
 				},
+				Vectors: map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -271,6 +275,7 @@ func Test_MergeObject(t *testing.T) {
 				ID:              uuid,
 				Vector:          []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{},
+				Vectors:         map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -315,13 +320,14 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
-					"employees": int64(70),
+					"employees": float64(70),
 					"located": &models.GeoCoordinates{
 						Latitude:  ptFloat32(30.2),
 						Longitude: ptFloat32(60.2),
 					},
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
+				Vectors: map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -363,6 +369,7 @@ func Test_MergeObject(t *testing.T) {
 						To:   crossrefMustParse("weaviate://localhost/AnimalAction/a8ffc82c-9845-4014-876c-11369353c33c"),
 					},
 				},
+				Vectors: map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -387,6 +394,7 @@ func Test_MergeObject(t *testing.T) {
 				ID:              uuid,
 				Vector:          []float32{0.66, 0.22},
 				PrimitiveSchema: map[string]interface{}{},
+				Vectors:         map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -415,6 +423,7 @@ func Test_MergeObject(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"description": "this description was updated",
 				},
+				Vectors: map[string]models.Vector{},
 			},
 			stage: stageCount,
 		},
@@ -429,9 +438,6 @@ func Test_MergeObject(t *testing.T) {
 				cls = tc.updated.Class
 			}
 			if tc.previous != nil {
-				if tc.previous.Properties != nil && tc.updated.Vector == nil {
-					m.modulesProvider.On("VectorizerName", mock.Anything).Return("some-module", nil)
-				}
 				m.repo.On("Object", cls, uuid, search.SelectProperties(nil), additional.Properties{}, "").
 					Return(&search.Result{
 						Schema:    tc.previous.Properties,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -23,16 +24,30 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {
+func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	if merge.Vector != nil {
-		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
-		if err != nil {
-			return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
+	if s.hasTargetVectors() {
+		for targetVector, vector := range merge.Vectors {
+			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+			vectorIndex := s.VectorIndexForName(targetVector)
+			if vectorIndex == nil {
+				return errors.Errorf("Validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
+			}
+			err := vectorIndex.ValidateBeforeInsert(vector)
+			if err != nil {
+				return errors.Wrapf(err, "Validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+			}
+		}
+	} else {
+		if merge.Vector != nil {
+			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+			err := s.vectorIndex.ValidateBeforeInsert(merge.Vector)
+			if err != nil {
+				return errors.Wrapf(err, "Validate vector index for update of %v", merge.ID)
+			}
 		}
 	}
 
@@ -45,25 +60,35 @@ func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
-	next, status, err := s.mergeObjectInStorage(doc, idBytes)
+	obj, status, err := s.mergeObjectInStorage(doc, idBytes)
 	if err != nil {
 		return err
 	}
 
-	if err := s.updateVectorIndex(next.Vector, status); err != nil {
-		return errors.Wrap(err, "update vector index")
+	// object was not changed, no further updates are required
+	// https://github.com/weaviate/weaviate/issues/3949
+	if status.skipUpsert {
+		return nil
 	}
 
-	if err := s.updatePropertySpecificIndices(next, status); err != nil {
+	if s.hasTargetVectors() {
+		for targetVector, vector := range obj.Vectors {
+			if err := s.updateVectorIndexForName(vector, status, targetVector); err != nil {
+				return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
+			}
+		}
+	} else {
+		if err := s.updateVectorIndex(obj.Vector, status); err != nil {
+			return errors.Wrap(err, "update vector index")
+		}
+	}
+
+	if err := s.updatePropertySpecificIndices(obj, status); err != nil {
 		return errors.Wrap(err, "update property-specific indices")
 	}
 
 	if err := s.store.WriteWALs(); err != nil {
 		return errors.Wrap(err, "flush all buffered WALs")
-	}
-
-	if err := s.vectorIndex.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
 	return nil
@@ -74,45 +99,59 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 ) (*storobj.Object, objectInsertStatus, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
+	var prevObj, obj *storobj.Object
+	var status objectInsertStatus
+
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
-	lock.Lock()
-	previous, err := bucket.Get(idBytes)
-	if err != nil {
-		lock.Unlock()
-		return nil, objectInsertStatus{}, errors.Wrap(err, "get bucket")
+
+	// wrapped in function to handle lock/unlock
+	if err := func() error {
+		lock.Lock()
+		defer lock.Unlock()
+
+		var err error
+		prevObj, err = fetchObject(bucket, idBytes)
+		if err != nil {
+			return errors.Wrap(err, "get bucket")
+		}
+
+		obj, _, err = s.mergeObjectData(prevObj, merge)
+		if err != nil {
+			return errors.Wrap(err, "merge object data")
+		}
+
+		status, err = s.determineInsertStatus(prevObj, obj)
+		if err != nil {
+			return errors.Wrap(err, "check insert/update status")
+		}
+
+		obj.DocID = status.docID
+		if status.skipUpsert {
+			return nil
+		}
+
+		objBytes, err := obj.MarshalBinary()
+		if err != nil {
+			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
+		}
+
+		if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
+			return errors.Wrap(err, "upsert object data")
+		}
+
+		return nil
+	}(); err != nil {
+		return nil, objectInsertStatus{}, err
+	} else if status.skipUpsert {
+		return obj, status, nil
 	}
 
-	nextObj, _, err := s.mergeObjectData(previous, merge)
-	if err != nil {
-		lock.Unlock()
-		return nil, objectInsertStatus{}, errors.Wrap(err, "merge object data")
-	}
-
-	status, err := s.determineInsertStatus(previous, nextObj)
-	if err != nil {
-		lock.Unlock()
-		return nil, status, errors.Wrap(err, "check insert/update status")
-	}
-
-	nextObj.SetDocID(status.docID)
-	nextBytes, err := nextObj.MarshalBinary()
-	if err != nil {
-		lock.Unlock()
-		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
-	}
-
-	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
-		lock.Unlock()
-		return nil, status, errors.Wrap(err, "upsert object data")
-	}
-	lock.Unlock()
-
-	if err := s.updateInvertedIndexLSM(nextObj, status, previous); err != nil {
+	if err := s.updateInvertedIndexLSM(obj, status, prevObj); err != nil {
 		return nil, status, errors.Wrap(err, "update inverted indices")
 	}
 
-	return nextObj, status, nil
+	return obj, status, nil
 }
 
 // mutableMergeObjectLSM is a special version of mergeObjectInTx where no doc
@@ -145,32 +184,38 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	lock.Lock()
 	defer lock.Unlock()
 
-	previous, err := bucket.Get(idBytes)
+	prevObj, err := fetchObject(bucket, idBytes)
 	if err != nil {
 		return out, err
 	}
 
-	nextObj, previousObj, err := s.mergeObjectData(previous, merge)
+	if prevObj == nil {
+		uid := uuid.UUID{}
+		uid.UnmarshalBinary(idBytes)
+		return out, fmt.Errorf("object with id %s not found", uid)
+	}
+
+	obj, notEmptyPrevObj, err := s.mergeObjectData(prevObj, merge)
 	if err != nil {
 		return out, errors.Wrap(err, "merge object data")
 	}
 
-	out.next = nextObj
-	out.previous = previousObj
+	out.next = obj
+	out.previous = notEmptyPrevObj
 
-	status, err := s.determineMutableInsertStatus(previous, nextObj)
+	status, err := s.determineMutableInsertStatus(prevObj, obj)
 	if err != nil {
 		return out, errors.Wrap(err, "check insert/update status")
 	}
 	out.status = status
 
-	nextObj.SetDocID(status.docID) // is not changed
-	nextBytes, err := nextObj.MarshalBinary()
+	obj.DocID = status.docID // is not changed
+	objBytes, err := obj.MarshalBinary()
 	if err != nil {
-		return out, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
+		return out, errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 	}
 
-	if err := s.upsertObjectDataLSM(bucket, idBytes, nextBytes, status.docID); err != nil {
+	if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
 	}
 
@@ -186,26 +231,18 @@ type mutableMergeResult struct {
 	status   objectInsertStatus
 }
 
-func (s *Shard) mergeObjectData(previous []byte,
+func (s *Shard) mergeObjectData(prevObj *storobj.Object,
 	merge objects.MergeDocument,
 ) (*storobj.Object, *storobj.Object, error) {
-	var previousObj *storobj.Object
-	if len(previous) == 0 {
+	if prevObj == nil {
 		// DocID must be overwritten after status check, simply set to initial
 		// value
-		previousObj = storobj.New(0)
-		previousObj.SetClass(merge.Class)
-		previousObj.SetID(merge.ID)
-	} else {
-		p, err := storobj.FromBinary(previous)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "unmarshal previous")
-		}
-
-		previousObj = p
+		prevObj = storobj.New(0)
+		prevObj.SetClass(merge.Class)
+		prevObj.SetID(merge.ID)
 	}
 
-	return mergeProps(previousObj, merge), previousObj, nil
+	return mergeProps(prevObj, merge), prevObj, nil
 }
 
 func mergeProps(previous *storobj.Object,
@@ -244,8 +281,25 @@ func mergeProps(previous *storobj.Object,
 		next.Vector = merge.Vector
 	}
 
+	if len(merge.Vectors) == 0 {
+		next.Vectors = previous.Vectors
+	} else {
+		next.Vectors = vectorsAsMap(merge.Vectors)
+	}
+
 	next.Object.LastUpdateTimeUnix = merge.UpdateTime
 	next.SetProperties(properties)
 
 	return next
+}
+
+func vectorsAsMap(in models.Vectors) map[string][]float32 {
+	if len(in) > 0 {
+		out := make(map[string][]float32)
+		for targetVector, vector := range in {
+			out[targetVector] = vector
+		}
+		return out
+	}
+	return nil
 }

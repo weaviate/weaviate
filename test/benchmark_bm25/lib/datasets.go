@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,9 +34,10 @@ type DatasetCorpus struct {
 }
 
 type DatasetQueries struct {
-	Property        string `yaml:"property"`
-	MatchingResults string `yaml:"matching_results"`
-	PropertyWithId  string `yaml:"property_with_id"`
+	Property          string   `yaml:"property"`
+	MatchingResults   string   `yaml:"matching_results"`
+	PropertyWithId    string   `yaml:"property_with_id"`
+	PropertiesToMatch []string `yaml:"properties_to_match"`
 }
 
 func ParseDatasetConfig(filename string) (DatasetCfg, error) {

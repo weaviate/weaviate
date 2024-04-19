@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,7 +29,7 @@ import (
 type BatchStats struct {
 
 	// How many objects are currently in the batch queue.
-	QueueLength int64 `json:"queueLength"`
+	QueueLength *int64 `json:"queueLength,omitempty"`
 
 	// How many objects are approximately processed from the batch queue per second.
 	RatePerSecond int64 `json:"ratePerSecond"`

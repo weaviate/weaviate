@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.5"
+    "version": "1.25.0-raft"
   },
   "basePath": "/v1",
   "paths": {
@@ -882,6 +882,11 @@ func init() {
           "nodes"
         ],
         "operationId": "nodes.get",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -935,6 +940,9 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
         "responses": {
@@ -2303,6 +2311,15 @@ func init() {
         ],
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -2415,6 +2432,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -2624,6 +2648,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -2742,6 +2771,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -2945,6 +2981,58 @@ func init() {
           }
         }
       }
+    },
+    "/schema/{className}/tenants/{tenantName}": {
+      "head": {
+        "description": "Check if a tenant exists for a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenant.exists",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenantName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant exists in the specified class"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The tenant not found"
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -2971,12 +3059,46 @@ func init() {
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "maximum": 512,
+          "minimum": 2,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ],
+          "x-nullable": false
+        }
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup creation process",
@@ -3076,7 +3198,8 @@ func init() {
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -3089,6 +3212,13 @@ func init() {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
@@ -3343,7 +3473,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -3523,6 +3654,12 @@ func init() {
         "shardingConfig": {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
+        },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
         },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
@@ -3904,6 +4041,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantCreation": {
+          "description": "Nonexistent tenants should (not) be created implicitly",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
@@ -3967,6 +4109,16 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
+          "x-omitempty": false
+        },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "name": {
           "description": "The name of the shard.",
           "type": "string",
@@ -3974,6 +4126,17 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -4032,7 +4195,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -4086,11 +4250,15 @@ func init() {
           "type": "string"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         }
       }
     },
@@ -4361,7 +4529,9 @@ func init() {
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "trigram",
+            "gse"
           ]
         }
       }
@@ -4435,6 +4605,20 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
         }
       }
     },
@@ -4513,6 +4697,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -4595,9 +4784,41 @@ func init() {
         }
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -4831,6 +5052,13 @@ func init() {
       "name": "order",
       "in": "query"
     },
+    "CommonOutputVerbosityParameterQuery": {
+      "type": "string",
+      "default": "minimal",
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "name": "output",
+      "in": "query"
+    },
     "CommonSortParameterQuery": {
       "type": "string",
       "description": "Sort parameter to pass an information about the names of the sort fields",
@@ -4908,7 +5136,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.21.5"
+    "version": "1.25.0-raft"
   },
   "basePath": "/v1",
   "paths": {
@@ -5754,6 +5982,15 @@ func init() {
           "nodes"
         ],
         "operationId": "nodes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "default": "minimal",
+            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "name": "output",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Nodes status successfully returned",
@@ -5807,6 +6044,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "default": "minimal",
+            "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+            "name": "output",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7277,6 +7521,15 @@ func init() {
         ],
         "summary": "Dump the current the database schema.",
         "operationId": "schema.dump",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -7389,6 +7642,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -7598,6 +7858,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenant",
+            "in": "query"
           }
         ],
         "responses": {
@@ -7716,6 +7981,13 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": true,
+            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency",
+            "name": "consistency",
+            "in": "header"
           }
         ],
         "responses": {
@@ -7919,6 +8191,58 @@ func init() {
           }
         }
       }
+    },
+    "/schema/{className}/tenants/{tenantName}": {
+      "head": {
+        "description": "Check if a tenant exists for a specific class",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "tenant.exists",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "tenantName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant exists in the specified class"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "The tenant not found"
+          },
+          "422": {
+            "description": "Invalid Tenant class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
     }
   },
   "definitions": {
@@ -7945,12 +8269,46 @@ func init() {
         }
       }
     },
+    "BackupConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "ChunkSize": {
+          "description": "Weaviate will attempt to come close the specified size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB",
+          "type": "integer",
+          "default": 128,
+          "maximum": 512,
+          "minimum": 2,
+          "x-nullable": false
+        },
+        "CompressionLevel": {
+          "description": "compression level used by compression algorithm",
+          "type": "string",
+          "default": "DefaultCompression",
+          "enum": [
+            "DefaultCompression",
+            "BestSpeed",
+            "BestCompression"
+          ],
+          "x-nullable": false
+        }
+      }
+    },
     "BackupCreateRequest": {
       "description": "Request body for creating a backup of a set of classes",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup creation process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup creation process",
@@ -8050,7 +8408,8 @@ func init() {
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
-          "type": "object"
+          "type": "object",
+          "$ref": "#/definitions/RestoreConfig"
         },
         "exclude": {
           "description": "List of classes to exclude from the backup restoration process",
@@ -8063,6 +8422,13 @@ func init() {
           "description": "List of classes to include in the backup restoration process",
           "type": "array",
           "items": {
+            "type": "string"
+          }
+        },
+        "node_mapping": {
+          "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
+          "type": "object",
+          "additionalProperties": {
             "type": "string"
           }
         }
@@ -8406,7 +8772,8 @@ func init() {
           "description": "How many objects are currently in the batch queue.",
           "type": "number",
           "format": "int",
-          "x-omitempty": false
+          "x-nullable": true,
+          "x-omitempty": true
         },
         "ratePerSecond": {
           "description": "How many objects are approximately processed from the batch queue per second.",
@@ -8630,6 +8997,12 @@ func init() {
         "shardingConfig": {
           "description": "Manage how the index should be sharded and distributed in the cluster",
           "type": "object"
+        },
+        "vectorConfig": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/VectorConfig"
+          }
         },
         "vectorIndexConfig": {
           "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
@@ -9037,6 +9410,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantCreation": {
+          "description": "Nonexistent tenants should (not) be created implicitly",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "enabled": {
           "description": "Whether or not multi-tenancy is enabled for this class",
           "type": "boolean",
@@ -9100,6 +9478,16 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "compressed": {
+          "description": "The status of vector compression/quantization.",
+          "format": "boolean",
+          "x-omitempty": false
+        },
+        "loaded": {
+          "description": "The load status of the shard.",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "name": {
           "description": "The name of the shard.",
           "type": "string",
@@ -9107,6 +9495,17 @@ func init() {
         },
         "objectCount": {
           "description": "The number of objects in shard.",
+          "type": "number",
+          "format": "int64",
+          "x-omitempty": false
+        },
+        "vectorIndexingStatus": {
+          "description": "The status of the vector indexing process.",
+          "format": "string",
+          "x-omitempty": false
+        },
+        "vectorQueueLength": {
+          "description": "The length of the vector indexing queue.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
@@ -9165,7 +9564,8 @@ func init() {
           "enum": [
             "HEALTHY",
             "UNHEALTHY",
-            "UNAVAILABLE"
+            "UNAVAILABLE",
+            "TIMEOUT"
           ]
         },
         "version": {
@@ -9219,11 +9619,15 @@ func init() {
           "type": "string"
         },
         "vector": {
-          "description": "This object's position in the Contextionary vector space. Read-only if using a vectorizer other than 'none'. Writable and required if using 'none' as vectorizer.",
+          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectorWeights": {
           "$ref": "#/definitions/VectorWeights"
+        },
+        "vectors": {
+          "description": "This field returns vectors associated with the Object.",
+          "$ref": "#/definitions/Vectors"
         }
       }
     },
@@ -9512,7 +9916,9 @@ func init() {
             "word",
             "lowercase",
             "whitespace",
-            "field"
+            "field",
+            "trigram",
+            "gse"
           ]
         }
       }
@@ -9586,6 +9992,20 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        }
+      }
+    },
+    "RestoreConfig": {
+      "description": "Backup custom configuration",
+      "type": "object",
+      "properties": {
+        "CPUPercentage": {
+          "description": "Desired CPU core utilization ranging from 1%-80%",
+          "type": "integer",
+          "default": 50,
+          "maximum": 80,
+          "minimum": 1,
+          "x-nullable": false
         }
       }
     },
@@ -9664,6 +10084,11 @@ func init() {
         "status": {
           "description": "Status of the shard",
           "type": "string"
+        },
+        "vectorQueueSize": {
+          "description": "Size of the vector queue of the shard",
+          "type": "integer",
+          "x-omitempty": false
         }
       }
     },
@@ -9746,9 +10171,41 @@ func init() {
         }
       }
     },
+    "Vector": {
+      "description": "A Vector object",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float"
+      }
+    },
+    "VectorConfig": {
+      "type": "object",
+      "properties": {
+        "vectorIndexConfig": {
+          "description": "Vector-index config, that is specific to the type of index selected in vectorIndexType",
+          "type": "object"
+        },
+        "vectorIndexType": {
+          "description": "Name of the vector index to use, eg. (HNSW)",
+          "type": "string"
+        },
+        "vectorizer": {
+          "description": "Configuration of a specific vectorizer used by this vector",
+          "type": "object"
+        }
+      }
+    },
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "Vectors": {
+      "description": "A Multi Vector map of named vectors",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/Vector"
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -9989,6 +10446,13 @@ func init() {
       "type": "string",
       "description": "Order parameter to tell how to order (asc or desc) data within given field",
       "name": "order",
+      "in": "query"
+    },
+    "CommonOutputVerbosityParameterQuery": {
+      "type": "string",
+      "default": "minimal",
+      "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
+      "name": "output",
       "in": "query"
     },
     "CommonSortParameterQuery": {

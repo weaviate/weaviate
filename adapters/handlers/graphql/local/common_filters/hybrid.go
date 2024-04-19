@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,6 +22,7 @@ const (
 	HybridRankedFusion = iota
 	HybridRelativeScoreFusion
 )
+const HybridFusionDefault = HybridRelativeScoreFusion
 
 func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
 	var subsearches []interface{}
@@ -33,9 +34,29 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 			subsearches = append(subsearches, operandMap)
 		}
 	}
+	var args searchparams.HybridSearch
+	namedSearchesI := source["searches"]
+	if namedSearchesI != nil {
+		namedSearchess := namedSearchesI.([]interface{})
+		namedSearches := namedSearchess[0].(map[string]interface{})
+		// TODO: add bm25 here too
+		if namedSearches["nearText"] != nil {
+			nearText := namedSearches["nearText"].(map[string]interface{})
+			arguments, _ := ExtractNearText(nearText)
+
+			args.NearTextParams = &arguments
+		}
+
+		if namedSearches["nearVector"] != nil {
+			nearVector := namedSearches["nearVector"].(map[string]interface{})
+			arguments, _ := ExtractNearVector(nearVector)
+			args.NearVectorParams = &arguments
+
+		}
+	}
 
 	var weightedSearchResults []searchparams.WeightedSearchResult
-	var args searchparams.HybridSearch
+
 	for _, ss := range subsearches {
 		subsearch := ss.(map[string]interface{})
 		switch {
@@ -95,7 +116,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	if ok {
 		args.FusionAlgorithm = fusionType.(int)
 	} else {
-		args.FusionAlgorithm = HybridRankedFusion
+		args.FusionAlgorithm = HybridFusionDefault
 	}
 	if _, ok := source["vector"]; ok {
 		vector := source["vector"].([]interface{})
@@ -110,6 +131,14 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		args.Properties = make([]string, len(properties))
 		for i, value := range properties {
 			args.Properties[i] = value.(string)
+		}
+	}
+
+	if _, ok := source["targetVectors"]; ok {
+		targetVectors := source["targetVectors"].([]interface{})
+		args.TargetVectors = make([]string, len(targetVectors))
+		for i, value := range targetVectors {
+			args.TargetVectors[i] = value.(string)
 		}
 	}
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,8 +51,12 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+		},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -97,6 +101,7 @@ func TestFilteringNilProperty(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		nil,
 	)
 	props := object.Properties()
 	propsTyped, ok := props.(map[string]interface{})
@@ -135,8 +140,13 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+			"vector3": {7, 8, 9},
+		},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -150,9 +160,10 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 			before.Object.Additional = nil
 			before.Vector = nil
 			before.VectorLen = 3
+			before.Vectors = nil
 			assert.Equal(t, before, after)
 
-			assert.Equal(t, before.docID, after.docID)
+			assert.Equal(t, before.DocID, after.DocID)
 
 			// The vector length should always be returned (for usage metrics
 			// purposes) even if the vector itself is skipped
@@ -166,7 +177,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint64(12), so.docID)
+			assert.Equal(t, uint64(12), so.DocID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -174,8 +185,8 @@ func TestNewStorageObject(t *testing.T) {
 		})
 
 		t.Run("reassign index id", func(t *testing.T) {
-			so.SetDocID(13)
-			assert.Equal(t, uint64(13), so.docID)
+			so.DocID = 13
+			assert.Equal(t, uint64(13), so.DocID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -209,8 +220,8 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil)
-				alt.SetDocID(13)
+				}, nil, nil)
+				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
 			})
@@ -220,7 +231,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint64(12), so.docID)
+			assert.Equal(t, uint64(12), so.DocID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -228,8 +239,8 @@ func TestNewStorageObject(t *testing.T) {
 		})
 
 		t.Run("reassign index id", func(t *testing.T) {
-			so.SetDocID(13)
-			assert.Equal(t, uint64(13), so.docID)
+			so.DocID = 13
+			assert.Equal(t, uint64(13), so.DocID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -263,8 +274,8 @@ func TestNewStorageObject(t *testing.T) {
 					Properties: map[string]interface{}{
 						"foo": "bar",
 					},
-				}, nil)
-				alt.SetDocID(13)
+				}, nil, nil)
+				alt.DocID = 13
 
 				assert.Equal(t, so, alt)
 			})
@@ -299,8 +310,13 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+			"vector3": {7, 8, 9},
+		},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -369,9 +385,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 			Properties:         properties,
 		},
 		[]float32{1, 2, 0.7},
+		nil,
 	)
 
-	before.SetDocID(7)
+	before.DocID = 7
 	byteObject, err := before.MarshalBinary()
 	require.Nil(t, err)
 
@@ -442,8 +459,13 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 			},
 		},
 		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": {1, 2, 3},
+			"vector2": {4, 5, 6},
+			"vector3": {7, 8, 9},
+		},
 	)
-	before.SetDocID(7)
+	before.DocID = 7
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -524,8 +546,9 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						},
 					},
 					vector,
+					nil,
 				)
-				before.SetDocID(7)
+				before.DocID = 7
 
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)
@@ -557,8 +580,9 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						},
 					},
 					vector,
+					nil,
 				)
-				before.SetDocID(7)
+				before.DocID = 7
 
 				asBinary, err := before.MarshalBinary()
 				require.Nil(t, err)
@@ -572,7 +596,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.VectorLen = int(vectorLength)
 					assert.Equal(t, before, after)
 
-					assert.Equal(t, before.docID, after.docID)
+					assert.Equal(t, before.DocID, after.DocID)
 
 					// The vector length should always be returned (for usage metrics
 					// purposes) even if the vector itself is skipped
@@ -588,7 +612,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					before.VectorLen = int(vectorLength)
 					assert.Equal(t, before, after)
 
-					assert.Equal(t, before.docID, after.docID)
+					assert.Equal(t, before.DocID, after.DocID)
 
 					// The vector length should always be returned (for usage metrics
 					// purposes) even if the vector itself is skipped

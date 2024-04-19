@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -65,13 +65,16 @@ func (m *GenerativePaLMModule) Init(ctx context.Context,
 func (m *GenerativePaLMModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("PALM_APIKEY")
+	apiKey := os.Getenv("GOOGLE_APIKEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("PALM_APIKEY")
+	}
 
 	client := clients.New(apiKey, timeout, logger)
 
 	m.generative = client
 
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
 
 	return nil
 }

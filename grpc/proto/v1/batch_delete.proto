@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+import "v1/base.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoBatch";
+
+message BatchDeleteRequest {
+  string collection = 1;
+  Filters filters = 2;
+  bool verbose = 3;
+  bool dry_run = 4;
+  optional ConsistencyLevel consistency_level = 5;
+  optional string tenant = 6;
+}
+
+message BatchDeleteReply {
+  float took = 1;
+  int64 failed = 2;
+  int64 matches = 3;
+  int64 successful = 4;
+  repeated BatchDeleteObject objects = 5;
+}
+
+message BatchDeleteObject {
+  bytes uuid = 1;
+  bool successful = 2;
+  optional string error = 3;  // empty string means no error
+}

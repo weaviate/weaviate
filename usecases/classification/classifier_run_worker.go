@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,9 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -84,10 +87,11 @@ type runWorkers struct {
 	params       models.Classification
 	filters      Filters
 	batchWriter  Writer
+	logger       logrus.FieldLogger
 }
 
 func newRunWorkers(amount int, classifyFn ClassifyItemFn,
-	params models.Classification, filters Filters, vectorRepo vectorRepo,
+	params models.Classification, filters Filters, vectorRepo vectorRepo, logger logrus.FieldLogger,
 ) *runWorkers {
 	var successCount int64
 	var errorCount int64
@@ -100,7 +104,8 @@ func newRunWorkers(amount int, classifyFn ClassifyItemFn,
 		classify:     classifyFn,
 		params:       params,
 		filters:      filters,
-		batchWriter:  newBatchWriter(vectorRepo),
+		batchWriter:  newBatchWriter(vectorRepo, logger),
+		logger:       logger,
 	}
 
 	for i := 0; i < amount; i++ {
@@ -121,8 +126,10 @@ func (ws *runWorkers) work(ctx context.Context) runWorkerResults {
 
 	wg := &sync.WaitGroup{}
 	for _, worker := range ws.workers {
+		worker := worker
 		wg.Add(1)
-		go worker.work(ctx, wg)
+		enterrors.GoWrapper(func() { worker.work(ctx, wg) }, ws.logger)
+
 	}
 
 	wg.Wait()

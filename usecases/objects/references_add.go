@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,7 +59,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	targetRef, err := input.validate(principal, validator, m.schemaManager)
+	targetRef, reqClass, schemaVersion, err := input.validate(ctx, principal, validator, m.schemaManager)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"validate inputs", StatusUnprocessableEntity, err}
@@ -114,11 +114,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenant); err != nil {
+	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenant, schemaVersion); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, reqClass, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 
@@ -142,23 +142,25 @@ type AddReferenceInput struct {
 }
 
 func (req *AddReferenceInput) validate(
+	ctx context.Context,
 	principal *models.Principal,
 	v *validation.Validator,
 	sm schemaManager,
-) (*crossref.Ref, error) {
+) (*crossref.Ref, *models.Class, uint64, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	ref, err := v.ValidateSingleRef(&req.Ref)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 
-	schema, err := sm.GetSchema(principal)
+	// TODO-RAFT: Pull the schemaversion here and return it alongside the class
+	class, err := sm.GetClass(ctx, principal, req.Class)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
-	return ref, validateReferenceSchema(req.Class, req.Property, schema)
+	return ref, class, 0, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(

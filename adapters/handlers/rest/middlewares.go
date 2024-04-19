@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,14 +15,17 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -58,6 +61,25 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
+// clusterv1Regexp is used to intercept requests and redirect them to a dedicated http server independent of swagger
+var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
+
+// addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
+// If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
+// If the request doesn't match, it will continue to the next handler.
+func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
+	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
+	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case clusterv1Regexp.MatchString(r.URL.Path):
+			raftRouter.ServeHTTP(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
 func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		mux := http.NewServeMux()
@@ -87,7 +109,9 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
-			AllowedMethods:     []string{"POST", "PUT", "DELETE", "GET", "PATCH"},
+			AllowedMethods:     strings.Split(appState.ServerConfig.Config.CORS.AllowMethods, ","),
+			AllowedHeaders:     strings.Split(appState.ServerConfig.Config.CORS.AllowHeaders, ","),
+			AllowedOrigins:     strings.Split(appState.ServerConfig.Config.CORS.AllowOrigin, ","),
 		}).Handler
 		handler = handleCORS(handler)
 		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
@@ -95,13 +119,14 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		if appState.ServerConfig.Config.Monitoring.Enabled {
 			handler = makeAddMonitoring(appState.Metrics)(handler)
 		}
-		handler = addPreflight(handler)
+		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
-		handler = makeCatchPanics(appState.Logger,
-			newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
+		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
+		// Must be the last middleware as it might skip the next handler
+		handler = addClusterHandlerMiddleware(handler, appState)
 
 		return handler
 	}
@@ -140,13 +165,13 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 	}
 }
 
-func addPreflight(next http.Handler) http.Handler {
+func addPreflight(next http.Handler, cfg config.CORS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", cfg.AllowOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", cfg.AllowMethods)
+		w.Header().Set("Access-Control-Allow-Headers", cfg.AllowHeaders)
+
 		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "*")
-			w.Header().Set("Access-Control-Allow-Headers",
-				"Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Cohere-Api-Key, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key")
 			return
 		}
 
@@ -182,7 +207,7 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		if r.URL.String() == "/v1/.well-known/ready" {
 			code := http.StatusServiceUnavailable
-			if state.DB.StartupComplete() && state.Cluster.ClusterHealthScore() == 0 {
+			if state.CloudService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
 				code = http.StatusOK
 			}
 			w.WriteHeader(code)

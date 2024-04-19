@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -83,13 +84,16 @@ func TestCRUD(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -162,7 +166,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0)
 
 		assert.Nil(t, err)
 	})
@@ -185,7 +189,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0)
 		assert.Equal(t,
 			fmt.Errorf("import into non-existing index for WrongClass"), err)
 	})
@@ -223,7 +227,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0)
 		assert.Nil(t, err)
 	})
 
@@ -367,7 +371,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0)
 		assert.Nil(t, err)
 	})
 
@@ -410,7 +414,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
-		err := repo.PutObject(context.Background(), action, vector, nil)
+		err := repo.PutObject(context.Background(), action, vector, nil, nil, 0)
 
 		assert.Nil(t, err)
 	})
@@ -420,7 +424,7 @@ func TestCRUD(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, 0, 10, nil)
+		res, err := repo.CrossClassVectorSearch(context.Background(), searchVector, "", 0, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -529,7 +533,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutObject(context.Background(), thing, vector, nil)
+		err := repo.PutObject(context.Background(), thing, vector, nil, nil, 0)
 
 		assert.Nil(t, err)
 	})
@@ -835,7 +839,7 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector, nil)
+			err := repo.PutObject(context.Background(), object, vector, nil, nil, 0)
 			assert.Nil(t, err)
 		}
 		// run sorting tests
@@ -914,7 +918,7 @@ func TestCRUD(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "")
+			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "", 0)
 			assert.Nil(t, err)
 		}
 	})
@@ -968,19 +972,19 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, nil, "")
+		err := repo.DeleteObject(context.Background(), "TheBestThingClass", thingID, nil, "", 0)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("deleting a action again", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, nil, "")
+		err := repo.DeleteObject(context.Background(), "TheBestActionClass", actionID, nil, "", 0)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
-		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil, "")
+		err := repo.DeleteObject(context.Background(), "WrongClass", thingID, nil, "", 0)
 
 		assert.Equal(t, fmt.Errorf(
 			"delete from non-existing index for WrongClass"), err)
@@ -1096,7 +1100,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdActionIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), actionBatch, nil, 0)
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1120,7 +1124,7 @@ func TestCRUD(t *testing.T) {
 				}
 				createdThingIDs[i] = newID
 			}
-			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil)
+			batchObjResp, err := repo.BatchPutObjects(context.Background(), thingBatch, nil, 0)
 			require.Len(t, batchObjResp, numThings)
 			require.Nil(t, err)
 			for _, r := range batchObjResp {
@@ -1147,7 +1151,7 @@ func TestCRUD(t *testing.T) {
 				}
 				refBatch[i] = ref
 			}
-			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil)
+			batchRefResp, err := repo.AddBatchReferences(context.Background(), refBatch, nil, 0)
 			require.Nil(t, err)
 			require.Len(t, batchRefResp, numThings)
 			for _, r := range batchRefResp {
@@ -1224,12 +1228,13 @@ func TestCRUD(t *testing.T) {
 
 		t.Run("insert test obj", func(t *testing.T) {
 			vec := []float32{0.1, 0.2, 0.3, 0.4}
+
 			obj := &models.Object{
 				ID:     id,
 				Class:  "TheBestActionClass",
 				Vector: vec,
 			}
-			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil))
+			require.Nil(t, repo.PutObject(context.Background(), obj, vec, nil, nil, 0))
 		})
 
 		t.Run("perform search with id filter", func(t *testing.T) {
@@ -1266,6 +1271,10 @@ func TestCRUD(t *testing.T) {
 				},
 			}
 
+			for i := range expected {
+				expected[i].DocID = res[i].DocID
+			}
+
 			assert.Equal(t, expected, res)
 		})
 	})
@@ -1287,13 +1296,16 @@ func TestCRUD_Query(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1376,7 +1388,7 @@ func TestCRUD_Query(t *testing.T) {
 				},
 			}
 			vector := []float32{1.1, 1.3, 1.5, 1.4}
-			err := repo.PutObject(context.Background(), object, vector, nil)
+			err := repo.PutObject(context.Background(), object, vector, nil, nil, 0)
 			assert.Nil(t, err)
 		}
 		// toParams helper method
@@ -1506,7 +1518,7 @@ func TestCRUD_Query(t *testing.T) {
 		}
 		// clean up
 		for _, td := range testData {
-			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "")
+			err := repo.DeleteObject(context.Background(), td.className, td.id, nil, "", 0)
 			assert.Nil(t, err)
 		}
 	})
@@ -1523,13 +1535,16 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1575,7 +1590,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("import individual objects without vector", func(t *testing.T) {
 		for i := 0; i < individual; i++ {
-			err := repo.PutObject(context.Background(), data[i], nil, nil) // nil vector !
+			err := repo.PutObject(context.Background(), data[i], nil, nil, nil, 0) // nil vector !
 			require.Nil(t, err)
 		}
 	})
@@ -1587,13 +1602,12 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			batch[i] = objects.BatchObject{
 				OriginalIndex: i,
 				Err:           nil,
-				Vector:        nil,
 				Object:        data[i+individual],
 				UUID:          data[i+individual].ID,
 			}
 		}
 
-		res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+		res, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 		require.Nil(t, err)
 
 		for _, obj := range res {
@@ -1635,7 +1649,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 			}
 
 			data[i].Vector = randomVector(r, 7)
-			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil)
+			err := repo.PutObject(context.Background(), data[i], data[i].Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -1678,16 +1692,19 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter: 60,
-		RootPath:                dirName,
+		MemtablesFlushDirtyAfter: 60,
+		RootPath:                 dirName,
 		// this is set really low to ensure that search
 		// by distance is conducted, which executes
 		// without regard to this value
 		QueryMaximumResults:       1,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1748,7 +1765,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -1814,16 +1831,19 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter: 60,
-		RootPath:                dirName,
+		MemtablesFlushDirtyAfter: 60,
+		RootPath:                 dirName,
 		// this is set really low to ensure that search
 		// by distance is conducted, which executes
 		// without regard to this value
 		QueryMaximumResults:       1,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1884,7 +1904,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 	t.Run("insert test objects", func(t *testing.T) {
 		for id, props := range tests {
-			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil)
+			err := repo.PutObject(context.Background(), &models.Object{Class: className, ID: id}, props.inputVec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -1962,13 +1982,16 @@ func Test_PutPatchRestart(t *testing.T) {
 		},
 	}
 
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	defer repo.Shutdown(context.Background())
@@ -1993,7 +2016,7 @@ func Test_PutPatchRestart(t *testing.T) {
 			ID:         testID,
 			Class:      testClass.Class,
 			Properties: map[string]interface{}{"description": "test object init"},
-		}, testVec, nil)
+		}, testVec, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -2005,7 +2028,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				Properties: map[string]interface{}{
 					"description": fmt.Sprintf("test object, put #%d", i+1),
 				},
-			}, nil, nil)
+			}, nil, nil, nil, 0)
 			require.Nil(t, err)
 
 			err = repo.Merge(ctx, objects.MergeDocument{
@@ -2016,7 +2039,7 @@ func Test_PutPatchRestart(t *testing.T) {
 				},
 				Vector:     testVec,
 				UpdateTime: time.Now().UnixNano() / int64(time.Millisecond),
-			}, nil, "")
+			}, nil, "", 0)
 			require.Nil(t, err)
 
 			require.Nil(t, repo.Shutdown(ctx))
@@ -2103,13 +2126,16 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -2149,8 +2175,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, nil, 0))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, nil, 0))
 
 		res, err := repo.ObjectByID(context.Background(), objID, nil, additional.Properties{}, "")
 		require.Nil(t, err)
@@ -2166,7 +2192,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 				"stringProp": "string prop value",
 			},
 		}
-		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), objRef, []float32{1, 3, 5, 0.4}, nil, nil, 0))
 
 		obj1ID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 		obj1 := &models.Object{
@@ -2201,8 +2227,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 			},
 		}
 
-		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil))
-		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil))
+		assert.Nil(t, repo.PutObject(context.Background(), obj1, []float32{1, 3, 5, 0.4}, nil, nil, 0))
+		assert.Nil(t, repo.PutObject(context.Background(), obj2, []float32{1, 3, 5, 0.4}, nil, nil, 0))
 
 		res, err := repo.Object(context.Background(), classNameWithRefs, obj1ID, nil,
 			additional.Properties{}, nil, "")
@@ -2233,14 +2259,17 @@ func TestOverwriteObjects(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
-		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -2287,7 +2316,7 @@ func TestOverwriteObjects(t *testing.T) {
 	}
 
 	t.Run("insert stale object", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), stale, stale.Vector, nil)
+		err := repo.PutObject(context.Background(), stale, stale.Vector, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -2332,14 +2361,17 @@ func TestIndexDigestObjects(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
-		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -2385,9 +2417,9 @@ func TestIndexDigestObjects(t *testing.T) {
 	}
 
 	t.Run("insert test objects", func(t *testing.T) {
-		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil)
+		err := repo.PutObject(context.Background(), obj1, obj1.Vector, nil, nil, 0)
 		require.Nil(t, err)
-		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil)
+		err = repo.PutObject(context.Background(), obj2, obj2.Vector, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -2456,14 +2488,17 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			},
 		},
 	}
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
-		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -2486,7 +2521,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), objNil, objNil.Vector, nil, nil, 0))
 		found, err := repo.Object(context.Background(), class.Class, objNil.ID, nil,
 			additional.Properties{}, nil, "")
 		require.Nil(t, err)
@@ -2500,7 +2535,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3},
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), obj1, obj1.Vector, nil, nil, 0))
 	})
 
 	t.Run("Add object with different vector length", func(t *testing.T) {
@@ -2509,7 +2544,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: []float32{1, 2, 3, 4},
 		}
-		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil))
+		require.NotNil(t, repo.PutObject(context.Background(), obj2, obj2.Vector, nil, nil, 0))
 		found, err := repo.Object(context.Background(), class.Class, obj2.ID, nil,
 			additional.Properties{}, nil, "")
 		require.Nil(t, err)
@@ -2523,7 +2558,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3, 4},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		}, nil, "")
+		}, nil, "", 0)
 		require.NotNil(t, err)
 		found, err := repo.Object(context.Background(), class.Class,
 			obj1ID, nil, additional.Properties{}, nil, "")
@@ -2538,7 +2573,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			PrimitiveSchema: map[string]interface{}{},
 			Vector:          []float32{1, 2, 3},
 			UpdateTime:      time.Now().UnixNano() / int64(time.Millisecond),
-		}, nil, "")
+		}, nil, "", 0)
 		require.Nil(t, err)
 		found, err := repo.Object(context.Background(), class.Class, objNilID, nil,
 			additional.Properties{}, nil, "")
@@ -2552,7 +2587,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 			Class:  class.Class,
 			Vector: nil,
 		}
-		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil))
+		require.Nil(t, repo.PutObject(context.Background(), obj2Nil, obj2Nil.Vector, nil, nil, 0))
 		found, err := repo.Object(context.Background(), class.Class, obj2Nil.ID, nil,
 			additional.Properties{}, nil, "")
 		require.Nil(t, err)

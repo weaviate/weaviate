@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,18 +13,18 @@ package modbind
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearAudio"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearImage"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearVideo"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/neardepth"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearimu"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/neartext"
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/nearthermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearDepth"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImage"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearImu"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
 func (m *BindModule) initNearText() error {
-	m.nearTextSearcher = neartext.NewSearcher(m.textVectorizer)
-	m.nearTextGraphqlProvider = neartext.New(m.nearTextTransformer)
+	m.nearTextSearcher = nearText.NewSearcher(m.textVectorizer)
+	m.nearTextGraphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
 
@@ -47,20 +47,20 @@ func (m *BindModule) initNearVideo() error {
 }
 
 func (m *BindModule) initNearIMU() error {
-	m.nearIMUSearcher = nearimu.NewSearcher(m.bindVectorizer)
-	m.nearIMUGraphqlProvider = nearimu.New()
+	m.nearIMUSearcher = nearImu.NewSearcher(m.bindVectorizer)
+	m.nearIMUGraphqlProvider = nearImu.New()
 	return nil
 }
 
 func (m *BindModule) initNearThermal() error {
-	m.nearThermalSearcher = nearthermal.NewSearcher(m.bindVectorizer)
-	m.nearThermalGraphqlProvider = nearthermal.New()
+	m.nearThermalSearcher = nearThermal.NewSearcher(m.bindVectorizer)
+	m.nearThermalGraphqlProvider = nearThermal.New()
 	return nil
 }
 
 func (m *BindModule) initNearDepth() error {
-	m.nearDepthSearcher = neardepth.NewSearcher(m.bindVectorizer)
-	m.nearDepthGraphqlProvider = neardepth.New()
+	m.nearDepthSearcher = nearDepth.NewSearcher(m.bindVectorizer)
+	m.nearDepthGraphqlProvider = nearDepth.New()
 	return nil
 }
 

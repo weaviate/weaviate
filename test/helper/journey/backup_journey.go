@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,21 +32,29 @@ const (
 	clusterJourney
 )
 
+type dataIntegrityCheck int
+
+const (
+	checkClassPresenceOnly = iota
+	checkClassAndDataPresence
+)
+
 const (
 	singleTenant = ""
 	multiTenant  = true
 )
 
 func backupJourney(t *testing.T, className, backend, backupID string,
-	journeyType journeyType, tenantNames []string,
+	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck,
+	tenantNames []string, pqEnabled bool, nodeMapping map[string]string,
 ) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
-			backupResp, err := helper.CreateBackup(t, className, backend, backupID)
+			backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
 
-			restoreResp, err := helper.RestoreBackup(t, className, backend, backupID)
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
 			assert.Nil(t, restoreResp)
 			assert.Error(t, err)
 		})
@@ -54,26 +62,34 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	}
 
 	t.Run("create backup", func(t *testing.T) {
-		resp, err := helper.CreateBackup(t, className, backend, backupID)
+		// Ensure cluster is in sync
+		if journeyType == clusterJourney {
+			time.Sleep(3 * time.Second)
+		}
+		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
+
 		// wait for create success
-		createTime := time.Now()
+		ticker := time.NewTicker(90 * time.Second)
+
+	wait:
 		for {
-			if time.Now().After(createTime.Add(time.Minute)) {
-				break
-			}
+			select {
+			case <-ticker.C:
+				break wait
+			default:
+				resp, err := helper.CreateBackupStatus(t, backend, backupID)
+				helper.AssertRequestOk(t, resp, err, func() {
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.Payload)
+					require.NotNil(t, resp.Payload.Status)
+				})
 
-			resp, err := helper.CreateBackupStatus(t, backend, backupID)
-			helper.AssertRequestOk(t, resp, err, func() {
-				require.NotNil(t, resp)
-				require.NotNil(t, resp.Payload)
-				require.NotNil(t, resp.Payload.Status)
-			})
-
-			if *resp.Payload.Status == string(backup.Success) {
-				break
+				if *resp.Payload.Status == string(backup.Success) {
+					break wait
+				}
+				time.Sleep(1 * time.Second)
 			}
-			time.Sleep(time.Second * 1)
 		}
 
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
@@ -83,36 +99,39 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			require.NotNil(t, statusResp.Payload.Status)
 		})
 
-		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+		require.Equal(t, *statusResp.Payload.Status,
+			string(backup.Success), statusResp.Payload.Error)
 	})
 
 	t.Run("delete class for restoration", func(t *testing.T) {
 		helper.DeleteClass(t, className)
+		time.Sleep(time.Second)
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
-		_, err := helper.RestoreBackup(t, className, backend, backupID)
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success
-		restoreTime := time.Now()
+		ticker := time.NewTicker(90 * time.Second)
+	wait:
 		for {
-			if time.Now().After(restoreTime.Add(time.Minute)) {
-				break
+			select {
+			case <-ticker.C:
+				break wait
+			default:
+				resp, err := helper.RestoreBackupStatus(t, backend, backupID)
+				helper.AssertRequestOk(t, resp, err, func() {
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.Payload)
+					require.NotNil(t, resp.Payload.Status)
+				})
+
+				if *resp.Payload.Status == string(backup.Success) {
+					break wait
+				}
+				time.Sleep(1 * time.Second)
 			}
-
-			resp, err := helper.RestoreBackupStatus(t, backend, backupID)
-			helper.AssertRequestOk(t, resp, err, func() {
-				require.NotNil(t, resp)
-				require.NotNil(t, resp.Payload)
-				require.NotNil(t, resp.Payload.Status)
-			})
-
-			if *resp.Payload.Status == string(backup.Success) {
-				break
-			}
-
-			time.Sleep(time.Second)
 		}
 
 		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID)
@@ -122,22 +141,37 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			require.NotNil(t, statusResp.Payload.Status)
 		})
 
-		require.Equal(t, *statusResp.Payload.Status, string(backup.Success))
+		require.Equal(t, string(backup.Success), *statusResp.Payload.Status)
 	})
 
-	// assert class exists again it its entirety
-	if tenantNames != nil {
-		for _, name := range tenantNames {
-			count := moduleshelper.GetClassCount(t, className, name)
-			assert.Equal(t, int64(500/len(tenantNames)), count)
+	// Ensure that on restoring the class it is consistent on the followers
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		if tenantNames != nil {
+			for _, name := range tenantNames {
+				moduleshelper.EnsureClassExists(t, className, name)
+				if dataIntegrityCheck == checkClassAndDataPresence {
+					count := moduleshelper.GetClassCount(t, className, name)
+					assert.Equal(t, int64(500/len(tenantNames)), count)
+				}
+			}
+		} else {
+			moduleshelper.EnsureClassExists(t, className, singleTenant)
+			if dataIntegrityCheck == checkClassAndDataPresence {
+				count := moduleshelper.GetClassCount(t, className, singleTenant)
+				assert.Equal(t, int64(500), count)
+				if pqEnabled {
+					moduleshelper.EnsureCompressedVectorsRestored(t, className)
+				}
+			}
 		}
-	} else {
-		count := moduleshelper.GetClassCount(t, className, singleTenant)
-		assert.Equal(t, int64(500), count)
-	}
+	}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
 }
 
 func addTestClass(t *testing.T, className string, multiTenant bool) {
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	helper.DeleteClass(t, className)
+
 	class := &models.Class{
 		Class: className,
 		ModuleConfig: map[string]interface{}{
@@ -191,6 +225,5 @@ func addTestObjects(t *testing.T, className string, tenantNames []string) {
 			batch[j] = &obj
 		}
 		helper.CreateObjectsBatch(t, batch)
-
 	}
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package journey
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,6 +167,10 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 			})
 			t.Run("delete", func(t *testing.T) {
 				delete(t)
+				// The delete is not strongly consistent but the create method will use a strongly consistent check to
+				// ensure that the class doesn't exists. Introduce the sleep to ensure we don't fail creating the class
+				// due to consistency issue on the subsequent run
+				time.Sleep(500 * time.Millisecond)
 			})
 		})
 	}

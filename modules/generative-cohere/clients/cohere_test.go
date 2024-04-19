@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,22 +43,19 @@ func TestGetAnswer(t *testing.T) {
 		{
 			name: "when the server has a successful aner",
 			answer: generateResponse{
-				Generations: []generation{{Text: "John"}},
-				Error:       nil,
+				Text: "John",
 			},
 			expectedResult: "John",
 		},
 		{
 			name: "when the server has a an error",
 			answer: generateResponse{
-				Error: &cohereApiError{
-					Message: "some error from the server",
-				},
+				Message: "some error from the server",
 			},
 		},
 		{
 			name:    "when the server does not respond in time",
-			answer:  generateResponse{Error: &cohereApiError{Message: "context deadline exceeded"}},
+			answer:  generateResponse{Message: "context deadline exceeded"},
 			timeout: time.Second,
 		},
 	}
@@ -73,17 +70,33 @@ func TestGetAnswer(t *testing.T) {
 			defer server.Close()
 
 			c := New("apiKey", test.timeout, nullLogger())
-			c.host = server.URL
 
-			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+			settings := &fakeClassConfig{baseURL: server.URL}
+			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)
 
-			if test.answer.Error != nil {
-				assert.Contains(t, err.Error(), test.answer.Error.Message)
+			if test.answer.Message != "" {
+				assert.Contains(t, err.Error(), test.answer.Message)
 			} else {
 				assert.Equal(t, test.expectedResult, *res.Result)
 			}
 		})
 	}
+
+	t.Run("when X-Cohere-BaseURL header is passed", func(t *testing.T) {
+		c := New("apiKey", 5*time.Second, nullLogger())
+
+		baseURL := "http://default-url.com"
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Cohere-Baseurl", []string{"http://base-url-passed-in-header.com"})
+
+		buildURL, err := c.getCohereUrl(ctxWithValue, baseURL)
+		require.NoError(t, err)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/chat", buildURL)
+
+		buildURL, err = c.getCohereUrl(context.TODO(), baseURL)
+		require.NoError(t, err)
+		assert.Equal(t, "http://default-url.com/v1/chat", buildURL)
+	})
 }
 
 type testAnswerHandler struct {
@@ -94,12 +107,12 @@ type testAnswerHandler struct {
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	assert.Equal(f.t, "/v1/generate", r.URL.String())
+	assert.Equal(f.t, "/v1/chat", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	time.Sleep(f.timeout)
 
-	if f.answer.Error != nil && f.answer.Error.Message != "" {
+	if f.answer.Message != "" {
 		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
 
@@ -119,4 +132,31 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	require.Nil(f.t, err)
 
 	w.Write(outBytes)
+}
+
+type fakeClassConfig struct {
+	baseURL string
+}
+
+func (cfg *fakeClassConfig) Tenant() string {
+	return ""
+}
+
+func (cfg *fakeClassConfig) Class() map[string]interface{} {
+	return nil
+}
+
+func (cfg *fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
+	settings := map[string]interface{}{
+		"baseURL": cfg.baseURL,
+	}
+	return settings
+}
+
+func (cfg *fakeClassConfig) Property(propName string) map[string]interface{} {
+	return nil
+}
+
+func (f fakeClassConfig) TargetVector() string {
+	return ""
 }

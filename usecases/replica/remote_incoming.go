@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,13 +24,13 @@ type RemoteIncomingRepo interface {
 	ReplicateObject(ctx context.Context, indexName, shardName,
 		requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, indexName,
-		shardName, requestID string, objects []*storobj.Object) SimpleResponse
+		shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
 	ReplicateUpdate(ctx context.Context, indexName,
 		shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName,
 		shardName, requestID string, uuid strfmt.UUID) SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName,
-		shardName, requestID string, docIDs []uint64, dryRun bool) SimpleResponse
+		shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName,
 		shardName, requestID string, refs []objects.BatchReference) SimpleResponse
 	CommitReplication(indexName,
@@ -65,9 +65,9 @@ func (rri *RemoteReplicaIncoming) ReplicateObject(ctx context.Context, indexName
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateObjects(ctx context.Context, indexName,
-	shardName, requestID string, objects []*storobj.Object,
+	shardName, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) SimpleResponse {
-	return rri.repo.ReplicateObjects(ctx, indexName, shardName, requestID, objects)
+	return rri.repo.ReplicateObjects(ctx, indexName, shardName, requestID, objects, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateUpdate(ctx context.Context, indexName,
@@ -83,9 +83,9 @@ func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexNa
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
-	shardName, requestID string, docIDs []uint64, dryRun bool,
+	shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) SimpleResponse {
-	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, docIDs, dryRun)
+	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, dryRun, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, indexName,

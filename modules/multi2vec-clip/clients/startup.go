@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,7 +49,7 @@ func (v *vectorizer) checkReady(initCtx context.Context) error {
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet,
-		v.url("/.well-known/ready"), nil)
+		v.url("/.well-known/ready", ""), nil)
 	if err != nil {
 		return errors.Wrap(err, "create check ready request")
 	}

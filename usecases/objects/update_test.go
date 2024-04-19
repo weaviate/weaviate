@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,7 +73,7 @@ func Test_UpdateAction(t *testing.T) {
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(locks, schemaManager, cfg,
-			logger, authorizer, db, modulesProvider, metrics)
+			logger, authorizer, db, modulesProvider, metrics, nil)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {

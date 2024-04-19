@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -22,7 +23,9 @@ import (
 )
 
 type State struct {
-	config   Config
+	config Config
+	// that lock to serialize access to memberlist
+	listLock sync.RWMutex
 	list     *memberlist.Memberlist
 	delegate delegate
 }
@@ -35,6 +38,10 @@ type Config struct {
 	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
+	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
+	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
+	Localhost bool `json:"localhost" yaml:"localhost"`
 }
 
 type AuthConfig struct {
@@ -73,6 +80,14 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		cfg.BindPort = userConfig.GossipBindPort
 	}
 
+	if userConfig.AdvertiseAddr != "" {
+		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+	}
+
+	if userConfig.AdvertisePort != 0 {
+		cfg.AdvertisePort = userConfig.AdvertisePort
+	}
+
 	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithField("action", "memberlist_init").
 			WithField("hostname", userConfig.Hostname).
@@ -88,7 +103,6 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 
 	if len(joinAddr) > 0 {
-
 		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 		if err != nil {
 			logger.WithField("action", "cluster_attempt_join").
@@ -132,6 +146,9 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -185,6 +202,18 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// NodeAddress is used to resolve the node name into an ip address without the port
+func (s *State) NodeAddress(id string) string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+	for _, mem := range s.list.Members() {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
+	return ""
 }
 
 func (s *State) SchemaSyncIgnored() bool {

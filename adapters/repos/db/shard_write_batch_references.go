@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,15 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
-func (s *Shard) addReferencesBatch(ctx context.Context,
-	refs objects.BatchReferences,
-) []error {
+func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if s.isReadOnly() {
 		return []error{errors.Errorf("shard is read-only")}
 	}
@@ -44,12 +41,12 @@ func (s *Shard) addReferencesBatch(ctx context.Context,
 // operations)
 type referencesBatcher struct {
 	sync.Mutex
-	shard *Shard
+	shard ShardLike
 	errs  []error
 	refs  objects.BatchReferences
 }
 
-func newReferencesBatcher(s *Shard) *referencesBatcher {
+func newReferencesBatcher(s ShardLike) *referencesBatcher {
 	return &referencesBatcher{
 		shard: s,
 	}
@@ -83,9 +80,7 @@ func (b *referencesBatcher) storeInObjectStore(
 	// the vector index
 }
 
-func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
-	batch objects.BatchReferences,
-) []error {
+func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context, batch objects.BatchReferences) []error {
 	errs := make([]error, len(batch))
 	errLock := &sync.Mutex{}
 
@@ -168,10 +163,7 @@ func (b *referencesBatcher) storeSingleBatchInLSM(ctx context.Context,
 	return errs
 }
 
-func (b *referencesBatcher) analyzeInverted(
-	invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult,
-	ref objects.BatchReference, prop *models.Property,
-) error {
+func (b *referencesBatcher) analyzeInverted(invertedMerger *inverted.DeltaMerger, mergeResult mutableMergeResult, ref objects.BatchReference, prop *models.Property) error {
 	prevProps, err := b.analyzeRef(mergeResult.previous, ref, prop)
 	if err != nil {
 		return err
@@ -194,35 +186,37 @@ func (b *referencesBatcher) writeInverted(in inverted.DeltaMergeResult) error {
 	if err := b.writeInvertedAdditions(in.Additions); err != nil {
 		return errors.Wrap(err, "write additions")
 	}
-	b.shard.metrics.InvertedExtend(before, len(in.Additions))
+	b.shard.Metrics().InvertedExtend(before, len(in.Additions))
 
 	before = time.Now()
 	if err := b.writeInvertedDeletions(in.Deletions); err != nil {
 		return errors.Wrap(err, "write deletions")
 	}
-	b.shard.metrics.InvertedDeleteDelta(before)
+	b.shard.Metrics().InvertedDeleteDelta(before)
 
 	return nil
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedDeletions(
-	in []inverted.MergeProperty,
-) error {
+func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
+<<<<<<< HEAD
 			bucket, err := lsmkv.FetchMeABucket(b.shard.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.propIds)
 			if err != nil {
+=======
+			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			if bucket == nil {
+>>>>>>> main
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
 			for _, item := range prop.MergeItems {
 				for _, id := range item.DocIDs {
-					err := b.shard.deleteInvertedIndexItemLSM(bucket,
-						inverted.Countable{Data: item.Data}, id.DocID)
+					err := b.shard.deleteFromPropertySetBucket(bucket, id.DocID, item.Data)
 					if err != nil {
 						return err
 					}
@@ -235,16 +229,19 @@ func (b *referencesBatcher) writeInvertedDeletions(
 }
 
 // TODO text_rbm_inverted_index unify bucket write
-func (b *referencesBatcher) writeInvertedAdditions(
-	in []inverted.MergeProperty,
-) error {
+func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty) error {
 	for _, prop := range in {
 		// in the references batcher we can only ever write ref count entire which
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
+<<<<<<< HEAD
 			bucket, err := lsmkv.FetchMeABucket(b.shard.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.propIds)
 			if err != nil {
+=======
+			bucket := b.shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+			if bucket == nil {
+>>>>>>> main
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
 
@@ -260,9 +257,7 @@ func (b *referencesBatcher) writeInvertedAdditions(
 	return nil
 }
 
-func (b *referencesBatcher) analyzeRef(obj *storobj.Object,
-	ref objects.BatchReference, prop *models.Property,
-) ([]inverted.Property, error) {
+func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchReference, prop *models.Property) ([]inverted.Property, error) {
 	if prop == nil {
 		return nil, fmt.Errorf("analyzeRef: property %q not found in schema", ref.From.Property)
 	}
@@ -333,25 +328,34 @@ func mergeDocFromBatchReference(ref objects.BatchReference) objects.MergeDocumen
 }
 
 func (b *referencesBatcher) flushWALs(ctx context.Context) {
-	if err := b.shard.store.WriteWALs(); err != nil {
+	if err := b.shard.Store().WriteWALs(); err != nil {
 		for i := range b.refs {
 			b.setErrorAtIndex(err, i)
 		}
 	}
 
-	if err := b.shard.vectorIndex.Flush(); err != nil {
-		for i := range b.refs {
-			b.setErrorAtIndex(err, i)
+	if b.shard.hasTargetVectors() {
+		for targetVector, vectorIndex := range b.shard.VectorIndexes() {
+			if err := vectorIndex.Flush(); err != nil {
+				for i := range b.refs {
+					b.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), i)
+				}
+			}
+		}
+	} else {
+		if err := b.shard.VectorIndex().Flush(); err != nil {
+			for i := range b.refs {
+				b.setErrorAtIndex(err, i)
+			}
 		}
 	}
 }
 
 func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {
-	idx := b.shard.index
-	sch := idx.getSchema.GetSchemaSkipAuth().Objects
-	class, err := schema.GetClassByName(sch, idx.Config.ClassName.String())
-	if err != nil {
-		return nil, err
+	idx := b.shard.Index()
+	class := idx.getSchema.ReadOnlyClass(idx.Config.ClassName.String())
+	if class == nil {
+		return nil, fmt.Errorf("could not find class %s in schema", idx.Config.ClassName)
 	}
 
 	propsByName := map[string]*models.Property{}

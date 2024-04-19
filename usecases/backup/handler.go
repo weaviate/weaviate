@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,7 +26,7 @@ import (
 // Version of backup structure
 const (
 	// Version > version1 support compression
-	Version = "2.0"
+	Version = "2.1"
 	// version1 store plain files without compression
 	version1 = "1.0"
 )
@@ -45,13 +45,18 @@ type authorizer interface {
 }
 
 type schemaManger interface {
-	RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error
+	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error
 	NodeName() string
 }
 
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
+	AllNames() []string
 	NodeCount() int
+
+	// LeaderID is used to return the current leader ID
+	// It may return empty strings if there is no current leader or the leader is unknown.
+	LeaderID() string
 }
 
 type Status struct {
@@ -91,13 +96,31 @@ func NewHandler(
 		restorer: newRestorer(node, logger,
 			sourcer,
 			backends,
-			schema,
 		),
 	}
 	return m
 }
 
+// Compression is the compression configuration.
+type Compression struct {
+	// Level is one of DefaultCompression, BestSpeed, BestCompression
+	Level CompressionLevel
+
+	// ChunkSize represents the desired size for chunks between 1 - 512  MB
+	// However, during compression, the chunk size might
+	// slightly deviate from this value, being either slightly
+	// below or above the specified size
+	ChunkSize int
+
+	// CPUPercentage desired CPU core utilization (1%-80%), default: 50%
+	CPUPercentage int
+}
+
+// BackupRequest a transition request from API to Backend.
 type BackupRequest struct {
+	// Compression is the compression configuration.
+	Compression
+
 	// ID is the backup ID
 	ID string
 	// Backend specify on which backend to store backups (gcs, s3, ..)
@@ -109,13 +132,29 @@ type BackupRequest struct {
 	// Exclude means include all classes but those specified in Exclude
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
+
+	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
+	// No effect if the map is empty
+	NodeMapping map[string]string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
 // in a distributed backup operation
 func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
-	store, err := nodeBackend(m.node, m.backends, req.Backend, req.ID)
+
+	nodeName := m.node
+	// If we are doing a restore and have a nodeMapping specified, ensure we use the "old" node name from the backup to retrieve/store the
+	// backup information.
+	if req.Method == OpRestore {
+		for oldNodeName, newNodeName := range req.NodeMapping {
+			if nodeName == newNodeName {
+				nodeName = oldNodeName
+				break
+			}
+		}
+	}
+	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
 		return ret
@@ -131,7 +170,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
-		res, err := m.backupper.backup(ctx, store, req)
+		res, err := m.backupper.backup(store, req)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret
@@ -143,7 +182,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		res, err := m.restorer.restore(ctx, req, meta, store)
+		res, err := m.restorer.restore(req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret

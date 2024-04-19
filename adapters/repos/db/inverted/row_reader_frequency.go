@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,16 +14,23 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
+<<<<<<< HEAD
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+=======
+	"github.com/weaviate/sroar"
+>>>>>>> main
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
+<<<<<<< HEAD
 	value        []byte
 	bucket       lsmkv.BucketInterface
 	operator     filters.Operator
@@ -40,26 +47,31 @@ func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte, operator 
 		keyOnly:      keyOnly,
 		shardVersion: shardVersion,
 		PropPrefix:   bucket.PropertyPrefix(),
+=======
+	value         []byte
+	bucket        *lsmkv.Bucket
+	operator      filters.Operator
+	keyOnly       bool
+	shardVersion  uint16
+	bitmapFactory *roaringset.BitmapFactory
+}
+
+func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
+	operator filters.Operator, keyOnly bool, shardVersion uint16,
+	bitmapFactory *roaringset.BitmapFactory,
+) *RowReaderFrequency {
+	return &RowReaderFrequency{
+		bucket:        bucket,
+		value:         value,
+		operator:      operator,
+		keyOnly:       keyOnly,
+		shardVersion:  shardVersion,
+		bitmapFactory: bitmapFactory,
+>>>>>>> main
 	}
 }
 
-// ReadFnFrequency will be called 1..n times per match. This means it will also be
-// called on a non-match, in this case v == nil.
-// It is up to the caller to decide if that is an error case or not.
-//
-// Note that because what we are parsing is an inverted index row, it can
-// sometimes become confusing what a key and value actually resembles. The
-// variables k and v are the literal row key and value. So this means, the
-// data-value as in "less than 17" where 17 would be the "value" is in the key
-// variable "k". The value will contain the docCount, hash and list of pointers
-// (with optional frequency) to the docIDs
-//
-// The boolean return argument is a way to stop iteration (e.g. when a limit is
-// reached) without producing an error. In normal operation always return true,
-// if false is returned once, the loop is broken.
-type ReadFnFrequency func(k []byte, values []lsmkv.MapPair) (bool, error)
-
-func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFnFrequency) error {
+func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFn) error {
 	switch rr.operator {
 	case filters.OperatorEqual:
 		return rr.equal(ctx, readFn)
@@ -82,11 +94,13 @@ func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFnFrequency) 
 
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
-func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency) error {
-	if err := ctx.Err(); err != nil {
+func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFn) error {
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
 		return err
 	}
 
+<<<<<<< HEAD
 	var v []lsmkv.MapPair
 	var err error
 	if rr.shardVersion < 2 {
@@ -102,14 +116,28 @@ func (rr *RowReaderFrequency) equal(ctx context.Context, readFn ReadFnFrequency)
 	}
 	// TODO: don't we need to check here if this is a doc id vs a object search?
 	// Or is this not a problem because the latter removes duplicates anyway?
+=======
+	_, err = readFn(rr.value, rr.transformToBitmap(v))
+	return err
+}
+>>>>>>> main
 
-	_, err = readFn(rr.value, v)
+func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFn) error {
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(rr.transformToBitmap(v))
+	_, err = readFn(rr.value, inverted)
 	return err
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
 // included if allowEqual==true, otherwise it starts with the next one
-func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFrequency,
+func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool,
 ) error {
 	c := rr.newCursor()
@@ -128,7 +156,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -144,7 +172,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFnFreq
 // lessThan reads from the very begging to the specified  value. The last
 // matching row is only included if allowEqual==true, otherwise it ends one
 // prior to that.
-func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequency,
+func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	allowEqual bool,
 ) error {
 	c := rr.newCursor()
@@ -164,7 +192,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -177,6 +205,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFnFrequen
 	return nil
 }
 
+<<<<<<< HEAD
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequency) error {
@@ -211,9 +240,12 @@ func (rr *RowReaderFrequency) notEqual(ctx context.Context, readFn ReadFnFrequen
 }
 
 func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) error {
+=======
+func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
+>>>>>>> main
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
-		return errors.Wrapf(err, "parse like value")
+		return fmt.Errorf("parse like value: %w", err)
 	}
 
 	// TODO: don't we need to check here if this is a doc id vs a object search?
@@ -255,7 +287,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFnFrequency) 
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -282,4 +314,39 @@ func (rr *RowReaderFrequency) newCursor(
 	}
 
 	return rr.bucket.MapCursor(opts...)
+}
+
+func (rr *RowReaderFrequency) transformToBitmap(pairs []lsmkv.MapPair) *sroar.Bitmap {
+	out := sroar.NewBitmap()
+	for _, pair := range pairs {
+		// this entry has a frequency, but that's only used for bm25, not for
+		// pure filtering, so we can ignore it here
+		if rr.shardVersion < 2 {
+			out.Set(binary.LittleEndian.Uint64(pair.Key))
+		} else {
+			out.Set(binary.BigEndian.Uint64(pair.Key))
+		}
+	}
+	return out
+}
+
+// equalHelper exists, because the Equal and NotEqual operators share this functionality
+func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPair, err error) {
+	if err = ctx.Err(); err != nil {
+		return
+	}
+
+	if rr.shardVersion < 2 {
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(),
+			lsmkv.MapListLegacySortingRequired())
+		if err != nil {
+			return
+		}
+	} else {
+		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
+		if err != nil {
+			return
+		}
+	}
+	return
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,7 @@ type Params struct {
 	Limit            *int                       `json:"limit"`
 	ObjectLimit      *int                       `json:"objectLimit"`
 	SearchVector     []float32                  `json:"searchVector"`
+	TargetVector     string                     `json:"targetVector"`
 	Certainty        float64                    `json:"certainty"`
 	Tenant           string                     `json:"tenant"`
 	ModuleParams     map[string]interface{}     `json:"moduleParams"`

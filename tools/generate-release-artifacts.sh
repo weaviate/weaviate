@@ -1,54 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -eo pipefail
+set -eou pipefail
 
+BUILD_ARTIFACTS_DIR="build_artifacts"
 GIT_HASH=$(git rev-parse --short HEAD)
 VERSION="v$(jq -r '.info.version' openapi-specs/schema.json)"
 
 function main() {
   cd ./cmd/weaviate-server
 
-  echo_green "Building linux/arm64 binary..."
-  GOOS=linux GOARCH=arm64 go build -o build_artifacts/weaviate_linux_arm64 -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'"
-  step_complete
+  if [ -d $BUILD_ARTIFACTS_DIR ]; then
+    rm -fr $BUILD_ARTIFACTS_DIR
+  fi
 
-  echo_green "Building linux/amd64 binary..."
-  GOAMD64=v1 GOOS=linux GOARCH=amd64 go build -o build_artifacts/weaviate_linux_amd64 -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'"
-  step_complete
+  build_binary_arm64
+  build_binary_amd64
 
-  cd build_artifacts
-
-  cp ../../../README.md .
-  cp ../../../LICENSE .
-
-  echo_green "Packing linux/arm64 distribution..."
-  LINUX_ARM_DIST="weaviate-${VERSION}-linux-arm64.tar.gz"
-  tar cvfz "$LINUX_ARM_DIST" weaviate_linux_arm64 LICENSE README.md
-  step_complete
-
-  echo_green "Calculating linux/arm64 checksums..."
-  shasum -a 256 "$LINUX_ARM_DIST" | cut -d ' ' -f 1 > "${LINUX_ARM_DIST}.sha256"
-  md5 "$LINUX_ARM_DIST" | cut -d ' ' -f 4 > "${LINUX_ARM_DIST}.md5"
-  step_complete
-
-  echo_green "Packing linux/amd64 distribution..."
-  LINUX_AMD_DIST="weaviate-${VERSION}-linux-amd.tar.gz"
-  tar cvfz "$LINUX_AMD_DIST" weaviate_linux_amd64 LICENSE README.md
-  step_complete
-
-  echo_green "Calculating linux/amd64 checksums..."
-  shasum -a 256 "$LINUX_AMD_DIST" | cut -d ' ' -f 1 > "${LINUX_AMD_DIST}.sha256"
-  md5 "$LINUX_AMD_DIST" | cut -d ' ' -f 4 > "${LINUX_AMD_DIST}.md5"
-  step_complete
-
-  echo_green "Cleaning up workspace..."
-  rm -v weaviate_linux_arm64
-  rm -v weaviate_linux_amd64
-  rm -v LICENSE
-  rm -v README.md
-  step_complete
-
-  echo_purp_bold "${VERSION} artifacts available here: $(pwd)"
+  echo_purp_bold "${VERSION} artifacts available here: $(pwd)/${BUILD_ARTIFACTS_DIR}"
 }
 
 function echo_green() {
@@ -65,6 +33,48 @@ function echo_purp_bold() {
 
 function step_complete() {
     echo_green "==> Done!"
+}
+
+function build_binary_arm64() {
+  build_binary "arm64"
+}
+
+function build_binary_amd64() {
+  build_binary "amd64"
+}
+
+function build_binary() {
+  arch=$1
+  arch_dir="${BUILD_ARTIFACTS_DIR}/${arch}"
+
+  echo_green "Building linux/${arch} binary..."
+  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'"
+  step_complete
+
+  cd $arch_dir
+
+  echo_green "Copy README.md and LICENSE file..."
+  cp ../../../../README.md .
+  cp ../../../../LICENSE .
+
+  echo_green "Packing linux/${arch} distribution..."
+  LINUX_DIST="weaviate-${VERSION}-linux-${arch}.tar.gz"
+  tar cvfz "$LINUX_DIST" weaviate LICENSE README.md
+  step_complete
+
+  echo_green "Calculating linux/${arch} checksums..."
+  shasum -a 256 "$LINUX_DIST" | cut -d ' ' -f 1 > "${LINUX_DIST}.sha256"
+  md5 "$LINUX_DIST" | cut -d ' ' -f 4 > "${LINUX_DIST}.md5"
+  step_complete
+
+  echo_green "Move linux/${arch} artifacts to ${BUILD_ARTIFACTS_DIR} directory..."
+  mv $LINUX_DIST* ../
+  step_complete
+
+  echo_green "Clean up ${arch} directory"
+  cd ../..
+  rm -fr $arch_dir
+  step_complete
 }
 
 main "$@"

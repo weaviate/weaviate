@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,12 +20,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func TestState(t *testing.T) {
 	size := 1000
 
-	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
+	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}
@@ -141,13 +142,19 @@ func TestInitState(t *testing.T) {
 			shards:            4,
 			ok:                false,
 		},
+		{
+			nodes:             []string{"node1", "node2", "node3", "node4", "node5", "node6", "node7", "node8", "node9", "node10", "node11", "node12"},
+			replicationFactor: 3,
+			shards:            4,
+			ok:                true,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("Shards=%d_RF=%d", test.shards, test.replicationFactor),
 			func(t *testing.T) {
 				nodes := fakeNodes{test.nodes}
-				cfg, err := ParseConfig(map[string]interface{}{
+				cfg, err := config.ParseConfig(map[string]interface{}{
 					"desiredCount": float64(test.shards),
 					"replicas":     float64(test.replicationFactor),
 				}, 3)
@@ -168,6 +175,8 @@ func TestInitState(t *testing.T) {
 						actual++
 					}
 				}
+
+				assert.Equal(t, len(nodeCounter), len(test.nodes))
 
 				// assert that total no of associations is correct
 				desired := test.shards * test.replicationFactor
@@ -246,9 +255,9 @@ func TestGetPartitions(t *testing.T) {
 		require.Nil(t, partitions)
 		require.ErrorContains(t, err, "not enough replicas")
 	})
-	t.Run("Success", func(t *testing.T) {
+	t.Run("Success/RF3", func(t *testing.T) {
 		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
-		shards := []string{"H1", "H2", "H3"}
+		shards := []string{"H1", "H2", "H3", "H4", "H5"}
 		state := State{}
 		got, err := state.GetPartitions(nodes, shards, 3)
 		require.Nil(t, err)
@@ -256,6 +265,24 @@ func TestGetPartitions(t *testing.T) {
 			"H1": {"N1", "N2", "N3"},
 			"H2": {"N2", "N3", "N1"},
 			"H3": {"N3", "N1", "N2"},
+			"H4": {"N3", "N1", "N2"},
+			"H5": {"N1", "N2", "N3"},
+		}
+		require.Equal(t, want, got)
+	})
+
+	t.Run("Success/RF2", func(t *testing.T) {
+		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5", "N6", "N7"}}
+		shards := []string{"H1", "H2", "H3", "H4", "H5"}
+		state := State{}
+		got, err := state.GetPartitions(nodes, shards, 2)
+		require.Nil(t, err)
+		want := map[string][]string{
+			"H1": {"N1", "N2"},
+			"H2": {"N3", "N4"},
+			"H3": {"N5", "N6"},
+			"H4": {"N7", "N1"},
+			"H5": {"N2", "N3"},
 		}
 		require.Equal(t, want, got)
 	})
@@ -266,7 +293,7 @@ func TestAddPartition(t *testing.T) {
 		nodes1 = []string{"N", "M"}
 		nodes2 = []string{"L", "M", "O"}
 	)
-	cfg, err := ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
+	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
 	nodes := fakeNodes{[]string{"node1", "node2"}}
@@ -286,7 +313,7 @@ func TestAddPartition(t *testing.T) {
 func TestStateDeepCopy(t *testing.T) {
 	original := State{
 		IndexID: "original",
-		Config: Config{
+		Config: config.Config{
 			VirtualPerPhysical:  1,
 			DesiredCount:        2,
 			ActualCount:         3,
@@ -318,7 +345,7 @@ func TestStateDeepCopy(t *testing.T) {
 
 	control := State{
 		IndexID: "original",
-		Config: Config{
+		Config: config.Config{
 			VirtualPerPhysical:  1,
 			DesiredCount:        2,
 			ActualCount:         3,
@@ -406,4 +433,132 @@ func TestBackwardCompatibilityBefore1_17(t *testing.T) {
 
 	assert.Equal(t, []string{"the-best-node"},
 		newVersion.Physical["hello-replication"].BelongsToNodes)
+}
+
+func TestApplyNodeMapping(t *testing.T) {
+	type test struct {
+		name        string
+		state       State
+		control     State
+		nodeMapping map[string]string
+	}
+
+	tests := []test{
+		{
+			name: "no mapping",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1"},
+					},
+				},
+			},
+		},
+		{
+			name: "map one node",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "new-node1",
+						BelongsToNodes:                       []string{"new-node1"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1"},
+		},
+		{
+			name: "map multiple nodes",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1", "node2"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "new-node1",
+						BelongsToNodes:                       []string{"new-node1", "new-node2"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1", "node2": "new-node2"},
+		},
+		{
+			name: "map multiple nodes with exceptions",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node1",
+						BelongsToNodes:                       []string{"node1", "node2", "node3"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "new-node1",
+						BelongsToNodes:                       []string{"new-node1", "new-node2", "node3"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1", "node2": "new-node2"},
+		},
+		{
+			name: "map multiple nodes with legacy exception",
+			state: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node3",
+						BelongsToNodes:                       []string{"node1", "node2", "node3"},
+					},
+				},
+			},
+			control: State{
+				Physical: map[string]Physical{
+					"hello-node-mapping": {
+						Name:                                 "hello-node-mapping",
+						LegacyBelongsToNodeForBackwardCompat: "node3",
+						BelongsToNodes:                       []string{"new-node1", "new-node2", "node3"},
+					},
+				},
+			},
+			nodeMapping: map[string]string{"node1": "new-node1", "node2": "new-node2"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.state.ApplyNodeMapping(tc.nodeMapping)
+			assert.Equal(t, tc.control, tc.state)
+		})
+	}
 }

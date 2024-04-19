@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,18 +12,18 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	roaringset2 "github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
-	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
+func (s *segment) newRoaringSetCursor() *roaringset2.SegmentCursor {
+	return roaringset2.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
 		&roaringSetSeeker{s.index})
 }
 
-func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
+func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset2.InnerCursor, func()) {
 	sg.maintenanceLock.RLock()
-	out := make([]roaringset.InnerCursor, len(sg.segments))
+	out := make([]roaringset2.InnerCursor, len(sg.segments))
 
 	for i, segment := range sg.segments {
 		out[i] = segment.newRoaringSetCursor()

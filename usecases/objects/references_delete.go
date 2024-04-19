@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -80,7 +80,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	if err := input.validate(ctx, principal, m.schemaManager); err != nil {
+	class, schemaVersion, err := input.validate(ctx, principal, m.schemaManager)
+	if err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
 		}
@@ -101,12 +102,12 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, repl)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 
@@ -117,16 +118,17 @@ func (req *DeleteReferenceInput) validate(
 	ctx context.Context,
 	principal *models.Principal,
 	sm schemaManager,
-) error {
+) (*models.Class, uint64, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return err
+		return nil, 0, err
 	}
 
-	schema, err := sm.GetSchema(principal)
+	// TODO-RAFT: Pull the schemaversion here and return it alongside the class
+	class, err := sm.GetClass(ctx, principal, req.Class)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	return validateReferenceSchema(req.Class, req.Property, schema)
+	return class, 0, validateReferenceSchema(sm, class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.

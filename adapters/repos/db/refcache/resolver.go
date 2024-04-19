@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -226,6 +226,13 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 
 	if additionalProperties.Vector {
 		nested["vector"] = res.Vector
+	}
+	if len(additionalProperties.Vectors) > 0 {
+		vectors := make(map[string][]float32)
+		for _, targetVector := range additionalProperties.Vectors {
+			vectors[targetVector] = res.Vectors[targetVector]
+		}
+		nested["vectors"] = vectors
 	}
 	if additionalProperties.CreationTimeUnix {
 		nested["creationTimeUnix"] = res.Created

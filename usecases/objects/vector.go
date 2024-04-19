@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,7 +22,7 @@ import (
 )
 
 func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,
-	className string, id strfmt.UUID, tenant string,
+	className string, id strfmt.UUID, tenant string, class *models.Class, schemaVersion uint64,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
 		parent, err := m.vectorRepo.Object(ctx, className, id,
@@ -38,13 +38,14 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 		if err != nil {
 			return err
 		}
+
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, class, nil, m.findObject, m.logger); err != nil {
+			ctx, obj, class, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, nil); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, obj.Vectors, nil, schemaVersion); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 

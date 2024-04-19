@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,8 +29,8 @@ func TestClusterAPIAuth(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateClusterWithBasicAuth("user", "pass").
+	compose, err := docker.New().With3NodeCluster().
+		WithBasicAuth("user", "pass").
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -52,7 +52,7 @@ func TestClusterAPIAuth(t *testing.T) {
 
 			nodes := nodeStatusResp.Nodes
 			require.NotNil(t, nodes)
-			require.Len(t, nodes, 2)
+			require.Len(t, nodes, 3)
 		})
 
 		booksClass := books.ClassContextionaryVectorizer()

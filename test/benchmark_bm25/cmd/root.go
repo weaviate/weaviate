@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ var (
 	QueriesCount           int
 	MultiplyProperties     int
 	FilterObjectPercentage int
+	QueriesInterval        int
 	Alpha                  float32
 	Ranking                string
 	Vectorizer             bool
@@ -35,6 +36,7 @@ const (
 	DefaultDatasetConfigPath      = "datasets.yml"
 	DefaultBatchSize              = 100
 	DefaultQueriesCount           = -1
+	DefaultQueriesInterval        = -1
 	DefaultMultiplyProperties     = 1
 	DefaultFilterObjectPercentage = 0
 	DefaultAlpha                  = 0

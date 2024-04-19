@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,27 +14,42 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 
+<<<<<<< HEAD
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+=======
+	"github.com/weaviate/sroar"
+>>>>>>> main
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
+<<<<<<< HEAD
 	value      []byte
 	bucket     lsmkv.BucketInterface
 	operator   filters.Operator
 	PropPrefix []byte
 
 	keyOnly bool
+=======
+	value         []byte
+	bucket        *lsmkv.Bucket
+	operator      filters.Operator
+	keyOnly       bool
+	bitmapFactory *roaringset.BitmapFactory
+>>>>>>> main
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
+<<<<<<< HEAD
 func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool) *RowReader {
 	return &RowReader{
 		bucket:     bucket,
@@ -90,6 +105,20 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 // if false is returned once, the loop is broken.
 type ReadFn func(k []byte, values [][]byte) (bool, error)
 
+=======
+func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
+	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
+) *RowReader {
+	return &RowReader{
+		bucket:        bucket,
+		value:         value,
+		operator:      operator,
+		keyOnly:       keyOnly,
+		bitmapFactory: bitmapFactory,
+	}
+}
+
+>>>>>>> main
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
 // requests involving cursors
@@ -119,16 +148,25 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 // equal is a special case, as we don't need to iterate, but just read a single
 // row
 func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	v, err := rr.bucket.SetList(rr.value)
+	v, err := rr.equalHelper(ctx)
 	if err != nil {
 		return err
 	}
 
-	_, err = readFn(rr.value, v)
+	_, err = readFn(rr.value, rr.transformToBitmap(v))
+	return err
+}
+
+func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
+	v, err := rr.equalHelper(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(rr.transformToBitmap(v))
+	_, err = readFn(rr.value, inverted)
 	return err
 }
 
@@ -153,7 +191,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -189,6 +227,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
+<<<<<<< HEAD
 		continueReading, err := readFn(k, v)
 		if err != nil {
 			return err
@@ -223,6 +262,9 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 		}
 
 		continueReading, err := readFn(k, v)
+=======
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
+>>>>>>> main
 		if err != nil {
 			return err
 		}
@@ -238,7 +280,7 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
-		return errors.Wrapf(err, "parse like value")
+		return fmt.Errorf("parse like value: %w", err)
 	}
 
 	c := rr.newCursor()
@@ -281,7 +323,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -302,4 +344,25 @@ func (rr *RowReader) newCursor() *lsmkv.CursorSet {
 	}
 
 	return rr.bucket.SetCursor()
+}
+
+func (rr *RowReader) transformToBitmap(ids [][]byte) *sroar.Bitmap {
+	out := sroar.NewBitmap()
+	for _, asBytes := range ids {
+		out.Set(binary.LittleEndian.Uint64(asBytes))
+	}
+	return out
+}
+
+// equalHelper exists, because the Equal and NotEqual operators share this functionality
+func (rr *RowReader) equalHelper(ctx context.Context) ([][]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	v, err := rr.bucket.SetList(rr.value)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
 }

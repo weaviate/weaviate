@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -91,6 +91,7 @@ func TestHeadObject(t *testing.T) {
 	t.Parallel()
 	cls := "TestObjectHTTPHead"
 	// test setup
+	helper.DeleteClassObject(t, cls)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      cls,
 		Vectorizer: "none",
@@ -212,6 +213,8 @@ func TestPatchObject(t *testing.T) {
 		}
 	)
 	// test setup
+	helper.DeleteClassObject(t, friend_cls)
+	helper.DeleteClassObject(t, cls)
 	helper.AssertCreateObjectClass(t, &models.Class{ // friend
 		Class:        friend_cls,
 		ModuleConfig: mconfig,
@@ -314,6 +317,7 @@ func TestDeleteObject(t *testing.T) {
 		}
 	)
 	// test setup
+	helper.DeleteClassObject(t, classA)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      classA,
 		Vectorizer: "none",
@@ -321,6 +325,7 @@ func TestDeleteObject(t *testing.T) {
 	})
 	defer helper.DeleteClassObject(t, classA)
 
+	helper.DeleteClassObject(t, classB)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:      classB,
 		Vectorizer: "none",
@@ -416,6 +421,8 @@ func TestPostReference(t *testing.T) {
 	)
 
 	// test setup
+	helper.DeleteClassObject(t, cls)
+	helper.DeleteClassObject(t, friend_cls)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        friend_cls,
 		ModuleConfig: mconfig,
@@ -486,6 +493,7 @@ func TestPutReferences(t *testing.T) {
 		}
 	)
 	// test setup
+	helper.DeleteClassObject(t, first_friend)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        first_friend,
 		ModuleConfig: mconfig,
@@ -493,6 +501,7 @@ func TestPutReferences(t *testing.T) {
 	})
 	defer helper.DeleteClassObject(t, first_friend)
 
+	helper.DeleteClassObject(t, second_friend)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        second_friend,
 		ModuleConfig: mconfig,
@@ -500,6 +509,7 @@ func TestPutReferences(t *testing.T) {
 	})
 	defer helper.DeleteClassObject(t, second_friend)
 
+	helper.DeleteClassObject(t, cls)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        cls,
 		ModuleConfig: mconfig,
@@ -601,6 +611,7 @@ func TestDeleteReference(t *testing.T) {
 		}
 	)
 	// test setup
+	helper.DeleteClassObject(t, first_friend)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        first_friend,
 		ModuleConfig: mconfig,
@@ -608,6 +619,7 @@ func TestDeleteReference(t *testing.T) {
 	})
 	defer helper.DeleteClassObject(t, first_friend)
 
+	helper.DeleteClassObject(t, second_friend)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        second_friend,
 		ModuleConfig: mconfig,
@@ -615,6 +627,7 @@ func TestDeleteReference(t *testing.T) {
 	})
 	defer helper.DeleteClassObject(t, second_friend)
 
+	helper.DeleteClassObject(t, cls)
 	helper.AssertCreateObjectClass(t, &models.Class{
 		Class:        cls,
 		ModuleConfig: mconfig,
@@ -717,6 +730,9 @@ func TestQuery(t *testing.T) {
 		first_friend = "TestObjectHTTPQueryFriend"
 	)
 	// test setup
+	helper.DeleteClassObject(t, cls)
+	helper.DeleteClassObject(t, first_friend)
+
 	helper.AssertCreateObject(t, first_friend, map[string]interface{}{})
 	defer helper.DeleteClassObject(t, first_friend)
 	helper.AssertCreateObjectClass(t, &models.Class{

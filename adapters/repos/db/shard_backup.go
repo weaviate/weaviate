@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,15 +15,15 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
-	"github.com/pkg/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/backup"
-	"golang.org/x/sync/errgroup"
 )
 
-// beginBackup stops compaction, and flushing memtable and commit log to begin with the backup
-func (s *Shard) beginBackup(ctx context.Context) (err error) {
+// BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
+func (s *Shard) BeginBackup(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
@@ -33,10 +33,10 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 		}
 	}()
 	if err = s.store.PauseCompaction(ctx); err != nil {
-		return errors.Wrap(err, "pause compaction")
+		return fmt.Errorf("pause compaction: %w", err)
 	}
 	if err = s.store.FlushMemtables(ctx); err != nil {
-		return errors.Wrap(err, "flush memtables")
+		return fmt.Errorf("flush memtables: %w", err)
 	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
@@ -44,31 +44,52 @@ func (s *Shard) beginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
-		return errors.Wrap(err, "switch commit logs")
+	if s.hasTargetVectors() {
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
+				return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+			}
+		}
+	} else {
+		if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
+			return fmt.Errorf("switch commit logs: %w", err)
+		}
 	}
 	return nil
 }
 
-// listBackupFiles lists all files used to backup a shard
-func (s *Shard) listBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+// ListBackupFiles lists all files used to backup a shard
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
 	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
 		return err
 	}
-	if ret.Files, err = s.store.ListFiles(ctx); err != nil {
+
+	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
 		return err
 	}
-	files2, err := s.vectorIndex.ListFiles(ctx)
-	if err != nil {
-		return err
+
+	if s.hasTargetVectors() {
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			files, err := vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+			if err != nil {
+				return fmt.Errorf("list files of vector %q: %w", targetVector, err)
+			}
+			ret.Files = append(ret.Files, files...)
+		}
+	} else {
+		files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return err
+		}
+		ret.Files = append(ret.Files, files...)
 	}
-	ret.Files = append(ret.Files, files2...)
+
 	return nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
-	var g errgroup.Group
+	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
@@ -81,8 +102,7 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return errors.Wrapf(err,
-			"failed to resume maintenance cycles for shard '%s'", s.name)
+		return fmt.Errorf("failed to resume maintenance cycles for shard '%s': %w", s.name, err)
 	}
 
 	return nil
@@ -95,19 +115,26 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
 	}
-	d.DocIDCounterPath = path.Base(fpath)
-
-	fpath = s.propLengths.FileName()
+	d.DocIDCounterPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("docid counter path: %w", err)
+	}
+	fpath = s.GetPropertyLengthTracker().FileName()
 	if d.PropLengthTracker, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard prop-lengths %s: %w", fpath, err)
 	}
-	d.PropLengthTrackerPath = path.Base(fpath)
-
+	d.PropLengthTrackerPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("proplength tracker path: %w", err)
+	}
 	fpath = s.versioner.path
 	if d.Version, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard version %s: %w", fpath, err)
 	}
-	d.ShardVersionPath = path.Base(fpath)
+	d.ShardVersionPath, err = filepath.Rel(s.index.Config.RootPath, fpath)
+	if err != nil {
+		return fmt.Errorf("shard version path: %w", err)
+	}
 	return nil
 }
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,7 +31,7 @@ type schemaHandlers struct {
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
+	_, err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch err.(type) {
@@ -76,7 +76,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	class, _, err := s.manager.GetConsistentClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -118,7 +118,7 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesAddParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	_, err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, s.manager.ReadOnlyClass(params.ClassName), false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -136,7 +136,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetSchema(principal)
+	dbSchema, err := s.manager.GetConsistentSchema(principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -168,7 +168,19 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	// TODO-RAFT START
+	// Fix changed interface GetShardsStatus -> ShardsStatus
+	// Previous definition:
+	// status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
+	// var tenant string
+	// if params.Tenant == nil {
+	// 	tenant = ""
+	// } else {
+	// 	tenant = *params.Tenant
+	// }
+
+	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
+	// TODO-RAFT END
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -190,7 +202,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.UpdateShardStatus(
+	_, err := s.manager.UpdateShardStatus(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.ShardName, params.Body.Status)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -213,7 +225,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	created, err := s.manager.AddTenants(
+	_, err := s.manager.AddTenants(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -228,7 +240,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK().WithPayload(created)
+	return schema.NewTenantsCreateOK() //.WithPayload(created)
 }
 
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
@@ -278,7 +290,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName)
+	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -293,6 +305,25 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewTenantsGetOK().WithPayload(tenants)
+}
+
+func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
+	if err := s.manager.TenantExists(params.HTTPRequest.Context(), principal, params.ClassName, params.TenantName); err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		if err == schemaUC.ErrNotFound {
+			return schema.NewTenantExistsNotFound()
+		}
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewTenantExistsForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewTenantExistsUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	return schema.NewTenantExistsOK()
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
@@ -324,6 +355,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	api.SchemaTenantsUpdateHandler = schema.TenantsUpdateHandlerFunc(h.updateTenants)
 	api.SchemaTenantsDeleteHandler = schema.TenantsDeleteHandlerFunc(h.deleteTenants)
 	api.SchemaTenantsGetHandler = schema.TenantsGetHandlerFunc(h.getTenants)
+	api.SchemaTenantExistsHandler = schema.TenantExistsHandlerFunc(h.tenantExists)
 }
 
 type schemaRequestsTotal struct {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 type Deserializer struct {
@@ -34,7 +35,7 @@ type DeserializationResult struct {
 	Level             uint16
 	Tombstones        map[uint64]struct{}
 	EntrypointChanged bool
-	PQData            ssdhelpers.PQData
+	PQData            compressionhelpers.PQData
 	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
@@ -84,7 +85,7 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:         make([]*vertex, initialSize),
+			Nodes:         make([]*vertex, cache.InitialSize),
 			Tombstones:    make(map[uint64]struct{}),
 			LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		}
@@ -139,7 +140,7 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 		case ResetIndex:
 			out.Entrypoint = 0
 			out.Level = 0
-			out.Nodes = make([]*vertex, initialSize)
+			out.Nodes = make([]*vertex, cache.InitialSize)
 		case AddPQ:
 			err = d.ReadPQ(fd, out)
 			readThisRound = 9
@@ -460,7 +461,7 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
-func (d *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
+func (d *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (compressionhelpers.PQEncoder, error) {
 	bins, err := d.readFloat64(r)
 	if err != nil {
 		return nil, err
@@ -493,10 +494,10 @@ func (d *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, 
 	if err != nil {
 		return nil, err
 	}
-	return ssdhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
+	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (ssdhelpers.PQEncoder, error) {
+func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (compressionhelpers.PQEncoder, error) {
 	ds := int(res.PQData.Dimensions / res.PQData.M)
 	centers := make([][]float32, 0, res.PQData.Ks)
 	for k := uint16(0); k < res.PQData.Ks; k++ {
@@ -510,7 +511,7 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult
 		}
 		centers = append(centers, center)
 	}
-	kms := ssdhelpers.NewKMeansWithCenters(
+	kms := compressionhelpers.NewKMeansWithCenters(
 		int(res.PQData.Ks),
 		ds,
 		int(i),
@@ -544,8 +545,8 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
-	encoder := ssdhelpers.Encoder(enc)
-	res.PQData = ssdhelpers.PQData{
+	encoder := compressionhelpers.Encoder(enc)
+	res.PQData = compressionhelpers.PQData{
 		Dimensions:          dims,
 		EncoderType:         encoder,
 		Ks:                  ks,
@@ -553,11 +554,11 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 		EncoderDistribution: byte(dist),
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
-	var encoderReader func(io.Reader, *DeserializationResult, uint16) (ssdhelpers.PQEncoder, error)
+	var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
 	switch encoder {
-	case ssdhelpers.UseTileEncoder:
+	case compressionhelpers.UseTileEncoder:
 		encoderReader = d.ReadTileEncoder
-	case ssdhelpers.UseKMeansEncoder:
+	case compressionhelpers.UseKMeansEncoder:
 		encoderReader = d.ReadKMeansEncoder
 	default:
 		return errors.New("Unsuported encoder type")

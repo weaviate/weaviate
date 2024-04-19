@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,6 +48,7 @@ func NewScheduler(
 	sourcer selector,
 	backends BackupBackendProvider,
 	nodeResolver nodeResolver,
+	schema schemaManger,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
@@ -57,10 +58,12 @@ func NewScheduler(
 		backupper: newCoordinator(
 			sourcer,
 			client,
+			schema,
 			logger, nodeResolver),
 		restorer: newCoordinator(
 			sourcer,
 			client,
+			schema,
 			logger, nodeResolver),
 	}
 	return m
@@ -91,10 +94,11 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
-		Classes: classes,
+		Method:      OpCreate,
+		ID:          req.ID,
+		Backend:     req.Backend,
+		Classes:     classes,
+		Compression: req.Compression,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -111,6 +115,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 }
 
+// Restore loads the backup and restores classes in temporary directories on the filesystem.
+// The final backup restoration is orchestrated by the raft store.
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (_ *models.BackupRestoreResponse, err error) {
@@ -133,6 +139,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
+	schema, err := s.fetchSchema(ctx, req.Backend, meta)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
 		Backend: req.Backend,
@@ -140,7 +150,14 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Path:    store.HomeDir(),
 		Classes: meta.Classes(),
 	}
-	err = s.restorer.Restore(ctx, store, req.Backend, meta)
+
+	rReq := Request{
+		Method:      OpRestore,
+		ID:          req.ID,
+		Backend:     req.Backend,
+		Compression: req.Compression,
+	}
+	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
@@ -261,7 +278,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
-			return nil, fmt.Errorf("%w: %q", errMetaNotFound, destPath)
+			return nil, fmt.Errorf("backup id %q does not exist: %v: %w", req.ID, notFoundErr, errMetaNotFound)
 		}
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
@@ -290,7 +307,59 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
 	}
+	if len(req.NodeMapping) > 0 {
+		meta.NodeMapping = req.NodeMapping
+		meta.ApplyNodeMapping()
+	}
 	return meta, nil
+}
+
+// fetchSchema retrieves and returns the latest schema for all classes
+// In pre-raft scenarios where schema may diverge, some guesswork is necessary
+func (s *Scheduler) fetchSchema(
+	ctx context.Context,
+	backend string,
+	req *backup.DistributedBackupDescriptor,
+) ([]backup.ClassDescriptor, error) {
+	f := func(node string) ([]backup.ClassDescriptor, error) {
+		store, err := nodeBackend(node, s.backends, backend, req.ID)
+		if err != nil {
+			return nil, err
+		}
+		meta, err := store.Meta(ctx, req.ID, true)
+		if err != nil {
+			return nil, err
+		}
+		return meta.Classes, nil
+	}
+
+	if req.Leader != "" {
+		return f(req.Leader) // raft version of the backup
+	}
+
+	// union
+	m := make(map[string]backup.ClassDescriptor, 64)
+	for k := range req.Nodes {
+		xs, err := f(k)
+		if err != nil {
+			break
+		}
+		// guess the most up to date version
+		for _, x := range xs {
+			c, ok := m[x.Name]
+			if !ok || len(x.ShardingState) > len(c.ShardingState) {
+				m[x.Name] = x
+				continue
+			}
+		}
+	}
+	xs := make([]backup.ClassDescriptor, len(m))
+	i := 0
+	for _, v := range m {
+		xs[i] = v
+		i++
+	}
+	return xs, nil
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {

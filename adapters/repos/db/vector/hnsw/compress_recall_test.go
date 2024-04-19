@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,12 +21,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -54,6 +58,8 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 	testinghelpers.Normalize(queries)
 	k := 100
 
+	logger, _ := test.NewNullLogger()
+
 	distancers := []distancer.Provider{
 		distancer.NewL2SquaredProvider(),
 		distancer.NewCosineDistanceProvider(),
@@ -62,8 +68,8 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 
 	for _, distancer := range distancers {
 		truths := make([][]uint64, queries_size)
-		ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-			truths[i] = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+		compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+			truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
 		})
 		fmt.Printf("generating data took %s\n", time.Since(before))
 
@@ -73,25 +79,27 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			EF:                    ef,
 			VectorCacheMaxObjects: 10e12,
 		}
-		index, _ := hnsw.New(
-			hnsw.Config{
-				RootPath:              path,
-				ID:                    "recallbenchmark",
-				MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
-				ClassName:             "clasRecallBenchmark",
-				ShardName:             "shardRecallBenchmark",
-				DistanceProvider:      distancer,
-				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					return vectors[int(id)], nil
-				},
-				TempVectorForIDThunk: func(ctx context.Context, id uint64, container *hnsw.VectorSlice) ([]float32, error) {
-					copy(container.Slice, vectors[int(id)])
-					return container.Slice, nil
-				},
-			}, uc,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+		index, _ := hnsw.New(hnsw.Config{
+			RootPath:              path,
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+			ClassName:             "clasRecallBenchmark",
+			ShardName:             "shardRecallBenchmark",
+			DistanceProvider:      distancer,
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				if int(id) >= len(vectors) {
+					return nil, storobj.NewErrNotFoundf(id, "out of range")
+				}
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+				copy(container.Slice, vectors[int(id)])
+				return container.Slice, nil
+			},
+		}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		init := time.Now()
-		ssdhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+		compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
 			index.Add(id, vectors[id])
 		})
 		before = time.Now()
@@ -113,7 +121,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 			var retrieved int
 
 			var querying time.Duration = 0
-			ssdhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+			compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 				before = time.Now()
 				results, _, _ := index.SearchByVector(queries[i], k, nil)
 				querying += time.Since(before)

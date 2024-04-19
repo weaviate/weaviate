@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,15 +24,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sync/errgroup"
 )
 
 const (
-	vectorSize          = 128
-	vectorsPerGoroutine = 100
-	parallelGoroutines  = 100
+	vectorSize               = 128
+	vectorsPerGoroutine      = 100
+	parallelGoroutines       = 100
+	parallelSearchGoroutines = 8
 )
 
 func idVector(ctx context.Context, id uint64) ([]float32, error) {
@@ -65,7 +73,9 @@ func int32FromBytes(bytes []byte) int {
 
 func TestHnswStress(t *testing.T) {
 	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
-	if _, err := os.Stat(siftFile); err != nil {
+	siftFileQuery := "datasets/ann-benchmarks/siftsmall/sift_query.fvecs"
+	_, err2 := os.Stat(siftFileQuery)
+	if _, err := os.Stat(siftFile); err != nil || err2 != nil {
 		if !*download {
 			t.Skip(`Sift data needs to be present.
 Run test with -download to automatically download the dataset.
@@ -75,6 +85,7 @@ Ex: go test -v -run TestHnswStress . -download
 		downloadDatasetFile(t, siftFile)
 	}
 	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
+	vectorsQuery := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
 
 	t.Run("Insert and search and maybe delete", func(t *testing.T) {
 		for n := 0; n < 1; n++ { // increase if you don't want to reread SIFT for every run
@@ -137,6 +148,35 @@ Ex: go test -v -run TestHnswStress . -download
 			wg.Wait()
 
 		}
+	})
+
+	t.Run("Concurrent search", func(t *testing.T) {
+		index := createEmptyHnswIndexForTests(t, idVector)
+		// add elements
+		for k, vec := range vectors {
+			err := index.Add(uint64(k), vec)
+			require.Nil(t, err)
+		}
+
+		vectorsPerGoroutineSearch := len(vectorsQuery) / parallelSearchGoroutines
+		wg := sync.WaitGroup{}
+
+		for i := 0; i < 10; i++ { // increase if you don't want to reread SIFT for every run
+			for k := 0; k < parallelSearchGoroutines; k++ {
+				wg.Add(1)
+				k := k
+				go func() {
+					goroutineIndex := k * vectorsPerGoroutineSearch
+					for j := 0; j < vectorsPerGoroutineSearch; j++ {
+						_, _, err := index.SearchByVector(vectors[goroutineIndex+j], 0, nil)
+						require.Nil(t, err)
+
+					}
+					wg.Done()
+				}()
+			}
+		}
+		wg.Wait()
 	})
 
 	t.Run("Concurrent deletes", func(t *testing.T) {
@@ -283,7 +323,7 @@ Ex: go test -v -run TestHnswStress . -download
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 			defer cancel()
 
-			g, ctx := errgroup.WithContext(ctx)
+			g, ctx := enterrors.NewErrorGroupWithContextWrapper(logrus.New(), ctx)
 
 			// run parallelGoroutines goroutines
 			for i := 0; i < parallelGoroutines; i++ {
@@ -358,4 +398,71 @@ func readSiftFloat(file string, maxObjects int) [][]float32 {
 	}
 
 	return vectors
+}
+
+func TestConcurrentDelete(t *testing.T) {
+	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
+	if _, err := os.Stat(siftFile); err != nil {
+		if !*download {
+			t.Skip(`Sift data needs to be present.
+Run test with -download to automatically download the dataset.
+Ex: go test -v -run TestHnswStress . -download
+`)
+		}
+		downloadDatasetFile(t, siftFile)
+	}
+	numGoroutines := 10
+	numVectors := 10
+	vectors := readSiftFloat(siftFile, numGoroutines*numVectors)
+
+	for n := 0; n < 50; n++ { // increase if you don't want to reread SIFT for every run
+		store := testinghelpers.NewDummyStore(t)
+
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        128,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+
+		var wg sync.WaitGroup
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			goroutineIndex := i * numVectors
+			go func() {
+				defer wg.Done()
+				for j := 0; j < numVectors; j++ {
+					require.Nil(t, index.Add(uint64(goroutineIndex+j), vectors[goroutineIndex+j]))
+				}
+			}()
+		}
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			goroutineIndex := i * numVectors
+			go func() {
+				defer wg.Done()
+				for j := 0; j < numVectors; j++ {
+					require.Nil(t, index.Delete(uint64(goroutineIndex+j)))
+				}
+			}()
+		}
+
+		for i := 0; i < numGoroutines; i++ {
+			for i := 0; i < 10; i++ {
+				err := index.CleanUpTombstonedNodes(neverStop)
+				require.Nil(t, err)
+			}
+		}
+		wg.Wait()
+	}
 }

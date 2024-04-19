@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,13 +16,19 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+<<<<<<< HEAD
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/roaringset"
+=======
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+>>>>>>> main
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"golang.org/x/sync/errgroup"
 )
 
 type propValuePair struct {
@@ -40,16 +46,25 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
+<<<<<<< HEAD
 
 	Class *models.Class // The schema
+=======
+	Class              *models.Class // The schema
+	logger             logrus.FieldLogger
+>>>>>>> main
 }
 
-func newPropValuePair(class *models.Class) (*propValuePair, error) {
+func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
+<<<<<<< HEAD
 
 	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
+=======
+	return &propValuePair{logger: logger, docIDs: newDocBitmap(), Class: class}, nil
+>>>>>>> main
 }
 
 func (pv *propValuePair) SetValue(value []byte) {
@@ -115,7 +130,7 @@ func (pv *propValuePair) fetchDocIDs_old(s *Searcher, limit int) error {
 		}
 		pv.docIDs = dbm
 	} else {
-		eg := errgroup.Group{}
+		eg := enterrors.NewErrorGroupWrapper(pv.logger)
 		// prevent unbounded concurrency, see
 		// https://github.com/weaviate/weaviate/issues/3179 for details
 		eg.SetLimit(2 * _NUMCPU)

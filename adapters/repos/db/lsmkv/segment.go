@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,29 +26,32 @@ import (
 )
 
 type segment struct {
-	path                  string
-	level                 uint16
-	secondaryIndexCount   uint16
-	version               uint16
-	segmentStartPos       uint64
-	segmentEndPos         uint64
-	dataStartPos          uint64
-	dataEndPos            uint64
-	contents              []byte
-	contentFile           *os.File
+	path                string
+	level               uint16
+	secondaryIndexCount uint16
+	version             uint16
+	segmentStartPos     uint64
+	segmentEndPos       uint64
+	dataStartPos        uint64
+	dataEndPos          uint64
+	contents            []byte
+	contentFile         *os.File
+	strategy            segmentindex.Strategy
+	index               diskIndex
+	secondaryIndices    []diskIndex
+	logger              logrus.FieldLogger
+	metrics             *Metrics
+	size                int64
+	mmapContents        bool
+
+	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
 	secondaryBloomFilters []*bloom.BloomFilter
-	strategy              segmentindex.Strategy
-	index                 diskIndex
-	secondaryIndices      []diskIndex
-	logger                logrus.FieldLogger
-	metrics               *Metrics
 	bloomFilterMetrics    *bloomFilterMetrics
-	size                  int64
-	mmapContents          bool
 
 	// the net addition this segment adds with respect to all previous segments
-	countNetAdditions int
+	calcCountNetAdditions bool // see bucket for more datails
+	countNetAdditions     int
 }
 
 type diskIndex interface {
@@ -69,6 +72,7 @@ type diskIndex interface {
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
+	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
 ) (*segment, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -105,22 +109,23 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	seg := &segment{
-		level:               header.Level,
-		path:                path,
-		contents:            contents,
-		version:             header.Version,
-		secondaryIndexCount: header.SecondaryIndices,
-		segmentStartPos:     header.IndexStart,
-		segmentEndPos:       uint64(fileInfo.Size()),
-		strategy:            header.Strategy,
-		dataStartPos:        segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:          header.IndexStart,
-		index:               primaryDiskIndex,
-		logger:              logger,
-		metrics:             metrics,
-		bloomFilterMetrics:  newBloomFilterMetrics(metrics),
-		size:                fileInfo.Size(),
-		mmapContents:        mmapContents,
+		level:                 header.Level,
+		path:                  path,
+		contents:              contents,
+		version:               header.Version,
+		secondaryIndexCount:   header.SecondaryIndices,
+		segmentStartPos:       header.IndexStart,
+		segmentEndPos:         uint64(fileInfo.Size()),
+		strategy:              header.Strategy,
+		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataEndPos:            header.IndexStart,
+		index:                 primaryDiskIndex,
+		logger:                logger,
+		metrics:               metrics,
+		size:                  fileInfo.Size(),
+		mmapContents:          mmapContents,
+		useBloomFilter:        useBloomFilter,
+		calcCountNetAdditions: calcCountNetAdditions,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -132,26 +137,24 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	if seg.secondaryIndexCount > 0 {
 		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
-		seg.secondaryBloomFilters = make([]*bloom.BloomFilter, seg.secondaryIndexCount)
 		for i := range seg.secondaryIndices {
 			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
-
 			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
-			if err := seg.initSecondaryBloomFilter(i); err != nil {
-				return nil, fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
-			}
 		}
 	}
 
-	if err := seg.initBloomFilter(); err != nil {
-		return nil, err
+	if seg.useBloomFilter {
+		if err := seg.initBloomFilters(metrics, overwriteDerived); err != nil {
+			return nil, err
+		}
 	}
-
-	if err := seg.initCountNetAdditions(existsLower); err != nil {
-		return nil, err
+	if seg.calcCountNetAdditions {
+		if err := seg.initCountNetAdditions(existsLower, overwriteDerived); err != nil {
+			return nil, err
+		}
 	}
 
 	return seg, nil
@@ -254,7 +257,7 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
-	_, err = n.Read(b)
+	_, err = io.ReadFull(n, b)
 	return err
 }
 

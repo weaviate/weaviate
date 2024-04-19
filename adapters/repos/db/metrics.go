@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,6 +30,8 @@ type Metrics struct {
 	filteredVectorVector  prometheus.Observer
 	filteredVectorObjects prometheus.Observer
 	filteredVectorSort    prometheus.Observer
+	grouped               bool
+	baseMetrics           *monitoring.PrometheusMetrics
 }
 
 func NewMetrics(
@@ -44,9 +46,12 @@ func NewMetrics(
 		return m
 	}
 
+	m.baseMetrics = prom
+
 	if prom.Group {
 		className = "n/a"
 		shardName = "n/a"
+		m.grouped = true
 	}
 
 	m.monitoring = true
@@ -92,6 +97,15 @@ func NewMetrics(
 	})
 
 	return m
+}
+
+func (m *Metrics) DeleteShardLabels(class, shard string) {
+	if m.grouped {
+		// never delete the shared label, only individual ones
+		return
+	}
+
+	m.baseMetrics.DeleteShard(class, shard)
 }
 
 func (m *Metrics) BatchObject(start time.Time, size int) {

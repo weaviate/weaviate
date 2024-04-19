@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,11 +22,15 @@ import (
 )
 
 type Vectorizer interface {
-	// VectorizeObject should mutate the object which is passed in as a pointer-type
-	// by extending it with the desired vector and - if applicable - any meta
+	// VectorizeObject takes an object and returns a vector and - if applicable - any meta
 	// information as part of _additional properties
-	VectorizeObject(ctx context.Context, obj *models.Object, objDiff *moduletools.ObjectDiff,
-		cfg moduletools.ClassConfig) error
+	VectorizeObject(ctx context.Context, obj *models.Object,
+		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	// VectorizableProperties returns which properties the vectorizer looks at.
+	// If the vectorizer is capable of vectorizing all text properties, the first bool is true.
+	// Any additional "media"-properties are explicitly mentioned in the []string return
+	VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error)
+	VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error)
 }
 
 type FindObjectFn = func(ctx context.Context, class string, id strfmt.UUID,
@@ -39,7 +43,7 @@ type ReferenceVectorizer interface {
 	// VectorizeObject should mutate the object which is passed in as a pointer-type
 	// by extending it with the desired vector, which is calculated by the module
 	VectorizeObject(ctx context.Context, object *models.Object,
-		cfg moduletools.ClassConfig, findObjectFn FindObjectFn) error
+		cfg moduletools.ClassConfig, findObjectFn FindObjectFn) ([]float32, error)
 }
 
 type InputVectorizer interface {

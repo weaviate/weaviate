@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -139,14 +139,14 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 		HybridSearch: g.params.Hybrid,
 		Keyword:      nil,
 		Class:        g.params.ClassName.String(),
-	}, g.logger, sparseSearch, denseSearch, nil, nil)
+	}, g.logger, sparseSearch, denseSearch, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {
-		ids[i] = r.DocID
+		ids[i] = *r.DocID
 	}
 
 	return ids, nil
@@ -278,7 +278,7 @@ func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID())
+		_, err = scan(&properties, elem.DocID)
 		return err
 	})
 
@@ -303,7 +303,7 @@ func ScanAllLSM(store *lsmkv.Store, scan docid.ObjectScanFn) error {
 
 		// scanAll has no abort, so we can ignore the first arg
 		properties := elem.Properties()
-		_, err = scan(&properties, elem.DocID())
+		_, err = scan(&properties, elem.DocID)
 		if err != nil {
 			return err
 		}

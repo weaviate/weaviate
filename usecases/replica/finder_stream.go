@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -51,7 +53,7 @@ func (f *finderStream) readOne(ctx context.Context,
 ) <-chan objResult {
 	// counters tracks the number of votes for each participant
 	resultCh := make(chan objResult, 1)
-	go func() {
+	g := func() {
 		defer close(resultCh)
 		var (
 			votes      = make([]objTuple, 0, st.Level)
@@ -103,7 +105,8 @@ func (f *finderStream) readOne(ctx context.Context,
 		f.log.WithField("op", "repair_one").WithField("class", f.class).
 			WithField("shard", shard).WithField("uuid", id).
 			WithField("msg", sb.String()).Error(err)
-	}()
+	}
+	enterrors.GoWrapper(g, f.logger)
 	return resultCh
 }
 
@@ -128,7 +131,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 	st rState,
 ) <-chan _Result[bool] {
 	resultCh := make(chan _Result[bool], 1)
-	go func() {
+	g := func() {
 		defer close(resultCh)
 		var (
 			votes    = make([]boolTuple, 0, st.Level) // number of votes per replica
@@ -178,7 +181,8 @@ func (f *finderStream) readExistence(ctx context.Context,
 		f.log.WithField("op", "repair_exist").WithField("class", f.class).
 			WithField("shard", shard).WithField("uuid", id).
 			WithField("msg", sb.String()).Error(err)
-	}()
+	}
+	enterrors.GoWrapper(g, f.logger)
 	return resultCh
 }
 
@@ -191,7 +195,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 ) <-chan batchResult {
 	resultCh := make(chan batchResult, 1)
 
-	go func() {
+	g := func() {
 		defer close(resultCh)
 		var (
 			N = len(ids) // number of requested objects
@@ -266,7 +270,8 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 
 		resultCh <- batchResult{res, nil}
-	}()
+	}
+	enterrors.GoWrapper(g, f.logger)
 
 	return resultCh
 }

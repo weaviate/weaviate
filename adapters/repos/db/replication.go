@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,12 +20,10 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -40,7 +38,7 @@ type Replicator interface {
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		docIDs []uint64, dryRun bool) replica.SimpleResponse
+		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(shard,
@@ -61,14 +59,14 @@ func (db *DB) ReplicateObject(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateObjects(ctx context.Context, class,
-	shard, requestID string, objects []*storobj.Object,
+	shard, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateObjects(ctx, shard, requestID, objects)
+	return index.ReplicateObjects(ctx, shard, requestID, objects, schemaVersion)
 }
 
 func (db *DB) ReplicateUpdate(ctx context.Context, class,
@@ -94,14 +92,14 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
-	shard, requestID string, docIDs []uint64, dryRun bool,
+	shard, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, docIDs, dryRun)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun, schemaVersion)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -152,8 +150,8 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 	return
 }
 
-func (i *Index) writableShard(name string) (*Shard, *replica.SimpleResponse) {
-	localShard := i.localShard(name)
+func (i *Index) writableShard(name string) (ShardLike, *replica.SimpleResponse) {
+	localShard := retryGetLocalShard(i, name)
 	if localShard == nil {
 		return nil, &replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: name},
@@ -191,7 +189,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 	return localShard.prepareDeleteObject(ctx, requestID, uuid)
 }
 
-func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
@@ -199,12 +197,12 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, docIDs []uint64, dryRun bool) replica.SimpleResponse {
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
 	}
-	return localShard.prepareDeleteObjects(ctx, requestID, docIDs, dryRun)
+	return localShard.prepareDeleteObjects(ctx, requestID, uuids, dryRun)
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
@@ -216,27 +214,27 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 }
 
 func (i *Index) CommitReplication(shard, requestID string) interface{} {
-	localShard := i.localShard(shard)
+	localShard := retryGetLocalShard(i, shard)
 	if localShard == nil {
 		return nil
 	}
-	return localShard.commit(context.Background(), requestID, &i.backupMutex)
+	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
-	localShard := i.localShard(shard)
+	localShard := retryGetLocalShard(i, shard)
 	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
 			{Code: replica.StatusShardNotFound, Msg: shard},
 		}}
 	}
-	return localShard.abort(context.Background(), requestID)
+	return localShard.abortReplication(context.Background(), requestID)
 }
 
 func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	filePath string,
 ) (io.WriteCloser, error) {
-	localShard := i.localShard(shardName)
+	localShard := retryGetLocalShard(i, shardName)
 	if localShard == nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
@@ -244,10 +242,9 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	return localShard.filePutter(ctx, filePath)
 }
 
-func (i *Index) IncomingCreateShard(ctx context.Context,
-	shardName string,
-) error {
-	if err := i.addNewShard(ctx, nil, shardName); err != nil {
+func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
+	class := i.getSchema.ReadOnlyClass(className)
+	if err := i.addNewShard(ctx, class, shardName); err != nil {
 		return fmt.Errorf("incoming create shard: %w", err)
 	}
 	return nil
@@ -256,7 +253,7 @@ func (i *Index) IncomingCreateShard(ctx context.Context,
 func (i *Index) IncomingReinitShard(ctx context.Context,
 	shardName string,
 ) error {
-	shard := i.localShard(shardName)
+	shard := retryGetLocalShard(i, shardName)
 	if shard == nil {
 		return fmt.Errorf("shard %q does not exist locally", shardName)
 	}
@@ -269,7 +266,7 @@ func (s *Shard) filePutter(ctx context.Context,
 ) (io.WriteCloser, error) {
 	// TODO: validate file prefix to rule out that we're accidentally writing
 	// into another shard
-	finalPath := filepath.Join(s.index.Config.RootPath, filePath)
+	finalPath := filepath.Join(s.Index().Config.RootPath, filePath)
 	dir := path.Dir(finalPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)
@@ -284,29 +281,26 @@ func (s *Shard) filePutter(ctx context.Context,
 }
 
 func (s *Shard) reinit(ctx context.Context) error {
-	if err := s.shutdown(ctx); err != nil {
+	if err := s.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown shard: %w", err)
 	}
 
-	hnswUserConfig, ok := s.index.vectorIndexUserConfig.(hnswent.UserConfig)
-	if !ok {
-		return fmt.Errorf("hnsw vector index: config is not hnsw.UserConfig: %T",
-			s.index.vectorIndexUserConfig)
-	}
-
-	if hnswUserConfig.Skip {
-		s.vectorIndex = noop.NewIndex()
-	} else {
-		if err := s.initVectorIndex(ctx, hnswUserConfig); err != nil {
-			return fmt.Errorf("init vector index: %w", err)
-		}
-
-		defer s.vectorIndex.PostStartup()
-	}
-
 	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("init non-vector: %w", err)
+		return fmt.Errorf("reinit non-vector: %w", err)
 	}
+
+	if s.hasTargetVectors() {
+		if err := s.initTargetVectors(ctx); err != nil {
+			return fmt.Errorf("reinit vector: %w", err)
+		}
+	} else {
+		if err := s.initLegacyVector(ctx); err != nil {
+			return fmt.Errorf("reinit vector: %w", err)
+		}
+	}
+
+	s.initCycleCallbacks()
+	s.initDimensionTracking()
 
 	return nil
 }
@@ -325,7 +319,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	result := make([]replica.RepairResponse, 0, len(updates)/2)
-	s := i.localShard(shard)
+	s := retryGetLocalShard(i, shard)
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
@@ -338,7 +332,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 			continue
 		}
 		// valid update
-		found, err := s.objectByID(ctx, data.ID, nil, additional.Properties{})
+		found, err := s.ObjectByID(ctx, data.ID, nil, additional.Properties{})
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
 		if found != nil {
 			curUpdateTime = found.LastUpdateTimeUnix()
@@ -350,7 +344,11 @@ func (i *Index) overwriteObjects(ctx context.Context,
 		case curUpdateTime == u.StaleUpdateTime:
 			// the stored object is not the most recent version. in
 			// this case, we overwrite it with the more recent one.
+<<<<<<< HEAD
 			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector))
+=======
+			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector, u.Vectors))
+>>>>>>> main
 			if err != nil {
 				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
 			}
@@ -379,6 +377,9 @@ func (db *DB) DigestObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	index := db.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return nil, fmt.Errorf("index for class %v not found locally", index)
+	}
 	return index.digestObjects(ctx, shardName, ids)
 }
 
@@ -386,7 +387,7 @@ func (i *Index) digestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	result = make([]replica.RepairResponse, len(ids))
-	s := i.localShard(shardName)
+	s := retryGetLocalShard(i, shardName)
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
@@ -396,14 +397,14 @@ func (i *Index) digestObjects(ctx context.Context,
 		multiIDs[j] = multi.Identifier{ID: ids[j].String()}
 	}
 
-	objs, err := s.multiObjectByID(ctx, multiIDs)
+	objs, err := s.MultiObjectByID(ctx, multiIDs)
 	if err != nil {
 		return nil, fmt.Errorf("shard objects digest: %w", err)
 	}
 
 	for j := range objs {
 		if objs[j] == nil {
-			deleted, err := s.wasDeleted(ctx, ids[j])
+			deleted, err := s.WasDeleted(ctx, ids[j])
 			if err != nil {
 				return nil, err
 			}
@@ -442,18 +443,18 @@ func (db *DB) FetchObject(ctx context.Context,
 func (i *Index) readRepairGetObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
-	shard := i.localShard(shardName)
+	shard := retryGetLocalShard(i, shardName)
 	if shard == nil {
 		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	obj, err := shard.objectByID(ctx, id, nil, additional.Properties{})
+	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
 		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
 	}
 
 	if obj == nil {
-		deleted, err := shard.wasDeleted(ctx, id)
+		deleted, err := shard.WasDeleted(ctx, id)
 		if err != nil {
 			return objects.Replica{}, err
 		}
@@ -479,12 +480,12 @@ func (db *DB) FetchObjects(ctx context.Context,
 func (i *Index) fetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	shard := i.localShard(shardName)
+	shard := retryGetLocalShard(i, shardName)
 	if shard == nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
-	objs, err := shard.multiObjectByID(ctx, wrapIDsInMulti(ids))
+	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
 	if err != nil {
 		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
@@ -493,7 +494,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	for j, obj := range objs {
 		if obj == nil {
-			deleted, err := shard.wasDeleted(ctx, ids[j])
+			deleted, err := shard.WasDeleted(ctx, ids[j])
 			if err != nil {
 				return nil, err
 			}

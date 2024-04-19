@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,8 +17,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 )
+
+var logger, _ = test.NewNullLogger()
 
 type cycleCallbackProvider struct {
 	sync.Mutex
@@ -70,7 +74,7 @@ func TestCycleManager_beforeTimeout(t *testing.T) {
 	var cm CycleManager
 
 	t.Run("create new", func(t *testing.T) {
-		cm = NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+		cm = NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 		assert.False(t, cm.Running())
 	})
@@ -108,7 +112,7 @@ func TestCycleManager_beforeTimeoutWithWait(t *testing.T) {
 	var cm CycleManager
 
 	t.Run("create new", func(t *testing.T) {
-		cm = NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+		cm = NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 		assert.False(t, cm.Running())
 	})
@@ -138,7 +142,7 @@ func TestCycleManager_timeout(t *testing.T) {
 	stopTimeout := 12 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("timeout is reached", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
@@ -175,7 +179,7 @@ func TestCycleManager_timeoutWithWait(t *testing.T) {
 	stopTimeout := 12 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("timeout is reached", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
@@ -206,7 +210,7 @@ func TestCycleManager_doesNotStartMultipleTimes(t *testing.T) {
 	startCount := 5
 
 	p := newProvider(cycleDuration, uint(startCount))
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("multiple starts", func(t *testing.T) {
 		for i := 0; i < startCount; i++ {
@@ -230,7 +234,7 @@ func TestCycleManager_doesNotStartMultipleTimesWithWait(t *testing.T) {
 	startCount := 5
 
 	p := newProvider(cycleDuration, uint(startCount))
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("multiple starts", func(t *testing.T) {
 		for i := 0; i < startCount; i++ {
@@ -254,7 +258,7 @@ func TestCycleManager_handlesMultipleStops(t *testing.T) {
 	stopCount := 5
 
 	p := newProvider(cycleDuration, 1)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("multiple stops", func(t *testing.T) {
 		cm.Start()
@@ -279,7 +283,7 @@ func TestCycleManager_stopsIfNotAllContextsAreCancelled(t *testing.T) {
 	stopTimeout := 5 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("multiple stops, few cancelled", func(t *testing.T) {
 		timeout1Ctx, cancel1 := context.WithTimeout(context.Background(), stopTimeout)
@@ -310,7 +314,7 @@ func TestCycleManager_doesNotStopIfAllContextsAreCancelled(t *testing.T) {
 	stopTimeout := 50 * time.Millisecond
 
 	p := newProvider(cycleDuration, 1)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("multiple stops, few cancelled", func(t *testing.T) {
 		timeout1Ctx, cancel1 := context.WithTimeout(context.Background(), stopTimeout)
@@ -350,7 +354,7 @@ func TestCycleManager_cycleCallbackStoppedDueToFrequentStopChecks(t *testing.T) 
 
 	// despite cycleDuration is 30ms, cycle callback checks every 20ms (300/15) if it needs to be stopped
 	p := newProviderAbortable(cycleDuration, 1, 15)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("cycle function stopped before timeout reached", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
@@ -380,7 +384,7 @@ func TestCycleManager_cycleCallbackNotStoppedDueToRareStopChecks(t *testing.T) {
 
 	// despite cycleDuration is 30ms, cycle callback checks every 150ms (300/2) if it needs to be stopped
 	p := newProviderAbortable(cycleDuration, 1, 2)
-	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback)
+	cm := NewManager(NewFixedTicker(cycleInterval), p.cycleCallback, logger)
 
 	t.Run("timeout reached", func(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)

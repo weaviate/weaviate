@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,6 +35,10 @@ func newFilteredAggregator(agg *Aggregator) *filteredAggregator {
 	return &filteredAggregator{Aggregator: agg}
 }
 
+func (fa *filteredAggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+	return fa.propLenTracker
+}
+
 func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if fa.params.Hybrid != nil {
 		return fa.hybrid(ctx)
@@ -55,12 +59,12 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 			fa.params.ObjectLimit = &limit
 		}
 
-		sparse, dists, err := fa.bm25Objects(ctx, kw)
+		sparse, scores, err := fa.bm25Objects(ctx, kw)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}
 
-		return sparse, dists, nil
+		return sparse, scores, nil
 	}
 
 	denseSearch := func(vec []float32) ([]*storobj.Object, []float32, error) {
@@ -80,14 +84,14 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 	res, err := hybrid.Search(ctx, &hybrid.Params{
 		HybridSearch: fa.params.Hybrid,
 		Class:        fa.params.ClassName.String(),
-	}, fa.logger, sparseSearch, denseSearch, nil, nil)
+	}, fa.logger, sparseSearch, denseSearch, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	ids := make([]uint64, len(res))
 	for i, r := range res {
-		ids[i] = r.DocID
+		ids[i] = *r.DocID
 	}
 
 	return fa.prepareResult(ctx, ids)
@@ -114,19 +118,23 @@ func (fa *filteredAggregator) filtered(ctx context.Context) (*aggregation.Result
 }
 
 func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
-	var (
-		s     = fa.getSchema.GetSchemaSkipAuth()
-		class = s.GetClass(fa.params.ClassName)
-		cfg   = inverted.ConfigFromModel(class.InvertedIndexConfig)
-	)
-	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, s,
+	class := fa.getSchema.ReadOnlyClass(fa.params.ClassName.String())
+	if class == nil {
+		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", fa.params.ClassName)
+	}
+	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
+	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, fa.classSearcher,
+<<<<<<< HEAD
 		nil, fa.propLengths, fa.logger, fa.shardVersion, fa.propertyIds,
+=======
+		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,
+>>>>>>> main
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}
-	return objs, dists, nil
+	return objs, scores, nil
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
@@ -138,7 +146,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	}
 
 	scan := func(properties *models.PropertySchema, docID uint64) (bool, error) {
-		if err := fa.analyzeObject(ctx, properties, propAggs); err != nil {
+		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
 			return false, errors.Wrapf(err, "analyze object %d", docID)
 		}
 		return true, nil
@@ -156,7 +164,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	return propAggs.results()
 }
 
-func (fa *filteredAggregator) analyzeObject(ctx context.Context,
+func (fa *filteredAggregator) AnalyzeObject(ctx context.Context,
 	properties *models.PropertySchema, propAggs map[string]propAgg,
 ) error {
 	if err := ctx.Err(); err != nil {

@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -25,20 +24,25 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	libschema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestDeleteJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{shardState: singleShardState()}
+	schemaGetter := &fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+		shardState: singleShardState(),
+	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -60,7 +64,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -129,7 +133,7 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[0].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "", 0)
 			require.Nil(t, err)
 		})
 
@@ -171,7 +175,7 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[1].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "", 0)
 			require.Nil(t, err)
 		})
 
@@ -225,7 +229,7 @@ func TestDeleteJourney(t *testing.T) {
 
 		id := updateTestData()[2].ID
 
-		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
+		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "", 0)
 		require.Nil(t, err)
 
 		index := repo.GetIndex("UpdateTestClass")

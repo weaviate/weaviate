@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type fakeSchemaGetter struct {
@@ -41,6 +42,10 @@ type fakeSchemaGetter struct {
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
+	return f.schema.GetClass(class)
 }
 
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
@@ -94,7 +99,7 @@ func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string
 }
 
 func singleShardState() *sharding.State {
-	config, err := sharding.ParseConfig(nil, 1)
+	config, err := shardingConfig.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}
@@ -108,7 +113,7 @@ func singleShardState() *sharding.State {
 }
 
 func multiShardState() *sharding.State {
-	config, err := sharding.ParseConfig(map[string]interface{}{
+	config, err := shardingConfig.ParseConfig(map[string]interface{}{
 		"desiredCount": json.Number("3"),
 	}, 1)
 	if err != nil {
@@ -154,12 +159,12 @@ func (f fakeNodes) LocalName() string {
 
 type fakeRemoteClient struct{}
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
 	return nil
 }
 
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
-	shardName string, obj *storobj.Object,
+	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -178,13 +183,13 @@ func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) error {
 	return nil
 }
 
 func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
-	shardName string, mergeDoc objects.MergeDocument,
+	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -196,7 +201,7 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, limit int,
+	shardName string, vector []float32, targetVector string, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
@@ -210,21 +215,27 @@ func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
-	indexName, shardName string, refs objects.BatchReferences,
+	indexName, shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	return nil
 }
 
-func (f *fakeRemoteClient) FindDocIDs(ctx context.Context, hostName, indexName, shardName string,
+func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
 	filters *filters.LocalFilter,
-) ([]uint64, error) {
+) ([]strfmt.UUID, error) {
 	return nil, nil
 }
 
 func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	return nil
+}
+
+func (f *fakeRemoteClient) GetShardQueueSize(ctx context.Context,
+	hostName, indexName, shardName string,
+) (int64, error) {
+	return 0, nil
 }
 
 func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
@@ -253,44 +264,44 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName string, className string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
 type fakeReplicationClient struct{}
 
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
-	obj *storobj.Object,
+	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
-	id strfmt.UUID,
+	id strfmt.UUID, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
-	objs []*storobj.Object,
+	objs []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
-	mergeDoc *objects.MergeDocument,
+	mergeDoc *objects.MergeDocument, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	docIDs []uint64, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
-	refs []objects.BatchReference,
+	refs []objects.BatchReference, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }

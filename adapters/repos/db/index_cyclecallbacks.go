@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,12 +52,12 @@ func (index *Index) initCycleCallbacks() {
 	compactionCallbacks := cyclemanager.NewCallbackGroup(id("compaction"), index.logger, _NUMCPU*2)
 	compactionCycle := cyclemanager.NewManager(
 		cyclemanager.CompactionCycleTicker(),
-		compactionCallbacks.CycleCallback)
+		compactionCallbacks.CycleCallback, index.logger)
 
 	flushCallbacks := cyclemanager.NewCallbackGroup(id("flush"), index.logger, _NUMCPU*2)
 	flushCycle := cyclemanager.NewManager(
 		cyclemanager.MemtableFlushCycleTicker(),
-		flushCallbacks.CycleCallback)
+		flushCallbacks.CycleCallback, index.logger)
 
 	vectorCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("vector", "commit_logger"), index.logger, _NUMCPU*2)
 	// Previously we had an interval of 10s in here, which was changed to
@@ -78,22 +78,22 @@ func (index *Index) initCycleCallbacks() {
 	// introduced to address https://github.com/weaviate/weaviate/issues/2783
 	vectorCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.HnswCommitLoggerCycleTicker(),
-		vectorCommitLoggerCallbacks.CycleCallback)
+		vectorCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	vectorTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("vector", "tombstone_cleanup"), index.logger, _NUMCPU*2)
 	vectorTombstoneCleanupCycle := cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(time.Duration(vectorTombstoneCleanupIntervalSeconds)*time.Second),
-		vectorTombstoneCleanupCallbacks.CycleCallback)
+		vectorTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
 	geoPropsCommitLoggerCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "commit_logger"), index.logger, _NUMCPU*2)
 	geoPropsCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.GeoCommitLoggerCycleTicker(),
-		geoPropsCommitLoggerCallbacks.CycleCallback)
+		geoPropsCommitLoggerCallbacks.CycleCallback, index.logger)
 
 	geoPropsTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup(id("geo_props", "tombstone_cleanup"), index.logger, _NUMCPU*2)
 	geoPropsTombstoneCleanupCycle := cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(enthnsw.DefaultCleanupIntervalSeconds*time.Second),
-		geoPropsTombstoneCleanupCallbacks.CycleCallback)
+		geoPropsTombstoneCleanupCallbacks.CycleCallback, index.logger)
 
 	index.cycleCallbacks = &indexCycleCallbacks{
 		compactionCallbacks: compactionCallbacks,

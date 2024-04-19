@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,7 +59,7 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -81,7 +81,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -106,7 +106,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
@@ -124,7 +124,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -144,7 +144,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	require.Nil(t, b.Shutdown(ctx))
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
@@ -152,18 +152,132 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	assert.Equal(t, 1, b2.Count())
 }
 
-func TestPrefillCountNetAdditions(t *testing.T) {
+func TestCNA_OFF(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "dontCreateCNA",
+			f:    dontCreateCNA,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(false),
+			},
+		},
+		{
+			name: "dontRecreateCNA",
+			f:    dontRecreateCNA,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(false),
+			},
+		},
+		{
+			name: "dontPrecomputeCNA",
+			f:    dontPrecomputeCNA,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(false),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
-	segmentName := path.Join(dirName, "foo.db")
-	expectedFileName := path.Join(dirName, "foo.cna")
+	logger, _ := test.NewNullLogger()
 
-	err := prefillCountNetAdditions(segmentName, 20)
-	require.Nil(t, err)
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
 
-	data, err := loadWithChecksum(expectedFileName, 12)
-	require.Nil(t, err)
-	count := binary.LittleEndian.Uint64(data)
-	assert.Equal(t, 20, int(count))
+	t.Run("populate", func(t *testing.T) {
+		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
+		require.NoError(t, b.FlushMemtable())
+	})
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".cna")
+		assert.False(t, ok)
+	})
+
+	t.Run("count", func(t *testing.T) {
+		assert.Equal(t, 0, b.Count())
+	})
+}
+
+func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	t.Run("create, populate, shutdown", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			opts...)
+		require.NoError(t, err)
+		defer b.Shutdown(ctx)
+
+		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
+		require.NoError(t, b.FlushMemtable())
+	})
+
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b2.Shutdown(ctx)
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".cna")
+		assert.False(t, ok)
+	})
+
+	t.Run("count", func(t *testing.T) {
+		assert.Equal(t, 0, b2.Count())
+	})
+}
+
+func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	t.Run("populate, compact", func(t *testing.T) {
+		require.NoError(t, b.Put([]byte("hello"), []byte("world")))
+		require.NoError(t, b.FlushMemtable())
+
+		require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
+		require.NoError(t, b.FlushMemtable())
+
+		compacted, err := b.disk.compactOnce()
+		require.NoError(t, err)
+		require.True(t, compacted)
+	})
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".cna")
+		assert.False(t, ok)
+	})
+
+	t.Run("count", func(t *testing.T) {
+		assert.Equal(t, 0, b.Count())
+	})
 }
 
 func findFileWithExt(files []os.DirEntry, ext string) (string, bool) {

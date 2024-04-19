@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -36,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -69,11 +69,11 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
 	n.repo, err = db.New(logger, db.Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nodesClient, replicaClient, nil)
+	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
 	if err != nil {
 		panic(err)
 	}
@@ -95,7 +95,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
-		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, logger)
+		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
@@ -139,6 +139,10 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
+func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
+	return f.schema.GetClass(class)
+}
+
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
 }
@@ -173,7 +177,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ss.Shard("", string(uuid))
 }
 
-func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor) error {
+func (f *fakeSchemaManager) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string) error {
 	return nil
 }
 
@@ -200,7 +204,11 @@ type nodeResolver struct {
 }
 
 func (r nodeResolver) AllNames() []string {
-	panic("node resolving not implemented yet")
+	xs := []string{}
+	for _, n := range *r.nodes {
+		xs = append(xs, n.name)
+	}
+	return xs
 }
 
 func (r nodeResolver) Candidates() []string {
@@ -223,6 +231,13 @@ func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+func (r nodeResolver) LeaderID() string {
+	if r.nodes != nil && len(*r.nodes) > 0 {
+		return (*r.nodes)[0].name
+	}
+	return ""
 }
 
 func newFakeBackupBackendProvider(backupsPath string) *fakeBackupBackendProvider {

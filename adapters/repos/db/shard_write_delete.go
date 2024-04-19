@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
+func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -62,20 +62,28 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
-	if err = s.vectorIndex.Delete(docID); err != nil {
-		return fmt.Errorf("delete from vector index: %w", err)
-	}
-
 	if err = s.store.WriteWALs(); err != nil {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err = s.vectorIndex.Flush(); err != nil {
-		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+	if s.hasTargetVectors() {
+		for targetVector, queue := range s.queues {
+			if err = queue.Delete(docID); err != nil {
+				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
+			}
+		}
+		for targetVector, vectorIndex := range s.VectorIndexes() {
+			if err = vectorIndex.Flush(); err != nil {
+				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
+			}
+		}
+	} else {
+		if err = s.queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index: %w", err)
+		}
+		if err = s.vectorIndex.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+		}
 	}
 
 	return nil
@@ -119,20 +127,28 @@ func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idByte
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
-	// in-mem
-	// TODO: do we still need this?
-	s.deletedDocIDs.Add(docID)
-
-	if err = s.vectorIndex.Delete(docID); err != nil {
-		return fmt.Errorf("delete from vector index: %w", err)
-	}
-
 	if err = s.store.WriteWALs(); err != nil {
 		return fmt.Errorf("flush all buffered WALs: %w", err)
 	}
 
-	if err = s.vectorIndex.Flush(); err != nil {
-		return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+	if s.hasTargetVectors() {
+		for targetVector, queue := range s.queues {
+			if err = queue.Delete(docID); err != nil {
+				return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
+			}
+		}
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			if err = vectorIndex.Flush(); err != nil {
+				return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
+			}
+		}
+	} else {
+		if err = s.queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index: %w", err)
+		}
+		if err = s.vectorIndex.Flush(); err != nil {
+			return fmt.Errorf("flush all vector index buffered WALs: %w", err)
+		}
 	}
 
 	return nil
@@ -144,25 +160,31 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	// TODO text_rbm_inverted_index null props cleanup?
-	previousInvertProps, _, err := s.analyzeObject(previousObject)
+	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
 
-	if err = s.subtractPropLengths(previousInvertProps); err != nil {
+	if err = s.subtractPropLengths(previousProps); err != nil {
 		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
-	err = s.deleteFromInvertedIndicesLSM(previousInvertProps, docID)
+	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
 	}
 
 	if s.index.Config.TrackVectorDimensions {
-		err = s.removeDimensionsLSM(len(previousObject.Vector), docID)
-		if err != nil {
-			return fmt.Errorf("track dimensions (delete): %w", err)
+		if s.hasTargetVectors() {
+			for vecName, vec := range previousObject.Vectors {
+				if err = s.removeDimensionsForVecLSM(len(vec), docID, vecName); err != nil {
+					return fmt.Errorf("track dimensions of '%s' (delete): %w", vecName, err)
+				}
+			}
+		} else {
+			if err = s.removeDimensionsLSM(len(previousObject.Vector), docID); err != nil {
+				return fmt.Errorf("track dimensions (delete): %w", err)
+			}
 		}
 	}
 

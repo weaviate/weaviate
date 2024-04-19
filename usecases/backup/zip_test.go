@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -113,7 +113,6 @@ func TestZipLevel(t *testing.T) {
 		{0, gzip.DefaultCompression},
 		{int(BestCompression), gzip.BestCompression},
 		{int(BestSpeed), gzip.BestSpeed},
-		{int(HuffmanOnly), gzip.HuffmanOnly},
 	}
 
 	for _, test := range tests {
@@ -132,15 +131,21 @@ func TestZipConfig(t *testing.T) {
 		minPoolSize       int
 		maxPoolSize       int
 	}{
-		{0, 0, defaultChunkSize, 1, _NUMCPU / 2},
-		{minChunkSize - 1, 50, minChunkSize, _NUMCPU / 2, _NUMCPU},
-		{maxChunkSize + 1, 50, maxChunkSize, _NUMCPU / 2, _NUMCPU},
-		{minChunkSize, 0, minChunkSize, 1, _NUMCPU / 2},
-		{minChunkSize + 1, 100, minChunkSize + 1, 1, _NUMCPU},
+		{0, 0, DefaultChunkSize, 1, _NUMCPU / 2},
+		{2 - 1, 50, minChunkSize, _NUMCPU / 2, _NUMCPU},
+		{512 + 1, 50, maxChunkSize, _NUMCPU / 2, _NUMCPU},
+		{2, 0, minChunkSize, 1, _NUMCPU / 2},
+		{1, 100, minChunkSize, 1, _NUMCPU},
+		{100, 0, 100 * 1024 * 1024, 1, _NUMCPU / 2}, // 100 MB
+		{513, 0, maxChunkSize, 1, _NUMCPU / 2},
 	}
 
 	for i, test := range tests {
-		got := newZipConfig(1, test.percentage, test.chunkSize)
+		got := newZipConfig(Compression{
+			Level:         BestSpeed,
+			CPUPercentage: test.percentage,
+			ChunkSize:     test.chunkSize,
+		})
 		if got.ChunkSize != test.expectedChunkSize {
 			t.Errorf("%d. chunk size got=%v want=%v", i, got.ChunkSize, test.expectedChunkSize)
 		}

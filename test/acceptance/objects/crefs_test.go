@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,6 +36,72 @@ const (
 	pathStart   = "/v1/objects/"
 )
 
+func TestRefsWithTenantWithoutToClass(t *testing.T) {
+	refToClassName := "ReferenceTo"
+	refFromClassName := "ReferenceFrom"
+
+	toParam := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
+		&models.Class{Class: refToClassName, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+	)
+	respTo, err := helper.Client(t).Schema.SchemaObjectsCreate(toParam, nil)
+	helper.AssertRequestOk(t, respTo, err, nil)
+
+	fromParam := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
+		&models.Class{
+			Class:              refFromClassName,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties: []*models.Property{
+				{
+					DataType: []string{refToClassName},
+					Name:     "ref",
+				},
+			},
+		},
+	)
+	respFrom, err := helper.Client(t).Schema.SchemaObjectsCreate(fromParam, nil)
+	helper.AssertRequestOk(t, respFrom, err, nil)
+
+	defer deleteObjectClass(t, refToClassName)
+	defer deleteObjectClass(t, refFromClassName)
+
+	tenant := "tenant"
+	tenants := make([]*models.Tenant, 1)
+	for i := range tenants {
+		tenants[i] = &models.Tenant{Name: tenant}
+	}
+	helper.CreateTenants(t, refToClassName, tenants)
+	helper.CreateTenants(t, refFromClassName, tenants)
+
+	refToId := strfmt.UUID(uuid.New().String())
+	assertCreateObjectWithID(t, refToClassName, tenant, refToId, map[string]interface{}{})
+
+	refFromId1 := strfmt.UUID(uuid.New().String())
+	assertCreateObjectWithID(t, refFromClassName, tenant, refFromId1, map[string]interface{}{})
+
+	// add reference between objects without to class name
+	postRefParams := objects.NewObjectsClassReferencesCreateParams().
+		WithID(refFromId1).
+		WithPropertyName("ref").WithClassName(refFromClassName).
+		WithBody(&models.SingleRef{
+			Beacon: strfmt.URI(fmt.Sprintf(beaconStart+"%s", refToId.String())),
+		}).WithTenant(&tenant)
+	postRefResponse, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(postRefParams, nil)
+	helper.AssertRequestOk(t, postRefResponse, err, nil)
+
+	// add reference from batch
+	refFromId2 := strfmt.UUID(uuid.New().String())
+	assertCreateObjectWithID(t, refFromClassName, tenant, refFromId2, map[string]interface{}{})
+
+	// add refs without toClass
+	batchRefs := []*models.BatchReference{
+		{From: strfmt.URI(beaconStart + "ReferenceFrom/" + refFromId2 + "/ref"), To: strfmt.URI(beaconStart + refToId), Tenant: tenant},
+	}
+	postRefBatchParams := batch.NewBatchReferencesCreateParams().WithBody(batchRefs)
+	postRefBatchResponse, err := helper.Client(t).Batch.BatchReferencesCreate(postRefBatchParams, nil)
+	helper.AssertRequestOk(t, postRefBatchResponse, err, nil)
+	require.Nil(t, postRefBatchResponse.Payload[0].Result.Errors)
+}
+
 func TestRefsWithoutToClass(t *testing.T) {
 	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{Class: "ReferenceTo"})
 	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
@@ -44,9 +110,17 @@ func TestRefsWithoutToClass(t *testing.T) {
 	refFromClassName := "ReferenceFrom"
 	otherClassMT := "Other"
 
-	// other class has multi-tenancy enabled to make sure that problems trigger an error
 	paramsMT := clschema.NewSchemaObjectsCreateParams().WithObjectClass(
-		&models.Class{Class: otherClassMT, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+		&models.Class{
+			Class:              otherClassMT,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties: []*models.Property{
+				{
+					DataType: []string{refToClassName},
+					Name:     "ref",
+				},
+			},
+		},
 	)
 	respMT, err := helper.Client(t).Schema.SchemaObjectsCreate(paramsMT, nil)
 	helper.AssertRequestOk(t, respMT, err, nil)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,18 +20,25 @@ type Authentication struct {
 	APIKey          APIKey
 }
 
+// DefaultAuthentication is the default authentication scheme when no authentication is provided
+var DefaultAuthentication = Authentication{
+	AnonymousAccess: AnonymousAccess{
+		Enabled: true,
+	},
+}
+
 // Validate the Authentication configuration. This only validates at a general
 // level. Validation specific to the individual auth methods should happen
 // inside their respective packages
 func (a Authentication) Validate() error {
-	if !a.anyAuthMethodSelected() {
+	if !a.AnyAuthMethodSelected() {
 		return fmt.Errorf("no authentication scheme configured, you must select at least one")
 	}
 
 	return nil
 }
 
-func (a Authentication) anyAuthMethodSelected() bool {
+func (a Authentication) AnyAuthMethodSelected() bool {
 	return a.AnonymousAccess.Enabled || a.OIDC.Enabled || a.APIKey.Enabled
 }
 

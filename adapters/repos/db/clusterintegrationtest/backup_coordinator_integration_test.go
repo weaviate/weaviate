@@ -4,13 +4,12 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -82,7 +81,7 @@ func TestDistributedBackups(t *testing.T) {
 			for _, obj := range data {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0)
 				require.Nil(t, err)
 			}
 		})
@@ -91,7 +90,7 @@ func TestDistributedBackups(t *testing.T) {
 			for _, obj := range refData {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0)
 				require.Nil(t, err)
 			}
 		})

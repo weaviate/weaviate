@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,15 +19,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var logger, _ = test.NewNullLogger()
 
 func TestBroadcastOpenTransaction(t *testing.T) {
 	client := &fakeClient{}
 	state := &fakeState{hosts: []string{"host1", "host2", "host3"}}
 
-	bc := NewTxBroadcaster(state, client)
+	bc := NewTxBroadcaster(state, client, logger)
 
 	tx := &Transaction{ID: "foo"}
 
@@ -41,7 +45,7 @@ func TestBroadcastOpenTransactionWithReturnPayload(t *testing.T) {
 	client := &fakeClient{}
 	state := &fakeState{hosts: []string{"host1", "host2", "host3"}}
 
-	bc := NewTxBroadcaster(state, client)
+	bc := NewTxBroadcaster(state, client, logger)
 	bc.SetConsensusFunction(func(ctx context.Context,
 		in []*Transaction,
 	) (*Transaction, error) {
@@ -79,7 +83,7 @@ func TestBroadcastOpenTransactionWithReturnPayload(t *testing.T) {
 func TestBroadcastOpenTransactionAfterNodeHasDied(t *testing.T) {
 	client := &fakeClient{}
 	state := &fakeState{hosts: []string{"host1", "host2", "host3"}}
-	bc := NewTxBroadcaster(state, client)
+	bc := NewTxBroadcaster(state, client, logger)
 
 	waitUntilIdealStateHasReached(t, bc, 3, 4*time.Second)
 
@@ -122,7 +126,7 @@ func TestBroadcastAbortTransaction(t *testing.T) {
 	client := &fakeClient{}
 	state := &fakeState{hosts: []string{"host1", "host2", "host3"}}
 
-	bc := NewTxBroadcaster(state, client)
+	bc := NewTxBroadcaster(state, client, logger)
 
 	tx := &Transaction{ID: "foo"}
 
@@ -136,7 +140,7 @@ func TestBroadcastCommitTransaction(t *testing.T) {
 	client := &fakeClient{}
 	state := &fakeState{hosts: []string{"host1", "host2", "host3"}}
 
-	bc := NewTxBroadcaster(state, client)
+	bc := NewTxBroadcaster(state, client, logger)
 
 	tx := &Transaction{ID: "foo"}
 
@@ -149,7 +153,7 @@ func TestBroadcastCommitTransaction(t *testing.T) {
 func TestBroadcastCommitTransactionAfterNodeHasDied(t *testing.T) {
 	client := &fakeClient{}
 	state := &fakeState{hosts: []string{"host1", "host2", "host3"}}
-	bc := NewTxBroadcaster(state, client)
+	bc := NewTxBroadcaster(state, client, logger)
 
 	waitUntilIdealStateHasReached(t, bc, 3, 4*time.Second)
 

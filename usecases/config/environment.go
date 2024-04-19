@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,21 +19,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/configbase"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+)
+
+const (
+	DefaultRaftPort             = 8300
+	DefaultRaftInternalPort     = 8301
+	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftBootstrapExpect  = 1
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
 
-		if enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+		if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
 			// The variable was renamed with v1.20. Prior to v1.20 the recommended
 			// way to do MT was using classes. This lead to a lot of metrics which
 			// could be grouped with this variable. With v1.20 we introduced native
@@ -45,26 +54,30 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+	if configbase.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
 
-	if enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
 	}
 
+	if configbase.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+		config.DisableLazyLoadShards = true
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
-	if enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
 	}
 
-	if enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
-	if enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
@@ -77,14 +90,23 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
-	if enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if v := os.Getenv("PROFILING_PORT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+		}
+
+		config.Profiling.Port = asInt
+	}
+
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
 
-	if enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 
-		if enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
+		if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			config.Authentication.OIDC.SkipClientIDCheck = true
 		}
 
@@ -109,7 +131,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
 		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
@@ -123,7 +145,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
 		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
@@ -135,6 +157,20 @@ func FromEnv(config *Config) error {
 		if ok {
 			config.Authorization.AdminList.ReadOnlyUsers = strings.Split(roUsersString, ",")
 		}
+
+		groupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_GROUPS")
+		if ok {
+			config.Authorization.AdminList.Groups = strings.Split(groupsString, ",")
+		}
+
+		roGroupsString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_READONLY_GROUPS")
+		if ok {
+			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
+		}
+	}
+
+	if !config.Authentication.AnyAuthMethodSelected() {
+		config.Authentication = DefaultAuthentication
 	}
 
 	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
@@ -149,9 +185,17 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
 		config.Persistence.DataPath = v
+	} else {
+		if config.Persistence.DataPath == "" {
+			config.Persistence.DataPath = DefaultPersistenceDataPath
+		}
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
+		return err
+	}
+
+	if err := config.parseCORSConfig(); err != nil {
 		return err
 	}
 
@@ -170,6 +214,10 @@ func FromEnv(config *Config) error {
 		}
 
 		config.QueryDefaults.Limit = int64(asInt)
+	} else {
+		if config.QueryDefaults.Limit == 0 {
+			config.QueryDefaults.Limit = DefaultQueryDefaultsLimit
+		}
 	}
 
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
@@ -294,8 +342,20 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+	config.GRPC.CertFile = ""
+	if v := os.Getenv("GRPC_CERT_FILE"); v != "" {
+		config.GRPC.CertFile = v
+	}
+	config.GRPC.KeyFile = ""
+	if v := os.Getenv("GRPC_KEY_FILE"); v != "" {
+		config.GRPC.KeyFile = v
+	}
 
-	config.DisableGraphQL = enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = configbase.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
+		return fmt.Errorf("parse raft config: %w", err)
+	}
 
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
@@ -304,24 +364,144 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+
+	config.DisableTelemetry = false
+	if configbase.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
+		config.DisableTelemetry = true
+	}
+
+	return nil
+}
+
+func parseRAFTConfig(hostname string) (Raft, error) {
+	// flag.IntVar()
+	cfg := Raft{}
+	if err := parsePositiveInt(
+		"RAFT_PORT",
+		func(val int) { cfg.Port = val },
+		DefaultRaftPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_INTERNAL_RPC_PORT",
+		func(val int) { cfg.InternalRPCPort = val },
+		DefaultRaftInternalPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	parseStringList(
+		"RAFT_JOIN",
+		func(val []string) { cfg.Join = val },
+		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
+		// able to bootstrap itself if the user doesn't pass any raft parameter.
+		[]string{fmt.Sprintf("%s:%d", hostname, cfg.InternalRPCPort)},
+	)
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_TIMEOUT",
+		func(val int) { cfg.BootstrapTimeout = time.Second * time.Duration(val) },
+		DefaultRaftBootstrapTimeout,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_EXPECT",
+		func(val int) { cfg.BootstrapExpect = val },
+		DefaultRaftBootstrapExpect,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_HEARTBEAT_TIMEOUT",
+		func(val int) { cfg.HeartbeatTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_RECOVERY_TIMEOUT",
+		func(val int) { cfg.RecoveryTimeout = time.Second * time.Duration(val) },
+		3,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_ELECTION_TIMEOUT",
+		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_INTERVAL",
+		func(val int) { cfg.SnapshotInterval = time.Second * time.Duration(val) },
+		120, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_THRESHOLD",
+		func(val int) { cfg.SnapshotThreshold = uint64(val) },
+		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
+}
+
+func (c *Config) parseCORSConfig() error {
+	if v := os.Getenv("CORS_ALLOW_ORIGIN"); v != "" {
+		c.CORS.AllowOrigin = v
+	} else {
+		c.CORS.AllowOrigin = DefaultCORSAllowOrigin
+	}
+
+	if v := os.Getenv("CORS_ALLOW_METHODS"); v != "" {
+		c.CORS.AllowMethods = v
+	} else {
+		c.CORS.AllowMethods = DefaultCORSAllowMethods
+	}
+
+	if v := os.Getenv("CORS_ALLOW_HEADERS"); v != "" {
+		c.CORS.AllowHeaders = v
+	} else {
+		c.CORS.AllowHeaders = DefaultCORSAllowHeaders
+	}
+
 	return nil
 }
 
 func (c *Config) parseMemtableConfig() error {
-	// first parse old name for flush value
+	// first parse old idle name for flush value
 	if err := parsePositiveInt(
 		"PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		DefaultPersistenceFlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		DefaultPersistenceMemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
-
-	// then parse with new name and use previous value in case it's not set
+	// then parse with new idle name and use previous value in case it's not set
 	if err := parsePositiveInt(
 		"PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		c.Persistence.FlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
+	); err != nil {
+		return err
+	}
+	// then parse with dirty name and use idle value as fallback
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS",
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
@@ -376,13 +556,13 @@ const (
 )
 
 const (
-	DefaultPersistenceFlushIdleMemtablesAfter = 60
-	DefaultPersistenceMemtablesMaxSize        = 200
-	DefaultPersistenceMemtablesMinDuration    = 15
-	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = 0
-	DefaultGRPCPort                           = 50051
-	DefaultMinimumReplicationFactor           = 1
+	DefaultPersistenceMemtablesFlushDirtyAfter = 60
+	DefaultPersistenceMemtablesMaxSize         = 200
+	DefaultPersistenceMemtablesMinDuration     = 15
+	DefaultPersistenceMemtablesMaxDuration     = 45
+	DefaultMaxConcurrentGetRequests            = 0
+	DefaultGRPCPort                            = 50051
+	DefaultMinimumReplicationFactor            = 1
 )
 
 const VectorizerModuleNone = "none"
@@ -394,19 +574,12 @@ const DefaultGossipBindPort = 7946
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
-func enabled(value string) bool {
-	if value == "" {
-		return false
+func parseStringList(varName string, cb func(val []string), defaultValue []string) {
+	if v := os.Getenv(varName); v != "" {
+		cb(strings.Split(v, ","))
+	} else {
+		cb(defaultValue)
 	}
-
-	if value == "on" ||
-		value == "enabled" ||
-		value == "1" ||
-		value == "true" {
-		return true
-	}
-
-	return false
 }
 
 func parseResourceUsageEnvVars() (ResourceUsage, error) {
@@ -458,11 +631,29 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 func parseClusterConfig() (cluster.Config, error) {
 	cfg := cluster.Config{}
 
-	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
+	if v := os.Getenv("CLUSTER_HOSTNAME"); v != "" {
+		cfg.Hostname = v
+	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
+	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
+	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
+
+	cfg.Localhost = configbase.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
+
+	if advertiseAddrSet {
+		cfg.AdvertiseAddr = advertiseAddr
+	}
+
+	if advertisePortSet {
+		asInt, err := strconv.Atoi(advertisePort)
+		if err != nil {
+			return cfg, fmt.Errorf("parse CLUSTER_ADVERTISE_PORT as int: %w", err)
+		}
+		cfg.AdvertisePort = asInt
+	}
 
 	if gossipBindSet {
 		asInt, err := strconv.Atoi(gossipBind)
@@ -491,9 +682,9 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
-	cfg.IgnoreStartupSchemaSync = enabled(
+	cfg.IgnoreStartupSchemaSync = configbase.Enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
-	cfg.SkipSchemaSyncRepair = enabled(
+	cfg.SkipSchemaSyncRepair = configbase.Enabled(
 		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")

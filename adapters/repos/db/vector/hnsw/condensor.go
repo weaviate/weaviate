@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	ssdhelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/ssdhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -31,6 +31,9 @@ type MemoryCondensor struct {
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
+	c.logger.WithField("action", "hnsw_condensing").Infof("start hnsw condensing")
+	defer c.logger.WithField("action", "hnsw_condensing_complete").Infof("completed hnsw condensing")
+
 	fd, err := os.Open(fileName)
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")
@@ -235,7 +238,7 @@ func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	return ec.ToError()
 }
 
-func (c *MemoryCondensor) AddPQ(data ssdhelpers.PQData) error {
+func (c *MemoryCondensor) AddPQ(data compressionhelpers.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)

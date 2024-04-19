@@ -24,6 +24,7 @@ dist_tmp
 
 # No weaviate bins
 ./weaviate
+cmd/weaviate-server/weaviate*
 
 # Logs
 logs
@@ -107,3 +108,8 @@ creds.json
 
 # VSCode
 cmd/weaviate-server/__debug_bin*
+
+# python test
+.venv
+**/__pycache__
+*.pyc

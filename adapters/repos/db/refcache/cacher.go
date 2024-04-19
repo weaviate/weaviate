@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -281,14 +281,7 @@ func (c *Cacher) completeJobs() []cacherJob {
 	return out[:n]
 }
 
-// alters the list, removes duplicates. Ignores complete jobs, as a job could
-// already marked as complete, but not yet stored since the completion is the
-// exit condition for the recursion. However, the storage can only happen once
-// the schema was parsed. If the schema contains more refs to an item that is
-// already in the joblist we are in a catch-22. To resolve that, we allow
-// duplicates with already complete jobs since retrieving the required item
-// again (with different SelectProperties) comes at minimal cost and is the
-// only way out of that deadlock situation.
+// alters the list, removes duplicates.
 func (c *Cacher) dedupJobList() {
 	incompleteJobs := c.incompleteJobs()
 	before := len(incompleteJobs)
@@ -296,6 +289,7 @@ func (c *Cacher) dedupJobList() {
 		// nothing to do
 		return
 	}
+
 	c.logger.
 		WithFields(logrus.Fields{
 			"action": "request_cacher_dedup_joblist_start",
@@ -304,6 +298,11 @@ func (c *Cacher) dedupJobList() {
 		Debug("starting job list deduplication")
 	deduped := make([]cacherJob, len(incompleteJobs))
 	found := map[multi.Identifier]struct{}{}
+
+	// don't look up refs that are already completed - this can for example happen with cyclic refs
+	for _, job := range c.completeJobs() {
+		found[job.si] = struct{}{}
+	}
 
 	n := 0
 	for _, job := range incompleteJobs {

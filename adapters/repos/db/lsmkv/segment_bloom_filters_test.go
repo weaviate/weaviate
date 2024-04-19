@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -30,7 +30,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -50,7 +50,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 	// on Windows we have to shutdown the bucket before opening it again
 	require.Nil(t, b.Shutdown(ctx))
 
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -73,7 +73,7 @@ func TestCreateBloomInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -101,7 +101,7 @@ func TestCreateBloomInit(t *testing.T) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
@@ -121,7 +121,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
@@ -141,7 +141,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
@@ -158,7 +158,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
@@ -177,7 +177,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
@@ -194,7 +194,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -215,7 +215,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -233,7 +233,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -253,7 +253,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -270,7 +270,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -290,7 +290,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
@@ -321,6 +321,171 @@ func TestLoadWithChecksumErrorCases(t *testing.T) {
 
 		_, err = loadWithChecksum(path.Join(dirName, "my-file"), 17)
 		assert.NotNil(t, err)
+	})
+}
+
+func TestBloom_OFF(t *testing.T) {
+	ctx := context.Background()
+	tests := bucketTests{
+		{
+			name: "dontCreateBloom",
+			f:    dontCreateBloom,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+				WithUseBloomFilter(false),
+			},
+		},
+		{
+			name: "dontRecreateBloom",
+			f:    dontRecreateBloom,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+				WithUseBloomFilter(false),
+			},
+		},
+		{
+			name: "dontPrecomputeBloom",
+			f:    dontPrecomputeBloom,
+			opts: []BucketOption{
+				WithStrategy(StrategyReplace),
+				WithSecondaryIndices(1),
+				WithUseBloomFilter(false),
+			},
+		},
+	}
+	tests.run(ctx, t)
+}
+
+func dontCreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	t.Run("populate", func(t *testing.T) {
+		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
+			WithSecondaryKey(0, []byte("bonjour"))))
+		require.NoError(t, b.FlushMemtable())
+	})
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".bloom")
+		assert.False(t, ok)
+		_, ok = findFileWithExt(files, "secondary.0.bloom")
+		assert.False(t, ok)
+	})
+
+	t.Run("search", func(t *testing.T) {
+		valuePrimary, err := b.Get([]byte("hello"))
+		require.NoError(t, err)
+		valueSecondary, err := b.GetBySecondary(0, []byte("bonjour"))
+		require.NoError(t, err)
+
+		assert.Equal(t, []byte("world"), valuePrimary)
+		assert.Equal(t, []byte("world"), valueSecondary)
+	})
+}
+
+func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	t.Run("create, populate, shutdown", func(t *testing.T) {
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			opts...)
+		require.NoError(t, err)
+		defer b.Shutdown(ctx)
+
+		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
+			WithSecondaryKey(0, []byte("bonjour"))))
+		require.NoError(t, b.FlushMemtable())
+	})
+
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b2.Shutdown(ctx)
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".bloom")
+		assert.False(t, ok)
+		_, ok = findFileWithExt(files, "secondary.0.bloom")
+		assert.False(t, ok)
+	})
+
+	t.Run("search", func(t *testing.T) {
+		valuePrimary, err := b2.Get([]byte("hello"))
+		require.NoError(t, err)
+		valueSecondary, err := b2.GetBySecondary(0, []byte("bonjour"))
+		require.NoError(t, err)
+
+		assert.Equal(t, []byte("world"), valuePrimary)
+		assert.Equal(t, []byte("world"), valueSecondary)
+	})
+}
+
+func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		opts...)
+	require.NoError(t, err)
+	defer b.Shutdown(ctx)
+
+	t.Run("populate, compact", func(t *testing.T) {
+		require.NoError(t, b.Put([]byte("hello"), []byte("world"),
+			WithSecondaryKey(0, []byte("bonjour"))))
+		require.NoError(t, b.FlushMemtable())
+
+		require.NoError(t, b.Put([]byte("hello2"), []byte("world2"),
+			WithSecondaryKey(0, []byte("bonjour2"))))
+		require.NoError(t, b.FlushMemtable())
+
+		compacted, err := b.disk.compactOnce()
+		require.NoError(t, err)
+		require.True(t, compacted)
+	})
+
+	t.Run("check files", func(t *testing.T) {
+		files, err := os.ReadDir(dirName)
+		require.NoError(t, err)
+
+		_, ok := findFileWithExt(files, ".bloom")
+		assert.False(t, ok)
+		_, ok = findFileWithExt(files, "secondary.0.bloom")
+		assert.False(t, ok)
+	})
+
+	t.Run("search", func(t *testing.T) {
+		valuePrimary, err := b.Get([]byte("hello"))
+		require.NoError(t, err)
+		valueSecondary, err := b.GetBySecondary(0, []byte("bonjour"))
+		require.NoError(t, err)
+		value2Primary, err := b.Get([]byte("hello2"))
+		require.NoError(t, err)
+		value2Secondary, err := b.GetBySecondary(0, []byte("bonjour2"))
+		require.NoError(t, err)
+
+		assert.Equal(t, []byte("world"), valuePrimary)
+		assert.Equal(t, []byte("world"), valueSecondary)
+		assert.Equal(t, []byte("world2"), value2Primary)
+		assert.Equal(t, []byte("world2"), value2Secondary)
 	})
 }
 

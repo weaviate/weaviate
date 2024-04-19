@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,15 +13,20 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"runtime"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -43,6 +48,7 @@ type DB struct {
 	nodeResolver      nodeResolver
 	remoteNode        *sharding.RemoteNode
 	promMetrics       *monitoring.PrometheusMetrics
+	indexCheckpoints  *indexcheckpoint.Checkpoints
 	shutdown          chan struct{}
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
@@ -72,11 +78,40 @@ type DB struct {
 	// mark a given index in use, lock that index directly.
 	indexLock sync.RWMutex
 
-	jobQueueCh          chan job
-	shutDownWg          sync.WaitGroup
-	maxNumberGoroutines int
-	batchMonitorLock    sync.Mutex
-	ratePerSecond       int
+	jobQueueCh              chan job
+	asyncIndexRetryInterval time.Duration
+	shutDownWg              sync.WaitGroup
+	maxNumberGoroutines     int
+	ratePerSecond           atomic.Int64
+
+	// in the case of metrics grouping we need to observe some metrics
+	// node-centric, rather than shard-centric
+	metricsObserver *nodeWideMetricsObserver
+}
+
+func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
+	return db.schemaGetter
+}
+
+func (db *DB) GetSchema() schema.Schema {
+	return db.schemaGetter.GetSchemaSkipAuth()
+}
+
+func (db *DB) GetConfig() Config {
+	return db.config
+}
+
+func (db *DB) GetIndices() []*Index {
+	out := make([]*Index, 0, len(db.indices))
+	for _, index := range db.indices {
+		out = append(out, index)
+	}
+
+	return out
+}
+
+func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
+	return db.remoteIndex
 }
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -100,34 +135,50 @@ func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics,
+	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 ) (*DB, error) {
-	db := &DB{
-		logger:              logger,
-		config:              config,
-		indices:             map[string]*Index{},
-		remoteIndex:         remoteIndex,
-		nodeResolver:        nodeResolver,
-		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
-		replicaClient:       replicaClient,
-		promMetrics:         promMetrics,
-		shutdown:            make(chan struct{}),
-		jobQueueCh:          make(chan job, 100000),
-		maxNumberGoroutines: int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
-		resourceScanState:   newResourceScanState(),
-		memMonitor: memwatch.NewMonitor(runtime.MemProfile,
-			debug.SetMemoryLimit, runtime.MemProfileRate, 0.97),
+	if memMonitor == nil {
+		memMonitor = memwatch.NewDummyMonitor()
 	}
-
-	// make sure memMonitor has an initial state
-	db.memMonitor.Refresh()
+	db := &DB{
+		logger:                  logger,
+		config:                  config,
+		indices:                 map[string]*Index{},
+		remoteIndex:             remoteIndex,
+		nodeResolver:            nodeResolver,
+		remoteNode:              sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
+		replicaClient:           replicaClient,
+		promMetrics:             promMetrics,
+		shutdown:                make(chan struct{}),
+		asyncIndexRetryInterval: 5 * time.Second,
+		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
+		resourceScanState:       newResourceScanState(),
+		memMonitor:              memMonitor,
+	}
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
 	}
-	db.shutDownWg.Add(db.maxNumberGoroutines)
-	for i := 0; i < db.maxNumberGoroutines; i++ {
-		go db.worker(i == 0)
+	if !asyncEnabled() {
+		db.jobQueueCh = make(chan job, 100000)
+		db.shutDownWg.Add(db.maxNumberGoroutines)
+		for i := 0; i < db.maxNumberGoroutines; i++ {
+			i := i
+			enterrors.GoWrapper(func() { db.worker(i == 0) }, db.logger)
+		}
+	} else {
+		logger.Info("async indexing enabled")
+		w := runtime.GOMAXPROCS(0) - 1
+		db.shutDownWg.Add(w)
+		db.jobQueueCh = make(chan job, w)
+		for i := 0; i < w; i++ {
+			f := func() {
+				defer db.shutDownWg.Done()
+				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
+			}
+			enterrors.GoWrapper(f, db.logger)
+
+		}
 	}
 
 	return db, nil
@@ -140,7 +191,7 @@ type Config struct {
 	QueryNestedRefLimit       int64
 	ResourceUsage             config.ResourceUsage
 	MaxImportGoroutinesFactor float64
-	MemtablesFlushIdleAfter   int
+	MemtablesFlushDirtyAfter  int
 	MemtablesInitialSizeMB    int
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
@@ -149,41 +200,43 @@ type Config struct {
 	ServerVersion             string
 	GitHash                   string
 	AvoidMMap                 bool
+	DisableLazyLoadShards     bool
 	Replication               replication.GlobalConfig
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
+// by default it will retry 3 times between 0-150 ms to get the index
+// to handle the eventual consistency.
 func (db *DB) GetIndex(className schema.ClassName) *Index {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
+	var (
+		index  *Index
+		exists bool
+	)
+	backoff.Retry(func() error {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
 
-	id := indexID(className)
-	index, ok := db.indices[id]
-	if !ok {
+		index, exists = db.indices[indexID(className)]
+		if !exists {
+			return fmt.Errorf("index for class %v not found locally", index)
+		}
 		return nil
-	}
+	}, utils.NewBackoff())
 
 	return index
 }
 
 // IndexExists returns if an index exists
-func (d *DB) IndexExists(className schema.ClassName) bool {
-	d.indexLock.RLock()
-	defer d.indexLock.RUnlock()
-
-	id := indexID(className)
-	_, ok := d.indices[id]
-	return ok
+func (db *DB) IndexExists(className schema.ClassName) bool {
+	return db.GetIndex(className) != nil
 }
 
 // GetIndexForIncoming returns the index if it exists or nil if it doesn't
+// by default it will retry 3 times between 0-150 ms to get the index
+// to handle the eventual consistency.
 func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	db.indexLock.RLock()
-	defer db.indexLock.RUnlock()
-
-	id := indexID(className)
-	index, ok := db.indices[id]
-	if !ok {
+	index := db.GetIndex(className)
+	if index == nil {
 		return nil
 	}
 
@@ -192,34 +245,43 @@ func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteInd
 
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
-	db.indexLock.Lock()
-	defer db.indexLock.Unlock()
-
-	// Get index
-	id := indexID(className)
-	index := db.indices[id]
+	index := db.GetIndex(className)
 	if index == nil {
 		return nil
 	}
 
-	// Drop index
+	// drop index
+	db.indexLock.Lock()
+	defer db.indexLock.Unlock()
+
 	index.dropIndex.Lock()
 	defer index.dropIndex.Unlock()
 	if err := index.drop(); err != nil {
 		db.logger.WithField("action", "delete_index").WithField("class", className).Error(err)
 	}
-	delete(db.indices, id)
+
+	delete(db.indices, indexID(className))
+
+	if err := db.promMetrics.DeleteClass(className.String()); err != nil {
+		db.logger.Error("can't delete prometheus metrics", err)
+	}
 	return nil
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
 
-	// shut down the workers that add objects to
-	for i := 0; i < db.maxNumberGoroutines; i++ {
-		db.jobQueueCh <- job{
-			index: -1,
+	if !asyncEnabled() {
+		// shut down the workers that add objects to
+		for i := 0; i < db.maxNumberGoroutines; i++ {
+			db.jobQueueCh <- job{
+				index: -1,
+			}
 		}
+	}
+
+	if db.metricsObserver != nil {
+		db.metricsObserver.Shutdown()
 	}
 
 	db.indexLock.Lock()
@@ -230,7 +292,16 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
+	if asyncEnabled() {
+		// shut down the async workers
+		close(db.jobQueueCh)
+	}
+
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
+
+	if asyncEnabled() {
+		db.indexCheckpoints.Close()
+	}
 
 	return nil
 }
@@ -247,9 +318,7 @@ func (db *DB) worker(first bool) {
 		jobToAdd.batcher.wg.Done()
 		objectCounter += 1
 		if first && time.Now().After(checkTime) { // only have one worker report the rate per second
-			db.batchMonitorLock.Lock()
-			db.ratePerSecond = objectCounter * db.maxNumberGoroutines
-			db.batchMonitorLock.Unlock()
+			db.ratePerSecond.Store(int64(objectCounter * db.maxNumberGoroutines))
 
 			objectCounter = 0
 			checkTime = time.Now().Add(time.Second)
@@ -263,4 +332,72 @@ type job struct {
 	index   int
 	ctx     context.Context
 	batcher *objectsBatcher
+
+	// async only
+	chunk   *chunk
+	indexer batchIndexer
+	queue   *vectorQueue
+}
+
+func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
+	var ids []uint64
+	var vectors [][]float32
+	var deleted []uint64
+
+	for job := range ch {
+		c := job.chunk
+		for i := range c.data[:c.cursor] {
+			if job.queue.IsDeleted(c.data[i].id) {
+				deleted = append(deleted, c.data[i].id)
+			} else {
+				ids = append(ids, c.data[i].id)
+				vectors = append(vectors, c.data[i].vector)
+			}
+		}
+
+		var err error
+
+		if len(ids) > 0 {
+		LOOP:
+			for {
+				err = job.indexer.AddBatch(job.ctx, ids, vectors)
+				if err == nil {
+					break LOOP
+				}
+
+				if errors.Is(err, context.Canceled) {
+					logger.WithError(err).Debugf("skipping indexing batch due to context cancellation")
+					break LOOP
+				}
+
+				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+
+				t := time.NewTimer(retryInterval)
+				select {
+				case <-job.ctx.Done():
+					// drain the timer
+					if !t.Stop() {
+						<-t.C
+					}
+					return
+				case <-t.C:
+				}
+			}
+		}
+
+		// only persist checkpoint if we indexed a full batch
+		if err == nil {
+			job.queue.persistCheckpoint(ids)
+		}
+
+		job.queue.releaseChunk(c)
+
+		if len(deleted) > 0 {
+			job.queue.ResetDeleted(deleted...)
+		}
+
+		ids = ids[:0]
+		vectors = vectors[:0]
+		deleted = deleted[:0]
+	}
 }

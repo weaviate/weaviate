@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
@@ -35,7 +35,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 
 	// stop at layer 1, not 0!
 	for level := h.currentMaximumLayer; level >= 1; level-- {
-		eps := priorityqueue.NewMin(1)
+		eps := priorityqueue.NewMin[any](1)
 		eps.Insert(entryPointID, entryPointDistance)
 		// ignore allowList on layers > 0
 		res, err := h.searchLayerByVector(searchVec, eps, 1, level, nil)
@@ -51,14 +51,14 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 		h.pools.pqResults.Put(res)
 	}
 
-	eps := priorityqueue.NewMin(1)
+	eps := priorityqueue.NewMin[any](1)
 	eps.Insert(entryPointID, entryPointDistance)
 	res, err := h.searchLayerByVector(searchVec, eps, ef, 0, allowList)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
-	all := make([]priorityqueue.Item, res.Len())
+	all := make([]priorityqueue.Item[any], res.Len())
 	i := res.Len() - 1
 	for res.Len() > 0 {
 		all[i] = res.Pop()

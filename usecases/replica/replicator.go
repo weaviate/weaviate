@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -90,10 +90,11 @@ func (r *Replicator) PutObject(ctx context.Context,
 	shard string,
 	obj *storobj.Object,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj)
+		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -121,10 +122,11 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	shard string,
 	doc *objects.MergeDocument,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc)
+		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -151,10 +153,11 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id)
+		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -181,10 +184,11 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	shard string,
 	objs []*storobj.Object,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs)
+		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -215,14 +219,14 @@ func (r *Replicator) PutObjects(ctx context.Context,
 
 func (r *Replicator) DeleteObjects(ctx context.Context,
 	shard string,
-	docIDs []uint64,
+	uuids []strfmt.UUID,
 	dryRun bool,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := newCoordinator[DeleteBatchResponse](r, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.DeleteObjects(
-			ctx, host, r.class, shard, requestID, docIDs, dryRun)
+		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, dryRun, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -248,13 +252,13 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
-		errs := make([]objects.BatchSimpleObject, len(docIDs))
-		for i := 0; i < len(docIDs); i++ {
+		errs := make([]objects.BatchSimpleObject, len(uuids))
+		for i := 0; i < len(uuids); i++ {
 			errs[i].Err = err
 		}
 		return errs
 	}
-	rs := r.stream.readDeletions(len(docIDs), level, replyCh)
+	rs := r.stream.readDeletions(len(uuids), level, replyCh)
 	if err := firstBatchError(rs); err != nil {
 		r.log.WithField("op", "put.many").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
@@ -266,10 +270,11 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	shard string,
 	refs []objects.BatchReference,
 	l ConsistencyLevel,
+	schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opAddReferences), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs)
+		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}

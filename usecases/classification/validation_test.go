@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -177,7 +177,8 @@ func Test_ValidateUserInput(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			validator := NewValidator(&fakeSchemaGetter{testSchema()}, test.input)
+			fsg := &fakeSchemaGetter{testSchema()}
+			validator := NewValidator(fsg.ReadOnlyClass, test.input)
 			err := validator.Do()
 			assert.Equal(t, test.expectedError, err)
 		})

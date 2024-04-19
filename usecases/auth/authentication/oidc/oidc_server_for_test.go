@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,8 +18,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	jose "github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v4"
-	jose "github.com/square/go-jose"
 )
 
 func newOIDCServer(t *testing.T) *httptest.Server {
