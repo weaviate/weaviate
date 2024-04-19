@@ -54,7 +54,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, nil))
+			}, []float32{1, 2, 3}, nil, nil, 0))
 		})
 
 		expectedNodeName := "node1"
@@ -155,7 +155,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, nil))
+			}, []float32{1, 2, 3}, nil, nil, 9))
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {
@@ -182,17 +182,17 @@ func TestBackup_BucketLevel(t *testing.T) {
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
-		err := shard.PutObject(ctx, &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",
-				Class: className,
-				Properties: map[string]interface{}{
-					"stringField": "somevalue",
+		err := shard.PutObject(ctx,
+			&storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",
+					Class: className,
+					Properties: map[string]interface{}{
+						"stringField": "somevalue",
+					},
 				},
-			},
-		},
-		)
+			})
 		require.Nil(t, err)
 	})
 

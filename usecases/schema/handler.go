@@ -72,14 +72,14 @@ type metaReader interface {
 	GetShardsStatus(class string) (models.ShardStatusList, error)
 
 	// WithVersion endpoints return the data with the schema version
-	ClassInfoWithVersion(class string, version uint64) (ci store.ClassInfo, resultVersion uint64)
-	MultiTenancyWithVersion(class string, version uint64) (models.MultiTenancyConfig, uint64)
-	ReadOnlyClassWithVersion(class string, version uint64) (cls *models.Class, resultVersion uint64)
-	ShardOwnerWithVersion(class, shard string, version uint64) (owner string, resultVersion uint64, err error)
-	ShardFromUUIDWithVersion(class string, uuid []byte, version uint64) (shard string, resultVersion uint64)
-	ShardReplicasWithVersion(class, shard string, version uint64) (nodes []string, resultVersion uint64, err error)
-	TenantShardWithVersion(class, tenant string, version uint64) (name string, st string, resultVersion uint64)
-	CopyShardingStateWithVersion(class string, version uint64) (ss *sharding.State, resultVersion uint64)
+	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (store.ClassInfo, error)
+	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
+	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
+	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
+	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
+	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
+	TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (name string, st string, err error)
+	CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error)
 }
 
 type validator interface {

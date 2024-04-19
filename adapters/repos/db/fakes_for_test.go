@@ -164,7 +164,7 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
-	shardName string, obj *storobj.Object,
+	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -183,13 +183,13 @@ func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) error {
 	return nil
 }
 
 func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
-	shardName string, mergeDoc objects.MergeDocument,
+	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -215,7 +215,7 @@ func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
-	indexName, shardName string, refs objects.BatchReferences,
+	indexName, shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	return nil
 }
@@ -271,13 +271,13 @@ func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, clas
 type fakeReplicationClient struct{}
 
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
-	obj *storobj.Object,
+	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
-	id strfmt.UUID,
+	id strfmt.UUID, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
@@ -289,7 +289,7 @@ func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, sha
 }
 
 func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
-	mergeDoc *objects.MergeDocument,
+	mergeDoc *objects.MergeDocument, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
@@ -301,7 +301,7 @@ func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, 
 }
 
 func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
-	refs []objects.BatchReference,
+	refs []objects.BatchReference, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }

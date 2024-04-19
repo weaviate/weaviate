@@ -79,7 +79,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("wrong modelId available model names are: " +
 				"[textembedding-gecko@001 textembedding-gecko@latest " +
 				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
+				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409]"),
 		},
 		{
 			name: "all wrong",
@@ -93,7 +94,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				"wrong modelId available model names are: " +
 				"[textembedding-gecko@001 textembedding-gecko@latest " +
 				"textembedding-gecko-multilingual@latest textembedding-gecko@003 " +
-				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001]"),
+				"textembedding-gecko@002 textembedding-gecko-multilingual@001 textembedding-gecko@001 " +
+				"text-embedding-preview-0409 text-multilingual-embedding-preview-0409]"),
 		},
 		{
 			name: "Generative AI",
@@ -104,7 +106,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
-			wantModelID:     "embedding-gecko-001",
+			wantModelID:     "embedding-001",
 			wantErr:         nil,
 		},
 		{
@@ -128,7 +130,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"modelId":     "textembedding-gecko@001",
 				},
 			},
-			wantErr: errors.Errorf("wrong modelId available Generative AI model names are: [embedding-gecko-001]"),
+			wantErr: errors.Errorf("wrong modelId available Generative AI model names are: [embedding-001 text-embedding-004]"),
 		},
 		{
 			name: "wrong properties",

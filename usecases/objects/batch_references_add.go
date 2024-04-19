@@ -73,7 +73,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, 0); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
 		return res, nil
@@ -123,7 +123,7 @@ func (b *BatchManager) autodetectToClass(ctx context.Context,
 
 		target, ok := classPropTarget[className+propName]
 		if !ok {
-			class, _, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String())
+			class, err := b.schemaManager.GetClass(ctx, principal, ref.From.Class.String())
 			if class == nil || err != nil {
 				batchReferences[i].Err = fmt.Errorf("class %s does not exist or there was an error getting it err=%v", className, err)
 				continue
@@ -239,7 +239,7 @@ func getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	sourceClass, _, err = schemaManager.GetClass(ctx, principal, classFrom)
+	sourceClass, err = schemaManager.GetClass(ctx, principal, classFrom)
 	if err != nil {
 		err = fmt.Errorf("get source class %q: %w", classFrom, err)
 		return
@@ -263,7 +263,7 @@ func getReferenceClasses(ctx context.Context,
 		classTo = refProp.DataType[0]
 	}
 
-	targetClass, _, err = schemaManager.GetClass(ctx, principal, classTo)
+	targetClass, err = schemaManager.GetClass(ctx, principal, classTo)
 	if err != nil {
 		err = fmt.Errorf("get target class %q: %w", classTo, err)
 		return
