@@ -183,7 +183,7 @@ func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, additional additional.Properties, className schema.ClassName, limit int) (helpers.AllowList, error) {
-	pv, err := s.buildPropValuePair(filter.Root, className)
+	pv, err := s.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,className schema.
 		out.children = make([]*propValuePair, len(filter.Operands))
 
 		for i, clause := range filter.Operands {
-			child, err := s.buildPropValuePair(&clause, className)
+			child, err := s.extractPropValuePair(&clause, className)
 			if err != nil {
 				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
 			}
@@ -306,7 +306,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			child, err := s.buildPropValuePair(&clause, className)
+			child, err := s.extractPropValuePair(&clause, className)
 			if err != nil {
 				return fmt.Errorf("nested clause at pos %d: %w", i, err)
 			}
