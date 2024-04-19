@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -28,7 +27,7 @@ import (
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
 	value         []byte
-	bucket        *lsmkv.Bucket
+	bucket        lsmkv.BucketInterface
 	operator      filters.Operator
 	keyOnly       bool
 	shardVersion  uint16

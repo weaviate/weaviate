@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -28,7 +27,7 @@ import (
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
 	value         []byte
-	bucket        *lsmkv.Bucket
+	bucket        lsmkv.BucketInterface
 	operator      filters.Operator
 	keyOnly       bool
 	PropPrefix []byte
@@ -65,7 +64,7 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 			return err
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}
@@ -186,7 +185,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		continueReading, err := readFn(k, v)
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
 		if err != nil {
 			return err
 		}

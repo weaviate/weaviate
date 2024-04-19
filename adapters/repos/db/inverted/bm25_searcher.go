@@ -45,19 +45,12 @@ type BM25Searcher struct {
 	schema        schema.Schema
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
-	deletedDocIDs DeletedDocIDChecker
 	propLengths   propLengthRetriever
 	logger        logrus.FieldLogger
 	shardVersion  uint16
 	propertyIds   *tracker.JsonPropertyIdTracker
-	config         schema.BM25Config
-	store          *lsmkv.Store
 	getClass       func(string) *models.Class
-	classSearcher  ClassSearcher // to allow recursive searches on ref-props
-	propIndices    propertyspecific.Indices
 	propLenTracker propLengthRetriever
-	logger         logrus.FieldLogger
-	shardVersion   uint16
 }
 
 type propLengthRetriever interface {
