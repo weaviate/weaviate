@@ -83,6 +83,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="2113" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -108,6 +109,7 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="2114" \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \

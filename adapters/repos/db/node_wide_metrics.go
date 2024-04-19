@@ -188,6 +188,12 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() map[string]map[string]int
 }
 
 func (o *nodeWideMetricsObserver) Usage() map[string]map[string]time.Time {
+	if o == nil {
+		// not loaded yet, requests could come in before the db is initialized yet
+		// don't attempt to lock, as that would lead to a nil-pointer issue
+		return map[string]map[string]time.Time{}
+	}
+
 	o.activityLock.Lock()
 	defer o.activityLock.Unlock()
 
