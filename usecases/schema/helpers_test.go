@@ -395,6 +395,10 @@ func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, sha
 	return args.Error(0)
 }
 
+func (n *fakeMigrator) AdjustFilterablePropSettings(ctx context.Context) error {
+	return nil
+}
+
 type fakeNodes struct {
 	nodes []string
 }
