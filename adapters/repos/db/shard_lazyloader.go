@@ -43,6 +43,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 
 type LazyLoadShard struct {
@@ -186,6 +188,11 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()
+}
+
+func (l *LazyLoadShard) GetPropertyIdTracker() *tracker.JsonPropertyIdTracker {
+	l.mustLoad()
+	return l.shard.GetPropertyIdTracker()
 }
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {

@@ -73,6 +73,7 @@ type ShardLike interface {
 	ObjectCount() int
 	ObjectCountAsync() int
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyIdTracker() *tracker.JsonPropertyIdTracker
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error

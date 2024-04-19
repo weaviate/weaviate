@@ -420,26 +420,26 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 }
 
 // Problem: this function should be in shard.go, it circumvents the shard abstraction
-func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
+func (i *Index) addProperty(ctx context.Context, props []*models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 
 		i.ForEachShard(func(key string, shard ShardLike) error {
-			shard.createPropertyIndex_unmerged(ctx, eg, []*models.Property{ prop})
+			shard.createPropertyIndex_unmerged(ctx, eg, props)
 			return nil
 		})
 
 		if err := eg.Wait(); err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
 		}
 
 		return nil
 	} else {
 		return i.ForEachShard(func(key string, shard ShardLike) error {
-			err := shard.createPropertyIndex(ctx, nil, []*models.Property{ prop })
+			err := shard.createPropertyIndex(ctx, nil, props)
 			if err != nil {
-				return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
+				return errors.Wrapf(err, "extend idx '%s' with property '%v", i.ID(), props)
 			}
 			return nil
 		})

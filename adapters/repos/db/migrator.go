@@ -31,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
 type Migrator struct {
@@ -233,14 +235,17 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		// don't need to continue iterating over all shards
 		errMissingProp := errors.New("missing prop")
 		err := idx.ForEachShard(func(name string, shard ShardLike) error {
-			bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
-			if bucket == nil {
+			bucket, err := lsmkv.FetchMeABucket(shard.Store(), "filterable_properties",helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, shard.GetPropertyIdTracker())
+			if err != nil {
+				return err
+			}
+			if bucket == nil  {
 				return errMissingProp
 			}
 			return nil
 		})
 		if errors.Is(err, errMissingProp) {
-			if err := idx.addProperty(ctx, prop); err != nil {
+			if err := idx.addProperty(ctx, []*models.Property{prop}); err != nil {
 				return fmt.Errorf("add missing prop %s during update index: %w", prop.Name, err)
 			}
 		}
@@ -248,13 +253,13 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 	return nil
 }
 
-func (m *Migrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
+func (m *Migrator) AddProperty(ctx context.Context, className string, props []*models.Property) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return errors.Errorf("cannot add property to a non-existing index for %s", className)
 	}
 
-	return idx.addProperty(ctx, prop...)
+	return idx.addProperty(ctx, props)
 }
 
 // DropProperty is ignored, API compliant change

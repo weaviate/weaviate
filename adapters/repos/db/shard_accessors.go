@@ -18,6 +18,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 
 func (s *Shard) Queue() *IndexQueue {
@@ -70,6 +72,14 @@ func (s *Shard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 // Tracks the lengths of all properties.  Must be updated on inserts/deletes.
 func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonPropertyLengthTracker) {
 	s.propLenTracker = tracker
+}
+
+func (s *Shard) GetPropertyIdTracker() *tracker.JsonPropertyIdTracker {
+	return s.propIds
+}
+
+func (s *Shard) SetPropertyIdTracker(tracker *tracker.JsonPropertyIdTracker) {
+	s.propIds = tracker
 }
 
 // Grafana metrics
