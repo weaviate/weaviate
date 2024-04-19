@@ -348,17 +348,17 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantShard(class, tenant string) (string, string) {
-	tenants, _, err := m.metaWriter.QueryTenants(class)
-	if err != nil {
-		return "", ""
-	}
-
-	for _, t := range tenants {
-		if t.Name == tenant {
-			return t.Name, t.ActivityStatus
+	var err error
+	var resTenant, resStatus string
+	resTenant, resStatus = m.metaReader.TenantShard(class, tenant)
+	// No tenant present locally, let's query the elader
+	if tenant == "" {
+		resTenant, resStatus, _, err = m.metaWriter.QueryTenantShard(class, tenant)
+		if err != nil {
+			return "", ""
 		}
 	}
-	return "", ""
+	return resTenant, resStatus
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
