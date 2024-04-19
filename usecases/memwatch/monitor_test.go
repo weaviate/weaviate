@@ -141,9 +141,11 @@ func TestMappings(t *testing.T) {
 
 	t.Run("current memory settings", func(t *testing.T) {
 		switch runtime.GOOS {
-		case "linux", "darwin":
+		case "linux":
 			assert.Greater(t, getCurrentMappings(), int64(0))
 			assert.Less(t, getCurrentMappings(), int64(math.MaxInt64))
+		case "darwin":
+			assert.Equal(t, getCurrentMappings(), int64(0))
 		}
 	})
 
@@ -181,8 +183,14 @@ func TestMappings(t *testing.T) {
 			}
 		}
 
-		// any further mapping should fail
-		require.NotNil(t, m.CheckMappingAndReserve(1, 0))
+		switch runtime.GOOS {
+		case "linux":
+			// any further mapping should fail
+			require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+		case "darwin":
+			// any further mapping should not fail
+			require.Nil(t, m.CheckMappingAndReserve(1, 60))
+		}
 	})
 
 	t.Run("check reservations", func(t *testing.T) {
