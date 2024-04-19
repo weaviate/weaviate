@@ -190,12 +190,7 @@ func (s *Store) CreateOrLoadBucket_old(ctx context.Context, bucketName string,
 		return err
 	}
 
-<<<<<<< HEAD
 	s.SetBucket(bucketName, b)
-=======
-	s.setBucket(bucketName, b)
-
->>>>>>> main
 	return nil
 }
 

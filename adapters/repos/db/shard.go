@@ -299,7 +299,7 @@ func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]
 func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.vectorIndexes = make(map[string]VectorIndex)
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
+		vectorIndex := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
 		if err != nil {
 			return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 		}
@@ -340,11 +340,9 @@ func (s *Shard) initLegacyQueue() error {
 	return nil
 }
 
-func (s *Shard) initVectorIndex(
-	ctx context.Context, hnswUserConfig hnswent.UserConfig,
-) error {
+func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vectorIndexUserConfig schema.VectorIndexConfig) (VectorIndex, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.initVectorIndex_old(ctx, hnswUserConfig)
+		return s.initVectorIndex_unmerged(ctx, targetVector, vectorIndexUserConfig)
 	}
 	var distProv distancer.Provider
 
@@ -749,7 +747,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
+		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap))

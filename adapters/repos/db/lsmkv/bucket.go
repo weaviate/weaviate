@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-<<<<<<< HEAD
 // BucketInterface supports wrapping the bucket with proxy objects to enable things like multiple properties per bucket
 type BucketInterface interface {
 	Shutdown(ctx context.Context) error
@@ -70,7 +69,8 @@ type BucketInterface interface {
 	CursorRoaringSetKeyOnly() CursorRoaringSet
 	GetRegisteredName() string
 	CheckBucket()
-=======
+}
+
 const FlushAfterDirtyDefault = 60 * time.Second
 
 type BucketCreator interface {
@@ -78,7 +78,6 @@ type BucketCreator interface {
 		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 		opts ...BucketOption,
 	) (*Bucket, error)
->>>>>>> main
 }
 
 type Bucket struct {
@@ -128,35 +127,9 @@ type Bucket struct {
 
 	pauseTimer *prometheus.Timer // Times the pause
 
-<<<<<<< HEAD
 	RegisteredName  string
 	PropertyTracker map[string]uint32
-}
 
-func (b *Bucket) GetRegisteredName() string {
-	return b.RegisteredName
-}
-
-func (b *Bucket) CheckBucket() {
-	if b == nil {
-		panic("Bucket is nil")
-	}
-	if len(b.dir) > 4096 {
-		panic("Bucket name is too long")
-	}
-	if len(b.rootDir) > 4096 {
-		panic("Bucket root name is too long")
-	}
-	if len(b.RegisteredName) > 4096 {
-		panic("Bucket registered name is too long")
-	}
-	if b.logger == nil {
-		panic("Bucket logger is nil")
-	}
-	if b.strategy == "" {
-		panic("Bucket strategy is empty")
-	}
-=======
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.
 	// Since segments are immutable, deletions are added as new entries with
@@ -186,7 +159,32 @@ func (b *Bucket) CheckBucket() {
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
 	allocChecker memwatch.AllocChecker
->>>>>>> main
+}
+
+
+func (b *Bucket) GetRegisteredName() string {
+	return b.RegisteredName
+}
+
+func (b *Bucket) CheckBucket() {
+	if b == nil {
+		panic("Bucket is nil")
+	}
+	if len(b.dir) > 4096 {
+		panic("Bucket name is too long")
+	}
+	if len(b.rootDir) > 4096 {
+		panic("Bucket root name is too long")
+	}
+	if len(b.RegisteredName) > 4096 {
+		panic("Bucket registered name is too long")
+	}
+	if b.logger == nil {
+		panic("Bucket logger is nil")
+	}
+	if b.strategy == "" {
+		panic("Bucket strategy is empty")
+	}
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -296,7 +294,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	return b, nil
 }
 
-<<<<<<< HEAD
 func (b *Bucket) PropertyPrefix() []byte {
 	return []byte("")
 }
@@ -316,7 +313,6 @@ func (b *Bucket) DumpString() string {
 	})
 	buf.WriteString("Bucket end\n")
 	return buf.String()
-=======
 func (b *Bucket) GetDir() string {
 	return b.dir
 }
@@ -354,7 +350,6 @@ func (b *Bucket) GetWalThreshold() uint64 {
 
 func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 	return b.flushCallbackCtrl
->>>>>>> main
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {

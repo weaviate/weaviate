@@ -18,14 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
 
-<<<<<<< HEAD
-func (s *Shard) aggregate(ctx context.Context,
-	params aggregation.Params,
-) (*aggregation.Result, error) {
-	return aggregator.New(s.store, params, s.index.getSchema,
-		s.index.classSearcher, s.deletedDocIDs, s.index.stopwords, s.versioner.Version(),
-		s.vectorIndex, s.index.logger, s.propLengths, s.isFallbackToSearchable, s.tenant(), s.propIds, s.index.Config.QueryNestedRefLimit).
-=======
+
 func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
 	var queue *IndexQueue
 
@@ -43,6 +36,5 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params) (*aggr
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
 		s.index.stopwords, s.versioner.Version(), queue, s.index.logger, s.GetPropertyLengthTracker(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
->>>>>>> main
 		Do(ctx)
 }
