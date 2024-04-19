@@ -18,6 +18,8 @@ import (
 	"os"
 	"sync"
 
+
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -335,14 +337,14 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 	return l.shard.addTimestampProperties(ctx)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
 	l.mustLoad()
-	return l.shard.createPropertyIndex(ctx, eg, props...)
+	return l.shard.createPropertyIndex(ctx, eg, props)
 }
 
-func (l *LazyLoadShard) createPropertyIndex_unmerged(ctx context.Context, eg *errgroup.Group, prop *models.Property) error {
+func (l *LazyLoadShard) createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props  []*models.Property) error {
 	l.mustLoad()
-	return l.shard.createPropertyIndex_unmerged(ctx, eg, prop)
+	return l.shard.createPropertyIndex_unmerged(ctx, eg, props)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {

@@ -31,9 +31,9 @@ func (s *Shard) initProperties(class *models.Class) error {
 		return nil
 	}
 
-	for _, prop := range class.Properties {
-		s.createPropertyIndex(context.TODO(), prop)
-	}
+
+		s.createPropertyIndex(context.TODO(), nil, class.Properties)
+
 
 	if err := s.addIDProperty(context.TODO()); err != nil {
 		return errors.Wrap(err, "create id property index")
@@ -61,7 +61,7 @@ func (s *Shard) initProperties_unmerged(class *models.Class) error {
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
-	s.createPropertyIndex_unmerged(context.Background(), eg, class.Properties...)
+	s.createPropertyIndex_unmerged(context.Background(), eg, class.Properties)
 
 	eg.Go(func() error {
 		if err := s.addIDProperty_unmerged(context.TODO()); err != nil {

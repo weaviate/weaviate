@@ -21,7 +21,6 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"golang.org/x/sync/errgroup"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -92,7 +91,7 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
+	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -155,7 +154,7 @@ type ShardLike interface {
 
 	Metrics() *Metrics
 
-	createPropertyIndex_unmerged(ctx context.Context, eg *errgroup.Group, prop *models.Property) error
+	createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -206,7 +205,7 @@ type Shard struct {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job, indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return NewShard_unmerged(ctx, promMetrics, shardName, index, class, jobQueueCh)
+		return NewShard_unmerged(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
 	}
 	before := time.Now()
 	var err error
@@ -342,7 +341,7 @@ func (s *Shard) initLegacyQueue() error {
 	return nil
 }
 
-func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vectorIndexUserConfig schema.VectorIndexConfig) (VectorIndex, error) {
+func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig) (VectorIndex, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
 		return s.initVectorIndex_unmerged(ctx, targetVector, vectorIndexUserConfig)
 	}
@@ -471,12 +470,12 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	trck, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 
-	s.propLenTracker = tracker
+	s.propLenTracker = trck
 
 	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
 	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
@@ -653,8 +652,6 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop id tracker at %s", s.pathLSM())
 	}
 
-	// TODO: can we remove this?
-	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
@@ -772,7 +769,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context,  eg *enterrors.ErrorGroupWrapper,props ...*models.Property) error {
+func (s *Shard) createPropertyIndex(ctx context.Context,  eg *enterrors.ErrorGroupWrapper,props []*models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
 	}
@@ -930,7 +927,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.updateVectorIndexConfig_unmerged(ctx, updated)
+		return s.UpdateVectorIndexConfig_unmerged(ctx, updated)
 	}
 
 	if s.isReadOnly() {
