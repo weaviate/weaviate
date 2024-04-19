@@ -208,9 +208,16 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
-	for _, mem := range s.list.Members() {
-		if mem.Name == id {
-			return mem.Addr.String()
+
+	// create copy of list to avoid data race
+	members := make([]memberlist.Node, len(s.list.Members()))
+	for idx, m := range s.list.Members() {
+		members[idx] = *m
+	}
+
+	for _, node := range members {
+		if node.Name == id {
+			return node.Addr.String()
 		}
 	}
 	return ""
