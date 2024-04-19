@@ -148,6 +148,7 @@ func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity map[strin
 				// this tenant didn't appear on the previous list, so we need to consider
 				// it recently active
 				newUsage[class][tenant] = now
+				continue
 			}
 
 			if act == previous {
