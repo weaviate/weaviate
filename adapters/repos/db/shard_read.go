@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/additional"
 )
 
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
@@ -386,9 +387,9 @@ func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filter
 	return sortedDocIDs, sortedDists, nil
 }
 
-func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl properties.Additional) (helpers.AllowList, error) {
+func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter, addl additional.Properties) (helpers.AllowList, error) {
 	list, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
-		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
+		s.propertyIndices, s.GetPropertyIdTracker(),s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		DocIDs(ctx, filters, addl, s.index.Config.ClassName)
 	if err != nil {
