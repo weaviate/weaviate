@@ -33,21 +33,24 @@ func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 }
 
 func (o *nodeWideMetricsObserver) Start() {
-	t := time.NewTicker(30 * time.Second)
+	t30 := time.NewTicker(30 * time.Second)
+	t10 := time.NewTicker(10 * time.Second)
 
 	// make sure we start with a warm state, otherwise we delay the initial
-	// update by 30s. This only applies to tenant activity, other metrics wait
+	// update. This only applies to tenant activity, other metrics wait
 	// for shard-readiness anyway.
 	o.observeActivity()
 
-	defer t.Stop()
+	defer t30.Stop()
+	defer t10.Stop()
 
 	for {
 		select {
 		case <-o.shutdown:
 			return
-		case <-t.C:
+		case <-t10.C:
 			o.observeActivity()
+		case <-t30.C:
 			o.observeIfShardsReady()
 		}
 	}
