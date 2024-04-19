@@ -1922,14 +1922,14 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	return shard.GetStatus().String(), nil
 }
 
-func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
 	if shard := i.localShard(shardName); shard != nil {
 		return shard.UpdateStatus(targetStatus)
 	}
-	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus)
+	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 }
 
-func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
 	shard := i.localShard(shardName)
 	if shard == nil {
 		return ErrShardNotFound

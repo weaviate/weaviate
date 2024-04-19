@@ -669,15 +669,21 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 }
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string,
+	targetStatus string, schemaVersion uint64,
 ) error {
 	paramsBytes, err := clusterapi.IndicesPayloads.UpdateShardStatusParams.Marshal(targetStatus)
 	if err != nil {
 		return errors.Wrap(err, "marshal request payload")
 	}
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	url := url.URL{
+		Scheme:   "http",
+		Host:     hostName,
+		Path:     path,
+		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
+	}
 
 	try := func(ctx context.Context) (bool, error) {
 		req, err := http.NewRequestWithContext(ctx, method, url.String(),
