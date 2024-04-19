@@ -420,7 +420,6 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 	})
 }
 
-<<<<<<< HEAD
 // Problem: this function should be in shard.go, it circumvents the shard abstraction
 func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
@@ -445,20 +444,6 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 			return nil
 		})
 	}
-=======
-func (i *Index) addProperty(ctx context.Context, props ...*models.Property) error {
-	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(_NUMCPU)
-
-	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.createPropertyIndex(ctx, eg, props...)
-		if err := eg.Wait(); err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
-		}
-		return nil
-	})
-	return nil
->>>>>>> main
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
@@ -1617,13 +1602,7 @@ func (i *Index) localShard(name string) ShardLike {
 	return i.shards.Load(name)
 }
 
-<<<<<<< HEAD
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties, tenant string) error {
-=======
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
-) error {
->>>>>>> main
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties,tenant string, schemaVersion uint64) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}

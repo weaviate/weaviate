@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -119,16 +120,7 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 }
 
 func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-<<<<<<< HEAD
 	key, err := s.keyPropertyNull(isNull)
-=======
-	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
-	if bucketNull == nil {
-		return errors.Errorf("no bucket for prop '%s' null found", propName)
-	}
-
-	key, err := bucketKeyPropertyNull(isNull)
->>>>>>> main
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}
@@ -164,7 +156,6 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 	}
 }
 
-<<<<<<< HEAD
 func (s *Shard) keyPropertyLength(length int) ([]byte, error) {
 	return inverted.LexicographicallySortableInt64(int64(length))
 }
@@ -178,10 +169,6 @@ func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
 
 func (s *Shard) addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error {
 	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
-=======
-func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
->>>>>>> main
 
 	return bucket.MapSet(key, pair)
 }

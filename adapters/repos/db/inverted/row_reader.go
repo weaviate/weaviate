@@ -17,12 +17,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
-<<<<<<< HEAD
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-=======
 	"github.com/weaviate/sroar"
->>>>>>> main
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -30,33 +27,25 @@ import (
 
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
-<<<<<<< HEAD
-	value      []byte
-	bucket     lsmkv.BucketInterface
-	operator   filters.Operator
-	PropPrefix []byte
-
-	keyOnly bool
-=======
 	value         []byte
 	bucket        *lsmkv.Bucket
 	operator      filters.Operator
 	keyOnly       bool
+	PropPrefix []byte
 	bitmapFactory *roaringset.BitmapFactory
->>>>>>> main
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
-<<<<<<< HEAD
-func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool) *RowReader {
+func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool, bitmapFactory *roaringset.BitmapFactory) *RowReader {
 	return &RowReader{
 		bucket:     bucket,
 		value:      value,
 		operator:   operator,
 		PropPrefix: bucket.PropertyPrefix(),
 		keyOnly:    keyOnly,
+		bitmapFactory: bitmapFactory,
 	}
 }
 
@@ -89,36 +78,6 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 	return nil
 }
 
-// ReadFn will be called 1..n times per match. This means it will also be
-// called on a non-match, in this case v == nil.
-// It is up to the caller to decide if that is an error case or not.
-//
-// Note that because what we are parsing is an inverted index row, it can
-// sometimes become confusing what a key and value actually resembles. The
-// variables k and v are the literal row key and value. So this means, the
-// data-value as in "less than 17" where 17 would be the "value" is in the key
-// variable "k". The value will contain the docCount, hash and list of pointers
-// (with optional frequency) to the docIDs
-//
-// The boolean return argument is a way to stop iteration (e.g. when a limit is
-// reached) without producing an error. In normal operation always return true,
-// if false is returned once, the loop is broken.
-type ReadFn func(k []byte, values [][]byte) (bool, error)
-
-=======
-func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
-) *RowReader {
-	return &RowReader{
-		bucket:        bucket,
-		value:         value,
-		operator:      operator,
-		keyOnly:       keyOnly,
-		bitmapFactory: bitmapFactory,
-	}
-}
-
->>>>>>> main
 // Read a row using the specified ReadFn. If RowReader was created with
 // keysOnly==true, the values argument in the readFn will always be nil on all
 // requests involving cursors
@@ -227,7 +186,6 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-<<<<<<< HEAD
 		continueReading, err := readFn(k, v)
 		if err != nil {
 			return err
@@ -241,41 +199,6 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	return nil
 }
 
-// notEqual is another special case, as it's the opposite of equal. So instead
-// of reading just one row, we read all but one row.
-func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
-	c := rr.newCursor()
-	defer c.Close()
-
-	for compositeKey, v := c.First(); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
-			continue
-		}
-		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
-
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		if bytes.Equal(k, rr.value) {
-			continue
-		}
-
-		continueReading, err := readFn(k, v)
-=======
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
->>>>>>> main
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
-	}
-
-	return nil
-}
 
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)

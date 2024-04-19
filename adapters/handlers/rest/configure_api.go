@@ -136,20 +136,14 @@ func getCores() (int, error) {
 	return len(cores), nil
 }
 
-<<<<<<< HEAD
+func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	if os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS") != "" && strings.ToLower(os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS")) != "false" {
 		lsmkv.FeatureUseMergedBuckets = true
 	} else {
 		lsmkv.FeatureUseMergedBuckets = false
 	}
-
-	appState := startupRoutine(ctx)
-	setupGoProfiling(appState.ServerConfig.Config)
-=======
-func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
->>>>>>> main
 
 	if lsmkv.FeatureUseMergedBuckets {
 		appState.Logger.WithField("action", "startup").Warnf("Merged property buckets are enabled. This is an experimental feature and may be removed in the future. Please report any issues you encounter.")

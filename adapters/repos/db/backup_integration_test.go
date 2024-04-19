@@ -182,15 +182,6 @@ func TestBackup_BucketLevel(t *testing.T) {
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
-<<<<<<< HEAD
-		err := shard.PutObject(ctx, &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",
-				Class: className,
-				Properties: map[string]interface{}{
-					"stringField": "somevalue",
-=======
 		err := shard.PutObject(ctx,
 			&storobj.Object{
 				MarshallerVersion: 1,
@@ -200,7 +191,6 @@ func TestBackup_BucketLevel(t *testing.T) {
 					Properties: map[string]interface{}{
 						"stringField": "somevalue",
 					},
->>>>>>> main
 				},
 			})
 		require.Nil(t, err)

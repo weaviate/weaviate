@@ -60,26 +60,18 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b lsmkv.Buck
 			out.DocIDs.Or(docIDs)
 		}
 
-<<<<<<< HEAD
-		if limit > 0 && out.DocIDs.GetCardinality() >= limit {
-=======
 		// NotEqual requires the full set of potentially existing doc ids
 		if pv.operator == filters.OperatorNotEqual {
 			return true, nil
 		}
 
 		if limit > 0 && out.docIDs.GetCardinality() >= limit {
->>>>>>> main
 			return false, nil
 		}
 		return true, nil
 	}
 
-<<<<<<< HEAD
-	rr := NewRowReaderRoaringSet(b, pv.Value(), pv.operator, false)
-=======
-	rr := NewRowReaderRoaringSet(b, pv.value, pv.operator, false, s.bitmapFactory)
->>>>>>> main
+	rr := NewRowReaderRoaringSet(b, pv.Value(), pv.operator, false, s.bitmapFactory)
 	if err := rr.Read(ctx, readFn); err != nil {
 		return out, fmt.Errorf("read row: %w", err)
 	}

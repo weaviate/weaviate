@@ -116,7 +116,6 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 		IndexSearchable: &vFalse,
 	}))
 
-<<<<<<< HEAD
 	if !lsmkv.FeatureUseMergedBuckets {
 		t.Run("check for additional buckets", func(t *testing.T) {
 			for _, idx := range migrator.db.indices {
@@ -148,36 +147,6 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			}
 		})
 	}
-=======
-	t.Run("check for additional buckets", func(t *testing.T) {
-		for _, idx := range migrator.db.indices {
-			idx.ForEachShard(func(_ string, shd ShardLike) error {
-				createBucket := shd.Store().Bucket("property__creationTimeUnix")
-				assert.NotNil(t, createBucket)
-
-				updateBucket := shd.Store().Bucket("property__lastUpdateTimeUnix")
-				assert.NotNil(t, updateBucket)
-
-				cases := []struct {
-					prop        string
-					compareFunc func(t assert.TestingT, object interface{}, msgAndArgs ...interface{}) bool
-				}{
-					{prop: "initialWithIINil", compareFunc: assert.NotNil},
-					{prop: "initialWithIITrue", compareFunc: assert.NotNil},
-					{prop: "initialWithoutII", compareFunc: assert.Nil},
-					{prop: "updateWithIINil", compareFunc: assert.NotNil},
-					{prop: "updateWithIITrue", compareFunc: assert.NotNil},
-					{prop: "updateWithoutII", compareFunc: assert.Nil},
-				}
-				for _, tt := range cases {
-					tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalNullIndex))
-					tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalPropertyLength))
-				}
-				return nil
-			})
-		}
-	})
->>>>>>> main
 
 	t.Run("Add Objects", func(t *testing.T) {
 		testID1 := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
@@ -344,7 +313,6 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		}
 	})
 
-<<<<<<< HEAD
 	if !lsmkv.FeatureUseMergedBuckets {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
@@ -356,16 +324,6 @@ func TestIndexNullState_GetClass(t *testing.T) {
 				return nil
 			})
 			require.Equal(t, 1, n)
-=======
-	t.Run("check buckets exist", func(t *testing.T) {
-		index := repo.indices["testclass"]
-		n := 0
-		index.ForEachShard(func(_ string, shard ShardLike) error {
-			bucketNull := shard.Store().Bucket(helpers.BucketFromPropNameNullLSM("name"))
-			require.NotNil(t, bucketNull)
-			n++
-			return nil
->>>>>>> main
 		})
 	} else {
 		t.Run("check buckets exist", func(t *testing.T) {

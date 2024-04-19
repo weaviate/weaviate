@@ -213,9 +213,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		productsIds[1], nil, additional.Properties{}, nil, "")
 	require.Nil(t, err)
 
-<<<<<<< HEAD
-	assert.Equal(t, 8, len(indexFilesBeforeDelete))
-=======
 	// update the index vectorIndexUserConfig
 	beforeVectorConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig)
 	require.Equal(t, -1, beforeVectorConfig.EF)
@@ -228,7 +225,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.Equal(t, 99, afterVectorConfig.EF)
 
 	assert.Equal(t, 6, len(indexFilesBeforeDelete))
->>>>>>> main
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
 	assert.Equal(t, 8, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
