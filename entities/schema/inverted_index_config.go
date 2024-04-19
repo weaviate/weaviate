@@ -18,7 +18,7 @@ import (
 type InvertedIndexConfig struct {
 
 	// bm25
-	BM25 *BM25Config `json:"bm25,omitempty"`
+	BM25 BM25Config `json:"bm25,omitempty"`
 
 	// Asynchronous index clean up happens every n seconds
 	CleanupIntervalSeconds uint64 `json:"cleanupIntervalSeconds,omitempty"`
