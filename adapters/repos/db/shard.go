@@ -55,11 +55,8 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-<<<<<<< HEAD
-=======
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
->>>>>>> main
 )
 
 const IdLockPoolSize = 128
@@ -163,20 +160,6 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-<<<<<<< HEAD
-	index           *Index // a reference to the underlying index, which in turn contains schema information
-	name            string
-	store           *lsmkv.Store
-	counter         *indexcounter.Counter
-	vectorIndex     VectorIndex
-	metrics         *Metrics
-	promMetrics     *monitoring.PrometheusMetrics
-	propertyIndices propertyspecific.Indices
-	deletedDocIDs   *docid.InMemDeletedTracker
-	propIds         *tracker.JsonPropertyIdTracker
-	propLengths     *inverted.JsonPropertyLengthTracker
-	versioner       *shardVersioner
-=======
 	index            *Index // a reference to the underlying index, which in turn contains schema information
 	queue            *IndexQueue
 	queues           map[string]*IndexQueue
@@ -191,7 +174,7 @@ type Shard struct {
 	propertyIndices  propertyspecific.Indices
 	propLenTracker   *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
->>>>>>> main
+	propIds          *tracker.JsonPropertyIdTracker
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -219,17 +202,10 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 }
 
-<<<<<<< HEAD
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job, indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
 		return NewShard_old(ctx, promMetrics, shardName, index, class, jobQueueCh)
 	}
-=======
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*Shard, error) {
->>>>>>> main
 	before := time.Now()
 	var err error
 	s := &Shard{
@@ -310,14 +286,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	return s, nil
 }
 
-<<<<<<< HEAD
-func (s *Shard) initVectorIndex(
-	ctx context.Context, hnswUserConfig hnswent.UserConfig,
-) error {
-	if !lsmkv.FeatureUseMergedBuckets {
-		return s.initVectorIndex_old(ctx, hnswUserConfig)
-	}
-=======
 func (s *Shard) hasTargetVectors() bool {
 	return hasTargetVectors(s.index.vectorIndexUserConfig, s.index.vectorIndexUserConfigs)
 }
@@ -372,10 +340,12 @@ func (s *Shard) initLegacyQueue() error {
 	return nil
 }
 
-func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
-) (VectorIndex, error) {
->>>>>>> main
+func (s *Shard) initVectorIndex(
+	ctx context.Context, hnswUserConfig hnswent.UserConfig,
+) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.initVectorIndex_old(ctx, hnswUserConfig)
+	}
 	var distProv distancer.Provider
 
 	switch vectorIndexUserConfig.DistanceName() {
@@ -678,16 +648,13 @@ func (s *Shard) drop() error {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
 	}
 
-<<<<<<< HEAD
 	err = s.propIds.Drop()
 	if err != nil {
-		return errors.Wrapf(err, "remove prop id tracker at %s", s.DBPathLSM())
+		return errors.Wrapf(err, "remove prop id tracker at %s", s.pathLSM())
 	}
 
 	// TODO: can we remove this?
 	s.deletedDocIDs.BulkRemove(s.deletedDocIDs.GetAll())
-=======
->>>>>>> main
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
@@ -708,25 +675,17 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-<<<<<<< HEAD
 	bucketOpts := []lsmkv.BucketOption{
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		s.memtableDirtyConfig(),
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
 		bucketOpts...,
-=======
-	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropID),
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
->>>>>>> main
 	)
 }
 
@@ -776,20 +735,12 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		panic("Invalid bucket mode")
 	}
 	return s.store.CreateOrLoadBucket(ctx,
-<<<<<<< HEAD
 		"filterable_properties",
-		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix)),
-		lsmkv.WithPread(s.index.Config.AvoidMMap))
-=======
-		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-	)
->>>>>>> main
+		s.memtableDirtyConfig(),
+		lsmkv.WithAllocChecker(s.index.allocChecker))
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
@@ -797,7 +748,6 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		panic("Invalid bucket mode")
 	}
 	return s.store.CreateOrLoadBucket(ctx,
-<<<<<<< HEAD
 		"filterable_properties",
 		lsmkv.WithIdleThreshold(time.Duration(s.index.Config.MemtablesFlushIdleAfter)*time.Second),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
@@ -805,25 +755,9 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap))
 }
 
-func (s *Shard) memtableIdleConfig() lsmkv.BucketOption {
-	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
-	}
-	return lsmkv.WithIdleThreshold(
-		time.Duration(s.index.Config.MemtablesFlushIdleAfter) * time.Second)
-=======
-		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		s.memtableDirtyConfig(),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-		lsmkv.WithAllocChecker(s.index.allocChecker),
-	)
-}
-
 func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
 	return lsmkv.WithDirtyThreshold(
 		time.Duration(s.index.Config.MemtablesFlushDirtyAfter) * time.Second)
->>>>>>> main
 }
 
 func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
@@ -838,71 +772,34 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-<<<<<<< HEAD
-func (s *Shard) createPropertyIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyIndex(ctx context.Context, props ...*models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
 	}
-	if !inverted.HasInvertedIndex(prop) {
-		return nil
-	}
-
-	s.propIds.CreateProperty(prop.Name)
-	s.propIds.Flush(false)
-
-	if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-		return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
-	}
-
-	if s.index.invertedIndexConfig.IndexNullState {
-		if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-			return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-		}
-	}
-
-	if s.index.invertedIndexConfig.IndexPropertyLength {
-		if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-			return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-		}
-	}
-=======
-func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	for _, prop := range props {
 		if !inverted.HasInvertedIndex(prop) {
 			continue
 		}
 
-		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-				return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+		s.propIds.CreateProperty(prop.Name)
+		s.propIds.Flush(false)
+
+		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+		}
+
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+				return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
 			}
+		}
 
-			if s.index.invertedIndexConfig.IndexNullState {
-				eg.Go(func() error {
-					if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-						return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-					}
-					return nil
-				})
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+				return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
 			}
-
-			if s.index.invertedIndexConfig.IndexPropertyLength {
-				eg.Go(func() error {
-					if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-						return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-					}
-					return nil
-				})
-			}
-
-			return nil
-		})
-
-		if err := eg.Wait(); err != nil {
-			return err
 		}
 	}
->>>>>>> main
 	return nil
 }
 
@@ -1008,14 +905,10 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-<<<<<<< HEAD
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLengthLSM(prop.Name)),
-		lsmkv.WithPread(s.index.Config.AvoidMMap))
-=======
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
->>>>>>> main
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
@@ -1029,26 +922,17 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 	return s.store.CreateOrLoadBucket(ctx,
 		"null_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
-<<<<<<< HEAD
 		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameNullLSM(prop.Name)),
-		lsmkv.WithPread(s.index.Config.AvoidMMap),
-	)
-}
-
-func (s *Shard) updateVectorIndexConfig(ctx context.Context,
-	updated schema.VectorIndexConfig,
-) error {
-	if !lsmkv.FeatureUseMergedBuckets {
-		return s.updateVectorIndexConfig_old(ctx, updated)
-	}
-=======
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 	)
 }
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
->>>>>>> main
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.updateVectorIndexConfig_old(ctx, updated)
+	}
+
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -1101,7 +985,6 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "close prop length tracker")
 	}
 
-<<<<<<< HEAD
 	if err := s.propIds.Close(); err != nil {
 		return errors.Wrap(err, "close prop id tracker")
 	}
@@ -1117,7 +1000,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 
 	if err := s.vectorIndex.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "shut down vector index")
-=======
+	}
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
@@ -1148,7 +1031,6 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		if err = s.vectorIndex.Shutdown(ctx); err != nil {
 			return errors.Wrap(err, "shut down vector index")
 		}
->>>>>>> main
 	}
 
 	// unregister all callbacks at once, in parallel
