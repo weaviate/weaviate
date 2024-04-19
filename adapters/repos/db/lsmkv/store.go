@@ -125,7 +125,7 @@ func (s *Store) bucketDir(bucketName string) string {
 //	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts ...BucketOption) error {
 	if !FeatureUseMergedBuckets {
-		return s.CreateOrLoadBucket_old(ctx, bucketFile, opts...)
+		return s.CreateOrLoadBucket_unmerged(ctx, bucketFile, opts...)
 	}
 
 	if b := s.Bucket(bucketFile); b != nil {
@@ -166,7 +166,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts 
 	return nil
 }
 
-func (s *Store) CreateOrLoadBucket_old(ctx context.Context, bucketName string,
+func (s *Store) CreateOrLoadBucket_unmerged(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
 	var bucketLock *sync.Mutex

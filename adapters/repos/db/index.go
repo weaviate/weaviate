@@ -60,6 +60,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -426,8 +427,8 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		eg := &errgroup.Group{}
 		eg.SetLimit(_NUMCPU)
 
-		i.ForEachShard(func(key string, shard *Shard) error {
-			shard.createPropertyIndex_old(ctx, prop, eg)
+		i.ForEachShard(func(key string, shard ShardLike) error {
+			shard.createPropertyIndex_unmerged(ctx, eg, prop)
 			return nil
 		})
 
@@ -436,8 +437,8 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 		}
 		return nil
 	} else {
-		return i.ForEachShard(func(key string, shard *Shard) error {
-			err := shard.createPropertyIndex(ctx, prop)
+		return i.ForEachShard(func(key string, shard ShardLike) error {
+			err := shard.createPropertyIndex(ctx, nil, prop)
 			if err != nil {
 				return errors.Wrapf(err, "extend idx '%s' with property '%s", i.ID(), prop.Name)
 			}
@@ -1602,7 +1603,7 @@ func (i *Index) localShard(name string) ShardLike {
 	return i.shards.Load(name)
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties,tenant string, schemaVersion uint64) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}

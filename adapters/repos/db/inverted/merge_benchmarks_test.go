@@ -18,7 +18,7 @@ import (
 	"testing"
 )
 
-// func BenchmarkAnd10k1m_Old(b *testing.B) {
+// func BenchmarkAnd10k1m_unmerged(b *testing.B) {
 // 	b.StopTimer()
 
 // 	list1 := propValuePair{
@@ -68,7 +68,7 @@ import (
 // 	}
 // }
 
-// func BenchmarkMultipleListsOf20k_Old(b *testing.B) {
+// func BenchmarkMultipleListsOf20k_unmerged(b *testing.B) {
 // 	b.StopTimer()
 
 // 	lists := make([]*propValuePair, 10)

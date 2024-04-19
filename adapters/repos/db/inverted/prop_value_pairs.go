@@ -71,7 +71,7 @@ func (pv *propValuePair) DocIds() []uint64 {
 	return pv.docIDs.IDs()
 }
 
-func (pv *propValuePair) fetchDocIDs_old(s *Searcher, limit int) error {
+func (pv *propValuePair) fetchDocIDs_unmerged(s *Searcher, limit int) error {
 	if pv.operator.OnValue() {
 		var bucketName string
 		if pv.hasFilterableIndex {
@@ -145,7 +145,7 @@ func (pv *propValuePair) fetchDocIDs_old(s *Searcher, limit int) error {
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return pv.fetchDocIDs_old(s, limit)
+		return pv.fetchDocIDs_unmerged(s, limit)
 	}
 	if pv.operator.OnValue() {
 

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
+	"golang.org/x/sync/errgroup"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -136,8 +136,8 @@ type ShardLike interface {
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
 	publishDimensionMetrics()
 
-	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error
+	addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -146,7 +146,7 @@ type ShardLike interface {
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
@@ -154,6 +154,8 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
+
+	createPropertyIndex_unmerged(ctx context.Context, eg *errgroup.Group, prop *models.Property) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -204,7 +206,7 @@ type Shard struct {
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job, indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return NewShard_old(ctx, promMetrics, shardName, index, class, jobQueueCh)
+		return NewShard_unmerged(ctx, promMetrics, shardName, index, class, jobQueueCh)
 	}
 	before := time.Now()
 	var err error
@@ -299,7 +301,7 @@ func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]
 func (s *Shard) initTargetVectors(ctx context.Context) error {
 	s.vectorIndexes = make(map[string]VectorIndex)
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		vectorIndex := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
+		vectorIndex,err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
 		if err != nil {
 			return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 		}
@@ -446,7 +448,7 @@ func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vector
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.initNonVector_old(ctx, class)
+		return s.initNonVector_unmerged(ctx, class)
 	}
 	err := s.initLSMStore(ctx)
 	if err != nil {
@@ -667,7 +669,7 @@ func (s *Shard) drop() error {
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.addIDProperty_old(ctx)
+		return s.addIDProperty_unmerged(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -689,7 +691,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.addDimensionsProperty_old(ctx)
+		return s.addDimensionsProperty_unmerged(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -712,7 +714,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.addTimestampProperties_old(ctx)
+		return s.addTimestampProperties_unmerged(ctx)
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -770,7 +772,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, props ...*models.Property) error {
+func (s *Shard) createPropertyIndex(ctx context.Context,  eg *enterrors.ErrorGroupWrapper,props ...*models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
 		panic("Invalid bucket mode")
 	}
@@ -928,7 +930,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		return s.updateVectorIndexConfig_old(ctx, updated)
+		return s.updateVectorIndexConfig_unmerged(ctx, updated)
 	}
 
 	if s.isReadOnly() {

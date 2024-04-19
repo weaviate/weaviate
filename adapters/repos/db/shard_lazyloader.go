@@ -340,6 +340,11 @@ func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.E
 	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
+func (l *LazyLoadShard) createPropertyIndex_unmerged(ctx context.Context, eg *errgroup.Group, prop *models.Property) error {
+	l.mustLoad()
+	return l.shard.createPropertyIndex_unmerged(ctx, eg, prop)
+}
+
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err

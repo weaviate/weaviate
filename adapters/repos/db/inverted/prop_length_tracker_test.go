@@ -302,7 +302,7 @@ func TestFormatConversion(t *testing.T) {
 	})
 
 	t.Run("importing multi-page data and verifying", func(t *testing.T) {
-		create20PropsAndVerify_old(t, tracker)
+		create20PropsAndVerify_unmerged(t, tracker)
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
@@ -345,7 +345,7 @@ func TestFormatConversion(t *testing.T) {
 	})
 }
 
-func create20PropsAndVerify_old(t *testing.T, tracker *PropertyLengthTracker) {
+func create20PropsAndVerify_unmerged(t *testing.T, tracker *PropertyLengthTracker) {
 	type prop struct {
 		values   []float32
 		propName string
@@ -567,7 +567,7 @@ func TestOldPropertyLengthTracker(t *testing.T) {
 		tracker, err := NewPropertyLengthTracker(trackerPath)
 		require.Nil(t, err)
 
-		create20PropsAndVerify_old(t, tracker)
+		create20PropsAndVerify_unmerged(t, tracker)
 
 		require.Nil(t, tracker.Close())
 	})
@@ -587,7 +587,7 @@ func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 	})
 
 	t.Run("importing multi-page data and verifying", func(t *testing.T) {
-		create20PropsAndVerify_old(t, tracker)
+		create20PropsAndVerify_unmerged(t, tracker)
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
