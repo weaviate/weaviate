@@ -130,7 +130,9 @@ func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.Quer
 }
 
 func (cl *Client) Close() {
-	cl.leaderConn.Close()
+	if cl.leaderConn != nil {
+		cl.leaderConn.Close()
+	}
 }
 
 func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
