@@ -204,7 +204,7 @@ func (b *referencesBatcher) writeInvertedDeletions(in []inverted.MergeProperty) 
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket, err := lsmkv.FetchMeABucket(b.shard.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.propIds)
+			bucket, err := lsmkv.FetchMeABucket(b.shard.Store(), "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.GetPropertyIdTracker())
 			if err != nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
@@ -230,7 +230,7 @@ func (b *referencesBatcher) writeInvertedAdditions(in []inverted.MergeProperty) 
 		// are guaranteed to be not have a frequency, meaning they will use the
 		// "Set" strategy in the lsmkv store
 		if prop.HasFilterableIndex {
-			bucket, err := lsmkv.FetchMeABucket(b.shard.Store(), "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.propIds)
+			bucket, err := lsmkv.FetchMeABucket(b.shard.Store(), "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, b.shard.GetPropertyIdTracker())
 			if err != nil {
 				return errors.Errorf("no bucket for prop '%s' found", prop.Name)
 			}

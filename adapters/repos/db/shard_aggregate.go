@@ -35,6 +35,6 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params) (*aggr
 
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
 		s.index.stopwords, s.versioner.Version(), queue, s.index.logger, s.GetPropertyLengthTracker(),
-		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
+		s.isFallbackToSearchable, s.tenant(), s.GetPropertyIdTracker(),s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		Do(ctx)
 }
