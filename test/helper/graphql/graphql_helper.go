@@ -56,17 +56,20 @@ func QueryGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc
 
 // Perform a GraphQL request and call fatal on failure
 func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
+	t.Helper()
 	response, err := QueryGraphQL(t, auth, operation, query, variables)
 	return getGraphQLResponseOrFatal(t, response, err)
 }
 
 // Perform a GraphQL request and call fatal on failure with timeout
 func QueryGraphQLOrFatalWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}, timeout time.Duration) *models.GraphQLResponse {
+	t.Helper()
 	response, err := QueryGraphQLWithTimeout(t, auth, operation, query, variables, timeout)
 	return getGraphQLResponseOrFatal(t, response, err)
 }
 
 func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, err error) *models.GraphQLResponse {
+	t.Helper()
 	if err != nil {
 		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
 		if !ok {
@@ -79,17 +82,20 @@ func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, e
 
 // Perform a query and assert that it is successful
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
+	t.Helper()
 	response := QueryGraphQLOrFatal(t, auth, "", query, nil)
 	return getGraphQLResult(t, response)
 }
 
 // Perform a query and assert that it is successful with timeout
 func AssertGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, timeout time.Duration, query string) *GraphQLResult {
+	t.Helper()
 	response := QueryGraphQLOrFatalWithTimeout(t, auth, "", query, nil, timeout)
 	return getGraphQLResult(t, response)
 }
 
 func getGraphQLResult(t *testing.T, response *models.GraphQLResponse) *GraphQLResult {
+	t.Helper()
 	if len(response.Errors) != 0 {
 		j, _ := json.Marshal(response.Errors)
 		t.Fatal("GraphQL resolved to an error:", string(j))
@@ -107,6 +113,7 @@ func getGraphQLResult(t *testing.T, response *models.GraphQLResponse) *GraphQLRe
 
 // Perform a query and assert that it has errors
 func ErrorGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) []*models.GraphQLError {
+	t.Helper()
 	response := QueryGraphQLOrFatal(t, auth, "", query, nil)
 
 	if len(response.Errors) == 0 {
