@@ -255,7 +255,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	shards, _ := sc.TenantsShards("D", "S1")
 	assert.Equal(t, shards["S1"], "A")
 	shards, _ = sc.TenantsShards("D", "Sx")
-	assert.Empty(t, shard)
+	assert.Empty(t, shards)
 }
 
 func TestSchemaSnapshot(t *testing.T) {

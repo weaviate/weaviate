@@ -576,13 +576,13 @@ func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shar
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
 	className := i.Config.ClassName.String()
 	if tenant != "" {
-		tenantShard, err := i.getSchema.TenantsShards(className, tenant)
+		shardsStatus, err := i.getSchema.TenantsShards(className, tenant)
 		if err != nil {
 			return "", err
 		}
 
-		if tenantShard[tenant] != "" {
-			if tenantShard[tenant] == models.TenantActivityStatusHOT {
+		if shardsStatus[tenant] != "" {
+			if shardsStatus[tenant] == models.TenantActivityStatusHOT {
 				return tenant, nil
 			}
 			return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
