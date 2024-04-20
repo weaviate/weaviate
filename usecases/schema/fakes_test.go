@@ -215,23 +215,9 @@ func (f *fakeMetaHandler) ShardOwnerWithVersion(ctx context.Context, class, shar
 	return args.String(0), args.Error(1)
 }
 
-func (f *fakeMetaHandler) TenantShard(class, tenant string) (string, string) {
-	args := f.Called(class, tenant)
-	return args.String(0), args.String(1)
-}
-
-func (f *fakeMetaHandler) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	args := f.Called(class, tenants)
-	res := map[string]string{}
-	for idx := range tenants {
-		res[args.String(idx+1)] = ""
-	}
-	return res, nil
-}
-
-func (f *fakeMetaHandler) TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (string, string, error) {
-	args := f.Called(ctx, class, tenant, version)
-	return args.String(0), args.String(1), args.Error(2)
+func (f *fakeMetaHandler) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
+	args := f.Called(ctx, version, class, tenants)
+	return map[string]string{args.String(0): args.String(1)}, args.Error(2)
 }
 
 func (f *fakeMetaHandler) Read(class string, reader func(*models.Class, *sharding.State) error) error {

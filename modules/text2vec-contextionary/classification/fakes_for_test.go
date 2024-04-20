@@ -50,10 +50,6 @@ func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error)      { return "", nil }
 func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) { return nil, nil }
 
-func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {
-	return tenant, models.TenantActivityStatusHOT
-}
-
 func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {

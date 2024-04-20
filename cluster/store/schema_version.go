@@ -108,12 +108,11 @@ func (s versionedSchema) ShardReplicas(
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (s versionedSchema) TenantShard(ctx context.Context,
-	class, tenant string, v uint64,
-) (string, string, error) {
+func (s versionedSchema) TenantsShards(ctx context.Context,
+	v uint64, class string, tenants ...string,
+) (map[string]string, error) {
 	err := s.WaitForUpdate(ctx, v)
-	name, st, _ := s.schema.TenantShard(class, tenant)
-	return name, st, err
+	return s.schema.TenantsShards(class, tenants...), err
 }
 
 func (s versionedSchema) CopyShardingState(ctx context.Context,
