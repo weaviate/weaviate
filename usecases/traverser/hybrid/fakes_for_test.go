@@ -85,10 +85,6 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ""
 }
 
-func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
-	return "", ""
-}
-
 func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
 	return nil, nil
 }

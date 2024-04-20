@@ -100,10 +100,9 @@ func (rs retrySchema) ShardReplicas(class, shard string) (nodes []string, err er
 	return res, err
 }
 
-// TenantShard returns shard name for the provided tenant and its activity status
-func (rs retrySchema) TenantShard(class, tenant string) (name string, st string) {
-	name, st, _ = rs.TenantShardWithVersion(context.TODO(), class, tenant, 0)
-	return name, st
+// TenantsShards returns shard name for the provided tenant and its activity status
+func (rs retrySchema) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
 }
 
 func (rs retrySchema) CopyShardingState(class string) (ss *sharding.State) {

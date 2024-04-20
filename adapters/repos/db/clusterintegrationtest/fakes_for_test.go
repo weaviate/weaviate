@@ -168,10 +168,6 @@ func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error)
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
-	return tenant, models.TenantActivityStatusHOT
-}
-
 func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
