@@ -179,7 +179,7 @@ var queryCmd = &cobra.Command{
 		}
 
 		if !ok {
-			return fmt.Errorf("weaviate is not ready")
+			return errors.New("weaviate is not ready")
 		}
 		log.Print("weaviate is ready")
 
