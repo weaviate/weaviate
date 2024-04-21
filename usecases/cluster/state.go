@@ -25,9 +25,10 @@ import (
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock sync.RWMutex
-	list     *memberlist.Memberlist
-	delegate delegate
+	listLock        sync.RWMutex
+	list            *memberlist.Memberlist
+	nonStorageNodes map[string]struct{}
+	delegate        delegate
 }
 
 type Config struct {
@@ -57,12 +58,13 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
-		config: userConfig,
+		config:          userConfig,
+		nonStorageNodes: nonStorageNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
 			dataPath: dataPath,
@@ -172,10 +174,29 @@ func (s *State) AllNames() []string {
 	return out
 }
 
+// StorageNodes returns all nodes except non storage nodes
+func (s *State) StorageNodes() []string {
+	if len(s.nonStorageNodes) == 0 {
+		return s.AllNames()
+	}
+	members := s.list.Members()
+	out := make([]string, len(members))
+	n := 0
+	for _, m := range members {
+		name := m.Name
+		if _, ok := s.nonStorageNodes[name]; !ok {
+			out[n] = m.Name
+			n++
+		}
+	}
+
+	return out[:n]
+}
+
 // Candidates returns list of nodes (names) sorted by the
 // free amount of disk space in descending order
 func (s *State) Candidates() []string {
-	return s.delegate.sortCandidates(s.AllNames())
+	return s.delegate.sortCandidates(s.StorageNodes())
 }
 
 // All node names (not their hostnames!) for live members, including self.

@@ -375,7 +375,10 @@ func FromEnv(config *Config) error {
 
 func parseRAFTConfig(hostname string) (Raft, error) {
 	// flag.IntVar()
-	cfg := Raft{}
+	cfg := Raft{
+		MetadataOnlyVoters: configbase.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
+	}
+
 	if err := parsePositiveInt(
 		"RAFT_PORT",
 		func(val int) { cfg.Port = val },
