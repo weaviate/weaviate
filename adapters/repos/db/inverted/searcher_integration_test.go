@@ -271,7 +271,7 @@ func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName s
 	err = bucket.Put([]byte(obj.ID()), b, lsmkv.WithSecondaryKey(0, docIDBytes))
 	require.Nil(t, err)
 
-	propBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	propBucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
 	propBucket := store.Bucket(propBucketName)
 	err = propBucket.MapSet(data, pairPropWithFreq(obj.DocID, 1, float32(len(data))))
 	require.Nil(t, err)

@@ -211,7 +211,7 @@ func TestShard_UuidToIdLockPoolId_unmerged(t *testing.T) {
 	err := shd.UpdateVectorIndexConfig_unmerged(context.TODO(), fakeVectorConfig)
 	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
 
-	shd.notifyReady_unmerged()
+	shd.NotifyReady_unmerged()
 
 	res2 := shd.ObjectCount_unmerged()
 	require.Equal(t, 0, res2)
@@ -235,4 +235,28 @@ type fakeVectorConfig struct {
 
 func (f fakeVectorConfig) IndexType() string {
 	return "fake"
+}
+
+func (f fakeVectorConfig) Raw() interface{} {
+	return f.raw
+}
+
+func (f fakeVectorConfig) Validate() error {
+	return nil
+}
+
+func (f fakeVectorConfig) String() string {
+	return "fake"
+}
+
+func (f fakeVectorConfig) IsDefault() bool {
+	return false
+}
+
+func (f fakeVectorConfig) IsEmpty() bool {
+	return false
+}
+
+func (f fakeVectorConfig) DistanceName() string {
+	return ""
 }
