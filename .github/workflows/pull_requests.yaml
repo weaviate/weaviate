@@ -186,28 +186,28 @@ jobs:
       - name: Acceptance tests
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
-<<<<<<< HEAD
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
   Acceptance-Tests-Merged-Buckets:
     name: acceptance-tests-merged-buckets  
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--acceptance-only-fast", "--acceptance-go-client", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-python"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.20'
+          go-version: '1.21'
           cache: true
-      - name: Acceptance tests with merged buckets
+      - name: Acceptance tests merged buckets
         env:
           ENABLE_MERGED_PROPERTY_BUCKETS: true
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
         run: ./test/run.sh --acceptance-only
-=======
-          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}        
-        run: ./test/run.sh ${{ matrix.test }}
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
@@ -229,7 +229,6 @@ jobs:
           fail_ci_if_error: false
           files: ./coverage-integration.txt, ./coverage-unit.txt
           verbose: true
->>>>>>> main
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
     runs-on: ubuntu-latest-4-cores
