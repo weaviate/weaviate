@@ -192,7 +192,7 @@ func TestShard_ParallelBatches(t *testing.T) {
 	require.Nil(t, idx.drop())
 }
 
-func TestShard_uuidToIdLockPoolId_unmerged(t *testing.T) {
+func TestShard_UuidToIdLockPoolId_unmerged(t *testing.T) {
 	lsmkv.FeatureUseMergedBuckets = false
 	shd, _ := testShard(t, context.Background(), "TestClass")
 
@@ -203,29 +203,29 @@ func TestShard_uuidToIdLockPoolId_unmerged(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	res := shd.uuidToIdLockPoolId_unmerged([]byte("testtesttesttesttest"))
+	res := shd.UuidToIdLockPoolId_unmerged([]byte("testtesttesttesttest"))
 	require.Equal(t, uint8(0x74), res)
 
 	fakeVectorConfig := fakeVectorConfig{}
 	fakeVectorConfig.raw = "db.fakeVectorConfig"
-	err := shd.updateVectorIndexConfig_unmerged(context.TODO(), fakeVectorConfig)
+	err := shd.UpdateVectorIndexConfig_unmerged(context.TODO(), fakeVectorConfig)
 	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
 
 	shd.notifyReady_unmerged()
 
-	res2 := shd.objectCount_unmerged()
+	res2 := shd.ObjectCount_unmerged()
 	require.Equal(t, 0, res2)
 
-	res3 := shd.isFallbackToSearchable_unmerged()
+	res3 := shd.IsFallbackToSearchable_unmerged()
 	require.Equal(t, false, res3)
 
-	res5 := shd.tenant_unmerged()
+	res5 := shd.Tenant_unmerged()
 	require.Equal(t, "", res5)
 
-	res4 := shd.drop_unmerged()
+	res4 := shd.Drop_unmerged()
 	require.Nil(t, res4)
 
-	err = shd.shutdown_unmerged(context.TODO())
+	err = shd.Shutdown_unmerged(context.TODO())
 	require.Nil(t, err)
 }
 

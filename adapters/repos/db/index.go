@@ -425,7 +425,7 @@ func (i *Index) addProperty(ctx context.Context, props []*models.Property) error
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 
 		i.ForEachShard(func(key string, shard ShardLike) error {
-			shard.createPropertyIndex_unmerged(ctx, eg, props)
+			shard.CreatePropertyIndex_unmerged(ctx, eg, props)
 			return nil
 		})
 

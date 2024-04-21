@@ -342,7 +342,7 @@ func (s *Shard) vectorIndexID_unmerged(targetVector string) string {
 	return "main"
 }
 
-func (s *Shard) uuidToIdLockPoolId_unmerged(idBytes []byte) uint8 {
+func (s *Shard) UuidToIdLockPoolId_unmerged(idBytes []byte) uint8 {
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
 	return idBytes[15] % IdLockPoolSize
@@ -399,7 +399,7 @@ func (s *Shard) initLSMStore_unmerged(ctx context.Context) error {
 // If there is any action that needs to be performed beside files/dirs being removed
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
-func (s *Shard) drop_unmerged() error {
+func (s *Shard) Drop_unmerged() error {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.metrics.baseMetrics.StartUnloadingShard(s.index.Config.ClassName.String())
 	s.replicationMap.clear()
@@ -571,7 +571,7 @@ func (s *Shard) dynamicMemtableSizing_unmerged() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
+func (s *Shard) CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
 	for _, prop := range props {
 		if !inverted.HasInvertedIndex(prop) {
 			continue
@@ -826,11 +826,11 @@ func (s *Shard) ObjectCountAsync_unmerged() int {
 	return b.CountAsync()
 }
 
-func (s *Shard) isFallbackToSearchable_unmerged() bool {
+func (s *Shard) IsFallbackToSearchable_unmerged() bool {
 	return s.fallbackToSearchable
 }
 
-func (s *Shard) tenant_unmerged() string {
+func (s *Shard) Tenant_unmerged() string {
 	// TODO provide better impl
 	if s.index.partitioningEnabled {
 		return s.name

@@ -235,6 +235,47 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []f
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
+func (l *LazyLoadShard) Drop_unmerged() error {
+	if err := l.Load(context.TODO()); err != nil {
+		return err
+	}
+	return l.shard.drop()
+}
+
+func (l *LazyLoadShard) IsFallbackToSearchable_unmerged() bool {
+	l.mustLoad()
+	return l.shard.IsFallbackToSearchable_unmerged()
+}
+
+func (l *LazyLoadShard) ObjectCount_unmerged() int {
+	l.mustLoad()
+	return l.shard.ObjectCount()
+}
+
+func (l *LazyLoadShard) NotifyReady_unmerged() {
+	l.mustLoad()
+	l.shard.NotifyReady()
+}
+
+func (l *LazyLoadShard) Tenant_unmerged() string {
+	l.mustLoad()
+	return l.shard.Tenant_unmerged()
+}
+
+func (l *LazyLoadShard) Shutdown_unmerged(ctx context.Context) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) UpdateVectorIndexConfig_unmerged(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.UpdateVectorIndexConfig_unmerged(ctx, updated)
+}
+
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -347,14 +388,14 @@ func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.E
 	return l.shard.createPropertyIndex(ctx, eg, props)
 }
 
-func (l *LazyLoadShard) createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
+func (l *LazyLoadShard) CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
 	l.mustLoad()
-	return l.shard.createPropertyIndex_unmerged(ctx, eg, props)
+	return l.shard.CreatePropertyIndex_unmerged(ctx, eg, props)
 }
 
-func (l *LazyLoadShard) uuidToIdLockPoolId_unmerged(idBytes []byte) uint8 {
+func (l *LazyLoadShard) UuidToIdLockPoolId_unmerged(idBytes []byte) uint8 {
 	l.mustLoad()
-	return l.shard.uuidToIdLockPoolId_unmerged(idBytes)
+	return l.shard.UuidToIdLockPoolId_unmerged(idBytes)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {

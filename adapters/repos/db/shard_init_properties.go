@@ -59,7 +59,7 @@ func (s *Shard) initProperties_unmerged(class *models.Class) error {
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
-	s.createPropertyIndex_unmerged(context.Background(), eg, class.Properties)
+	s.CreatePropertyIndex_unmerged(context.Background(), eg, class.Properties)
 
 	eg.Go(func() error {
 		if err := s.addIDProperty_unmerged(context.TODO()); err != nil {
