@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -27,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // This test aims to prevent a regression on
@@ -47,7 +47,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -79,7 +79,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil, 0))
 			})
 		}
 	})
@@ -146,7 +146,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -178,7 +178,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil, 0))
 			})
 		}
 	})
@@ -220,7 +220,7 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, nil, 0))
 			})
 		}
 	})
@@ -274,7 +274,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -306,7 +306,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil, 0))
 			})
 		}
 	})
@@ -333,7 +333,7 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 		for i, company := range data {
 			t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, nil))
+					repo.PutObject(context.Background(), company, []float32{0.1, 0.21, 0.01, 0.2}, nil, nil, 0))
 			})
 		}
 	})

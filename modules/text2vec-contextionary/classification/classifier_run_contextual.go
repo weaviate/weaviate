@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 )
@@ -35,7 +34,6 @@ type contextualItemClassifier struct {
 	settings    *ParamsContextual
 	classifier  *Classifier
 	writer      modulecapabilities.Writer
-	schema      schema.Schema
 	filters     modulecapabilities.Filters
 	context     contextualPreparationContext
 	vectorizer  vectorizer
@@ -62,7 +60,7 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 // makeClassifyItemContextual is a higher-order function to produce the actual
 // classify function, but additionally allows us to inject data which is valid
 // for the entire run, such as tf-idf data and target vectors
-func (c *Classifier) makeClassifyItemContextual(schema schema.Schema, preparedContext contextualPreparationContext) func(search.Result,
+func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result,
 	int, models.Classification, modulecapabilities.Filters, modulecapabilities.Writer) error {
 	return func(item search.Result, itemIndex int, params models.Classification,
 		filters modulecapabilities.Filters, writer modulecapabilities.Writer,
@@ -75,7 +73,6 @@ func (c *Classifier) makeClassifyItemContextual(schema schema.Schema, preparedCo
 			settings:    params.Settings.(*ParamsContextual), // safe assertion after parsing
 			classifier:  c,
 			writer:      writer,
-			schema:      schema,
 			filters:     filters,
 			context:     preparedContext,
 			vectorizer:  vectorizer,

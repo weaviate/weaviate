@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -29,8 +28,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -214,7 +215,7 @@ func testShard(t *testing.T, ctx context.Context, className string, indexOpts ..
 }
 
 func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
-	vic schema.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -225,7 +226,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 
 	shardState := singleShardState()
@@ -264,6 +265,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		centralJobQueue:       repo.jobQueueCh,
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
+		allocChecker:          memwatch.NewDummyMonitor(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

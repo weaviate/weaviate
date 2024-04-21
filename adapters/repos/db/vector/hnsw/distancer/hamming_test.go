@@ -12,7 +12,9 @@
 package distancer
 
 import (
+	"fmt"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,4 +100,84 @@ func TestHammingDistancerStepbyStep(t *testing.T) {
 
 		assert.Equal(t, control, expectedDistance)
 	})
+}
+
+func TestCompareHammingDistanceImplementations(t *testing.T) {
+	sizes := []uint{
+		1,
+		2,
+		3,
+		4,
+		5,
+		6,
+		8,
+		10,
+		12,
+		16,
+		24,
+		30,
+		31,
+		32,
+		64,
+		67,
+		128,
+		256,
+		260,
+		299,
+		300,
+		384,
+		390,
+		600,
+		768,
+		777,
+		784,
+		1024,
+		1536,
+	}
+
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
+			r := getRandomSeed()
+			count := 1
+			countFailed := 0
+
+			vec1s := make([][]float32, count)
+			vec2s := make([][]float32, count)
+
+			for i := 0; i < count; i++ {
+				vec1 := make([]float32, size)
+				vec2 := make([]float32, size)
+				for j := range vec1 {
+					equal := r.Float32() < 0.5
+					if equal {
+						randomValue := r.Float32()
+						vec1[j] = randomValue
+						vec2[j] = randomValue
+					} else {
+						vec1[j] = r.Float32()
+						vec2[j] = r.Float32() + 10
+					}
+				}
+				vec1s[i] = vec1
+				vec2s[i] = vec2
+			}
+
+			for i := 0; i < count; i++ {
+				res, ok, err := NewHammingProvider().New(vec1s[i]).Distance(vec2s[i])
+
+				require.NoError(t, err)
+				require.True(t, ok)
+
+				resControl := HammingDistanceGo(vec1s[i], vec2s[i])
+
+				if resControl != res {
+					countFailed++
+					t.Fatalf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
+					t.Fail()
+				}
+
+			}
+			fmt.Printf("total failed: %d\n", countFailed)
+		})
+	}
 }

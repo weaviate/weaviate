@@ -31,7 +31,7 @@ func readRepair(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -41,18 +41,18 @@ func readRepair(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.CreateClass(t, articleClass)
 	})
@@ -65,7 +65,7 @@ func readRepair(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviate().URI(), batch)
+		createObjects(t, compose.ContainerURI(1), batch)
 	})
 
 	t.Run("insert articles", func(t *testing.T) {
@@ -76,12 +76,12 @@ func readRepair(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.ContainerURI(2), batch)
 	})
 
 	t.Run("stop node 2", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
-		time.Sleep(10 * time.Second)
+		stopNodeAt(ctx, t, compose, 2)
+		time.Sleep(5 * time.Second) // TODO-RAFT: revisit after eventual consistency resolved
 	})
 
 	repairObj := models.Object{
@@ -93,24 +93,25 @@ func readRepair(t *testing.T) {
 	}
 
 	t.Run("add new object to node one", func(t *testing.T) {
-		createObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
+		createObjectCL(t, compose.ContainerURI(1), &repairObj, replica.One)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-		require.Nil(t, err)
+		startNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("run fetch to trigger read repair", func(t *testing.T) {
-		_, err := getObject(t, compose.GetWeaviate().URI(), repairObj.Class, repairObj.ID, true)
+		_, err := getObject(t, compose.ContainerURI(1), repairObj.Class, repairObj.ID, true)
 		require.Nil(t, err)
 	})
 
-	t.Run("assert new object read repair was made", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviate().Name())
+	t.Run("stop node 1", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 1)
 		time.Sleep(10 * time.Second)
+	})
 
-		resp, err := getObjectCL(t, compose.GetWeaviateNode2().URI(),
+	t.Run("assert new object read repair was made", func(t *testing.T) {
+		resp, err := getObjectCL(t, compose.ContainerURI(2),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, repairObj.ID, resp.ID)
@@ -125,7 +126,7 @@ func readRepair(t *testing.T) {
 	}
 
 	t.Run("replace object", func(t *testing.T) {
-		updateObjectCL(t, compose.GetWeaviateNode2().URI(), &replaceObj, replica.One)
+		updateObjectCL(t, compose.ContainerURI(2), &replaceObj, replica.One)
 	})
 
 	t.Run("restart node 1", func(t *testing.T) {
@@ -133,22 +134,23 @@ func readRepair(t *testing.T) {
 	})
 
 	t.Run("run exists to trigger read repair", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+		exists, err := objectExistsCL(t, compose.ContainerURI(2),
 			replaceObj.Class, replaceObj.ID, replica.All)
 		require.Nil(t, err)
 		require.True(t, exists)
 	})
 
-	t.Run("assert updated object read repair was made", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
-		time.Sleep(10 * time.Second)
+	t.Run("stop node 2", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 2)
+	})
 
-		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+	t.Run("assert updated object read repair was made", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.ContainerURI(1),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
 
-		resp, err := getObjectCL(t, compose.GetWeaviate().URI(),
+		resp, err := getObjectCL(t, compose.ContainerURI(1),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, replaceObj.ID, resp.ID)

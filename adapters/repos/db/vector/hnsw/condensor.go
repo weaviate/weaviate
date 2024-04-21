@@ -31,6 +31,9 @@ type MemoryCondensor struct {
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
+	c.logger.WithField("action", "hnsw_condensing").Infof("start hnsw condensing")
+	defer c.logger.WithField("action", "hnsw_condensing_complete").Infof("completed hnsw condensing")
+
 	fd, err := os.Open(fileName)
 	if err != nil {
 		return errors.Wrap(err, "open commit log to be condensed")

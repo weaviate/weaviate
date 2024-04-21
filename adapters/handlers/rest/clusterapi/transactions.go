@@ -13,15 +13,17 @@ package clusterapi
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	ucs "github.com/weaviate/weaviate/usecases/schema"
 )
+
+// TODO-RAFT START
+// Get rid of TxManager
+// TODO-RAFT END
 
 type txManager interface {
 	IncomingBeginTransaction(ctx context.Context, tx *cluster.Transaction) ([]byte, error)
@@ -29,16 +31,35 @@ type txManager interface {
 	IncomingAbortTransaction(ctx context.Context, tx *cluster.Transaction)
 }
 
-type txPayload struct {
-	ID            string                  `json:"id"`
-	Type          cluster.TransactionType `json:"type"`
-	Payload       json.RawMessage         `json:"payload"`
-	DeadlineMilli int64                   `json:"deadlineMilli"`
-}
+// type txPayload struct {
+// 	ID            string                  `json:"id"`
+// 	Type          cluster.TransactionType `json:"type"`
+// 	Payload       json.RawMessage         `json:"payload"`
+// 	DeadlineMilli int64                   `json:"deadlineMilli"`
+// }
+
+type handlerType int
+
+const (
+	schemaTX handlerType = iota
+	classifyTX
+)
 
 type txHandler struct {
-	manager txManager
-	auth    auth
+	manager     txManager
+	auth        auth
+	handlerType handlerType
+}
+
+func newTxHandler(manager txManager, auth auth, handlerType handlerType) txHandler {
+	if handlerType != schemaTX && handlerType != classifyTX {
+		panic(fmt.Sprintf("unknown handler type: %q", handlerType))
+	}
+	return txHandler{
+		manager:     manager,
+		auth:        auth,
+		handlerType: handlerType,
+	}
 }
 
 func (h *txHandler) Transactions() http.Handler {
@@ -79,67 +100,83 @@ func (h *txHandler) transactionsHandler() http.HandlerFunc {
 }
 
 func (h *txHandler) incomingTransaction() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+	return nil
+	// return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// 	defer r.Body.Close()
 
-		if r.Header.Get("content-type") != "application/json" {
-			http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
-			return
-		}
+	// 	if r.Header.Get("content-type") != "application/json" {
+	// 		http.Error(w, "415 Unsupported Media Type", http.StatusUnsupportedMediaType)
+	// 		return
+	// 	}
 
-		var payload txPayload
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, errors.Wrap(err, "decode body").Error(),
-				http.StatusInternalServerError)
-			return
-		}
+	// 	var payload txPayload
+	// 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	// 		http.Error(w, errors.Wrap(err, "decode body").Error(),
+	// 			http.StatusInternalServerError)
+	// 		return
+	// 	}
 
-		if len(payload.ID) == 0 {
-			http.Error(w, "id must be set", http.StatusBadRequest)
-			return
-		}
+	// 	if len(payload.ID) == 0 {
+	// 		http.Error(w, "id must be set", http.StatusBadRequest)
+	// 		return
+	// 	}
 
-		if len(payload.Type) == 0 {
-			http.Error(w, "type must be set", http.StatusBadRequest)
-			return
-		}
+	// 	if len(payload.Type) == 0 {
+	// 		http.Error(w, "type must be set", http.StatusBadRequest)
+	// 		return
+	// 	}
 
-		txPayload, err := ucs.UnmarshalTransaction(payload.Type, payload.Payload)
-		if err != nil {
-			http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
-				http.StatusInternalServerError)
-			return
-		}
-		txType := payload.Type
-		tx := &cluster.Transaction{
-			ID:       payload.ID,
-			Type:     txType,
-			Payload:  txPayload,
-			Deadline: time.UnixMilli(payload.DeadlineMilli),
-		}
+	// 	var (
+	// 		txPayload interface{}
+	// 		err       error
+	// 	)
+	// 	switch h.handlerType {
+	// 	case schemaTX:
+	// 		txPayload, err = ucs.UnmarshalTransaction(payload.Type, payload.Payload)
+	// 		if err != nil {
+	// 			http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
+	// 				http.StatusInternalServerError)
+	// 			return
+	// 		}
+	// 	case classifyTX:
+	// 		txPayload, err = classification.UnmarshalTransaction(payload.Type, payload.Payload)
+	// 		if err != nil {
+	// 			http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
+	// 				http.StatusInternalServerError)
+	// 			return
+	// 		}
+	// 	}
 
-		data, err := h.manager.IncomingBeginTransaction(r.Context(), tx)
-		if err != nil {
-			status := http.StatusInternalServerError
-			if errors.Is(err, cluster.ErrConcurrentTransaction) {
-				status = http.StatusConflict
-			}
+	// 	txType := payload.Type
+	// 	tx := &cluster.Transaction{
+	// 		ID:       payload.ID,
+	// 		Type:     txType,
+	// 		Payload:  txPayload,
+	// 		Deadline: time.UnixMilli(payload.DeadlineMilli),
+	// 	}
 
-			http.Error(w, errors.Wrap(err, "open transaction").Error(), status)
-			return
-		}
-		if txType != ucs.ReadSchema {
-			w.WriteHeader(http.StatusCreated)
-			return
-		}
+	// 	data, err := h.manager.IncomingBeginTransaction(r.Context(), tx)
+	// 	if err != nil {
+	// 		status := http.StatusInternalServerError
+	// 		if errors.Is(err, cluster.ErrConcurrentTransaction) {
+	// 			status = http.StatusConflict
+	// 		}
 
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-		}
-		w.WriteHeader(http.StatusCreated)
-		w.Write(data)
-	})
+	// 		http.Error(w, errors.Wrap(err, "open transaction").Error(), status)
+	// 		return
+	// 	}
+	// 	if txType != ucs.ReadSchema {
+	// 		w.WriteHeader(http.StatusCreated)
+	// 		return
+	// 	}
+
+	// 	if err != nil {
+	// 		w.WriteHeader(http.StatusInternalServerError)
+	// 		w.Write([]byte(err.Error()))
+	// 	}
+	// 	w.WriteHeader(http.StatusCreated)
+	// 	w.Write(data)
+	// })
 }
 
 func (h *txHandler) incomingAbortTransaction() http.Handler {

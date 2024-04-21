@@ -31,7 +31,7 @@ func graphqlSearch(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With2NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -41,7 +41,7 @@ func graphqlSearch(t *testing.T) {
 		}
 	}()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.Vectorizer = "text2vec-contextionary"
 	articleClass := articles.ArticlesClass()
@@ -65,7 +65,7 @@ func graphqlSearch(t *testing.T) {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviate().URI(), batch)
+		createObjects(t, compose.ContainerURI(1), batch)
 	})
 
 	t.Run("insert articles", func(t *testing.T) {
@@ -76,44 +76,43 @@ func graphqlSearch(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.ContainerURI(2), batch)
 	})
 
 	t.Run("stop node 2", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
-		time.Sleep(10 * time.Second)
+		stopNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("get consistent search results with ONE (1/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
+		err = compose.StartAt(ctx, 2)
 		require.Nil(t, err)
 	})
 
 	t.Run("get consistent search results with ALL (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.All)
+		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.All)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with QUORUM (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.Quorum)
+		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.Quorum)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
 		checkResultsConsistency(t, resp, true)
 	})
 
 	t.Run("get consistent search results with ONE (2/2 nodes up)", func(t *testing.T) {
-		resp := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
+		resp := gqlGet(t, compose.ContainerURI(1), paragraphClass.Class, replica.One)
 		require.GreaterOrEqual(t, len(resp), 1)
 		vec := resp[0].(map[string]interface{})["_additional"].(map[string]interface{})["vector"].([]interface{})
-		resp = gqlGetNearVec(t, compose.GetWeaviate().URI(), paragraphClass.Class, vec, replica.Quorum)
+		resp = gqlGetNearVec(t, compose.ContainerURI(1), paragraphClass.Class, vec, replica.Quorum)
 		checkResultsConsistency(t, resp, true)
 	})
 }

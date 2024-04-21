@@ -15,18 +15,17 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type typeInspector struct {
-	schema schema.Schema
+	getClass func(string) *models.Class
 }
 
-func newTypeInspector(schemaGetter schemaUC.SchemaGetter) *typeInspector {
-	schema := schemaGetter.GetSchemaSkipAuth()
+func newTypeInspector(getClass func(string) *models.Class) *typeInspector {
 	return &typeInspector{
-		schema: schema,
+		getClass: getClass,
 	}
 }
 
@@ -41,9 +40,14 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params aggregation.Pa
 			continue
 		}
 
-		schemaProp, err := i.schema.GetProperty(params.ClassName, prop.Name)
+		class := i.getClass(params.ClassName.String())
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", params.ClassName)
+		}
+
+		schemaProp, err := schema.GetPropertyByName(class, prop.Name.String())
 		if err != nil {
-			return nil, fmt.Errorf("with types: prop %s: %v", prop.Name, err)
+			return nil, err
 		}
 
 		err = i.extendResWithType(res, prop.Name.String(), schemaProp.DataType)
@@ -72,7 +76,7 @@ func (i *typeInspector) extendResWithType(res *aggregation.Result, propName stri
 			prop = aggregation.Property{}
 		}
 
-		propType, err := i.schema.FindPropertyDataType(dataType)
+		propType, err := schema.FindPropertyDataTypeWithRefs(i.getClass, dataType, false, "")
 		if err != nil {
 			return err
 		}

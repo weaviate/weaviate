@@ -43,6 +43,14 @@ var (
 	DefaulGenerativeAIModelID     = "chat-bison-001"
 )
 
+var supportedVertexAIModels = []string{
+	DefaultPaLMModel,
+	"chat-bison-32k",
+	"chat-bison@002",
+	"chat-bison-32k@002",
+	"chat-bison@001",
+}
+
 var supportedGenerativeAIModels = []string{
 	DefaulGenerativeAIModelID,
 	"gemini-pro",
@@ -108,9 +116,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", topPProperty))
 	}
 	// Google MakerSuite
+	availableModels := append(supportedGenerativeAIModels, supportedVertexAIModels...)
 	model := ic.ModelID()
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint && !contains[string](supportedGenerativeAIModels, model) {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s is not supported available models are: %+v", model, supportedGenerativeAIModels))
+	if apiEndpoint == DefaulGenerativeAIApiEndpoint && !contains(availableModels, model) {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s is not supported available models are: %+v", model, availableModels))
 	}
 
 	if len(errorMessages) > 0 {
