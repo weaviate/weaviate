@@ -103,7 +103,7 @@ func TestServiceEndpoints(t *testing.T) {
 		Class:              "C",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
-	ss := &sharding.State{Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
 	version0, err := srv.AddClass(cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schema.ClassEqual("C"), "C")
@@ -136,6 +136,12 @@ func TestServiceEndpoints(t *testing.T) {
 		Name:           "T0",
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenants)
+
+	// Query ShardTenant
+	getTenantTenant, getTenantActivityStatus, _, err := srv.QueryTenantShard(cls.Class, "T0")
+	assert.Nil(t, err)
+	assert.Equal(t, "T0", getTenantTenant)
+	assert.Equal(t, models.TenantActivityStatusHOT, getTenantActivityStatus)
 
 	// QueryShardOwner - Err
 	_, _, err = srv.QueryShardOwner(cls.Class, "T0")

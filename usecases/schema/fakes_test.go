@@ -143,6 +143,11 @@ func (f *fakeMetaHandler) QueryShardOwner(class, shard string) (string, uint64, 
 	return args.Get(0).(string), 0, args.Error(0)
 }
 
+func (f *fakeMetaHandler) QueryTenantShard(class, tenant string) (string, string, uint64, error) {
+	args := f.Called(class, tenant)
+	return args.Get(1).(string), "", 0, args.Error(0)
+}
+
 func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
 	args := f.Called(class)
 	model := args.Get(0)

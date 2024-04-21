@@ -202,7 +202,7 @@ func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) er
 
 func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	ctx := context.Background()
-	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status)
+	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
 // TODO-RAFT START

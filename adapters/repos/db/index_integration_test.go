@@ -241,7 +241,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String(), 0)
 	require.Nil(t, err)
 
 	err = index.drop()

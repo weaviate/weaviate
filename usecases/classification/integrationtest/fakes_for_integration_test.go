@@ -477,7 +477,7 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 }
 
 func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string,
+	targetStatus string, schemaVersion uint64,
 ) error {
 	return nil
 }
