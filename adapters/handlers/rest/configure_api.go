@@ -279,6 +279,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		UpdateWaitTimeout:  time.Second * 10, // TODO-RAFT read from the flag
+		MetadataOnlyVoters: appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		DB:                 nil,
 		Parser:             schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
 		AddrResolver:       appState.Cluster,
@@ -441,6 +442,16 @@ func parseNode2Port(appState *state.State) (m map[string]int, err error) {
 	return m, nil
 }
 
+// parseVotersNames parses names of all voters.
+// If we reach this point, we assume that the configuration is valid
+func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
+	m = make(map[string]struct{}, cfg.BootstrapExpect)
+	for _, raftNamePort := range cfg.Join[:cfg.BootstrapExpect] {
+		m[strings.Split(raftNamePort, ":")[0]] = struct{}{}
+	}
+	return m
+}
+
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
@@ -599,7 +610,11 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, logger)
+	var nonStorageNodes map[string]struct{}
+	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
+		nonStorageNodes = parseVotersNames(cfg)
+	}
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
