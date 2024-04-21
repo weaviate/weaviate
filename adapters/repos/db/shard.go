@@ -156,6 +156,7 @@ type ShardLike interface {
 	Metrics() *Metrics
 
 	createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error
+	uuidToIdLockPoolId_unmerged(idBytes []byte) uint8
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
