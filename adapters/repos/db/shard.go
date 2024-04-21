@@ -157,6 +157,13 @@ type ShardLike interface {
 
 	createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error
 	uuidToIdLockPoolId_unmerged(idBytes []byte) uint8
+	drop_unmerged() error
+	shutdown_unmerged(context.Context) error
+	tenant_unmerged() string
+	isFallbackToSearchable_unmerged() bool
+	objectCount_unmerged() int
+	notifyReady_unmerged()
+	updateVectorIndexConfig_unmerged(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages

@@ -201,7 +201,7 @@ func TestShard_uuidToIdLockPoolId_unmerged(t *testing.T) {
 		if err != nil {
 			fmt.Println(err)
 		}
-	}(shd.index.Config.RootPath)
+	}(shd.Index().Config.RootPath)
 
 	res := shd.uuidToIdLockPoolId_unmerged([]byte("testtesttesttesttest"))
 	require.Equal(t, uint8(0x74), res)
