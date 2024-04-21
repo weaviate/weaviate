@@ -17,8 +17,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -31,7 +31,7 @@ type RowReaderFrequency struct {
 	operator      filters.Operator
 	keyOnly       bool
 	shardVersion  uint16
-	PropPrefix   []byte
+	PropPrefix    []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
@@ -45,7 +45,7 @@ func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte,
 		operator:      operator,
 		keyOnly:       keyOnly,
 		shardVersion:  shardVersion,
-		PropPrefix:   bucket.PropertyPrefix(),
+		PropPrefix:    bucket.PropertyPrefix(),
 		bitmapFactory: bitmapFactory,
 	}
 }

@@ -21,6 +21,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -37,7 +38,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/pkg/errors"
 )
 
 type Searcher struct {
@@ -57,7 +57,7 @@ type Searcher struct {
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	getClass func(string) *models.Class, propIndices propertyspecific.Indices,propIds *tracker.JsonPropertyIdTracker,
+	getClass func(string) *models.Class, propIndices propertyspecific.Indices, propIds *tracker.JsonPropertyIdTracker,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
@@ -102,7 +102,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	return s.objectsByDocID(it, additional, limit)
 }
 
-func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,docIDs helpers.AllowList, className schema.ClassName) ([]uint64, error) {
+func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort, docIDs helpers.AllowList, className schema.ClassName) ([]uint64, error) {
 	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className)
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,docI
 	return lsmSorter.SortDocIDs(ctx, limit, sort, docIDs)
 }
 
-func (s *Searcher) objectsByDocID(it docIDsIterator,additional additional.Properties, limit int) ([]*storobj.Object, error) {
+func (s *Searcher) objectsByDocID(it docIDsIterator, additional additional.Properties, limit int) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -200,7 +200,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter, addi
 	return helpers.NewAllowListFromBitmap(dbm.DocIDs), nil
 }
 
-func (s *Searcher) extractPropValuePair(filter *filters.Clause,className schema.ClassName) (*propValuePair, error) {
+func (s *Searcher) extractPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
 	class := s.getClass(className.String())
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)

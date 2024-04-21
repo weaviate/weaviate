@@ -15,10 +15,6 @@ import (
 	"context"
 	"testing"
 
-	acceptance_with_go_client "acceptance_tests_with_client"
-
-	"github.com/go-openapi/strfmt"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/test/docker"
 )

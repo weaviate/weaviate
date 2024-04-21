@@ -17,8 +17,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -30,7 +30,7 @@ type RowReader struct {
 	bucket        lsmkv.BucketInterface
 	operator      filters.Operator
 	keyOnly       bool
-	PropPrefix []byte
+	PropPrefix    []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
@@ -39,11 +39,11 @@ type RowReader struct {
 // nil
 func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool, bitmapFactory *roaringset.BitmapFactory) *RowReader {
 	return &RowReader{
-		bucket:     bucket,
-		value:      value,
-		operator:   operator,
-		PropPrefix: bucket.PropertyPrefix(),
-		keyOnly:    keyOnly,
+		bucket:        bucket,
+		value:         value,
+		operator:      operator,
+		PropPrefix:    bucket.PropertyPrefix(),
+		keyOnly:       keyOnly,
 		bitmapFactory: bitmapFactory,
 	}
 }
@@ -197,7 +197,6 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 
 	return nil
 }
-
 
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	like, err := parseLikeRegexp(rr.value)

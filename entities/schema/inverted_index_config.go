@@ -36,7 +36,6 @@ type InvertedIndexConfig struct {
 	Stopwords models.StopwordConfig `json:"stopwords,omitempty"`
 }
 
-
 type BM25Config struct {
 	K1 float64
 	B  float64

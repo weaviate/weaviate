@@ -154,7 +154,6 @@ type Bucket struct {
 	allocChecker memwatch.AllocChecker
 }
 
-
 func (b *Bucket) GetRegisteredName() string {
 	return b.RegisteredName
 }

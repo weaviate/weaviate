@@ -405,7 +405,7 @@ func Test_Filters_Int(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds,nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -601,7 +601,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds,nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, propIds, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 

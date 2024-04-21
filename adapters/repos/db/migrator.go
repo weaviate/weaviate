@@ -235,11 +235,11 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		// don't need to continue iterating over all shards
 		errMissingProp := errors.New("missing prop")
 		err := idx.ForEachShard(func(name string, shard ShardLike) error {
-			bucket, err := lsmkv.FetchMeABucket(shard.Store(), "filterable_properties",helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, shard.GetPropertyIdTracker())
+			bucket, err := lsmkv.FetchMeABucket(shard.Store(), "filterable_properties", helpers.BucketFromPropertyNameLSM(prop.Name), prop.Name, shard.GetPropertyIdTracker())
 			if err != nil {
 				return err
 			}
-			if bucket == nil  {
+			if bucket == nil {
 				return errMissingProp
 			}
 			return nil

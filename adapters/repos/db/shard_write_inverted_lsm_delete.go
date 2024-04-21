@@ -109,14 +109,12 @@ func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket lsmkv.BucketInter
 	return bucket.MapDeleteKey(item.Data, docIDBytes)
 }
 
-
 func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, length int) error {
 	bucketLength, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLengthLSM(propName), propName, s.propIds)
-	       if err != nil {
-	               return errors.Errorf("no bucket for prop '%s' length found: %v", propName, err)
-	       }
-	       bucketLength.CheckBucket()
-
+	if err != nil {
+		return errors.Errorf("no bucket for prop '%s' length found: %v", propName, err)
+	}
+	bucketLength.CheckBucket()
 
 	lsmkv.CheckExpectedStrategy(bucketLength.GetRegisteredName(), bucketLength.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
@@ -132,10 +130,9 @@ func (s *Shard) deleteFromPropertyLengthIndex(propName string, docID uint64, len
 
 func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNull bool) error {
 	bucketNull, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameNullLSM(propName), propName, s.propIds)
-	       if err != nil {
-	               return errors.Errorf("no bucket for prop '%s' null found", propName)
-	       }
-
+	if err != nil {
+		return errors.Errorf("no bucket for prop '%s' null found", propName)
+	}
 
 	key, err := bucketKeyPropertyNull(isNull)
 	if err != nil {

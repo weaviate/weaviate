@@ -46,7 +46,7 @@ func dumpBucket(storeDir, propName string) {
 	fmt.Printf("propName: %s\n", propName)
 	bucketName := helpers.BucketFromPropertyNameLSM(propName)
 	fmt.Printf("bucketName: %s\n", bucketName)
-	err = kvstore.CreateOrLoadBucket(context.Background(),"searchable_properties", lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	err = kvstore.CreateOrLoadBucket(context.Background(), "searchable_properties", lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 	if err != nil {
 		panic(err)
 	}

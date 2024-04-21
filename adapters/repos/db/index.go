@@ -24,7 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-
 	"github.com/pkg/errors"
 
 	"github.com/cenkalti/backoff/v4"

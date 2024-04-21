@@ -27,8 +27,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -40,15 +40,15 @@ import (
 )
 
 type BM25Searcher struct {
-	config        schema.BM25Config
-	store         *lsmkv.Store
-	schema        schema.Schema
-	classSearcher ClassSearcher // to allow recursive searches on ref-props
-	propIndices   propertyspecific.Indices
-	propLengths   propLengthRetriever
-	logger        logrus.FieldLogger
-	shardVersion  uint16
-	propertyIds   *tracker.JsonPropertyIdTracker
+	config         schema.BM25Config
+	store          *lsmkv.Store
+	schema         schema.Schema
+	classSearcher  ClassSearcher // to allow recursive searches on ref-props
+	propIndices    propertyspecific.Indices
+	propLengths    propLengthRetriever
+	logger         logrus.FieldLogger
+	shardVersion   uint16
+	propertyIds    *tracker.JsonPropertyIdTracker
 	getClass       func(string) *models.Class
 	propLenTracker propLengthRetriever
 }
@@ -71,7 +71,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker: propLenTracker,
 		logger:         logger.WithField("action", "bm25_search"),
 		shardVersion:   shardVersion,
-		propertyIds:   propertyIds,
+		propertyIds:    propertyIds,
 	}
 }
 

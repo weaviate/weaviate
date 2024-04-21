@@ -307,7 +307,6 @@ type fakeMigrator struct {
 	mock.Mock
 }
 
-
 func (m *fakeMigrator) RecountProperties(ctx context.Context) error {
 	return nil
 }
@@ -319,7 +318,6 @@ func (m *fakeMigrator) RecalculateVectorDimensions(ctx context.Context) error {
 func (m *fakeMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	return nil
 }
-
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	return nil, nil

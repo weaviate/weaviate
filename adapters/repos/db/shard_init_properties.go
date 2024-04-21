@@ -31,9 +31,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 		return nil
 	}
 
-
-		s.createPropertyIndex(context.TODO(), nil, class.Properties)
-
+	s.createPropertyIndex(context.TODO(), nil, class.Properties)
 
 	if err := s.addIDProperty(context.TODO()); err != nil {
 		return errors.Wrap(err, "create id property index")

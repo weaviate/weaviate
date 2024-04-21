@@ -125,7 +125,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, fa.classSearcher,
-		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,fa.propertyIds,
+		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion, fa.propertyIds,
 	).BM25F(ctx, nil, fa.params.ClassName, *fa.params.ObjectLimit, *kw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)

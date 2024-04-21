@@ -30,7 +30,7 @@ type RowReaderRoaringSet struct {
 	operator      filters.Operator
 	newCursor     func() lsmkv.CursorRoaringSet
 	getter        func(key []byte) (*sroar.Bitmap, error)
-	PropPrefix []byte
+	PropPrefix    []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
@@ -51,7 +51,7 @@ func NewRowReaderRoaringSet(bucket lsmkv.BucketInterface, value []byte, operator
 		operator:      operator,
 		newCursor:     newCursor,
 		getter:        getter,
-		PropPrefix: bucket.PropertyPrefix(),
+		PropPrefix:    bucket.PropertyPrefix(),
 		bitmapFactory: bitmapFactory,
 	}
 }

@@ -98,7 +98,7 @@ func TestObjects(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 

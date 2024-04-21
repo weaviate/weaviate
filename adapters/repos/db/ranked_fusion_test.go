@@ -1093,7 +1093,7 @@ func TestHybridBug(t *testing.T) {
 		props := map[string]interface{}{}
 		props["title"] = docs[i]
 		obj := &models.Object{Class: "Test_keyword_bug", Properties: props, ID: id}
-		err := repo.PutObject(context.Background(), obj, nil, nil, nil,0)
+		err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 
