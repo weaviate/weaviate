@@ -699,7 +699,7 @@ func (e *Explorer) GetSchema() schema.Schema {
 
 func (e *Explorer) GetClassByName(className string) *models.Class {
 	s := e.GetSchema()
-	return s.GetClass(schema.ClassName(className))
+	return s.GetClass(string(schema.ClassName(className)))
 }
 
 func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
