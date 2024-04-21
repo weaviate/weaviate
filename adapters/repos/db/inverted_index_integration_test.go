@@ -96,19 +96,19 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
-	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{ &models.Property{
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{{
 		Name:         "updateWithIINil",
 		DataType:     schema.DataTypeText.PropString(),
 		Tokenization: models.PropertyTokenizationWhitespace,
 	}}))
-	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{&models.Property{
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{{
 		Name:            "updateWithIITrue",
 		DataType:        schema.DataTypeText.PropString(),
 		Tokenization:    models.PropertyTokenizationWhitespace,
 		IndexFilterable: &vTrue,
 		IndexSearchable: &vTrue,
 	}}))
-	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{&models.Property{
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{{
 		Name:            "updateWithoutII",
 		DataType:        schema.DataTypeText.PropString(),
 		Tokenization:    models.PropertyTokenizationWhitespace,
