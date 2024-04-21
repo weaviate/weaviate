@@ -187,9 +187,9 @@ func TestServiceEndpoints(t *testing.T) {
 	// AddProperty
 	_, err = srv.AddProperty("C", nil)
 	assert.ErrorIs(t, err, errBadRequest)
-	_, err = srv.AddProperty("", &models.Property{Name: "P1"})
+	_, err = srv.AddProperty("", []*models.Property{&models.Property{Name: "P1"}})
 	assert.ErrorIs(t, err, errBadRequest)
-	version, err = srv.AddProperty("C", &models.Property{Name: "P1"})
+	version, err = srv.AddProperty("C", []*models.Property{&models.Property{Name: "P1"}})
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	info.Properties = 1

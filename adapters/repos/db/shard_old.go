@@ -572,7 +572,7 @@ func (s *Shard) dynamicMemtableSizing_unmerged() lsmkv.BucketOption {
 }
 
 func (s *Shard) createPropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
-	
+
 	for _, prop := range props {
 		if !inverted.HasInvertedIndex(prop) {
 			continue

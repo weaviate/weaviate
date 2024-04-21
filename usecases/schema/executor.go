@@ -128,7 +128,7 @@ func (e *executor) DeleteClass(cls string) error {
 
 func (e *executor) AddProperty(className string, req api.AddPropertyRequest) error {
 	ctx := context.Background()
-	if err := e.migrator.AddProperty(ctx, className, req.Properties...); err != nil {
+	if err := e.migrator.AddProperty(ctx, className, req.Properties); err != nil {
 		return err
 	}
 

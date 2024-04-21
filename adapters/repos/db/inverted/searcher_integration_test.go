@@ -61,9 +61,9 @@ func TestObjects(t *testing.T) {
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			helpers.BucketSearchableFromPropNameLSM(propName),
+			helpers.BucketSearchableFromPropertyNameLSM(propName),
 			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName)))
 	})
 
 	type testCase struct {
@@ -98,7 +98,7 @@ func TestObjects(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 

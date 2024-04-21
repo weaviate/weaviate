@@ -307,6 +307,20 @@ type fakeMigrator struct {
 	mock.Mock
 }
 
+
+func (m *fakeMigrator) RecountProperties(ctx context.Context) error {
+	return nil
+}
+
+func (m *fakeMigrator) RecalculateVectorDimensions(ctx context.Context) error {
+	return nil
+}
+
+func (m *fakeMigrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
+	return nil
+}
+
+
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	return nil, nil
 }
@@ -321,7 +335,7 @@ func (f *fakeMigrator) DropClass(ctx context.Context, className string) error {
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
+func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop []*models.Property) error {
 	args := f.Called(ctx, className, prop)
 	return args.Error(0)
 }

@@ -134,7 +134,7 @@ func (s *Service) RestoreClass(cls *models.Class, ss *sharding.State) (uint64, e
 	return s.Execute(command)
 }
 
-func (s *Service) AddProperty(class string, props ...*models.Property) (uint64, error) {
+func (s *Service) AddProperty(class string, props []*models.Property) (uint64, error) {
 	for _, p := range props {
 		if p == nil || p.Name == "" || class == "" {
 			return 0, fmt.Errorf("empty property or empty class name : %w", errBadRequest)

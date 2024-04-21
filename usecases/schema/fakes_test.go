@@ -48,7 +48,7 @@ func (f *fakeMetaHandler) DeleteClass(name string) (uint64, error) {
 	return 0, args.Error(0)
 }
 
-func (f *fakeMetaHandler) AddProperty(class string, p ...*models.Property) (uint64, error) {
+func (f *fakeMetaHandler) AddProperty(class string, p []*models.Property) (uint64, error) {
 	args := f.Called(class, p)
 	return 0, args.Error(0)
 }
