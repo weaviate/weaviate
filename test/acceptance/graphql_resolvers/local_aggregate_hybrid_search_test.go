@@ -106,6 +106,7 @@ func aggregationWithHybridSearch(t *testing.T) {
 			Aggregate {
 				Company
     			(
+					objectLimit: 3
 				  	groupBy: "name"
 				  	hybrid: {
 						alpha: 0.5
