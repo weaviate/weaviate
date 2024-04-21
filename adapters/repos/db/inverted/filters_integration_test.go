@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/sroar"
 )
 
 const (
@@ -321,13 +322,13 @@ func Test_Filters_String(t *testing.T) {
 
 func DumpBucketToString(bucket lsmkv.BucketInterface) string {
 	var out string
-	rr := NewRowReader(bucket, nil, filters.OperatorAnd, false)
+	rr := NewRowReader(bucket, nil, filters.OperatorAnd, false, nil)
 
-	rr.Iterate(context.Background(), func(id []byte, values [][]byte) (bool, error) {
+	rr.Iterate(context.Background(), func(id []byte, values *sroar.Bitmap) (bool, error) {
 		out += fmt.Sprintf("id: %v\n", id)
 		// Marshall values
 		out += "values: \n"
-		for _, v := range values {
+		for _, v := range values.ToArray() {
 			out += fmt.Sprintf("  %v\n", v)
 		}
 		return true, nil

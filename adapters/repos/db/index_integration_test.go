@@ -124,11 +124,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	err = index.addUUIDProperty(context.TODO())
 	require.Nil(t, err)
 
-	err = index.addProperty(context.TODO(), &models.Property{
+	err = index.addProperty(context.TODO(), []*models.Property{ &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
 		Tokenization: models.PropertyTokenizationWhitespace,
-	})
+	}})
 	require.Nil(t, err)
 
 	for i, p := range products {
@@ -174,11 +174,11 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	err = index.addUUIDProperty(context.TODO())
 	require.Nil(t, err)
-	err = index.addProperty(context.TODO(), &models.Property{
+	err = index.addProperty(context.TODO(), []*models.Property{&models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
 		Tokenization: models.PropertyTokenizationWhitespace,
-	})
+	}})
 	require.Nil(t, err)
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
@@ -294,11 +294,11 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	err = index.addUUIDProperty(ctx)
 	require.Nil(t, err)
 
-	err = index.addProperty(ctx, &models.Property{
+	err = index.addProperty(ctx, []*models.Property{ &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
 		Tokenization: models.PropertyTokenizationWhitespace,
-	})
+	}})
 	require.Nil(t, err)
 
 	for i, p := range products {

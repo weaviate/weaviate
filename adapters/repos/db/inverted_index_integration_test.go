@@ -96,34 +96,34 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
-	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{ &models.Property{
 		Name:         "updateWithIINil",
 		DataType:     schema.DataTypeText.PropString(),
 		Tokenization: models.PropertyTokenizationWhitespace,
-	}))
-	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
+	}}))
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{&models.Property{
 		Name:            "updateWithIITrue",
 		DataType:        schema.DataTypeText.PropString(),
 		Tokenization:    models.PropertyTokenizationWhitespace,
 		IndexFilterable: &vTrue,
 		IndexSearchable: &vTrue,
-	}))
-	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
+	}}))
+	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, []*models.Property{&models.Property{
 		Name:            "updateWithoutII",
 		DataType:        schema.DataTypeText.PropString(),
 		Tokenization:    models.PropertyTokenizationWhitespace,
 		IndexFilterable: &vFalse,
 		IndexSearchable: &vFalse,
-	}))
+	}}))
 
 	if !lsmkv.FeatureUseMergedBuckets {
 		t.Run("check for additional buckets", func(t *testing.T) {
 			for _, idx := range migrator.db.indices {
-				idx.ForEachShard(func(_ string, shd *Shard) error {
-					createBucket := shd.store.Bucket("property__creationTimeUnix")
+				idx.ForEachShard(func(_ string, shd ShardLike) error {
+					createBucket := shd.Store().Bucket("property__creationTimeUnix")
 					assert.NotNil(t, createBucket)
 
-					updateBucket := shd.store.Bucket("property__lastUpdateTimeUnix")
+					updateBucket := shd.Store().Bucket("property__lastUpdateTimeUnix")
 					assert.NotNil(t, updateBucket)
 
 					cases := []struct {
@@ -138,9 +138,9 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 						{prop: "updateWithoutII", compareFunc: assert.Nil},
 					}
 					for _, tt := range cases {
-						tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
-						tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalNullIndex))
-						tt.compareFunc(t, shd.store.Bucket("property_"+tt.prop+filters.InternalPropertyLength))
+						tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalNullIndex))
+						tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalNullIndex))
+						tt.compareFunc(t, shd.Store().Bucket("property_"+tt.prop+filters.InternalPropertyLength))
 					}
 					return nil
 				})
@@ -317,8 +317,8 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
-				bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
+			index.ForEachShard(func(_ string, shard ShardLike) error {
+				bucketNull := shard.Store().Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
 				require.NotNil(t, bucketNull)
 				n++
 				return nil
@@ -329,10 +329,10 @@ func TestIndexNullState_GetClass(t *testing.T) {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
-				bucketProps := shard.store.Bucket("filterable_properties")
+			index.ForEachShard(func(_ string, shard ShardLike) error {
+				bucketProps := shard.Store().Bucket("filterable_properties")
 				require.NotNil(t, bucketProps)
-				bucketNull := shard.store.Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
+				bucketNull := shard.Store().Bucket(helpers.BucketFromPropertyNameNullLSM("name"))
 				require.NotNil(t, bucketNull)
 				n++
 				return nil
@@ -554,8 +554,8 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
-				bucketNull := shard.store.Bucket("filterable_properties")
+			index.ForEachShard(func(_ string, shard ShardLike) error {
+				bucketNull := shard.Store().Bucket("filterable_properties")
 				require.NotNil(t, bucketNull)
 				n++
 				return nil
@@ -566,10 +566,10 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 		t.Run("check buckets exist", func(t *testing.T) {
 			index := repo.indices["testclass"]
 			n := 0
-			index.ForEachShard(func(_ string, shard *Shard) error {
-				bucketPropLengthName := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
+			index.ForEachShard(func(_ string, shard ShardLike) error {
+				bucketPropLengthName := shard.Store().Bucket(helpers.BucketFromPropertyNameLengthLSM("name"))
 				require.NotNil(t, bucketPropLengthName)
-				bucketPropLengthIntArray := shard.store.Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
+				bucketPropLengthIntArray := shard.Store().Bucket(helpers.BucketFromPropertyNameLengthLSM("int_array"))
 				require.NotNil(t, bucketPropLengthIntArray)
 				n++
 				return nil
