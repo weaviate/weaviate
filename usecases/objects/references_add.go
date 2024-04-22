@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -32,6 +33,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
@@ -107,7 +110,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if shouldValidateMultiTenantRef(tenant, source, target) {
-		err = validateReferenceMultiTenancy(ctx, principal,
+		_, err = validateReferenceMultiTenancy(ctx, principal,
 			m.schemaManager, m.vectorRepo, source, target, tenant)
 		if err != nil {
 			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
