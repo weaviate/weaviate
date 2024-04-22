@@ -598,7 +598,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return nil
 	}
 
-	// no replication, remote shard
+	// no replication, remote shard (or local not yet inited)
 	if !i.isLocalShard(shardName) {
 		if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
 			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
@@ -1586,7 +1586,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return nil
 	}
 
-	// no replication, remote shard
+	// no replication, remote shard (or local not yet inited)
 	if !i.isLocalShard(shardName) {
 		if err := i.remote.DeleteObject(ctx, shardName, id, schemaVersion); err != nil {
 			return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
@@ -1623,17 +1623,11 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id)
 }
 
+// checks whether shard is inited locally
+// (shard not inited may still belong to local node,
+// due to eventual consistency it may not be inited yet)
 func (i *Index) isLocalShard(name string) bool {
-	if i.shards.Load(name) != nil {
-		return true
-	}
-
-	node, err := i.getSchema.ShardOwner(i.Config.ClassName.String(), name)
-	if err != nil {
-		return false
-	}
-
-	return i.getSchema.NodeName() == node
+	return i.shards.Load(name) != nil
 }
 
 // Intended to run on "receiver" nodes, where local shard
@@ -1689,7 +1683,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return nil
 	}
 
-	// no replication, remote shard
+	// no replication, remote shard (or local not yet inited)
 	if !i.isLocalShard(shardName) {
 		if err := i.remote.MergeObject(ctx, shardName, merge, schemaVersion); err != nil {
 			return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
