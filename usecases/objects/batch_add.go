@@ -18,9 +18,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
+
+var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least one object for batching")
 
 // AddObjects Class Instances in batch to the connected DB
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
@@ -30,6 +33,8 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	if err != nil {
 		return nil, err
 	}
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
@@ -42,28 +47,24 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	defer b.metrics.BatchOp("total_uc_level", before.UnixNano())
 	defer b.metrics.BatchDec()
 
-	return b.addObjects(ctx, principal, objects, fields, repl)
-}
-
-func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
-	classes []*models.Object, fields []*string, repl *additional.ReplicationProperties,
-) (BatchObjects, error) {
 	beforePreProcessing := time.Now()
-	if err := b.validateObjectForm(classes); err != nil {
-		return nil, NewErrInvalidUserInput("invalid param 'objects': %v", err)
+	if len(objects) == 0 {
+		return nil, errEmptyObjects
 	}
 
-	batchObjects := b.validateAndGetVector(ctx, principal, classes, repl)
+	batchObjects := b.validateAndGetVector(ctx, principal, objects, repl)
+
+	if err := b.autoSchemaManager.autoTenants(ctx, principal, objects); err != nil {
+		return nil, fmt.Errorf("auto create tenants: %w", err)
+	}
+
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
-	var (
-		res BatchObjects
-		err error
-	)
+	var res BatchObjects
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, 0); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -73,19 +74,21 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties,
 ) BatchObjects {
-	now := unixNow()
-	batchObjects := make(BatchObjects, len(objects))
+	var (
+		now          = time.Now().UnixNano() / int64(time.Millisecond)
+		batchObjects = make(BatchObjects, len(objects))
 
-	objectsPerClass := make(map[string][]*models.Object)
-	classPerClassName := make(map[string]*models.Class)
-	originalIndexPerClass := make(map[string][]int)
-	validator := validation.New(b.vectorRepo.Exists, b.config, repl)
+		objectsPerClass       = make(map[string][]*models.Object)
+		classPerClassName     = make(map[string]*models.Class)
+		originalIndexPerClass = make(map[string][]int)
+		validator             = validation.New(b.vectorRepo.Exists, b.config, repl)
+	)
 
 	// validate each object and sort by class (==vectorizer)
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
 
-		if err := b.autoSchemaManager.autoSchema(ctx, principal, obj, true); err != nil {
+		if err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj); err != nil {
 			batchObjects[i].Err = err
 		}
 
@@ -113,7 +116,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		class, ok := classPerClassName[obj.Class]
 		if !ok {
 			var err2 error
-			if class, err2 = b.schemaManager.GetClass(ctx, principal, obj.Class); err2 != nil {
+			if class, _, err2 = b.schemaManager.GetCachedClass(ctx, principal, obj.Class); err2 != nil {
 				batchObjects[i].Err = err2
 				continue
 			}
@@ -154,16 +157,4 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	}
 
 	return batchObjects
-}
-
-func (b *BatchManager) validateObjectForm(classes []*models.Object) error {
-	if len(classes) == 0 {
-		return fmt.Errorf("cannot be empty, need at least one object for batching")
-	}
-
-	return nil
-}
-
-func unixNow() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
 }

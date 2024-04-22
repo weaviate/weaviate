@@ -85,9 +85,8 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
-	scheme := s.schemaManager.GetSchemaSkipAuth()
 
-	params, err := batchDeleteParamsFromProto(req, scheme)
+	params, err := batchDeleteParamsFromProto(req, s.schemaManager.ReadOnlyClass)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -117,9 +116,7 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-
-	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, scheme)
+	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, s.schemaManager.ReadOnlyClass)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
@@ -155,8 +152,6 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-
 	type reply struct {
 		Result *pb.SearchReply
 		Error  error
@@ -173,7 +168,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}()
 
-		searchParams, err := searchParamsFromProto(req, scheme, s.config)
+		searchParams, err := searchParamsFromProto(req, s.schemaManager.ReadOnlyClass, s.config)
 		if err != nil {
 			c <- reply{
 				Result: nil,
@@ -196,7 +191,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams, scheme, req.Uses_123Api)
+		proto, err := searchResultsToProto(res, before, searchParams, s.schemaManager.ReadOnlyClass, req.Uses_123Api)
 		c <- reply{
 			Result: proto,
 			Error:  err,
@@ -208,10 +203,9 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 }
 
 func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-	class, err := schema.GetClassByName(scheme.Objects, searchParams.ClassName)
-	if err != nil {
-		return err
+	class := s.schemaManager.ReadOnlyClass(searchParams.ClassName)
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", searchParams.ClassName)
 	}
 
 	for _, prop := range searchParams.Properties {

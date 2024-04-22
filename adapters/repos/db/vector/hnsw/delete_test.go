@@ -14,11 +14,13 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"sort"
 	"sync"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -245,6 +247,94 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
 		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
+func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
+	var vectors [][]float32
+	for i := 0; i < 100; i++ {
+		vectors = append(vectors, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
+	}
+	var vectorIndex *hnsw
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        128,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+		vectorIndex.logger = logrus.New()
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("concurrent entrypoint deletion and tombstone cleanup", func(t *testing.T) {
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+			require.Nil(t, err)
+		}()
+
+		go func() {
+			defer wg.Done()
+			for i := range vectors {
+				err := vectorIndex.Delete(uint64(i))
+				require.Nil(t, err)
+			}
+		}()
+
+		wg.Wait()
+	})
+
+	t.Run("inserting more vectors (with largers ids)", func(t *testing.T) {
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(len(vectors)+i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("concurrent entrypoint deletion and tombstone cleanup", func(t *testing.T) {
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+			require.Nil(t, err)
+		}()
+
+		go func() {
+			defer wg.Done()
+			for i := range vectors {
+				err := vectorIndex.Delete(uint64(len(vectors) + i))
+				require.Nil(t, err)
+			}
+		}()
+
+		wg.Wait()
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -591,9 +681,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 				Type:         ent.PQEncoderTypeTile,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
-			BitCompression: false,
-			Segments:       3,
-			Centroids:      256,
+			Segments:  3,
+			Centroids: 256,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
@@ -729,9 +818,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 				Type:         ent.PQEncoderTypeTile,
 				Distribution: ent.PQEncoderDistributionLogNormal,
 			},
-			BitCompression: false,
-			Segments:       3,
-			Centroids:      256,
+			Segments:  3,
+			Centroids: 256,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)

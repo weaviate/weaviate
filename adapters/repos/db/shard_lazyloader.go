@@ -13,15 +13,13 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -29,30 +27,37 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type LazyLoadShard struct {
-	shardOpts *deferredShardOpts
-	shard     *Shard
-	loaded    bool
-	mutex     sync.Mutex
+	shardOpts  *deferredShardOpts
+	shard      *Shard
+	loaded     bool
+	mutex      sync.Mutex
+	memMonitor memwatch.AllocChecker
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 ) *LazyLoadShard {
+	if memMonitor == nil {
+		memMonitor = memwatch.NewDummyMonitor()
+	}
 	promMetrics.NewUnloadedshard(class.Class)
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
@@ -63,6 +68,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			indexCheckpoints: indexCheckpoints,
 		},
+		memMonitor: memMonitor,
 	}
 }
 
@@ -92,6 +98,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	if l.loaded {
 		return nil
 	}
+
+	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
+		return errors.Wrap(err, "memory pressure: cannot load shard")
+	}
+
 	if l.shardOpts.class == nil {
 		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
 	} else {
@@ -111,6 +122,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
 	}
+
 	return nil
 }
 
@@ -216,14 +228,14 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []f
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
@@ -323,9 +335,9 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 	return l.shard.addTimestampProperties(ctx)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	l.mustLoad()
-	l.shard.createPropertyIndex(ctx, prop, eg)
+	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {

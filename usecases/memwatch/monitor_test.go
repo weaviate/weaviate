@@ -12,11 +12,36 @@
 package memwatch
 
 import (
+	"errors"
+	"math"
+	"os"
+	"runtime"
 	"runtime/debug"
+	"strconv"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestEstimation(t *testing.T) {
+	t.Run("set correctly", func(t *testing.T) {
+		t.Setenv("MEMORY_ESTIMATE_DELETE_BYTES", "120")
+		assert.Equal(t, int64(120), EstimateObjectDeleteMemory())
+	})
+
+	t.Run("set wrong - use default", func(t *testing.T) {
+		t.Setenv("MEMORY_ESTIMATE_DELETE_BYTES", "abc")
+		assert.Equal(t, int64(100), EstimateObjectDeleteMemory())
+	})
+
+	t.Run("unset - use default", func(t *testing.T) {
+		t.Setenv("MEMORY_ESTIMATE_DELETE_BYTES", "")
+		assert.Equal(t, int64(100), EstimateObjectDeleteMemory())
+	})
+}
 
 func TestMonitor(t *testing.T) {
 	t.Run("with constant profiles (no changes)", func(t *testing.T) {
@@ -68,6 +93,159 @@ func TestMonitor(t *testing.T) {
 		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97)
 		_ = m.Ratio()
 	})
+}
+
+func TestMappings(t *testing.T) {
+	// dont matter here
+	metrics := &fakeHeapReader{val: 30000}
+	limiter := &fakeLimitSetter{limit: 100000}
+
+	t.Run("max memory mappings set correctly", func(t *testing.T) {
+		t.Setenv("MAX_MEMORY_MAPPINGS", "120")
+		assert.Equal(t, int64(120), getMaxMemoryMappings())
+	})
+
+	t.Run("max memory mappings incorrectly", func(t *testing.T) {
+		t.Setenv("MAX_MEMORY_MAPPINGS", "abc")
+		switch runtime.GOOS {
+		case "linux":
+			// we can read the max value, but it does not exist on all systems
+			if _, err := os.Stat("/proc/sys/vm/max_map_count"); errors.Is(err, os.ErrNotExist) {
+				assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			} else {
+				assert.Greater(t, getMaxMemoryMappings(), int64(0))
+				assert.Less(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			}
+		default:
+			// cant read on other OS so we use max int
+			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+		}
+	})
+
+	t.Run("max memory mappings not set", func(t *testing.T) {
+		t.Setenv("MAX_MEMORY_MAPPINGS", "")
+		switch runtime.GOOS {
+		case "linux":
+			// we can read the max value, but it does not exist on all systems
+			if _, err := os.Stat("/proc/sys/vm/max_map_count"); errors.Is(err, os.ErrNotExist) {
+				assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			} else {
+				assert.Greater(t, getMaxMemoryMappings(), int64(0))
+				assert.Less(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+			}
+		default:
+			// cant read on other OS so we use max int
+			assert.Equal(t, getMaxMemoryMappings(), int64(math.MaxInt64))
+		}
+	})
+
+	t.Run("current memory settings", func(t *testing.T) {
+		switch runtime.GOOS {
+		case "linux":
+			assert.Greater(t, getCurrentMappings(), int64(0))
+			assert.Less(t, getCurrentMappings(), int64(math.MaxInt64))
+		case "darwin":
+			assert.Equal(t, getCurrentMappings(), int64(0))
+		}
+	})
+
+	t.Run("check mappings", func(t *testing.T) {
+		currentMappings := getCurrentMappings()
+		addMappings := 15
+		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
+		m.Refresh()
+
+		mappingsLeft := getMaxMemoryMappings() - currentMappings
+		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
+		path := t.TempDir()
+		// use up available mappings
+		for i := 0; i < int(mappingsLeft)+5; i++ {
+			m.Refresh()
+			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
+			require.Nil(t, err)
+			defer file.Close()
+			_, err = file.Write([]byte("Hello"))
+			require.Nil(t, err)
+
+			fileInfo, err := file.Stat()
+			require.Nil(t, err)
+
+			// there might be other processes that use mappings
+			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(); mappingsLeft <= 0 {
+				require.NotNil(t, m.CheckMappingAndReserve(1, 0))
+			} else {
+				require.Nil(t, m.CheckMappingAndReserve(1, 0))
+				data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+				require.Nil(t, err)
+
+				defer syscall.Munmap(data)
+			}
+		}
+
+		switch runtime.GOOS {
+		case "linux":
+			// any further mapping should fail
+			require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+		case "darwin":
+			// any further mapping should not fail
+			require.Nil(t, m.CheckMappingAndReserve(1, 60))
+		}
+	})
+
+	t.Run("check reservations", func(t *testing.T) {
+		currentMappings := getCurrentMappings()
+		addMappings := 15
+		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
+		maxMappings := getMaxMemoryMappings()
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
+		m.Refresh()
+
+		// reserve up available mappings
+		for i := 0; i < int(addMappings)+5; i++ {
+			// there might be other processes that use mappings
+			if maxMappings-m.usedMappings-int64(i) <= 0 {
+				require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+			} else {
+				require.Nil(t, m.CheckMappingAndReserve(1, 60))
+			}
+		}
+
+		// any further mapping should fail
+		require.NotNil(t, m.CheckMappingAndReserve(1, 60))
+	})
+}
+
+func TestMappingsReservationClearing(t *testing.T) {
+	baseTime, err := time.Parse(time.RFC3339, "2021-01-01T00:00:30Z")
+	require.Nil(t, err)
+	cases := []struct {
+		name             string
+		baseLineShift    int
+		nowShift         int
+		reservations     map[int]int64
+		expectedClearing int64
+	}{
+		{name: "no reservations", reservations: map[int]int64{}, expectedClearing: 0},
+		{name: "reservations present, no expiration", nowShift: 1, reservations: map[int]int64{1: 45, 2: 14}, expectedClearing: 0},
+		{name: "reservations present, one expiration", nowShift: 1, reservations: map[int]int64{1: 45, 31: 14}, expectedClearing: 14},
+		{name: "reservations present, clear all", nowShift: 60, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 59: 1}, expectedClearing: 4},
+		{name: "reservations present, clear nothing (same time)", reservations: map[int]int64{0: 1, 30: 1, 2: 1, 59: 1}, expectedClearing: 0},
+		{name: "clear range", nowShift: 20, reservations: map[int]int64{0: 10, 29: 10, 30: 1, 31: 1, 50: 1, 51: 10}, expectedClearing: 2},
+		{name: "clear over minute wraparound", nowShift: 45, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 29: 10, 59: 1}, expectedClearing: 4},
+		{name: "dont clear value of last refresh", nowShift: 2, reservations: map[int]int64{0: 1, 30: 1, 31: 1, 32: 1, 33: 1}, expectedClearing: 2},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			baseTimeLocal := baseTime.Add(time.Duration(tt.baseLineShift) * time.Second)
+			now := baseTime.Add(time.Duration(tt.nowShift) * time.Second)
+			reservationBuffer := make([]int64, 60)
+			for i, v := range tt.reservations {
+				reservationBuffer[i] = v
+			}
+			require.Equal(t, clearReservedMappings(baseTimeLocal, now, reservationBuffer), tt.expectedClearing)
+		})
+	}
 }
 
 type fakeHeapReader struct {

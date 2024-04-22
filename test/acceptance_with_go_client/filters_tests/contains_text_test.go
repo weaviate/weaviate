@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
@@ -116,6 +117,9 @@ func testContainsText(t *testing.T, host string) func(t *testing.T) {
 			require.NotNil(t, wrap)
 			require.NotNil(t, wrap.Object)
 			require.Equal(t, strfmt.UUID(id), wrap.Object.ID)
+
+			// Give time for graphql to receive and rebuild the schema internally
+			time.Sleep(3 * time.Second)
 		})
 
 		t.Run("search using contains", func(t *testing.T) {
