@@ -170,9 +170,9 @@ func TestServiceEndpoints(t *testing.T) {
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
-	assert.Nil(t, srv.store.WaitForUpdate(ctx, time.Millisecond*10, version))
+	assert.Nil(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, version))
 	assert.Equal(t, info, schema.ClassInfo("C"))
-	assert.ErrorIs(t, srv.store.WaitForUpdate(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), ErrDeadlineExceeded)
+	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), ErrDeadlineExceeded)
 
 	// DeleteClass
 	_, err = srv.DeleteClass("X")

@@ -42,22 +42,10 @@ func updateClass(t *testing.T, host string, class *models.Class) {
 	helper.UpdateClass(t, class)
 }
 
-func createObject(t *testing.T, host string, obj *models.Object) {
+func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	helper.SetupClient(host)
-	helper.CreateObject(t, obj)
-}
-
-func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
-	t.Helper()
-	helper.SetupClient(host)
-	helper.CreateObjectCL(t, obj, cl)
-}
-
-func createTenantObject(t *testing.T, host string, obj *models.Object) {
-	t.Helper()
-	helper.SetupClient(host)
-	helper.CreateObject(t, obj)
+	return helper.CreateObjectCL(t, obj, cl)
 }
 
 func createObjects(t *testing.T, host string, batch []*models.Object) {
@@ -118,16 +106,10 @@ func patchObject(t *testing.T, host string, patch *models.Object) {
 	helper.PatchObject(t, patch)
 }
 
-func patchTenantObject(t *testing.T, host string, patch *models.Object) {
+func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	helper.SetupClient(host)
-	helper.PatchObject(t, patch)
-}
-
-func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) {
-	t.Helper()
-	helper.SetupClient(host)
-	helper.UpdateObjectCL(t, obj, cl)
+	return helper.UpdateObjectCL(t, obj, cl)
 }
 
 func addReferences(t *testing.T, host string, refs []*models.BatchReference) {
