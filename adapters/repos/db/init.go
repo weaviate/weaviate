@@ -19,6 +19,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -123,7 +124,7 @@ func (db *DB) init(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) LocalTenantActivity() map[string]map[string]time.Time {
+func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
 	return db.metricsObserver.Usage()
 }
 

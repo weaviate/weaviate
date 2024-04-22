@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
+
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
 type Handler struct {
@@ -14,8 +15,7 @@ type Handler struct {
 }
 
 type ActivitySource interface {
-	// TODO: nicer type
-	LocalTenantActivity() map[string]map[string]time.Time
+	LocalTenantActivity() tenantactivity.ByCollection
 }
 
 func NewHandler() *Handler {
