@@ -1799,7 +1799,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	defer i.backupMutex.RUnlock()
 
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+	if err := i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.Shutdown(ctx); err != nil {
 			return errors.Wrapf(err, "shutdown shard %q", name)
 		}

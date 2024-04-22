@@ -83,10 +83,10 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 
 // Go overrides the Go method to add panic recovery logic.
 func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
-	egw.Group.Go(func() error {
+
 		defer egw.deferFunc(localVars)
-		return f()
-	})
+		 f()
+
 }
 
 // Wait waits for all goroutines to finish and returns the first non-nil error.
