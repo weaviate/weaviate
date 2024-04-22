@@ -158,7 +158,6 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 		return fmt.Errorf("migrator.new_tenants: %w", err)
 	}
 	commit(true) // commit new adding new tenant
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -185,7 +184,6 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	}
 
 	commit(true) // commit update of tenants
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -198,16 +196,12 @@ func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) er
 	}
 
 	commit(true) // commit deletion of tenants
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
 func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
-	if err := e.migrator.UpdateShardStatus(context.Background(), req.Class, req.Shard, req.Status, req.SchemaVersion); err != nil {
-		return err
-	}
-	e.triggerSchemaUpdateCallbacks()
-	return nil
+	ctx := context.Background()
+	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
 // TODO-RAFT START
