@@ -55,7 +55,7 @@ func TestRestartJourney(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -81,7 +81,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "the band is just fantastic that is really what I think",
 			},
-		}, []float32{0.1, 0.2, 0.3}, nil, nil)
+		}, []float32{0.1, 0.2, 0.3}, nil, nil, 0)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -90,7 +90,7 @@ func TestRestartJourney(t *testing.T) {
 			Properties: map[string]interface{}{
 				"description": "oh by the way, which one's pink?",
 			},
-		}, []float32{-0.1, 0.2, -0.3}, nil, nil)
+		}, []float32{-0.1, 0.2, -0.3}, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -171,7 +171,7 @@ func TestRestartJourney(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 		require.Nil(t, err)
 		newRepo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, newRepo.WaitForStartup(testCtx()))

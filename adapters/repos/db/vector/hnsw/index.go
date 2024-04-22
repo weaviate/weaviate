@@ -30,9 +30,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type hnsw struct {
@@ -167,6 +168,8 @@ type hnsw struct {
 	VectorForIDThunk   common.VectorForID[float32]
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
+
+	allocChecker memwatch.AllocChecker
 }
 
 type CommitLogger interface {
@@ -222,7 +225,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 	}
 
 	vectorCache := cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects,
-		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval)
+		cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
@@ -273,11 +276,14 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
+		allocChecker:             cfg.AllocChecker,
 	}
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store)
+		index.compressor, err = compressionhelpers.NewBQCompressor(
+			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+			cfg.AllocChecker)
 		if err != nil {
 			return nil, err
 		}
@@ -694,7 +700,7 @@ func (h *hnsw) ShouldCompress() (bool, int) {
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
-func (h *hnsw) ShouldCompressFromConfig(config schema.VectorIndexConfig) (bool, int) {
+func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, int) {
 	hnswConfig := config.(ent.UserConfig)
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }

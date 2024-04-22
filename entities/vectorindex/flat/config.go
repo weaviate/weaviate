@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	vectorindexcommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
@@ -63,7 +63,7 @@ func (u *UserConfig) SetDefaults() {
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}) (schema.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 

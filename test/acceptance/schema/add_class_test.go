@@ -28,7 +28,7 @@ import (
 // https://github.com/weaviate/weaviate/issues/981
 func TestInvalidDataTypeInProperty(t *testing.T) {
 	t.Parallel()
-	className := "WrongPropertyClass"
+	className := t.Name()
 
 	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
 		assert.NotContains(t, GetObjectClassNames(t), className)
@@ -58,7 +58,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 
 func TestInvalidPropertyName(t *testing.T) {
 	t.Parallel()
-	className := "WrongPropertyClass"
+	className := t.Name()
 
 	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
 		assert.NotContains(t, GetObjectClassNames(t), className)

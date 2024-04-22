@@ -65,7 +65,7 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant)
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant, 0)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
@@ -77,7 +77,7 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant)
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, 0)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
@@ -117,14 +117,9 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 
 	// Validate schema given in body with the weaviate schema
-	s, err := b.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get schema: %s", err)
-	}
-
-	class := s.FindClassByName(schema.ClassName(match.Class))
-	if class == nil {
-		return nil, fmt.Errorf("class: %v doesn't exist", match.Class)
+	class, err := b.schemaManager.GetClass(ctx, principal, match.Class)
+	if err != nil || class == nil {
+		return nil, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
 	}
 
 	filter, err := filterext.Parse(match.Where, class.Class)
@@ -132,7 +127,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, fmt.Errorf("failed to parse where filter: %s", err)
 	}
 
-	err = filters.ValidateFilters(s, filter)
+	err = filters.ValidateFilters(b.schemaManager.ReadOnlyClass, filter)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %s", err)
 	}

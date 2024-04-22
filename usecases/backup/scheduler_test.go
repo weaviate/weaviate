@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestSchedulerValidateCreateBackup(t *testing.T) {
@@ -421,27 +422,64 @@ func TestSchedulerCreateBackup(t *testing.T) {
 func TestSchedulerRestoration(t *testing.T) {
 	var (
 		cls         = "MyClass-A"
-		node        = "Node-A"
+		nodeA       = "Node-A"
+		nodeB       = "Node-B"
 		any         = mock.Anything
 		backendName = "gcs"
 		backupID    = "1"
 		timePt      = time.Now().UTC()
 		ctx         = context.Background()
-		path        = "bucket/backups/" + backupID
-		cresp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
+		bucket      = "bucket/backups/"
+		path        = bucket + backupID
+		keyNodeA    = backupID + "/" + nodeA
+		keyNodeB    = backupID + "/" + nodeB
+		cResp       = &CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}
 		sReq        = &StatusRequest{OpRestore, backupID, backendName}
 		sresp       = &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
 	)
-	meta1 := backup.DistributedBackupDescriptor{
+	meta := backup.DistributedBackupDescriptor{
 		ID:            backupID,
 		StartedAt:     timePt,
 		Version:       "1",
 		ServerVersion: "1",
 		Status:        backup.Success,
 		Nodes: map[string]*backup.NodeDescriptor{
-			node: {Classes: []string{cls}},
+			nodeA: {Classes: []string{cls}},
+			nodeB: {Classes: []string{cls}},
 		},
 	}
+
+	shardingStateBytes1, _ := json.Marshal(&sharding.State{
+		IndexID: cls,
+		Physical: map[string]sharding.Physical{"S1": {
+			Name: "S1",
+		}},
+	})
+	shardingStateBytes2, _ := json.Marshal(&sharding.State{
+		IndexID:  cls,
+		Physical: map[string]sharding.Physical{"S1": {Name: "S1"}, "S2": {Name: "S2"}},
+	})
+	rawClassBytes, _ := json.Marshal(&models.Class{Class: cls})
+	meta1 := backup.BackupDescriptor{
+		ID:     backupID,
+		Status: string(backup.Success),
+		Classes: []backup.ClassDescriptor{{
+			Name:          cls,
+			Schema:        rawClassBytes,
+			ShardingState: shardingStateBytes1,
+		}},
+	}
+	meta2 := backup.BackupDescriptor{
+		ID:     backupID,
+		Status: string(backup.Success),
+		Classes: []backup.ClassDescriptor{{
+			Name:          cls,
+			Schema:        rawClassBytes,
+			ShardingState: shardingStateBytes2,
+		}},
+	}
+	metaBytes1, _ := json.Marshal(meta1)
+	metaBytes2, _ := json.Marshal(meta2)
 
 	t.Run("AnotherBackupIsInProgress", func(t *testing.T) {
 		req1 := BackupRequest{
@@ -449,15 +487,21 @@ func TestSchedulerRestoration(t *testing.T) {
 			Include: []string{cls},
 			Backend: backendName,
 		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		bytes := marshalCoordinatorMeta(meta1)
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+		bytes := marshalCoordinatorMeta(meta)
 		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
 		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+		fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
+		fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+
 		fs.backend.On("HomeDir", mock.Anything).Return(path)
 		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
-		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
-		fs.client.On("Commit", any, node, sReq).Return(nil)
-		fs.client.On("Status", any, node, sReq).Return(sresp, nil).After(time.Minute)
+		fs.client.On("CanCommit", any, nodeA, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeA, sReq).Return(nil)
+		fs.client.On("Status", any, nodeA, sReq).Return(sresp, nil).After(time.Minute)
+		fs.client.On("CanCommit", any, nodeB, any).Return(cResp, nil)
+		fs.client.On("Commit", any, nodeB, sReq).Return(nil)
+		fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil).After(time.Minute)
 
 		s := fs.scheduler()
 		resp, err := s.Restore(ctx, nil, &req1)
@@ -479,44 +523,63 @@ func TestSchedulerRestoration(t *testing.T) {
 		assert.Nil(t, resp)
 	})
 
-	t.Run("Success", func(t *testing.T) {
-		req := BackupRequest{
-			ID:      backupID,
-			Include: []string{cls},
-			Backend: backendName,
-		}
-		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
-		bytes := marshalCoordinatorMeta(meta1)
-		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
-		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
-		fs.backend.On("HomeDir", mock.Anything).Return(path)
-		// first for initial "STARTED", second for updated participant status
-		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
-		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
-		fs.client.On("CanCommit", any, node, any).Return(cresp, nil)
-		fs.client.On("Commit", any, node, sReq).Return(nil)
-		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
-		fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
-		s := fs.scheduler()
-		resp, err := s.Restore(ctx, nil, &req)
-		assert.Nil(t, err)
-		status1 := string(backup.Started)
-		want1 := &models.BackupRestoreResponse{
-			Backend: backendName,
-			Classes: req.Include,
-			ID:      backupID,
-			Status:  &status1,
-			Path:    path,
-		}
-		assert.Equal(t, resp, want1)
-		for i := 0; i < 10; i++ {
-			time.Sleep(time.Millisecond * 60)
-			if i > 0 && s.restorer.lastOp.get().Status == "" {
-				break
+	restore := func(fs *fakeScheduler) {
+		{
+			req := BackupRequest{
+				ID:      backupID,
+				Include: []string{cls},
+				Backend: backendName,
+			}
+			bytes := marshalCoordinatorMeta(meta)
+			fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(bytes, nil)
+			fs.backend.On("GetObject", ctx, keyNodeA, BackupFile).Return(metaBytes1, nil)
+			fs.backend.On("GetObject", ctx, keyNodeB, BackupFile).Return(metaBytes2, nil)
+			fs.backend.On("HomeDir", mock.Anything).Return(path)
+			// first for initial "STARTED", second for updated participant status
+			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.AnythingOfType("[]uint8")).Return(nil)
+			fs.client.On("CanCommit", any, nodeA, any).Return(cResp, nil)
+			fs.client.On("Commit", any, nodeA, sReq).Return(nil)
+			fs.client.On("Status", any, nodeA, sReq).Return(sresp, nil)
+			fs.client.On("CanCommit", any, nodeB, any).Return(cResp, nil)
+			fs.client.On("Commit", any, nodeB, sReq).Return(nil)
+			fs.client.On("Status", any, nodeB, sReq).Return(sresp, nil)
+			fs.backend.On("PutObject", any, backupID, GlobalRestoreFile, any).Return(nil).Twice()
+			s := fs.scheduler()
+			resp, err := s.Restore(ctx, nil, &req)
+			assert.Nil(t, err)
+			status1 := string(backup.Started)
+			want1 := &models.BackupRestoreResponse{
+				Backend: backendName,
+				Classes: req.Include,
+				ID:      backupID,
+				Status:  &status1,
+				Path:    path,
+			}
+			assert.Equal(t, resp, want1)
+			for i := 0; i < 10; i++ {
+				time.Sleep(time.Millisecond * 60)
+				if i > 0 && s.restorer.lastOp.get().Status == "" {
+					break
+				}
 			}
 		}
+	}
+
+	t.Run("CannotRestoreClass", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+		fs.schema.errRestoreClass = ErrAny
+		restore(fs)
+		assert.Equal(t, fs.backend.glMeta.Status, backup.Failed)
+		assert.Contains(t, fs.backend.glMeta.Error, ErrAny.Error())
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeA, nodeB}))
+		restore(fs)
 		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
-		assert.Equal(t, fs.backend.glMeta.Error, "")
+		assert.Contains(t, fs.backend.glMeta.Error, "")
 	})
 }
 
@@ -687,6 +750,7 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 type fakeScheduler struct {
 	selector     fakeSelector
 	client       fakeClient
+	schema       fakeSchemaManger
 	backend      *fakeBackend
 	backendErr   error
 	auth         *fakeAuthorizer
@@ -712,7 +776,7 @@ func newFakeScheduler(resolver nodeResolver) *fakeScheduler {
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
 	c := NewScheduler(f.auth, &f.client, &f.selector, provider,
-		f.nodeResolver, f.log)
+		f.nodeResolver, &f.schema, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c

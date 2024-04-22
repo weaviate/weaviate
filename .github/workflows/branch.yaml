@@ -30,4 +30,3 @@ jobs:
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
-

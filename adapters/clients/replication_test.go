@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,19 +43,21 @@ const (
 )
 
 type fakeServer struct {
-	method         string
-	path           string
-	RequestError   replica.SimpleResponse
-	RequestSuccess replica.SimpleResponse
-	host           string
+	method                string
+	path                  string
+	RequestError          replica.SimpleResponse
+	RequestSuccess        replica.SimpleResponse
+	host                  string
+	ExpectedSchemaVersion string
 }
 
-func newFakeReplicationServer(t *testing.T, method, path string) *fakeServer {
+func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion uint64) *fakeServer {
 	return &fakeServer{
-		method:         method,
-		path:           path,
-		RequestError:   replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}},
-		RequestSuccess: replica.SimpleResponse{},
+		method:                method,
+		path:                  path,
+		RequestError:          replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}},
+		RequestSuccess:        replica.SimpleResponse{},
+		ExpectedSchemaVersion: fmt.Sprint(schemaVersion),
 	}
 }
 
@@ -70,6 +73,13 @@ func (f *fakeServer) server(t *testing.T) *httptest.Server {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		schemaVersion := r.URL.Query().Get(replica.SchemaVersionKey)
+		if f.ExpectedSchemaVersion != "0" && schemaVersion != f.ExpectedSchemaVersion {
+			t.Errorf("schemaVersion want %s got %s", f.ExpectedSchemaVersion, schemaVersion)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		requestID := r.URL.Query().Get(replica.RequestKey)
 		switch requestID {
 		case RequestInternalError:
@@ -107,39 +117,39 @@ func TestReplicationPutObject(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	f := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
+	f := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects", 0)
 	ts := f.server(t)
 	defer ts.Close()
 
 	client := newReplicationClient(ts.Client())
 	t.Run("EncodeRequest", func(t *testing.T) {
 		obj := &storobj.Object{}
-		_, err := client.PutObject(ctx, "Node1", "C1", "S1", "RID", obj)
+		_, err := client.PutObject(ctx, "Node1", "C1", "S1", "RID", obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "encode")
 	})
 
 	obj := &storobj.Object{MarshallerVersion: 1, Object: anyObject(UUID1)}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.PutObject(ctx, "", "C1", "S1", "", obj)
+		_, err := client.PutObject(ctx, "", "C1", "S1", "", obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.PutObject(ctx, f.host, "C1", "S1", RequestError, obj)
+		resp, err := client.PutObject(ctx, f.host, "C1", "S1", RequestError, obj, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: f.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, obj)
+		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestInternalError, obj)
+		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestInternalError, obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -151,31 +161,31 @@ func TestReplicationDeleteObject(t *testing.T) {
 	ctx := context.Background()
 	uuid := UUID1
 	path := "/replicas/indices/C1/shards/S1/objects/" + uuid.String()
-	fs := newFakeReplicationServer(t, http.MethodDelete, path)
+	fs := newFakeReplicationServer(t, http.MethodDelete, path, 0)
 	ts := fs.server(t)
 	defer ts.Close()
 
 	client := newReplicationClient(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid)
+		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestError, uuid)
+		resp, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestError, uuid, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuid)
+		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuid, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestInternalError, uuid)
+		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestInternalError, uuid, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -184,7 +194,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 func TestReplicationPutObjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects")
+	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects", 123)
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
@@ -192,7 +202,7 @@ func TestReplicationPutObjects(t *testing.T) {
 	client := newReplicationClient(ts.Client())
 	t.Run("EncodeRequest", func(t *testing.T) {
 		objs := []*storobj.Object{{}}
-		_, err := client.PutObjects(ctx, "Node1", "C1", "S1", "RID", objs)
+		_, err := client.PutObjects(ctx, "Node1", "C1", "S1", "RID", objs, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "encode")
 	})
@@ -203,25 +213,25 @@ func TestReplicationPutObjects(t *testing.T) {
 	}
 
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.PutObjects(ctx, "", "C1", "S1", "", objects)
+		_, err := client.PutObjects(ctx, "", "C1", "S1", "", objects, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.PutObjects(ctx, fs.host, "C1", "S1", RequestError, objects)
+		resp, err := client.PutObjects(ctx, fs.host, "C1", "S1", RequestError, objects, 123)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.PutObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, objects)
+		_, err := client.PutObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, objects, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.PutObjects(ctx, fs.host, "C1", "S1", RequestInternalError, objects)
+		_, err := client.PutObjects(ctx, fs.host, "C1", "S1", RequestInternalError, objects, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -231,32 +241,32 @@ func TestReplicationMergeObject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	uuid := UUID1
-	f := newFakeReplicationServer(t, http.MethodPatch, "/replicas/indices/C1/shards/S1/objects/"+uuid.String())
+	f := newFakeReplicationServer(t, http.MethodPatch, "/replicas/indices/C1/shards/S1/objects/"+uuid.String(), 0)
 	ts := f.server(t)
 	defer ts.Close()
 
 	client := newReplicationClient(ts.Client())
 	doc := &objects.MergeDocument{ID: uuid}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.MergeObject(ctx, "", "C1", "S1", "", doc)
+		_, err := client.MergeObject(ctx, "", "C1", "S1", "", doc, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestError, doc)
+		resp, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestError, doc, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: f.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, doc)
+		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, doc, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestInternalError, doc)
+		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestInternalError, doc, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -266,7 +276,7 @@ func TestReplicationAddReferences(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references")
+	fs := newFakeReplicationServer(t, http.MethodPost, "/replicas/indices/C1/shards/S1/objects/references", 0)
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
@@ -274,25 +284,25 @@ func TestReplicationAddReferences(t *testing.T) {
 	client := newReplicationClient(ts.Client())
 	refs := []objects.BatchReference{{OriginalIndex: 1}, {OriginalIndex: 2}}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.AddReferences(ctx, "", "C1", "S1", "", refs)
+		_, err := client.AddReferences(ctx, "", "C1", "S1", "", refs, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestError, refs)
+		resp, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestError, refs, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, refs)
+		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, refs, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestInternalError, refs)
+		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestInternalError, refs, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -302,7 +312,7 @@ func TestReplicationDeleteObjects(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	fs := newFakeReplicationServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects")
+	fs := newFakeReplicationServer(t, http.MethodDelete, "/replicas/indices/C1/shards/S1/objects", 0)
 	fs.RequestError.Errors = append(fs.RequestError.Errors, replica.Error{Msg: "error2"})
 	ts := fs.server(t)
 	defer ts.Close()
@@ -310,25 +320,25 @@ func TestReplicationDeleteObjects(t *testing.T) {
 
 	uuids := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, "", "C1", "S1", "", uuids, false)
+		_, err := client.DeleteObjects(ctx, "", "C1", "S1", "", uuids, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestError, uuids, false)
+		resp, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestError, uuids, false, 123)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuids, false)
+		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuids, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestInternalError, uuids, false)
+		_, err := client.DeleteObjects(ctx, fs.host, "C1", "S1", RequestInternalError, uuids, false, 123)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -339,7 +349,7 @@ func TestReplicationAbort(t *testing.T) {
 
 	ctx := context.Background()
 	path := "/replicas/indices/C1/shards/S1:abort"
-	fs := newFakeReplicationServer(t, http.MethodPost, path)
+	fs := newFakeReplicationServer(t, http.MethodPost, path, 0)
 	ts := fs.server(t)
 	defer ts.Close()
 	client := newReplicationClient(ts.Client())
@@ -376,7 +386,7 @@ func TestReplicationCommit(t *testing.T) {
 
 	ctx := context.Background()
 	path := "/replicas/indices/C1/shards/S1:commit"
-	fs := newFakeReplicationServer(t, http.MethodPost, path)
+	fs := newFakeReplicationServer(t, http.MethodPost, path, 0)
 	ts := fs.server(t)
 	defer ts.Close()
 	resp := replica.SimpleResponse{}

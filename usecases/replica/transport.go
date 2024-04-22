@@ -24,7 +24,8 @@ import (
 
 const (
 	// RequestKey is used to marshalling request IDs
-	RequestKey = "request_id"
+	RequestKey       = "request_id"
+	SchemaVersionKey = "schema_version"
 )
 
 // Client is used to read and write objects on replicas
@@ -166,17 +167,17 @@ func fromReplicas(xs []objects.Replica) []*storobj.Object {
 // wClient is the client used to write to replicas
 type wClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
-		obj *storobj.Object) (SimpleResponse, error)
+		obj *storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
-		id strfmt.UUID) (SimpleResponse, error)
+		id strfmt.UUID, schemaVersion uint64) (SimpleResponse, error)
 	PutObjects(ctx context.Context, host, index, shard, requestID string,
-		objs []*storobj.Object) (SimpleResponse, error)
+		objs []*storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	MergeObject(ctx context.Context, host, index, shard, requestID string,
-		mergeDoc *objects.MergeDocument) (SimpleResponse, error)
+		mergeDoc *objects.MergeDocument, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-		uuids []strfmt.UUID, dryRun bool) (SimpleResponse, error)
+		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) (SimpleResponse, error)
 	AddReferences(ctx context.Context, host, index, shard, requestID string,
-		refs []objects.BatchReference) (SimpleResponse, error)
+		refs []objects.BatchReference, schemaVersion uint64) (SimpleResponse, error)
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error
 	Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error)
 }
