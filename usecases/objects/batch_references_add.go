@@ -44,6 +44,8 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 

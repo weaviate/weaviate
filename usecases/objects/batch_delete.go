@@ -43,6 +43,8 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
