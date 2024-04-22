@@ -375,19 +375,17 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		}()
 
 		t.Run("add tenants", func(t *testing.T) {
-			commit, err := localMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
+			err := localMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
 				{Name: "tenant1", Status: models.TenantActivityStatusHOT},
 			})
 			require.Nil(t, err)
-			commit(true)
-			commit, err = remoteMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
+			err = remoteMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
 				{Name: "tenant1", Status: models.TenantActivityStatusHOT},
 				{Name: "tenant2", Status: models.TenantActivityStatusHOT},
 				{Name: "tenant3", Status: models.TenantActivityStatusCOLD},
 				{Name: "tenant4", Status: models.TenantActivityStatusHOT},
 			})
 			require.Nil(t, err)
-			commit(true)
 		})
 
 		t.Run("before index update", func(t *testing.T) {
@@ -458,17 +456,15 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 		}()
 
 		t.Run("add tenants", func(t *testing.T) {
-			commit, err := localMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
+			err := localMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
 				{Name: "tenant1", Status: models.TenantActivityStatusHOT},
 				{Name: "tenant2", Status: models.TenantActivityStatusHOT},
 			})
 			require.Nil(t, err)
-			commit(true)
-			commit, err = remoteMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
+			err = remoteMigrator.NewTenants(ctx, localClass, []*schemaUC.CreateTenantPayload{
 				{Name: "tenant1", Status: models.TenantActivityStatusHOT},
 			})
 			require.Nil(t, err)
-			commit(true)
 		})
 
 		t.Run("before index update", func(t *testing.T) {
