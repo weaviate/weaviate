@@ -216,7 +216,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
-	appState.TenantActivity.SetSource(appState.DB)
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.TenantActivity.SetSource(appState.DB)
+	}
 	migrator := db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	// migrator = vectorMigrator
