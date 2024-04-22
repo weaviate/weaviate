@@ -578,7 +578,7 @@ func (s *Shard) CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.
 		}
 
 		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+			if err := s.createPropertyValueIndex_unmerged(ctx, prop); err != nil {
 				return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
 			}
 
@@ -617,7 +617,7 @@ func (s *Shard) createPropertyValueIndex_unmerged(ctx context.Context, prop *mod
 
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableDirtyConfig(),
-		s.dynamicMemtableSizing(),
+		s.dynamicMemtableSizing_unmerged(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 	}
