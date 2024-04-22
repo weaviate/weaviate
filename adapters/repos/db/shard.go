@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -527,7 +528,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 
 func (s *Shard) initLSMStore(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
@@ -738,7 +739,7 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
@@ -751,7 +752,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	return s.store.CreateOrLoadBucket(ctx,
 		"filterable_properties",
@@ -768,7 +769,7 @@ func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
 
 func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	return lsmkv.WithDynamicMemtableSizing(
 		s.index.Config.MemtablesInitialSizeMB,
@@ -780,7 +781,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	for _, prop := range props {
 		if !inverted.HasInvertedIndex(prop) {
@@ -811,7 +812,7 @@ func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGrou
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 
 	if s.isReadOnly() {
@@ -894,7 +895,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -919,7 +920,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
 	if !lsmkv.FeatureUseMergedBuckets {
-		panic("Invalid bucket mode")
+		InvalidBucketPanic("Unknwon")
 	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -1113,4 +1114,11 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 		return []byte{uint8(filters.InternalNullState)}, nil
 	}
 	return []byte{uint8(filters.InternalNotNullState)}, nil
+}
+
+func InvalidBucketPanic(bucket string) {
+	// Stack trace in string
+	str := string(debug.Stack())
+	// Log the stack trace
+	panic(fmt.Sprintf("Invalid bucket: %s\n%s", bucket, str))
 }
