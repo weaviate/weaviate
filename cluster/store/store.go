@@ -493,6 +493,7 @@ func (st *Store) Stats() map[string]any {
 
 	// Add custom stats for this store
 	currentLeaderAddress, currentLeaderID := st.LeaderWithID()
+	stats["id"] = st.nodeID
 	stats["leader_address"] = currentLeaderAddress
 	stats["leader_id"] = currentLeaderID
 	stats["ready"] = st.Ready()
