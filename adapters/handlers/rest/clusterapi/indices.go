@@ -346,7 +346,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 }
 
 func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
-	class, shard string,
+	index, shard string,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -360,15 +360,9 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	index := i.db.GetIndexForIncoming(entschema.ClassName(class))
-	if index == nil {
-		http.Error(w, "index not found", http.StatusInternalServerError)
-		return
-	}
-
 	schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
 
-	errs := index.IncomingBatchPutObjects(r.Context(), shard, objs, schemaVersion)
+	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
 	if len(errs) > 0 && errors.Is(errs[0], db.ErrShardNotFound) {
 		http.Error(w, errs[0].Error(), http.StatusInternalServerError)
 		return
