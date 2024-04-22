@@ -41,6 +41,8 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
+const composerUpgradedKey = "upgraded"
+
 var dynamicBucket = []byte("dynamic")
 
 type VectorIndex interface {
@@ -152,7 +154,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	upgraded := false
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		v := b.Get([]byte{0})
+		v := b.Get([]byte(composerUpgradedKey))
 		if v == nil {
 			return nil
 		}
@@ -437,7 +439,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put([]byte{0}, []byte{1})
+		return b.Put([]byte(composerUpgradedKey), []byte{1})
 	})
 	if err != nil {
 		return errors.Wrap(err, "update dynamic")
