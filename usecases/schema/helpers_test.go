@@ -330,19 +330,19 @@ func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, pro
 	return nil
 }
 
-func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error) {
+func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {
 	args := f.Called(ctx, class, creates)
-	return args.Get(0).(func(success bool)), args.Error(1)
+	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error) {
+func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
 	args := f.Called(ctx, class, updates)
-	return args.Get(0).(func(success bool)), args.Error(1)
+	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
 	args := f.Called(ctx, class, tenants)
-	return args.Get(0).(func(success bool)), args.Error(1)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
