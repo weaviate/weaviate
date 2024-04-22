@@ -53,7 +53,7 @@ func multiTenancyEnabled(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
 
-	t.Run("create schema", func(t *testing.T) {
+	t.Run("CreateSchema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 3,
 		}
@@ -70,14 +70,16 @@ func multiTenancyEnabled(t *testing.T) {
 		helper.CreateClass(t, articleClass)
 	})
 
-	t.Run("add tenants", func(t *testing.T) {
+	time.Sleep(1 * time.Second) // remove once eventual consistency has been addressed
+
+	t.Run("AddTenants", func(t *testing.T) {
 		tenants := []*models.Tenant{{Name: tenantID.String()}}
 		helper.CreateTenants(t, paragraphClass.Class, tenants)
 		helper.CreateTenants(t, articleClass.Class, tenants)
 	})
 
-	t.Run("insert paragraphs batch", func(t *testing.T) {
-		t.Run("create objects on node 1", func(t *testing.T) {
+	t.Run("InsertParagraphsBatch", func(t *testing.T) {
+		t.Run("OnNode-3", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
 			for i, id := range paragraphIDs {
 				batch[i] = articles.NewParagraph().
@@ -86,52 +88,66 @@ func multiTenancyEnabled(t *testing.T) {
 					WithTenant(tenantID.String()).
 					Object()
 			}
-			createTenantObjects(t, compose.ContainerURI(1), batch)
+			createTenantObjects(t, compose.ContainerURI(3), batch)
 		})
 
-		t.Run("stop node 1", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 1)
+		t.Run("StopNode-3", func(t *testing.T) {
+			stopNodeAt(ctx, t, compose, 3)
 		})
 
-		t.Run("assert objects exist on node 2", func(t *testing.T) {
+		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
+			count := countTenantObjects(t, compose.ContainerURI(1),
+				"Paragraph", tenantID.String())
+			assert.Equal(t, int64(len(paragraphIDs)), count)
+		})
+
+		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
 			count := countTenantObjects(t, compose.ContainerURI(2),
 				"Paragraph", tenantID.String())
 			assert.Equal(t, int64(len(paragraphIDs)), count)
 		})
 
-		t.Run("restart node 1", func(t *testing.T) {
-			restartNode1(ctx, t, compose)
+		t.Run("RestartNode-3", func(t *testing.T) {
+			startNodeAt(ctx, t, compose, 3)
+			time.Sleep(time.Second)
 		})
 	})
 
-	t.Run("insert articles individually", func(t *testing.T) {
-		t.Run("create objects on node 2", func(t *testing.T) {
+	t.Run("InsertArticlesIndividually", func(t *testing.T) {
+		t.Run("CreateObjectsOnNode-3", func(t *testing.T) {
 			for i, id := range articleIDs {
 				obj := articles.NewArticle().
 					WithID(id).
 					WithTitle(fmt.Sprintf("Article#%d", i)).
 					WithTenant(tenantID.String()).
 					Object()
-				createTenantObject(t, compose.ContainerURI(2), obj)
+				createObjectCL(t, compose.ContainerURI(3), obj, replica.Quorum)
 			}
 		})
 
-		t.Run("stop node 2", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 2)
+		t.Run("StopNode-3", func(t *testing.T) {
+			time.Sleep(time.Second)
+			stopNodeAt(ctx, t, compose, 3)
 		})
 
-		t.Run("assert objects exist on node 1", func(t *testing.T) {
+		t.Run("ObjectsExistOnNode-1", func(t *testing.T) {
 			count := countTenantObjects(t, compose.ContainerURI(1),
 				"Article", tenantID.String())
 			assert.Equal(t, int64(len(articleIDs)), count)
 		})
+		t.Run("ObjectsExistOnNode-2", func(t *testing.T) {
+			count := countTenantObjects(t, compose.ContainerURI(2),
+				"Article", tenantID.String())
+			assert.Equal(t, int64(len(articleIDs)), count)
+		})
 
-		t.Run("restart node 2", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 2)
+		t.Run("RestartNode-3", func(t *testing.T) {
+			startNodeAt(ctx, t, compose, 3)
+			time.Sleep(time.Second)
 		})
 	})
 
-	t.Run("add references", func(t *testing.T) {
+	t.Run("AddReferences", func(t *testing.T) {
 		refs := make([]*models.BatchReference, len(articleIDs))
 		for i := range articleIDs {
 			refs[i] = &models.BatchReference{
@@ -141,15 +157,15 @@ func multiTenancyEnabled(t *testing.T) {
 			}
 		}
 
-		t.Run("add references to node 1", func(t *testing.T) {
-			addTenantReferences(t, compose.ContainerURI(1), refs)
+		t.Run("AddReferencesToNode-3", func(t *testing.T) {
+			addTenantReferences(t, compose.ContainerURI(3), refs)
 		})
 
-		t.Run("stop node 1", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 1)
+		t.Run("StopNode-3", func(t *testing.T) {
+			stopNodeAt(ctx, t, compose, 3)
 		})
 
-		t.Run("assert references were added successfully to node 2", func(t *testing.T) {
+		t.Run("ReferencesExistsONNode-2", func(t *testing.T) {
 			type additional struct {
 				ID strfmt.UUID `json:"id"`
 			}
@@ -184,31 +200,32 @@ func multiTenancyEnabled(t *testing.T) {
 			}
 		})
 
-		t.Run("restart node 1", func(t *testing.T) {
-			restartNode1(ctx, t, compose)
+		t.Run("RestartNode-3", func(t *testing.T) {
+			startNodeAt(ctx, t, compose, 3)
+			time.Sleep(time.Second)
 		})
 	})
 
-	t.Run("patch an object", func(t *testing.T) {
+	t.Run("UpdateObject", func(t *testing.T) {
 		before, err := getTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
 		require.Nil(t, err)
 		newTitle := "Article#9000"
 
-		t.Run("execute object patch on node 2", func(t *testing.T) {
+		t.Run("OnNode-3", func(t *testing.T) {
 			patch := &models.Object{
 				ID:         before.ID,
 				Class:      "Article",
 				Properties: map[string]interface{}{"title": newTitle},
 				Tenant:     tenantID.String(),
 			}
-			patchTenantObject(t, compose.ContainerURI(2), patch)
+			updateObjectCL(t, compose.ContainerURI(3), patch, replica.Quorum)
 		})
 
-		t.Run("stop node 2", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 2)
+		t.Run("StopNode-3", func(t *testing.T) {
+			stopNodeAt(ctx, t, compose, 3)
 		})
 
-		t.Run("assert object is patched on node 1", func(t *testing.T) {
+		t.Run("PatchedOnNode-1", func(t *testing.T) {
 			after, err := getTenantObjectFromNode(t, compose.ContainerURI(1),
 				"Article", articleIDs[0], "node1", tenantID.String())
 			require.Nil(t, err)
@@ -218,47 +235,48 @@ func multiTenancyEnabled(t *testing.T) {
 			assert.Equal(t, newTitle, newVal)
 		})
 
-		t.Run("restart node 2", func(t *testing.T) {
-			startNodeAt(ctx, t, compose, 2)
+		t.Run("RestartNode-3", func(t *testing.T) {
+			startNodeAt(ctx, t, compose, 3)
+			time.Sleep(time.Second)
 		})
 	})
 
-	t.Run("delete an object", func(t *testing.T) {
-		t.Run("execute delete object on node 1", func(t *testing.T) {
+	t.Run("DeleteObject", func(t *testing.T) {
+		t.Run("OnNode-1", func(t *testing.T) {
 			deleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
 		})
 
-		t.Run("stop node 1", func(t *testing.T) {
-			stopNodeAt(ctx, t, compose, 1)
+		t.Run("StopNode-3", func(t *testing.T) {
+			startNodeAt(ctx, t, compose, 3)
 		})
 
-		t.Run("assert object removed from node 2", func(t *testing.T) {
+		t.Run("OnNode-2", func(t *testing.T) {
 			_, err := getTenantObjectFromNode(t, compose.ContainerURI(2),
 				"Article", articleIDs[0], "node2", tenantID.String())
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 
-		t.Run("restart node 1", func(t *testing.T) {
-			restartNode1(ctx, t, compose)
+		t.Run("RestartNode-3", func(t *testing.T) {
+			startNodeAt(ctx, t, compose, 3)
 		})
 	})
 
-	t.Run("batch delete all objects", func(t *testing.T) {
-		t.Run("execute batch delete on node 2", func(t *testing.T) {
+	t.Run("BatchAllObjects", func(t *testing.T) {
+		t.Run("OnNode-2", func(t *testing.T) {
 			deleteTenantObjects(t, compose.ContainerURI(2),
 				"Article", []string{"title"}, "Article#*", tenantID.String())
 		})
 
-		t.Run("stop node 2", func(t *testing.T) {
+		t.Run("StopNode-2", func(t *testing.T) {
 			stopNodeAt(ctx, t, compose, 2)
 		})
 
-		t.Run("assert objects are removed from node 1", func(t *testing.T) {
+		t.Run("OnNode-1", func(t *testing.T) {
 			count := countTenantObjects(t, compose.ContainerURI(1), "Article", tenantID.String())
 			assert.Zero(t, count)
 		})
 
-		t.Run("restart node 2", func(t *testing.T) {
+		t.Run("RestartNode-2", func(t *testing.T) {
 			startNodeAt(ctx, t, compose, 2)
 		})
 	})

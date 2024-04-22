@@ -46,7 +46,7 @@ func graphqlSearch(t *testing.T) {
 	paragraphClass.Vectorizer = "text2vec-contextionary"
 	articleClass := articles.ArticlesClass()
 
-	t.Run("create schema", func(t *testing.T) {
+	t.Run("CreateSchema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 2,
 		}
@@ -57,7 +57,7 @@ func graphqlSearch(t *testing.T) {
 		helper.CreateClass(t, articleClass)
 	})
 
-	t.Run("insert paragraphs", func(t *testing.T) {
+	t.Run("InsertParagraphs", func(t *testing.T) {
 		batch := make([]*models.Object, len(paragraphIDs))
 		for i, id := range paragraphIDs {
 			batch[i] = articles.NewParagraph().
@@ -68,7 +68,7 @@ func graphqlSearch(t *testing.T) {
 		createObjects(t, compose.ContainerURI(1), batch)
 	})
 
-	t.Run("insert articles", func(t *testing.T) {
+	t.Run("InsertArticles", func(t *testing.T) {
 		batch := make([]*models.Object, len(articleIDs))
 		for i, id := range articleIDs {
 			batch[i] = articles.NewArticle().
@@ -79,7 +79,7 @@ func graphqlSearch(t *testing.T) {
 		createObjects(t, compose.ContainerURI(2), batch)
 	})
 
-	t.Run("stop node 2", func(t *testing.T) {
+	t.Run("StopNode-2", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
 	})
 
@@ -88,7 +88,7 @@ func graphqlSearch(t *testing.T) {
 		checkResultsConsistency(t, resp, true)
 	})
 
-	t.Run("restart node 2", func(t *testing.T) {
+	t.Run("RestartNode-2", func(t *testing.T) {
 		err = compose.StartAt(ctx, 2)
 		require.Nil(t, err)
 	})
