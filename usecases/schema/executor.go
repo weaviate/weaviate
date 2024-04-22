@@ -153,11 +153,9 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	ctx := context.Background()
-	commit, err := e.migrator.NewTenants(ctx, cls, updates)
-	if err != nil {
+	if err := e.migrator.NewTenants(ctx, cls, updates); err != nil {
 		return fmt.Errorf("migrator.new_tenants: %w", err)
 	}
-	commit(true) // commit new adding new tenant
 	return nil
 }
 
@@ -176,26 +174,21 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		})
 	}
 
-	commit, err := e.migrator.UpdateTenants(ctx, cls, updates)
-	if err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
 		e.logger.WithField("action", "update_tenants").
 			WithField("class", class).Error(err)
 		return err
 	}
-
-	commit(true) // commit update of tenants
 	return nil
 }
 
 func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
 	ctx := context.Background()
-	commit, err := e.migrator.DeleteTenants(ctx, class, req.Tenants)
-	if err != nil {
+	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
 		e.logger.WithField("action", "delete_tenants").
 			WithField("class", class).Error(err)
 	}
 
-	commit(true) // commit deletion of tenants
 	return nil
 }
 
