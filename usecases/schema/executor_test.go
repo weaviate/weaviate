@@ -115,20 +115,19 @@ func TestExecutor(t *testing.T) {
 		assert.Nil(t, x.AddProperty("A", req))
 	})
 
-	commit := func(success bool) {}
 	tenants := []*api.Tenant{{Name: "T1"}, {Name: "T2"}}
 
 	t.Run("DeleteTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.DeleteTenantsRequest{}
-		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(commit, nil)
+		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.DeleteTenants("A", req))
 	})
 	t.Run("DeleteTenantsWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.DeleteTenantsRequest{}
-		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(commit, ErrAny)
+		migrator.On("DeleteTenants", Anything, "A", req.Tenants).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.DeleteTenants("A", req))
 	})
@@ -136,7 +135,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("UpdateTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
-		migrator.On("UpdateTenants", Anything, cls, Anything).Return(commit, nil)
+		migrator.On("UpdateTenants", Anything, cls, Anything).Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateTenants("A", req))
 	})
@@ -153,7 +152,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("UpdateTenantsError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
-		migrator.On("UpdateTenants", Anything, cls, Anything).Return(commit, ErrAny)
+		migrator.On("UpdateTenants", Anything, cls, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateTenants("A", req), ErrAny)
 	})
@@ -161,7 +160,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("AddTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.AddTenantsRequest{Tenants: tenants}
-		migrator.On("NewTenants", Anything, cls, Anything).Return(commit, nil)
+		migrator.On("NewTenants", Anything, cls, Anything).Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.AddTenants("A", req))
 	})
@@ -174,7 +173,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("AddTenantsError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := &api.AddTenantsRequest{Tenants: tenants}
-		migrator.On("NewTenants", Anything, cls, Anything).Return(commit, ErrAny)
+		migrator.On("NewTenants", Anything, cls, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.AddTenants("A", req), ErrAny)
 	})
