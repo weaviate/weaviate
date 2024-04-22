@@ -12,6 +12,7 @@
 package db
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -51,7 +52,7 @@ func TestShardActivity(t *testing.T) {
 
 	// show activity on two tenants
 	time.Sleep(10 * time.Millisecond)
-	db.indices["Col1"].shards.Load("t1").(*Shard).activityTracker.Add(1)
+	db.indices["Col1"].shards.Load("t1").(*Shard).activityTracker.Store(math.MaxInt32)
 	db.indices["Col1"].shards.Load("t2").(*Shard).activityTracker.Add(1)
 
 	// observe to update timestamps
@@ -59,6 +60,8 @@ func TestShardActivity(t *testing.T) {
 
 	// show activity again on one tenant (should now have the latest timestamp
 	time.Sleep(10 * time.Millisecond)
+	// previous value was math.MaxInt32, so this counter will overflow now.
+	// Assert that everything still works as expected
 	db.indices["Col1"].shards.Load("t1").(*Shard).activityTracker.Add(1)
 	o.observeActivity()
 
