@@ -495,7 +495,7 @@ func (s *Shard) addIDProperty_unmerged(ctx context.Context) error {
 
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropertyNameLSM(filters.InternalPropID),
-		s.memtableDirtyConfig(),
+		s.memtableDirtyConfig_unmerged(),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
