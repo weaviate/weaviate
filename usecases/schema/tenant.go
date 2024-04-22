@@ -293,36 +293,39 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-// GetTenants is used to get tenants of a class.
+// GetTenantsByNames is used to get tenants of a class by their names.
 //
 // Class must exist and has partitioning enabled
-func (m *Manager) GetTenantByNames(ctx context.Context, principal *models.Principal, class string, tenantNames []string) ([]*models.Tenant, error) {
-	if err := m.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+func (h *Handler) GetTenantsByNames(ctx context.Context, principal *models.Principal, class string, tenantNames []string) ([]*models.Tenant, error) {
+	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
-	// validation
-	cls := m.getClassByName(class)
-	if cls == nil {
-		return nil, fmt.Errorf("class %q: %w", class, ErrNotFound)
-	}
-	if !schema.MultiTenancyEnabled(cls) {
-		return nil, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	return h.getTenantsByNames(class, tenantNames)
+}
+
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+	info, err := h.multiTenancy(class)
+	if err != nil || info.Tenants == 0 {
+		return nil, err
 	}
 
-	tenants := make([]*models.Tenant, 0)
-	m.schemaCache.RLockGuard(func() error {
-		if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
-			for _, name := range tenantNames {
-				physical, ok := ss.Physical[name]
-				if ok {
-					tenants = append(tenants, &models.Tenant{
-						Name:           name,
-						ActivityStatus: schema.ActivityStatus(physical.Status),
-					})
-				}
+	ts := make([]*models.Tenant, 0, len(names))
+	f := func(_ *models.Class, ss *sharding.State) error {
+		if N := len(ss.Physical); N > len(ts) {
+			ts = make([]*models.Tenant, N)
+		} else if N < len(ts) {
+			ts = ts[:N]
+		}
+		for _, name := range names {
+			if _, ok := ss.Physical[name]; !ok {
+				continue
 			}
+			ts = append(ts, &models.Tenant{
+				Name:           name,
+				ActivityStatus: schema.ActivityStatus(ss.Physical[name].Status),
+			})
 		}
 		return nil
-	})
-
-	return tenants, nil
+	}
+	return ts, h.metaReader.Read(class, f)
+}
