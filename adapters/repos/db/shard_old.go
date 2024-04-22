@@ -371,7 +371,7 @@ func (s *Shard) initLSMStore_unmerged(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing_unmerged(),
-		s.memtableDirtyConfig(),
+		s.memtableDirtyConfig_unmerged(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 	}
 
@@ -540,7 +540,7 @@ func (s *Shard) addTimestampProperties_unmerged(ctx context.Context) error {
 func (s *Shard) addCreationTimeUnixProperty_unmerged(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix),
-		s.memtableDirtyConfig(),
+		s.memtableDirtyConfig_unmerged(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
@@ -550,7 +550,7 @@ func (s *Shard) addCreationTimeUnixProperty_unmerged(ctx context.Context) error 
 func (s *Shard) addLastUpdateTimeUnixProperty_unmerged(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix),
-		s.memtableDirtyConfig(),
+		s.memtableDirtyConfig_unmerged(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
@@ -616,7 +616,7 @@ func (s *Shard) createPropertyValueIndex_unmerged(ctx context.Context, prop *mod
 	}
 
 	bucketOpts := []lsmkv.BucketOption{
-		s.memtableDirtyConfig(),
+		s.memtableDirtyConfig_unmerged(),
 		s.dynamicMemtableSizing_unmerged(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),

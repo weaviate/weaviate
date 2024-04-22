@@ -83,10 +83,10 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 
 func appendFile(filename, msg string) {
 	f, _ := os.OpenFile(filename,
-	os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
-defer f.Close()
-f.WriteString(msg+"\n")
+	defer f.Close()
+	f.WriteString(msg + "\n")
 }
 
 // Go overrides the Go method to add panic recovery logic.
@@ -94,8 +94,8 @@ func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 	egw.Group.Go(func() error {
 		// Print stack trace
 		trace := debug.Stack()
-		msg :=fmt.Sprintf("Stack trace starting error group wrapper: %s\n", trace)
-		fmt.Println("!!!!!"+msg)
+		msg := fmt.Sprintf("Stack trace starting error group wrapper: %s\n", trace)
+		fmt.Println("!!!!!" + msg)
 		defer egw.deferFunc(localVars)
 		return f()
 	})
