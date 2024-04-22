@@ -288,7 +288,7 @@ func (s *Shard) initVectorIndex_unmerged(ctx context.Context,
 }
 
 func (s *Shard) initNonVector_unmerged(ctx context.Context, class *models.Class) error {
-	err := s.initLSMStore(ctx)
+	err := s.initLSMStore_unmerged(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
@@ -316,7 +316,7 @@ func (s *Shard) initNonVector_unmerged(ctx context.Context, class *models.Class)
 
 	s.propLenTracker = tracker
 
-	if err := s.initProperties(class); err != nil {
+	if err := s.initProperties_unmerged(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
@@ -370,7 +370,7 @@ func (s *Shard) initLSMStore_unmerged(ctx context.Context) error {
 		lsmkv.WithSecondaryIndices(1),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
-		s.dynamicMemtableSizing(),
+		s.dynamicMemtableSizing_unmerged(),
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 	}
