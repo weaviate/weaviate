@@ -527,10 +527,10 @@ func (s *Shard) addTimestampProperties_unmerged(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	if err := s.addCreationTimeUnixProperty(ctx); err != nil {
+	if err := s.addCreationTimeUnixProperty_unmerged(ctx); err != nil {
 		return err
 	}
-	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
+	if err := s.addLastUpdateTimeUnixProperty_unmerged(ctx); err != nil {
 		return err
 	}
 
