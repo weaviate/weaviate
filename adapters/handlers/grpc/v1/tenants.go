@@ -38,7 +38,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 			if len(requestedNames) == 0 {
 				return nil, fmt.Errorf("must specify at least one tenant name")
 			}
-			tenants, err = s.schemaManager.GetTenantByNames(ctx, principal, req.Collection, requestedNames)
+			tenants, err = s.schemaManager.GetTenantsByNames(ctx, principal, req.Collection, requestedNames)
 			if err != nil {
 				return nil, err
 			}
