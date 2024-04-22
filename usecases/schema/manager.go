@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -352,6 +353,8 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 	// we need to make sure what is the side effect of
 	// if the leader says "tenant is HOT", but locally
 	// it's still COLD.
+	slices.Sort(tenants)
+	tenants = slices.Compact(tenants)
 	return m.metaWriter.QueryTenantsShards(class, tenants...)
 }
 

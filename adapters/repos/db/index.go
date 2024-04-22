@@ -774,7 +774,6 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	if len(tenants) > 0 {
-		// TODO : remove any dupp
 		tenantsStatus, err = i.getSchema.TenantsShards(i.Config.ClassName.String(), tenants...)
 		if err != nil {
 			return []error{err}
