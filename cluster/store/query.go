@@ -147,9 +147,9 @@ func (st *Store) QueryTenantsShards(req *cmd.QueryRequest) ([]byte, error) {
 	}
 
 	// Read the meta class to get both the class and sharding information
-	tenants := st.db.Schema.TenantsShards(subCommand.Class, subCommand.Tenants...)
+	tenants, version := st.db.Schema.TenantsShards(subCommand.Class, subCommand.Tenants...)
 	// Build the response, marshal and return
-	response := cmd.QueryTenantsShardsResponse{Tenants: tenants}
+	response := cmd.QueryTenantsShardsResponse{Tenants: tenants, SchemaVersion: version}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)

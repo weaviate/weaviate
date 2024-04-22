@@ -118,7 +118,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner(ctx, "C", "Sx", 1)
 	assert.ErrorIs(t, err, errShardNotFound)
-	shards, err := sc.TenantsShards(ctx, 1, "C", "S2")
+	shards, _, err := sc.TenantsShards(ctx, 1, "C", "S2")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 	shard, err := sc.ShardFromUUID(ctx, "Cx", nil, 1)
@@ -146,12 +146,12 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.Equal(t, owner, "N1")
 
 	// TenantShard
-	shards, err = sc.TenantsShards(ctx, 1, "D", "S1")
+	shards, _, err = sc.TenantsShards(ctx, 1, "D", "S1")
 	assert.Equal(t, shards, map[string]string{"S1": "A"})
 	assert.Equal(t, shards["S1"], "A")
 	assert.Nil(t, err)
 
-	shards, err = sc.TenantsShards(ctx, 1, "D", "Sx")
+	shards, _, err = sc.TenantsShards(ctx, 1, "D", "Sx")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
 

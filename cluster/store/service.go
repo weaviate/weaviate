@@ -407,12 +407,12 @@ func (s *Service) QueryShardOwner(class, shard string) (string, uint64, error) {
 // QueryShardOwner build a Query to read the tenant and activity status  of a given class and tenant pair.
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
-func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
 	// Build the query and execute it
 	req := cmd.QueryTenantsShardsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return nil, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS_SHARDS,
@@ -420,17 +420,17 @@ func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[strin
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return nil, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsShardsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return nil, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
-	return resp.Tenants, nil
+	return resp.Tenants, resp.SchemaVersion, nil
 }
 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse

@@ -355,7 +355,8 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 	// it's still COLD.
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	return m.metaWriter.QueryTenantsShards(class, tenants...)
+	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
+	return status, err
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
