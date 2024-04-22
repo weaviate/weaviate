@@ -474,3 +474,38 @@ func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal,
 	}
 	return ErrNotFound
 }
+
+// GetTenants is used to get tenants of a class.
+//
+// Class must exist and has partitioning enabled
+func (m *Manager) GetTenantByNames(ctx context.Context, principal *models.Principal, class string, tenantNames []string) ([]*models.Tenant, error) {
+	if err := m.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+		return nil, err
+	}
+	// validation
+	cls := m.getClassByName(class)
+	if cls == nil {
+		return nil, fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	if !schema.MultiTenancyEnabled(cls) {
+		return nil, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+
+	tenants := make([]*models.Tenant, 0)
+	m.schemaCache.RLockGuard(func() error {
+		if ss := m.schemaCache.ShardingState[cls.Class]; ss != nil {
+			for _, name := range tenantNames {
+				physical, ok := ss.Physical[name]
+				if ok {
+					tenants = append(tenants, &models.Tenant{
+						Name:           name,
+						ActivityStatus: schema.ActivityStatus(physical.Status),
+					})
+				}
+			}
+		}
+		return nil
+	})
+
+	return tenants, nil
+}

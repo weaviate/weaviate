@@ -19,40 +19,35 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, req *pb.TenantsGetRequest) ([]*pb.Tenants, error) {
+func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, req *pb.TenantsGetRequest) ([]*pb.Tenant, error) {
 	if req.Collection == "" {
 		return nil, fmt.Errorf("missing collection %s", req.Collection)
 	}
 
-	tenants, err := s.schemaManager.GetTenants(ctx, principal, req.Collection)
-	if err != nil {
-		return nil, err
-	}
-
-	if req.TenantParameters == nil {
-		switch req.TenantParameters.(type) {
-		case *pb.TenantsGetRequest_Name:
-			requestedName := req.GetName()
-
-			retTenants := make([]*pb.Tenants, 1)
-			for i, tenant := range tenants {
-				if tenant.Name == requestedName {
-					tenantGRPC, err := tenantToGRPC(tenant)
-					if err != nil {
-						return nil, err
-					}
-					retTenants[i] = tenantGRPC
-					return retTenants, nil
-				}
-			}
-			return nil, fmt.Errorf("tenant %s not found", requestedName)
-		default:
-			return nil, fmt.Errorf("unknown tenant %v", req.TenantParameters)
+	var err error
+	var tenants []*models.Tenant
+	if req.Params == nil {
+		tenants, err = s.schemaManager.GetTenants(ctx, principal, req.Collection)
+		if err != nil {
+			return nil, err
 		}
 	} else {
+		switch req.GetParams().(type) {
+		case *pb.TenantsGetRequest_Names:
+			requestedNames := req.GetNames().GetValues()
+			if len(requestedNames) == 0 {
+				return nil, fmt.Errorf("must specify at least one tenant name")
+			}
+			tenants, err = s.schemaManager.GetTenantByNames(ctx, principal, req.Collection, requestedNames)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("unknown tenant parameter %v", req.Params)
+		}
 	}
 
-	retTenants := make([]*pb.Tenants, len(tenants))
+	retTenants := make([]*pb.Tenant, len(tenants))
 	for i, tenant := range tenants {
 		tenantGRPC, err := tenantToGRPC(tenant)
 		if err != nil {
@@ -63,7 +58,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 	return retTenants, nil
 }
 
-func tenantToGRPC(tenant *models.Tenant) (*pb.Tenants, error) {
+func tenantToGRPC(tenant *models.Tenant) (*pb.Tenant, error) {
 	var status pb.TenantActivityStatus
 	if tenant.ActivityStatus == models.TenantActivityStatusHOT {
 		status = pb.TenantActivityStatus_ACTIVITY_STATUS_HOT
@@ -76,7 +71,7 @@ func tenantToGRPC(tenant *models.Tenant) (*pb.Tenants, error) {
 	} else {
 		return nil, fmt.Errorf("unknown tenant activity status %s", tenant.ActivityStatus)
 	}
-	return &pb.Tenants{
+	return &pb.Tenant{
 		Name:           tenant.Name,
 		ActivityStatus: status,
 	}, nil

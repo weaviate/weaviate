@@ -67,6 +67,9 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*p
 	}
 
 	retTenants, err := s.tenantsGet(ctx, principal, req)
+	if err != nil {
+		return nil, fmt.Errorf("get tenants: %w", err)
+	}
 
 	result := &pb.TenantsGetReply{
 		Took:    float32(time.Since(before).Seconds()),
