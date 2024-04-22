@@ -112,12 +112,13 @@ func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 }
 
 // TenantsShards returns shard name for the provided tenant and its activity status
-func (m *metaClass) TenantsShards(class string, tenants ...string) map[string]string {
+func (m *metaClass) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
 
+	v := m.version()
 	if !m.Sharding.PartitioningEnabled {
-		return nil
+		return nil, v
 	}
 
 	res := make(map[string]string, len(tenants))
@@ -126,7 +127,7 @@ func (m *metaClass) TenantsShards(class string, tenants ...string) map[string]st
 			res[t] = physical.ActivityStatus()
 		}
 	}
-	return res
+	return res, v
 }
 
 // CopyShardingState returns a deep copy of the sharding state
