@@ -584,7 +584,7 @@ func (s *Shard) CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.
 
 			if s.index.invertedIndexConfig.IndexNullState {
 				eg.Go(func() error {
-					if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+					if err := s.createPropertyNullIndex_unmerged(ctx, prop); err != nil {
 						return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
 					}
 					return nil
@@ -593,7 +593,7 @@ func (s *Shard) CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.
 
 			if s.index.invertedIndexConfig.IndexPropertyLength {
 				eg.Go(func() error {
-					if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+					if err := s.createPropertyLengthIndex_unmerged(ctx, prop); err != nil {
 						return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
 					}
 					return nil
