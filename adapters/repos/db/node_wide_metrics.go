@@ -17,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
 type nodeWideMetricsObserver struct {
@@ -24,9 +25,15 @@ type nodeWideMetricsObserver struct {
 	shutdown chan struct{}
 
 	activityLock    sync.Mutex
-	activityTracker map[string]map[string]int32
-	lastTenantUsage map[string]map[string]time.Time
+	activityTracker activityByCollection
+	lastTenantUsage tenantactivity.ByCollection
 }
+
+// internal types used for tenant activity aggregation, not exposed to the user
+type (
+	activityByCollection map[string]activityByTenant
+	activityByTenant     map[string]int32
+)
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
@@ -125,25 +132,24 @@ func (o *nodeWideMetricsObserver) observeActivity() {
 	}).Debug("observed tenant activity stats")
 }
 
-func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity map[string]map[string]int32) map[string]map[string]time.Time {
+func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection) tenantactivity.ByCollection {
 	previousActivity := o.activityTracker
 	if previousActivity == nil {
-		previousActivity = map[string]map[string]int32{}
+		previousActivity = make(activityByCollection)
 	}
 
 	now := time.Now()
 
 	// create a new map, this way we will automatically drop anything that
 	// doesn't appear in the new list anymore
-	newUsage := map[string]map[string]time.Time{}
+	newUsage := make(tenantactivity.ByCollection)
 
 	for class, current := range currentActivity {
-		// fmt.Printf("%s: %v\n", class, current)
-		newUsage[class] = map[string]time.Time{}
+		newUsage[class] = make(tenantactivity.ByTenant)
 
 		for tenant, act := range current {
 			if _, ok := previousActivity[class]; !ok {
-				previousActivity[class] = map[string]int32{}
+				previousActivity[class] = make(activityByTenant)
 			}
 
 			previous, ok := previousActivity[class][tenant]
@@ -167,17 +173,17 @@ func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity map[strin
 	return newUsage
 }
 
-func (o *nodeWideMetricsObserver) getCurrentActivity() map[string]map[string]int32 {
+func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 	o.db.indexLock.RLock()
 	defer o.db.indexLock.RUnlock()
 
-	current := map[string]map[string]int32{}
+	current := make(activityByCollection)
 	for _, index := range o.db.indices {
 		if !index.partitioningEnabled {
 			continue
 		}
 		cn := index.Config.ClassName.String()
-		current[cn] = map[string]int32{}
+		current[cn] = make(activityByTenant)
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			current[cn][name] = shard.Activity()
 			return nil
@@ -187,11 +193,11 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() map[string]map[string]int
 	return current
 }
 
-func (o *nodeWideMetricsObserver) Usage() map[string]map[string]time.Time {
+func (o *nodeWideMetricsObserver) Usage() tenantactivity.ByCollection {
 	if o == nil {
 		// not loaded yet, requests could come in before the db is initialized yet
 		// don't attempt to lock, as that would lead to a nil-pointer issue
-		return map[string]map[string]time.Time{}
+		return tenantactivity.ByCollection{}
 	}
 
 	o.activityLock.Lock()
