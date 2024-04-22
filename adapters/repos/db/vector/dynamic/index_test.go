@@ -14,6 +14,7 @@ package dynamic_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -103,6 +104,37 @@ func TestDynamic(t *testing.T) {
 	fmt.Println(recall2, latency2)
 	assert.True(t, recall2 > 0.9)
 	assert.True(t, latency1 > latency2)
+}
+
+func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
+	currentIndexing := os.Getenv("ASYNC_INDEXING")
+	os.Setenv("ASYNC_INDEXING", "false")
+	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
+	rootPath := t.TempDir()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.NewDefaultUserConfig()
+	distancer := distancer.NewL2SquaredProvider()
+	_, err := dynamic.New(dynamic.Config{
+		RootPath:              rootPath,
+		ID:                    "nil-vector-test",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, nil
+		},
+		TempVectorForIDThunk:     TempVectorForIDThunk(nil),
+		TombstoneCallbacks:       noopCallback,
+		ShardCompactionCallbacks: noopCallback,
+		ShardFlushCallbacks:      noopCallback,
+	}, ent.UserConfig{
+		Threshold: uint64(100),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	assert.NotNil(t, err)
 }
 
 func recallAndLatency(queries [][]float32, k int, index dynamic.VectorIndex, truths [][]uint64) (float32, float32) {

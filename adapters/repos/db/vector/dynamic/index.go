@@ -99,6 +99,9 @@ type dynamic struct {
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
+	if os.Getenv("ASYNC_INDEXING") == "false" {
+		return nil, errors.New("the dynamic index can only be created under async indexing environment")
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
