@@ -14,6 +14,7 @@ package dynamic_test
 import (
 	"context"
 	"math"
+	"os"
 	"sync"
 	"testing"
 
@@ -33,6 +34,9 @@ import (
 )
 
 func TestBackup_Integration(t *testing.T) {
+	currentIndexing := os.Getenv("ASYNC_INDEXING")
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	dimensions := 20
 	vectors_size := 10_000
 	queries_size := 10
