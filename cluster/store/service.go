@@ -350,9 +350,9 @@ func (s *Service) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Service) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
+func (s *Service) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	// Build the query and execute it
-	req := cmd.QueryTenantsRequest{Class: class}
+	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
