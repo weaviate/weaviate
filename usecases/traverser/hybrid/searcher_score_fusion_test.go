@@ -13,7 +13,6 @@ package hybrid
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -60,32 +59,6 @@ func inputSet() []hybridTestSet {
 	}
 
 	return cases
-}
-
-func TestScoreFusionSearchWithoutModuleProvider(t *testing.T) {
-	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
-	class := "HybridClass"
-	inputs := inputSet()
-	params := &Params{
-		HybridSearch: &searchparams.HybridSearch{
-			Type:            "hybrid",
-			Alpha:           0.5,
-			Query:           "some query",
-			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-		},
-		Class: class,
-	}
-	sparse := func() ([]*storobj.Object, []float32, error) {
-		return inputs[0].documents, inputs[0].inputScores[0], nil
-	}
-	dense := func([]float32) ([]*storobj.Object, []float32, error) {
-		return inputs[0].documents, inputs[0].inputScores[1], nil
-	}
-
-	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
-	require.Nil(t, err)
-	fmt.Printf("res: %v\n", res)
 }
 
 func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
@@ -262,16 +235,9 @@ func TestScoreFusionWithSparseSubsearchFilter(t *testing.T) {
 		HybridSearch: &searchparams.HybridSearch{
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-			SubSearches: []searchparams.WeightedSearchResult{
-				{
-					Type: "sparseSearch",
-					SearchParams: searchparams.KeywordRanking{
-						Type:       "bm25",
-						Properties: []string{"propA", "propB"},
-						Query:      "some query",
-					},
-				},
-			},
+			Alpha: 0.0,
+			Properties: []string{"propA", "propB"},
+			Query:      "some query",
 		},
 		Class: class,
 	}
@@ -294,10 +260,10 @@ func TestScoreFusionWithSparseSubsearchFilter(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[0].ExplainScore, "(Result Set keyword) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Vector, []float32{1, 2, 3})
-	assert.Equal(t, res[0].Dist, float32(0.008))
+	assert.Equal(t, res[0].SecondarySortValue, float32(0.008))
 }
 
 func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
@@ -309,15 +275,11 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 			TargetVectors:   []string{"default"},
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-			SubSearches: []searchparams.WeightedSearchResult{
-				{
-					Type: "nearText",
-					SearchParams: searchparams.NearTextParams{
-						Values:    []string{"some query"},
-						Certainty: 0.8,
-					},
-				},
+			NearTextParams: &searchparams.NearTextParams{
+				Values:    []string{"some query"},
+				Certainty: 0.8,
 			},
+			Alpha: 1.0,
 		},
 		Class: class,
 	}
@@ -343,7 +305,7 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].ExplainScore, "(Result Set vector,nearText) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[0].ExplainScore, "(Result Set vector) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Vector, []float32{1, 2, 3})
 	assert.Equal(t, res[0].Dist, float32(0.008))
@@ -358,15 +320,11 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 			TargetVectors:   []string{"default"},
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-			SubSearches: []searchparams.WeightedSearchResult{
-				{
-					Type: "nearVector",
-					SearchParams: searchparams.NearVector{
-						Vector:    []float32{1, 2, 3},
-						Certainty: 0.8,
-					},
-				},
+			NearVectorParams: &searchparams.NearVector{
+				Vector:    []float32{1, 2, 3},
+				Certainty: 0.8,
 			},
+			Alpha: 1.0,
 		},
 		Class: class,
 	}
@@ -392,10 +350,10 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
-	assert.Contains(t, res[0].ExplainScore, "(Result Set vector,nearVector) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Contains(t, res[0].ExplainScore, "(Result Set vector) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Vector, []float32{1, 2, 3})
-	assert.Equal(t, res[0].Dist, float32(0.008))
+	assert.Equal(t, float32(0.992),res[0].SecondarySortValue)
 }
 
 func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
@@ -407,33 +365,14 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 			TargetVectors:   []string{"default"},
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-			SubSearches: []searchparams.WeightedSearchResult{
-				{
-					Type: "nearVector",
-					SearchParams: searchparams.NearVector{
-						Vector:    []float32{1, 2, 3},
-						Certainty: 0.8,
-					},
-					Weight: 100,
-				},
-				{
-					Type: "nearText",
-					SearchParams: searchparams.NearTextParams{
-						Values:    []string{"some query"},
-						Certainty: 0.8,
-					},
-					Weight: 2,
-				},
-				{
-					Type: "sparseSearch",
-					SearchParams: searchparams.KeywordRanking{
-						Type:       "bm25",
-						Properties: []string{"propA", "propB"},
-						Query:      "some query",
-					},
-					Weight: 3,
-				},
+			NearVectorParams: &searchparams.NearVector{
+				Vector:    []float32{1, 2, 3},
+				Certainty: 0.8,
 			},
+			Alpha: 0.5,
+			Query: "some query",
+			Properties: []string{"propA", "propB"},
+
 		},
 		Class: class,
 	}
@@ -473,12 +412,12 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 	assert.Len(t, res, 2)
 	assert.NotNil(t, res[0])
 	assert.NotNil(t, res[1])
-	assert.Contains(t, res[0].ExplainScore, "(Result Set vector,nearText) Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
+	assert.Contains(t, res[0].ExplainScore, "(Result Set vector) Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Contains(t, res[0].ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Equal(t, res[0].Vector, []float32{4, 5, 6})
-	assert.Equal(t, res[0].Dist, float32(0.008))
-	assert.Contains(t, res[1].ExplainScore, "(Result Set bm25f) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
+	assert.Equal(t, float32(0.992),res[0].SecondarySortValue)
+	assert.Contains(t, res[1].ExplainScore, "(Result Set keyword) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[1].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[1].Vector, []float32{1, 2, 3})
-	assert.Equal(t, res[1].Dist, float32(0.008))
+	assert.Equal(t, float32(0.008), res[1].SecondarySortValue)
 }
