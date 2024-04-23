@@ -272,17 +272,26 @@ func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
 // TenantExists is used to check if the tenant exists of a class
 //
 // Class must exist and has partitioning enabled
-func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal, class string, tenant string) error {
-	tenants, err := m.GetTenants(ctx, principal, class)
-	if err != nil {
+func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
+	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return err
 	}
 
-	for _, t := range tenants {
-		if t.Name == tenant {
-			return nil
-		}
+	var tenants []*models.Tenant
+	var err error
+	if consistency {
+		tenants, _, err = h.metaWriter.QueryTenants(class, []string{tenant})
+	} else {
+		// If non consistent, fallback to the default implementation
+		tenants, err = h.getTenantsByNames(class, []string{tenant})
 	}
+	if err != nil {
+		return err
+	}
+	if len(tenants) == 1 {
+		return nil
+	}
+
 	return ErrNotFound
 }
 
