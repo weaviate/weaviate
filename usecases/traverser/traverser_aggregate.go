@@ -96,8 +96,14 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, errors.Wrap(err, "invalid 'where' filter")
 		}
 	}
+	var mp *modules.Provider
 
-	res, err := t.vectorSearcher.Aggregate(ctx, *params, t.nearParamsVector.modulesProvider.(*modules.Provider))
+	if t.nearParamsVector.modulesProvider != nil {
+		mp = t.nearParamsVector.modulesProvider.(*modules.Provider)
+	}
+
+
+	res, err := t.vectorSearcher.Aggregate(ctx, *params, mp)
 	if err != nil || res == nil {
 		return nil, err
 	}
