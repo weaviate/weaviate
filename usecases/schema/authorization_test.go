@@ -139,7 +139,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false},
+			additionalArgs:   []interface{}{"className", false, []string{}},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
