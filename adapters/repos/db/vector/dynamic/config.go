@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -56,7 +56,7 @@ func (c Config) Validate() error {
 	return ec.ToError()
 }
 
-func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
+func ValidateUserConfigUpdate(initial, updated schemaconfig.VectorIndexConfig) error {
 	initialParsed, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)

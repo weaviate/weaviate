@@ -34,7 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	werrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/configbase"
@@ -54,7 +54,7 @@ type VectorIndex interface {
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
-	UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error
+	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
@@ -243,7 +243,7 @@ func (dynamic *dynamic) SearchByVectorDistance(vector []float32, targetDistance 
 	return dynamic.index.SearchByVectorDistance(vector, targetDistance, maxLimit, allow)
 }
 
-func (dynamic *dynamic) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()
