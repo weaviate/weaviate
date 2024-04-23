@@ -90,13 +90,12 @@ type Compose struct {
 	withWeaviateExposeGRPCPort bool
 	withSecondWeaviate         bool
 	withWeaviateCluster        bool
-	size                       int
+	withWeaviateClusterSize    int
 
 	withWeaviateAuth              bool
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
-	withWeaviateClusterSize       int
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -564,7 +563,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 
 	if d.withWeaviateCluster {
-		cs, err := d.startCluster(ctx, d.size, envSettings)
+		cs, err := d.startCluster(ctx, d.withWeaviateClusterSize, envSettings)
 		for _, c := range cs {
 			if c != nil {
 				containers = append(containers, c)
@@ -600,19 +599,19 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 
 func (d *Compose) With1NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 1
+	d.withWeaviateClusterSize = 1
 	return d
 }
 
 func (d *Compose) With2NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 2
+	d.withWeaviateClusterSize = 2
 	return d
 }
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 3
+	d.withWeaviateClusterSize = 3
 	return d
 }
 
@@ -652,7 +651,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_PORT"] = "8300"
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
-	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.size)
+	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
 
 	// first node
 	config1 := copySettings(settings)
