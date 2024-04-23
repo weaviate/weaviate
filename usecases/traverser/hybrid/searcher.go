@@ -262,7 +262,6 @@ func handleSubSearch(ctx context.Context,
 }
 
 func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*search.Result, string, float64, error) {
-
 	res, dists, err := sparseSearch()
 	if err != nil {
 		return nil, "", 0, fmt.Errorf("sparse subsearch: %w", err)
@@ -353,7 +352,6 @@ func decideSearchVector(ctx context.Context,
 			return vector, nil
 		} else {
 			return nil, fmt.Errorf("no vector or modules provided for hybrid search")
-
 		}
 	}
 

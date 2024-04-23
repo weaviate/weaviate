@@ -48,7 +48,7 @@ type Aggregator struct {
 	tenant                 string
 	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
-	modules 			  *modules.Provider
+	modules                *modules.Provider
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,

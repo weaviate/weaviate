@@ -186,10 +186,10 @@ func TestSearcher(t *testing.T) {
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
-						Type:   "hybrid",
-						Alpha:  0.5,
-						Query:  "some query",
-						Vector: []float32{1, 2, 3},
+						Type:            "hybrid",
+						Alpha:           0.5,
+						Query:           "some query",
+						Vector:          []float32{1, 2, 3},
 						FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 					},
 					Class: class,

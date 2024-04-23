@@ -53,12 +53,12 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 var (
@@ -198,7 +198,7 @@ type Index struct {
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *shardCreateLocks
-	modules 		*modules.Provider
+	modules          *modules.Provider
 }
 
 func (i *Index) GetShards() []ShardLike {

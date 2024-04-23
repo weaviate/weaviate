@@ -235,9 +235,9 @@ func TestScoreFusionWithSparseSubsearchFilter(t *testing.T) {
 		HybridSearch: &searchparams.HybridSearch{
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
-			Alpha: 0.0,
-			Properties: []string{"propA", "propB"},
-			Query:      "some query",
+			Alpha:           0.0,
+			Properties:      []string{"propA", "propB"},
+			Query:           "some query",
 		},
 		Class: class,
 	}
@@ -353,7 +353,7 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 	assert.Contains(t, res[0].ExplainScore, "(Result Set vector) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[0].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[0].Vector, []float32{1, 2, 3})
-	assert.Equal(t, float32(0.992),res[0].SecondarySortValue)
+	assert.Equal(t, float32(0.992), res[0].SecondarySortValue)
 }
 
 func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
@@ -369,10 +369,9 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 				Vector:    []float32{1, 2, 3},
 				Certainty: 0.8,
 			},
-			Alpha: 0.5,
-			Query: "some query",
+			Alpha:      0.5,
+			Query:      "some query",
 			Properties: []string{"propA", "propB"},
-
 		},
 		Class: class,
 	}
@@ -415,7 +414,7 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 	assert.Contains(t, res[0].ExplainScore, "(Result Set vector) Document 79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Contains(t, res[0].ExplainScore, "79a636c2-3314-442e-a4d1-e94d7c0afc3a")
 	assert.Equal(t, res[0].Vector, []float32{4, 5, 6})
-	assert.Equal(t, float32(0.992),res[0].SecondarySortValue)
+	assert.Equal(t, float32(0.992), res[0].SecondarySortValue)
 	assert.Contains(t, res[1].ExplainScore, "(Result Set keyword) Document 1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Contains(t, res[1].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 	assert.Equal(t, res[1].Vector, []float32{1, 2, 3})

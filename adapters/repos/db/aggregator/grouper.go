@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/modules"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 	bolt "go.etcd.io/bbolt"
 )
 
