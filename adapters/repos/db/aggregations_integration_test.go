@@ -243,7 +243,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -310,7 +310,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -420,7 +420,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -654,7 +654,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -871,7 +871,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1020,7 +1020,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, res)
 
@@ -1110,7 +1110,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				IncludeMetaCount: true,
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1158,7 +1158,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				IncludeMetaCount: true,
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1220,7 +1220,7 @@ func testDateAggregationsWithFilters(repo *DB) func(t *testing.T) {
 					},
 				},
 			}
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 
 			// No results match the filter, so only a count of 0 is included
 			require.Nil(t, err)
@@ -1257,7 +1257,7 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 					},
 				},
 			}
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 
 			// No results match the filter, so only a count of 0 is included
 			require.Nil(t, err)
@@ -1280,7 +1280,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				GroupBy:          nil, // explicitly set to nil
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1308,7 +1308,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			if exact {
@@ -1408,7 +1408,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1639,7 +1639,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			actualDivYield := res.Groups[0].Properties["dividendYield"]
@@ -1874,7 +1874,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1959,7 +1959,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				GroupBy:          nil, // explicitly set to nil
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1996,7 +1996,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -2043,7 +2043,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -2086,7 +2086,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
@@ -2116,7 +2116,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
@@ -2156,7 +2156,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
@@ -2228,7 +2228,7 @@ func testDateAggregationsWithoutGrouping(repo *DB, exact bool) func(t *testing.T
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params)
+			res, err := repo.Aggregate(context.Background(), params, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
