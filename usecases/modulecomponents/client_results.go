@@ -15,19 +15,29 @@ import "time"
 
 type RateLimits struct {
 	LastOverwrite        time.Time
-	AfterRequestFunction func(limits *RateLimits)
+	AfterRequestFunction func(limits *RateLimits, tokensUsed int, deductRequest bool)
 	LimitRequests        int
 	LimitTokens          int
 	RemainingRequests    int
 	RemainingTokens      int
-	ResetRequests        int
-	ResetTokens          int
+	ResetRequests        time.Time
+	ResetTokens          time.Time
 }
 
-func (rl *RateLimits) ResetAfterRequestFunction() {
+func (rl *RateLimits) ResetAfterRequestFunction(tokensUsed int) {
 	if rl.AfterRequestFunction != nil {
-		rl.AfterRequestFunction(rl)
+		rl.AfterRequestFunction(rl, tokensUsed, true)
 	}
+}
+
+func (rl *RateLimits) CheckForReset() {
+	if rl.AfterRequestFunction != nil {
+		rl.AfterRequestFunction(rl, 0, false)
+	}
+}
+
+func (rl *RateLimits) IsInitialized() bool {
+	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
 type VectorizationResult struct {

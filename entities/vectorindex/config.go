@@ -14,22 +14,22 @@ package vectorindex
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 const (
-	DefaultVectorIndexType = VectorIndexTypeHNSW
 	VectorIndexTypeHNSW    = "hnsw"
 	VectorIndexTypeFLAT    = "flat"
 	VectorIndexTypeDYNAMIC = "dynamic"
+	DefaultVectorIndexType = VectorIndexTypeHNSW
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schema.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error) {
 	if len(vectorIndexType) == 0 {
 		vectorIndexType = DefaultVectorIndexType
 	}
@@ -42,6 +42,6 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schema.V
 	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input)
 	default:
-		return nil, fmt.Errorf("invalid vectorIndexType (%s). Supported types are hnsw, flat, and dynamic", vectorIndexType)
+		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw, flat and dynamic", vectorIndexType)
 	}
 }

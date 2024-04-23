@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type CompressorDistancer interface {
@@ -230,6 +231,7 @@ func NewHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
@@ -242,7 +244,9 @@ func NewHNSWPQCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
-	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, allocChecker)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
 	err = quantizer.Fit(data)
 	if err != nil {
@@ -259,6 +263,7 @@ func RestoreHNSWPQCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
 	if err != nil {
@@ -271,7 +276,9 @@ func RestoreHNSWPQCompressor(
 		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
-	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		allocChecker)
 	return pqVectorsCompressor, nil
 }
 
@@ -280,6 +287,7 @@ func NewBQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
@@ -289,7 +297,9 @@ func NewBQCompressor(
 		loadId:          binary.BigEndian.Uint64,
 	}
 	bqVectorsCompressor.initCompressedStore()
-	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		allocChecker)
 	return bqVectorsCompressor, nil
 }
 

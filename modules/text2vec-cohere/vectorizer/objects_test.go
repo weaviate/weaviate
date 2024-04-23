@@ -188,7 +188,8 @@ func TestVectorizingObjects(t *testing.T) {
 				cohereModel:           test.cohereModel,
 				vectorizePropertyName: true,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, ic)
+
+			vector, _, err := v.Object(context.Background(), test.input, ic, ent.NewClassSettings(ic))
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)

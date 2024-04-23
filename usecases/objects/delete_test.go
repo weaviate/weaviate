@@ -94,6 +94,6 @@ func newDeleteDependency() (*Manager, *fakeVectorRepo) {
 		new(fakeAuthorizer),
 		vectorRepo,
 		getFakeModulesProvider(),
-		new(fakeMetrics))
+		new(fakeMetrics), nil)
 	return manager, vectorRepo
 }

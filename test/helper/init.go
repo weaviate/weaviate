@@ -47,6 +47,12 @@ func init() {
 	RootAuth = nil
 }
 
+func ResetClient() {
+	ServerScheme = "http"
+	ServerPort = "8080"
+	RootAuth = nil
+}
+
 func GetWeaviateURL() string {
 	return fmt.Sprintf("%s://%s:%s", ServerScheme, ServerHost, ServerPort)
 }

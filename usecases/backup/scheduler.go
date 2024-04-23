@@ -48,6 +48,7 @@ func NewScheduler(
 	sourcer selector,
 	backends BackupBackendProvider,
 	nodeResolver nodeResolver,
+	schema schemaManger,
 	logger logrus.FieldLogger,
 ) *Scheduler {
 	m := &Scheduler{
@@ -57,10 +58,12 @@ func NewScheduler(
 		backupper: newCoordinator(
 			sourcer,
 			client,
+			schema,
 			logger, nodeResolver),
 		restorer: newCoordinator(
 			sourcer,
 			client,
+			schema,
 			logger, nodeResolver),
 	}
 	return m
@@ -112,6 +115,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 }
 
+// Restore loads the backup and restores classes in temporary directories on the filesystem.
+// The final backup restoration is orchestrated by the raft store.
 func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	req *BackupRequest,
 ) (_ *models.BackupRestoreResponse, err error) {
@@ -134,6 +139,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		}
 		return nil, backup.NewErrUnprocessable(err)
 	}
+	schema, err := s.fetchSchema(ctx, req.Backend, meta)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	status := string(backup.Started)
 	data := &models.BackupRestoreResponse{
 		Backend: req.Backend,
@@ -148,7 +157,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Backend:     req.Backend,
 		Compression: req.Compression,
 	}
-	err = s.restorer.Restore(ctx, store, &rReq, meta)
+	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
 		status = string(backup.Failed)
 		data.Error = err.Error()
@@ -303,6 +312,54 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		meta.ApplyNodeMapping()
 	}
 	return meta, nil
+}
+
+// fetchSchema retrieves and returns the latest schema for all classes
+// In pre-raft scenarios where schema may diverge, some guesswork is necessary
+func (s *Scheduler) fetchSchema(
+	ctx context.Context,
+	backend string,
+	req *backup.DistributedBackupDescriptor,
+) ([]backup.ClassDescriptor, error) {
+	f := func(node string) ([]backup.ClassDescriptor, error) {
+		store, err := nodeBackend(node, s.backends, backend, req.ID)
+		if err != nil {
+			return nil, err
+		}
+		meta, err := store.Meta(ctx, req.ID, true)
+		if err != nil {
+			return nil, err
+		}
+		return meta.Classes, nil
+	}
+
+	if req.Leader != "" {
+		return f(req.Leader) // raft version of the backup
+	}
+
+	// union
+	m := make(map[string]backup.ClassDescriptor, 64)
+	for k := range req.Nodes {
+		xs, err := f(k)
+		if err != nil {
+			break
+		}
+		// guess the most up to date version
+		for _, x := range xs {
+			c, ok := m[x.Name]
+			if !ok || len(x.ShardingState) > len(c.ShardingState) {
+				m[x.Name] = x
+				continue
+			}
+		}
+	}
+	xs := make([]backup.ClassDescriptor, len(m))
+	i := 0
+	for _, v := range m {
+		xs[i] = v
+		i++
+	}
+	return xs, nil
 }
 
 func logOperation(logger logrus.FieldLogger, name, id, backend string, begin time.Time, err error) {

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/swag"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"gopkg.in/yaml.v2"
 )
 
@@ -66,6 +68,16 @@ const (
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
+
+	RaftPort              int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
+	RaftInternalRPCPort   int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
+	RaftJoin              []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
+	RaftBootstrapTimeout  int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
+	RaftBootstrapExpect   int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
+	RaftHeartbeatTimeout  int      `long:"raft-heartbeat-timeout" description:"raft heartbeat timeout"`
+	RaftElectionTimeout   int      `long:"raft-election-timeout" description:"raft election timeout"`
+	RaftSnapshotThreshold int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
+	RaftSnapshotInterval  int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
 }
 
 // Config outline of the config file
@@ -88,7 +100,7 @@ type Config struct {
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
 	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                          Monitoring               `json:"monitoring" yaml:"monitoring"`
+	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
 	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
 	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
@@ -104,6 +116,10 @@ type Config struct {
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
+
+	// Raft Specific configuration
+	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
+	Raft Raft
 }
 
 type moduleProvider interface {
@@ -175,13 +191,6 @@ const DefaultQueryDefaultsLimit int64 = 10
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
-}
-
-type Monitoring struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
-	Group   bool   `json:"group_classes" yaml:"group_classes"`
 }
 
 // Support independent TLS credentials for gRPC
@@ -279,10 +288,73 @@ func (r ResourceUsage) Validate() error {
 	return nil
 }
 
+type Raft struct {
+	Port              int
+	InternalRPCPort   int
+	Join              []string
+	SnapshotThreshold uint64
+	HeartbeatTimeout  time.Duration
+	RecoveryTimeout   time.Duration
+	ElectionTimeout   time.Duration
+	SnapshotInterval  time.Duration
+
+	BootstrapTimeout time.Duration
+	BootstrapExpect  int
+}
+
+func (r *Raft) Validate() error {
+	if r.Port == 0 {
+		return fmt.Errorf("raft.port must be greater than 0")
+	}
+
+	if r.InternalRPCPort == 0 {
+		return fmt.Errorf("raft.intra_rpc_port must be greater than 0")
+	}
+
+	uniqueMap := make(map[string]struct{}, len(r.Join))
+	updatedJoinList := make([]string, len(r.Join))
+	for i, nodeNameAndPort := range r.Join {
+		// Check that the format is correct. In case only node name is present we append the default raft port
+		nodeNameAndPortSplitted := strings.Split(nodeNameAndPort, ":")
+		if len(nodeNameAndPortSplitted) == 0 {
+			return fmt.Errorf("raft.join element %s has no node name", nodeNameAndPort)
+		} else if len(nodeNameAndPortSplitted) < 2 {
+			// If user only specify a node name and no port, use the default raft port
+			nodeNameAndPortSplitted = append(nodeNameAndPortSplitted, fmt.Sprintf("%d", DefaultRaftPort))
+		} else if len(nodeNameAndPortSplitted) > 2 {
+			return fmt.Errorf("raft.join element %s has unexpected amount of element", nodeNameAndPort)
+		}
+
+		// Check that the node name is unique
+		nodeName := nodeNameAndPortSplitted[0]
+		if _, ok := uniqueMap[nodeName]; ok {
+			return fmt.Errorf("raft.join contains the value %s multiple times. Joined nodes must have a unique id", nodeName)
+		} else {
+			uniqueMap[nodeName] = struct{}{}
+		}
+
+		// TODO-RAFT START
+		// Validate host and port
+
+		updatedJoinList[i] = strings.Join(nodeNameAndPortSplitted, ":")
+	}
+	r.Join = updatedJoinList
+
+	if r.BootstrapExpect == 0 {
+		return fmt.Errorf("raft.bootstrap_expect must be greater than 0")
+	}
+	// TODO-RAFT: Currently to simplify bootstrapping we expect to bootstrap all the nodes in the join list together. We keep the expect
+	// paramater so that in the future we can change the behaviour if we want (bootstrap once X nodes among Y are online).
+	if r.BootstrapExpect != len(r.Join) {
+		return fmt.Errorf("raft.bootstrap.expect must be equal to the length of raft.join")
+	}
+	return nil
+}
+
 // GetConfigOptionGroup creates an option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
-		ShortDescription: "Connector config & MQTT config",
+		ShortDescription: "Connector, raft & MQTT config",
 		LongDescription:  "",
 		Options:          &Flags{},
 	}
@@ -302,7 +374,11 @@ func (f *WeaviateConfig) GetHostAddress() string {
 	return fmt.Sprintf("%s://%s", f.Scheme, f.Hostname)
 }
 
-// LoadConfig from config locations
+// LoadConfig from config locations. The load order for configuration values if the following
+// 1. Config file
+// 2. Environment variables
+// 3. Command line flags
+// If a config option is specified multiple times in different locations, the latest one will be used in this order.
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
@@ -315,6 +391,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	file, err := os.ReadFile(configFileName)
 	_ = err // explicitly ignore
 
+	// Load config from config file if present
 	if len(file) > 0 {
 		logger.WithField("action", "config_load").WithField("config_file_path", configFileName).
 			Info("Usage of the weaviate.conf.json file is deprecated and will be removed in the future. Please use environment variables.")
@@ -327,9 +404,13 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 		deprecations.Log(logger, "config-files")
 	}
 
+	// Load config from env
 	if err := FromEnv(&f.Config); err != nil {
 		return configErr(err)
 	}
+
+	// Load config from flags
+	f.fromFlags(flags.Options.(*Flags))
 
 	if err := f.Config.Authentication.Validate(); err != nil {
 		return configErr(err)
@@ -348,6 +429,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	if err := f.Config.ResourceUsage.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := f.Config.Raft.Validate(); err != nil {
 		return configErr(err)
 	}
 
@@ -378,6 +463,31 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	}
 
 	return config, nil
+}
+
+// fromFlags parses values from flags given as parameter and overrides values in the config
+func (f *WeaviateConfig) fromFlags(flags *Flags) {
+	if flags.RaftPort > 0 {
+		f.Config.Raft.Port = flags.RaftPort
+	}
+	if flags.RaftInternalRPCPort > 0 {
+		f.Config.Raft.InternalRPCPort = flags.RaftInternalRPCPort
+	}
+	if flags.RaftJoin != nil {
+		f.Config.Raft.Join = flags.RaftJoin
+	}
+	if flags.RaftBootstrapTimeout > 0 {
+		f.Config.Raft.BootstrapTimeout = time.Second * time.Duration(flags.RaftBootstrapTimeout)
+	}
+	if flags.RaftBootstrapExpect > 0 {
+		f.Config.Raft.BootstrapExpect = flags.RaftBootstrapExpect
+	}
+	if flags.RaftSnapshotInterval > 0 {
+		f.Config.Raft.SnapshotInterval = time.Second * time.Duration(flags.RaftSnapshotInterval)
+	}
+	if flags.RaftSnapshotThreshold > 0 {
+		f.Config.Raft.SnapshotThreshold = uint64(flags.RaftSnapshotThreshold)
+	}
 }
 
 func configErr(err error) error {

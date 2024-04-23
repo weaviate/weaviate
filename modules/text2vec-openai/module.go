@@ -17,6 +17,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -28,8 +32,7 @@ import (
 )
 
 const (
-	Name          = "text2vec-openai"
-	OpenAITimeout = 40 * time.Second
+	Name = "text2vec-openai"
 )
 
 func New() *OpenAIModule {
@@ -37,25 +40,13 @@ func New() *OpenAIModule {
 }
 
 type OpenAIModule struct {
-	vectorizer                   textVectorizer
-	metaProvider                 metaProvider
+	vectorizer                   text2vecbase.TextVectorizerBatch
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-}
-
-type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
-	Texts(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) ([]float32, error)
-	ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, map[int]error)
-}
-
-type metaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *OpenAIModule) Name() string {
@@ -109,7 +100,7 @@ func (m *OpenAIModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client, OpenAITimeout, m.logger)
+	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
 
 	return nil
@@ -128,12 +119,12 @@ func (m *OpenAIModule) RootHandler() http.Handler {
 func (m *OpenAIModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	icheck := ent.NewClassSettings(cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, icheck)
 }
 
 func (m *OpenAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
-
 	return vecs, nil, errs
 }
 

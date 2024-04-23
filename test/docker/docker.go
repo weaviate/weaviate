@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -56,40 +57,57 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 }
 
 func (d *DockerCompose) Start(ctx context.Context, container string) error {
-	for _, c := range d.containers {
+	idx := -1
+	for i, c := range d.containers {
 		if c.name == container {
-			if err := c.container.Start(ctx); err != nil {
-				return fmt.Errorf("cannot start %q: %w", c.name, err)
-			}
-			if err := d.waitUntilRunning(c.name, c.container); err != nil {
-				return err
-			}
-			newEndpoints := map[EndpointName]endpoint{}
-			for name, e := range c.endpoints {
-				newURI, err := c.container.PortEndpoint(ctx, e.port, "")
-				if err != nil {
-					return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
-				}
-				newEndpoints[name] = endpoint{e.port, newURI}
-			}
-			c.endpoints = newEndpoints
+			idx = i
+			break
 		}
 	}
+	if idx == -1 {
+		return fmt.Errorf("container %q does not exist ", container)
+	}
+	return d.StartAt(ctx, idx)
+}
+
+func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
+	if nodeIndex > len(d.containers) {
+		return fmt.Errorf("container at index %d does not exit", nodeIndex)
+	}
+	return d.containers[nodeIndex].container.Stop(ctx, timeout)
+}
+
+func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
+	if nodeIndex > len(d.containers) {
+		return fmt.Errorf("container at index %d does not exit", nodeIndex)
+	}
+
+	c := d.containers[nodeIndex]
+	if err := c.container.Start(ctx); err != nil {
+		return fmt.Errorf("cannot start container at index %d : %w", nodeIndex, err)
+	}
+
+	endPoints := map[EndpointName]endpoint{}
+	for name, e := range c.endpoints {
+		newURI, err := c.container.PortEndpoint(context.Background(), nat.Port(e.port), "")
+		if err != nil {
+			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
+		}
+		endPoints[name] = endpoint{e.port, newURI}
+	}
+	c.endpoints = endPoints
 	return nil
 }
 
-func (d *DockerCompose) waitUntilRunning(name string, container testcontainers.Container) error {
-	waitTimeout := 1 * time.Minute
-	start := time.Now()
-	for {
-		if container.IsRunning() {
-			return nil
-		}
-		time.Sleep(200 * time.Millisecond)
-		if time.Now().After(start.Add(waitTimeout)) {
-			return fmt.Errorf("container %q: was still not running after %v", name, waitTimeout)
-		}
+func (d *DockerCompose) ContainerURI(index int) string {
+	return d.containers[index].URI()
+}
+
+func (d *DockerCompose) ContainerAt(index int) (*DockerContainer, error) {
+	if index > len(d.containers) {
+		return nil, fmt.Errorf("container at index %d does not exit", index)
 	}
+	return d.containers[index], nil
 }
 
 func (d *DockerCompose) GetMinIO() *DockerContainer {
@@ -105,7 +123,7 @@ func (d *DockerCompose) GetAzurite() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviate() *DockerContainer {
-	return d.getContainerByName(Weaviate)
+	return d.getContainerByName(Weaviate1)
 }
 
 func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
@@ -113,7 +131,7 @@ func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
 }
 
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
-	return d.getContainerByName(WeaviateNode2)
+	return d.getContainerByName(Weaviate2)
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
@@ -126,6 +144,14 @@ func (d *DockerCompose) GetText2VecContextionary() *DockerContainer {
 
 func (d *DockerCompose) GetQnATransformers() *DockerContainer {
 	return d.getContainerByName(QnATransformers)
+}
+
+func (d *DockerCompose) GetOllamaVectorizer() *DockerContainer {
+	return d.getContainerByName(OllamaVectorizer)
+}
+
+func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
+	return d.getContainerByName(OllamaGenerative)
 }
 
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {

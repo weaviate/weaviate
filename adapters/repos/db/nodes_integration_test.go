@@ -44,7 +44,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -114,7 +114,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 			UUID: "86a380e9-cb60-4b2a-bc48-51f52acd72d6",
 		},
 	}
-	batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+	batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 	require.Nil(t, err)
 
 	assert.Nil(t, batchRes[0].Err)

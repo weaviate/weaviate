@@ -16,8 +16,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/weaviate/weaviate/usecases/config"
 )
+
+type Config struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Tool    string `json:"tool" yaml:"tool"`
+	Port    int    `json:"port" yaml:"port"`
+	Group   bool   `json:"group_classes" yaml:"group_classes"`
+}
 
 type PrometheusMetrics struct {
 	BatchTime                         *prometheus.HistogramVec
@@ -68,6 +74,15 @@ type PrometheusMetrics struct {
 	ShardsUnloaded  *prometheus.GaugeVec
 	ShardsLoading   *prometheus.GaugeVec
 	ShardsUnloading *prometheus.GaugeVec
+
+	SchemaTxOpened   *prometheus.CounterVec
+	SchemaTxClosed   *prometheus.CounterVec
+	SchemaTxDuration *prometheus.SummaryVec
+
+	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
+	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
+	TombstoneReassignNeighbors    *prometheus.CounterVec
+	TombstoneDeleteListSize       *prometheus.GaugeVec
 
 	Group bool
 }
@@ -149,7 +164,7 @@ func init() {
 	metrics = newPrometheusMetrics()
 }
 
-func InitConfig(cfg config.Monitoring) {
+func InitConfig(cfg Config) {
 	metrics.Group = cfg.Group
 }
 
@@ -358,6 +373,36 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
 		}, []string{"class_name"}),
+
+		// Schema TX-metrics. Can be removed when RAFT is ready
+		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "schema_tx_opened_total",
+			Help: "Total number of opened schema transactions",
+		}, []string{"ownership"}),
+		SchemaTxClosed: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "schema_tx_closed_total",
+			Help: "Total number of closed schema transactions. A close must be either successful or failed",
+		}, []string{"ownership", "status"}),
+		SchemaTxDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_tx_duration_seconds",
+			Help: "Mean duration of a tx by status",
+		}, []string{"ownership", "status"}),
+		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_find_local_entrypoint",
+			Help: "Total number of tombstone delete local entrypoint calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneFindGlobalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_find_global_entrypoint",
+			Help: "Total number of tombstone delete global entrypoint calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneReassignNeighbors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_reassign_neighbors",
+			Help: "Total number of tombstone reassign neighbor calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneDeleteListSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "tombstone_delete_list_size",
+			Help: "Delete list size of tombstones",
+		}, []string{"class_name", "shard_name"}),
 	}
 }
 

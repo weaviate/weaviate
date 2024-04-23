@@ -17,7 +17,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/modules/text2vec-voyageai/ent"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -36,24 +38,13 @@ func New() *VoyageAIModule {
 }
 
 type VoyageAIModule struct {
-	vectorizer                   textVectorizer
-	metaProvider                 metaProvider
+	vectorizer                   text2vecbase.TextVectorizerBatch
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-}
-
-type textVectorizer interface {
-	Object(ctx context.Context, object *models.Object,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
-	Texts(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) ([]float32, error)
-}
-
-type metaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *VoyageAIModule) Name() string {
@@ -104,7 +95,7 @@ func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Durati
 	apiKey := os.Getenv("VOYAGEAI_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
 
 	return nil
@@ -123,11 +114,12 @@ func (m *VoyageAIModule) RootHandler() http.Handler {
 func (m *VoyageAIModule) VectorizeObject(ctx context.Context, obj *models.Object,
 	cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
 func (m *VoyageAIModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+	return vecs, nil, errs
 }
 
 func (m *VoyageAIModule) VectorizableProperties(cfg moduletools.ClassConfig,

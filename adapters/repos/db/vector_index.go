@@ -16,7 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 // VectorIndex is anything that indexes vectors efficiently. For an example
@@ -29,7 +29,7 @@ type VectorIndex interface {
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
-	UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error
+	UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error
 	Drop(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 	Flush() error
