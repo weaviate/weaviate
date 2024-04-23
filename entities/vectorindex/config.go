@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	DefaultVectorIndexType  = VectorIndexTypeHNSW
-	VectorIndexTypeHNSW     = "hnsw"
-	VectorIndexTypeFLAT     = "flat"
-	VectorIndexTypeCOMPOSER = "composer"
+	DefaultVectorIndexType = VectorIndexTypeHNSW
+	VectorIndexTypeHNSW    = "hnsw"
+	VectorIndexTypeFLAT    = "flat"
+	VectorIndexTypeDYNAMIC = "dynamic"
 )
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -39,7 +39,7 @@ func ParseAndValidateConfig(input interface{}, vectorIndexType string) (schemaCo
 		return hnsw.ParseAndValidateConfig(input)
 	case VectorIndexTypeFLAT:
 		return flat.ParseAndValidateConfig(input)
-	case VectorIndexTypeCOMPOSER:
+	case VectorIndexTypeDYNAMIC:
 		return dynamic.ParseAndValidateConfig(input)
 	default:
 		return nil, fmt.Errorf("invalid vector index %q. Supported types are hnsw and flat", vectorIndexType)
