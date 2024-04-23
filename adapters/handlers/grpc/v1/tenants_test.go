@@ -25,11 +25,11 @@ func TestGRPCTenants(t *testing.T) {
 		activityStatus     string
 	}{
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_ACTIVITY_STATUS_HOT,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
 			activityStatus:     "HOT",
 		},
 		{
-			activityStatusGRPC: pb.TenantActivityStatus_ACTIVITY_STATUS_COLD,
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD,
 			activityStatus:     "COLD",
 		},
 	}

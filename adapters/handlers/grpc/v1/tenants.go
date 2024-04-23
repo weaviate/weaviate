@@ -27,7 +27,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 	var err error
 	var tenants []*models.Tenant
 	if req.Params == nil {
-		tenants, err = s.schemaManager.GetTenants(ctx, principal, req.Collection)
+		tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, req.IsConsistent, []string{})
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +38,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 			if len(requestedNames) == 0 {
 				return nil, fmt.Errorf("must specify at least one tenant name")
 			}
-			tenants, err = s.schemaManager.GetTenantsByNames(ctx, principal, req.Collection, requestedNames)
+			tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, req.IsConsistent, requestedNames)
 			if err != nil {
 				return nil, err
 			}
@@ -61,13 +61,13 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 func tenantToGRPC(tenant *models.Tenant) (*pb.Tenant, error) {
 	var status pb.TenantActivityStatus
 	if tenant.ActivityStatus == models.TenantActivityStatusHOT {
-		status = pb.TenantActivityStatus_ACTIVITY_STATUS_HOT
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD
 	} else if tenant.ActivityStatus == models.TenantActivityStatusWARM {
-		status = pb.TenantActivityStatus_ACTIVITY_STATUS_WARM
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_WARM
 	} else if tenant.ActivityStatus == models.TenantActivityStatusCOLD {
-		status = pb.TenantActivityStatus_ACTIVITY_STATUS_COLD
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD
 	} else if tenant.ActivityStatus == models.TenantActivityStatusFROZEN {
-		status = pb.TenantActivityStatus_ACTIVITY_STATUS_FROZEN
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN
 	} else {
 		return nil, fmt.Errorf("unknown tenant activity status %s", tenant.ActivityStatus)
 	}
