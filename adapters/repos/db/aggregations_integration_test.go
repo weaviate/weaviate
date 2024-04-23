@@ -54,7 +54,7 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
 
-	t.Run("numerical aggregations with grouping",
+	t.Run("numerical aggregations with grouping 1",
 		testNumericalAggregationsWithGrouping(repo, true))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",
@@ -99,7 +99,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
 
-	t.Run("numerical aggregations with grouping",
+	t.Run("numerical aggregations with grouping 2",
 		testNumericalAggregationsWithGrouping(repo, false))
 
 	t.Run("numerical aggregations without grouping (formerly Meta)",

@@ -61,9 +61,6 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider,
 ) *Aggregator {
-	if modules == nil {
-		panic("modules.Provider is nil")
-	}
 	return &Aggregator{
 		logger:                 logger,
 		store:                  store,
