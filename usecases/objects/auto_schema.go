@@ -52,58 +52,63 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	allowCreateClass bool, objects ...*models.Object,
-) error {
+) (uint64, error) {
 	if !m.config.Enabled {
-		return nil
+		return 0, nil
 	}
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	var schemaVersion uint64
 	for _, object := range objects {
 		if object == nil {
-			return fmt.Errorf(validation.ErrorMissingObject)
+			return 0, fmt.Errorf(validation.ErrorMissingObject)
 		}
 
 		if len(object.Class) == 0 {
 			// stop performing auto schema
-			return fmt.Errorf(validation.ErrorMissingClass)
+			return 0, fmt.Errorf(validation.ErrorMissingClass)
 		}
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		schemaClass, _, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+		schemaClass, classVersion, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if schemaClass == nil && !allowCreateClass {
-			return fmt.Errorf("given class does not exist")
+			return 0, fmt.Errorf("given class does not exist")
 		}
 		properties, err := m.getProperties(object)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if schemaClass == nil {
-			if err := m.createClass(ctx, principal, object.Class, properties); err != nil {
-				return err
+			if classVersion, err = m.createClass(ctx, principal, object.Class, properties); err != nil {
+				return classVersion, err
 			}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 			continue
 		}
 		newProperties := schema.DedupProperties(schemaClass.Properties, properties)
 		if len(newProperties) > 0 {
-			if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, newProperties...); err != nil {
-				return err
+			if classVersion, err = m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, newProperties...); err != nil {
+				return 0, err
 			}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		}
+
+		if classVersion > schemaVersion {
+			schemaVersion = classVersion
+		}
 	}
-	return nil
+	return 0, nil
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property,
-) error {
+) (uint64, error) {
 	now := time.Now()
 	class := &models.Class{
 		Class:       className,
@@ -113,8 +118,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	_, err := m.schemaManager.AddClass(ctx, principal, class)
-	return err
+	schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
+	return schemaVersion, err
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
