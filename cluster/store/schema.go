@@ -302,20 +302,14 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 			res = make([]*models.Tenant, len(ss.Physical))
 			i := 0
 			for tenant := range ss.Physical {
-				res[i] = &models.Tenant{
-					Name:           tenant,
-					ActivityStatus: entSchema.ActivityStatus(ss.Physical[tenant].Status),
-				}
+				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
 				i++
 			}
 		} else {
 			res = make([]*models.Tenant, 0, len(tenants))
 			for _, tenant := range tenants {
 				if status, ok := ss.Physical[tenant]; ok {
-					res = append(res, &models.Tenant{
-						Name:           tenant,
-						ActivityStatus: entSchema.ActivityStatus(status.Status),
-					})
+					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
 				}
 			}
 		}
@@ -344,5 +338,12 @@ func (s *schema) clear() {
 	defer s.Unlock()
 	for k := range s.Classes {
 		delete(s.Classes, k)
+	}
+}
+
+func makeTenant(name, status string) *models.Tenant {
+	return &models.Tenant{
+		Name:           name,
+		ActivityStatus: status,
 	}
 }
