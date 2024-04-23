@@ -70,7 +70,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	if err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
+	var schemaVersion uint64
+	if schemaVersion, err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -95,7 +96,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
