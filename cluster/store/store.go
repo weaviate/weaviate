@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -113,12 +114,13 @@ type Config struct {
 	UpdateWaitTimeout time.Duration
 	SnapshotThreshold uint64
 
-	DB           Indexer
-	Parser       Parser
-	AddrResolver addressResolver
-	Logger       *slog.Logger
-	LogLevel     string
-	Voter        bool
+	DB            Indexer
+	Parser        Parser
+	AddrResolver  addressResolver
+	Logger        *slog.Logger
+	LogLevel      string
+	LogJSONFormat bool
+	Voter         bool
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
@@ -148,11 +150,12 @@ type Store struct {
 
 	snapshotThreshold uint64
 
-	nodeID   string
-	host     string
-	db       *localDB
-	log      *slog.Logger
-	logLevel string
+	nodeID        string
+	host          string
+	db            *localDB
+	log           *slog.Logger
+	logLevel      string
+	logJsonFormat bool
 
 	bootstrapped  atomic.Bool
 	logStore      *raftbolt.BoltStore
@@ -199,6 +202,7 @@ func New(cfg Config) Store {
 		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser, cfg.Logger},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
+		logJsonFormat:     cfg.LogJSONFormat,
 
 		// loadLegacySchema is responsible for loading old schema from boltDB
 		loadLegacySchema: cfg.LoadLegacySchema,
@@ -283,7 +287,10 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 		return nil, fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
 	}
 
-	st.transport, err = st.addResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout)
+	st.transport, err = st.addResolver.NewTCPTransport(
+		address, tcpAddr,
+		tcpMaxPool, tcpTimeout,
+		st.logLevel, st.logJsonFormat)
 	if err != nil {
 		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
 			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -769,6 +776,14 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.LogLevel = st.logLevel
+	logger := hclog.New(&hclog.LoggerOptions{
+		Name:       "raft",
+		Level:      hclog.LevelFromString(st.logLevel),
+		JSONFormat: st.logJsonFormat,
+		Output:     os.Stderr,
+	})
+	cfg.Logger = logger
+
 	return cfg
 }
 
