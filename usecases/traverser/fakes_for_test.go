@@ -178,7 +178,7 @@ func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt
 }
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
