@@ -69,6 +69,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
+	// TODO-RAFT: Verify here how we want to fetch schemaVersion
 	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, 0)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
