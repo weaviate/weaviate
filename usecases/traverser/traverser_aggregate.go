@@ -20,6 +20,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 // Aggregate resolves meta queries
@@ -96,7 +97,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	res, err := t.vectorSearcher.Aggregate(ctx, *params)
+	res, err := t.vectorSearcher.Aggregate(ctx, *params, t.nearParamsVector.modulesProvider.(*modules.Provider))
 	if err != nil || res == nil {
 		return nil, err
 	}

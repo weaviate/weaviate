@@ -58,6 +58,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 var (
@@ -197,6 +198,7 @@ type Index struct {
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *shardCreateLocks
+	modules 		*modules.Provider
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -1723,7 +1725,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	if err := i.validateMultiTenancy(params.Tenant); err != nil {
 		return nil, err
@@ -1746,7 +1748,7 @@ func (i *Index) aggregate(ctx context.Context,
 			if err != nil {
 				err = ErrShardNotFound
 			} else {
-				res, err = shard.Aggregate(ctx, params)
+				res, err = shard.Aggregate(ctx, params, modules)
 			}
 		}
 		if err != nil {
@@ -1767,7 +1769,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 		return nil, ErrShardNotFound
 	}
 
-	return shard.Aggregate(ctx, params)
+	return shard.Aggregate(ctx, params, i.modules)
 }
 
 func (i *Index) drop() error {

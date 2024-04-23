@@ -104,29 +104,6 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		names = append(names, "vector")
 	}
 
-	ss := params.SubSearches
-
-	if ss != nil {
-		_, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules, schemaGetter, targetVectorParamHelper)
-			if err != nil {
-				return nil, err
-			}
-
-			if res == nil {
-				continue
-			}
-
-			found = append(found, res)
-			weights = append(weights, weight)
-			names = append(names, name)
-		}
-	}
 	if len(weights) != len(found) {
 		return nil, fmt.Errorf("length of weights and results do not match for hybrid search %v vs. %v", len(weights), len(found))
 	}
@@ -237,7 +214,16 @@ func processDenseSearch(ctx context.Context,
 	denseSearch denseSearchFunc, params *Params, modules modulesProvider,
 	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
 ) ([]*search.Result, error) {
-	vector, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
+	query := params.Query
+	vector := params.Vector
+	if params.HybridSearch.NearTextParams != nil {
+		params.NearTextParams = params.HybridSearch.NearTextParams
+		query = params.HybridSearch.NearTextParams.Values[0]
+	} else if params.HybridSearch.NearVectorParams != nil {
+		params.NearVectorParams = params.HybridSearch.NearVectorParams
+		vector = params.HybridSearch.NearVectorParams.Vector
+	}
+	vector, err := decideSearchVector(ctx, params.Class, query, params.TargetVectors, vector, modules, schemaGetter, targetVectorParamHelper)
 	if err != nil {
 		return nil, err
 	}
@@ -276,8 +262,6 @@ func handleSubSearch(ctx context.Context,
 }
 
 func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Params, sparseSearch sparseSearchFunc) ([]*search.Result, string, float64, error) {
-	sp := subsearch.SearchParams.(searchparams.KeywordRanking)
-	params.Keyword = &sp
 
 	res, dists, err := sparseSearch()
 	if err != nil {
@@ -349,32 +333,31 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 }
 
 func decideSearchVector(ctx context.Context,
-	params *Params, modules modulesProvider,
+	class, query string, targetVectors []string, vector []float32, modules modulesProvider,
 	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
 ) ([]float32, error) {
-	var (
-		vector []float32
-		err    error
-	)
-
-	if params.Vector != nil && len(params.Vector) != 0 {
-		vector = params.Vector
+	if vector != nil && len(vector) != 0 {
+		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
-			targetVector := getTargetVector(params.TargetVectors)
-			targetVector, err = targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
-				params.Class, targetVector)
+			targetVector := getTargetVector(targetVectors)
+			targetVector, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+				class, targetVector)
 			if err != nil {
 				return nil, err
 			}
-			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, targetVector, modules)
+			vector, err := vectorFromModuleInput(ctx, class, query, targetVector, modules)
 			if err != nil {
 				return nil, err
 			}
+			return vector, nil
+		} else {
+			return nil, fmt.Errorf("no vector or modules provided for hybrid search")
+
 		}
 	}
 
-	return vector, nil
+	return nil, fmt.Errorf("unable to decide search vector for hybrid search")
 }
 
 func vectorFromModuleInput(ctx context.Context, class, input, targetVector string, modules modulesProvider) ([]float32, error) {

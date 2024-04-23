@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -47,6 +48,7 @@ type Aggregator struct {
 	tenant                 string
 	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
+	modules 			  *modules.Provider
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -57,7 +59,11 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
+	modules *modules.Provider,
 ) *Aggregator {
+	if modules == nil {
+		panic("modules.Provider is nil")
+	}
 	return &Aggregator{
 		logger:                 logger,
 		store:                  store,
@@ -72,6 +78,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
+		modules:                modules,
 	}
 }
 
