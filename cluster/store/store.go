@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -113,12 +114,13 @@ type Config struct {
 	UpdateWaitTimeout time.Duration
 	SnapshotThreshold uint64
 
-	DB           Indexer
-	Parser       Parser
-	AddrResolver addressResolver
-	Logger       *slog.Logger
-	LogLevel     string
-	Voter        bool
+	DB            Indexer
+	Parser        Parser
+	AddrResolver  addressResolver
+	Logger        *slog.Logger
+	LogLevel      string
+	LogJSONFormat bool
+	Voter         bool
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
@@ -143,19 +145,17 @@ type Store struct {
 	// applyTimeout timeout limit the amount of time raft waits for a command to be started
 	applyTimeout time.Duration
 
-	// migrationTimeout is the timeout for restoring the legacy schema
-	migrationTimeout time.Duration
-
 	// UpdateWaitTimeout Timeout duration for waiting for the update to be propagated to this follower node.
 	updateWaitTimeout time.Duration
 
 	snapshotThreshold uint64
 
-	nodeID   string
-	host     string
-	db       *localDB
-	log      *slog.Logger
-	logLevel string
+	nodeID        string
+	host          string
+	db            *localDB
+	log           *slog.Logger
+	logLevel      string
+	logJsonFormat bool
 
 	bootstrapped  atomic.Bool
 	logStore      *raftbolt.BoltStore
@@ -194,7 +194,6 @@ func New(cfg Config) Store {
 		electionTimeout:   cfg.ElectionTimeout,
 		snapshotInterval:  cfg.SnapshotInterval,
 		snapshotThreshold: cfg.SnapshotThreshold,
-		migrationTimeout:  cfg.BootstrapTimeout,
 		updateWaitTimeout: cfg.UpdateWaitTimeout,
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
@@ -203,6 +202,7 @@ func New(cfg Config) Store {
 		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser, cfg.Logger},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
+		logJsonFormat:     cfg.LogJSONFormat,
 
 		// loadLegacySchema is responsible for loading old schema from boltDB
 		loadLegacySchema: cfg.LoadLegacySchema,
@@ -214,6 +214,8 @@ func (st *Store) IsVoter() bool { return st.voter }
 func (st *Store) ID() string    { return st.nodeID }
 
 // Open opens this store and marked as such.
+// It constructs a new Raft node using the provided configuration.
+// If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored.
 func (st *Store) Open(ctx context.Context) (err error) {
 	if st.open.Load() { // store already opened
 		return nil
@@ -248,7 +250,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"last_log_applied_index", st.initialLastAppliedIndex,
 		"last_snapshot_index", lastSnapshotIndex)
 
-	go st.onLeaderFound(st.migrationTimeout)
+	// There's no hard limit on the migration, so it should take as long as necessary.
+	// However, we believe that 1 day should be more than sufficient.
+	go st.onLeaderFound(time.Hour * 24)
 
 	return nil
 }
@@ -283,7 +287,10 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 		return nil, fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
 	}
 
-	st.transport, err = st.addResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout)
+	st.transport, err = st.addResolver.NewTCPTransport(
+		address, tcpAddr,
+		tcpMaxPool, tcpTimeout,
+		st.logLevel, st.logJsonFormat)
 	if err != nil {
 		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
 			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -769,6 +776,14 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.LogLevel = st.logLevel
+	logger := hclog.New(&hclog.LoggerOptions{
+		Name:       "raft",
+		Level:      hclog.LevelFromString(st.logLevel),
+		JSONFormat: st.logJsonFormat,
+		Output:     os.Stderr,
+	})
+	cfg.Logger = logger
+
 	return cfg
 }
 

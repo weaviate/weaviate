@@ -45,7 +45,8 @@ type metaWriter interface {
 	// from an up to date schema.
 	QueryReadOnlyClass(name string) (*models.Class, uint64, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string) ([]*models.Tenant, uint64, error)
+	// QueryTenants returns the tenants for a class. If tenants is empty, all tenants are returned.
+	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantShard(class, tenant string) (string, string, uint64, error)
 

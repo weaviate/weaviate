@@ -285,6 +285,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AddrResolver:       appState.Cluster,
 		Logger:             sLogger(),
 		LogLevel:           logLevel(),
+		LogJSONFormat:      !logTextFormat(),
 		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:   schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:   schemaRepo.SaveLegacySchema,
@@ -296,14 +297,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}
 
-	appState.CloudService = rCluster.New(rConfig)
+	appState.ClusterService = rCluster.New(rConfig)
 	executor := schema.NewExecutor(migrator,
-		appState.CloudService.SchemaReader(),
+		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
 	)
 	schemaManager, err := schemaUC.NewManager(migrator,
-		appState.CloudService.Service,
-		appState.CloudService.SchemaReader(),
+		appState.ClusterService.Service,
+		appState.ClusterService.SchemaReader(),
 		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
@@ -318,7 +319,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.CloudService.SchemaReader())
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader())
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
@@ -334,7 +335,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	// TODO-RAFT START
 	go func() {
-		if err := appState.CloudService.Open(context.Background(), executor); err != nil {
+		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
@@ -482,7 +483,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
 		appState.DB, appState.Modules,
-		membership{appState.Cluster, appState.CloudService},
+		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		appState.Logger)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
@@ -525,7 +526,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		if err := appState.CloudService.Close(ctx); err != nil {
+		if err := appState.ClusterService.Close(ctx); err != nil {
 			panic(err)
 		}
 	}
@@ -663,7 +664,7 @@ func sLogger() *slog.Logger {
 	}
 
 	var handler slog.Handler
-	if os.Getenv("LOG_FORMAT") == "text" {
+	if logTextFormat() {
 		handler = slog.NewTextHandler(os.Stderr, &opts)
 	} else {
 		handler = slog.NewJSONHandler(os.Stderr, &opts)
@@ -679,6 +680,10 @@ func logLevel() string {
 	default:
 		return "info"
 	}
+}
+
+func logTextFormat() bool {
+	return os.Getenv("LOG_FORMAT") == "text"
 }
 
 type dummyLock struct{}

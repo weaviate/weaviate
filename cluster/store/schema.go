@@ -278,7 +278,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	return meta.UpdateTenants(s.nodeID, req, v)
 }
 
-func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
 	s.RLock()
 	// To avoid races between checking that multi tenancy is enabled and reading from the class itself,
 	// ensure we fetch both using the same lock.
@@ -298,14 +298,20 @@ func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
 	// Read tenants using the meta lock guard
 	var res []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
-		res = make([]*models.Tenant, len(ss.Physical))
-		i := 0
-		for tenant := range ss.Physical {
-			res[i] = &models.Tenant{
-				Name:           tenant,
-				ActivityStatus: entSchema.ActivityStatus(ss.Physical[tenant].Status),
+		if len(tenants) == 0 {
+			res = make([]*models.Tenant, len(ss.Physical))
+			i := 0
+			for tenant := range ss.Physical {
+				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
+				i++
 			}
-			i++
+		} else {
+			res = make([]*models.Tenant, 0, len(tenants))
+			for _, tenant := range tenants {
+				if status, ok := ss.Physical[tenant]; ok {
+					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
+				}
+			}
 		}
 		return nil
 	}
@@ -332,5 +338,12 @@ func (s *schema) clear() {
 	defer s.Unlock()
 	for k := range s.Classes {
 		delete(s.Classes, k)
+	}
+}
+
+func makeTenant(name, status string) *models.Tenant {
+	return &models.Tenant{
+		Name:           name,
+		ActivityStatus: status,
 	}
 }

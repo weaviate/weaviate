@@ -44,7 +44,9 @@ func NewService(store *Store, client client) *Service {
 	return &Service{store: store, cl: client, log: store.log}
 }
 
-// / RAFT-TODO Documentation
+// Open opens this store service and marked as such.
+// It constructs a new Raft node using the provided configuration.
+// If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored
 func (s *Service) Open(ctx context.Context, db Indexer) error {
 	s.log.Info("starting raft sub-system ...")
 	s.store.SetDB(db)
@@ -350,9 +352,9 @@ func (s *Service) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Service) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
+func (s *Service) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	// Build the query and execute it
-	req := cmd.QueryTenantsRequest{Class: class}
+	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
