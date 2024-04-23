@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -31,6 +32,10 @@ import (
 
 type RemoteIncomingRepo interface {
 	GetIndexForIncoming(className schema.ClassName) RemoteIndexIncomingRepo
+}
+
+type RemoteIncomingSchema interface {
+	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
 }
 
 type RemoteIndexIncomingRepo interface {
@@ -80,21 +85,23 @@ type RemoteIndexIncomingRepo interface {
 }
 
 type RemoteIndexIncoming struct {
-	repo RemoteIncomingRepo
+	repo   RemoteIncomingRepo
+	schema RemoteIncomingSchema
 }
 
-func NewRemoteIndexIncoming(repo RemoteIncomingRepo) *RemoteIndexIncoming {
+func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema) *RemoteIndexIncoming {
 	return &RemoteIndexIncoming{
-		repo: repo,
+		repo:   repo,
+		schema: schema,
 	}
 }
 
 func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return err
 	}
 
 	return index.IncomingPutObject(ctx, shardName, obj, schemaVersion)
@@ -103,10 +110,9 @@ func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 	shardName string, objs []*storobj.Object, schemaVersion uint64,
 ) []error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		return duplicateErr(errors.Errorf("local index %q not found", indexName),
-			len(objs))
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return duplicateErr(err, len(objs))
 	}
 
 	return index.IncomingBatchPutObjects(ctx, shardName, objs, schemaVersion)
@@ -115,10 +121,9 @@ func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexName,
 	shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		return duplicateErr(errors.Errorf("local index %q not found", indexName),
-			len(refs))
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return duplicateErr(err, len(refs))
 	}
 
 	return index.IncomingBatchAddReferences(ctx, shardName, refs, schemaVersion)
@@ -130,7 +135,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 ) (*storobj.Object, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return nil, nil
 	}
 
 	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
@@ -141,7 +146,7 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 ) (bool, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return false, errors.Errorf("local index %q not found", indexName)
+		return false, nil
 	}
 
 	return index.IncomingExists(ctx, shardName, id)
@@ -150,9 +155,9 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return err
 	}
 
 	return index.IncomingDeleteObject(ctx, shardName, id, schemaVersion)
@@ -161,9 +166,9 @@ func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return err
 	}
 
 	return index.IncomingMergeObject(ctx, shardName, mergeDoc, schemaVersion)
@@ -174,7 +179,7 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 ) ([]*storobj.Object, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return make([]*storobj.Object, 0), nil
 	}
 
 	return index.IncomingMultiGetObjects(ctx, shardName, ids)
@@ -187,7 +192,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 ) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, nil, errors.Errorf("local index %q not found", indexName)
+		return make([]*storobj.Object, 0), make([]float32, 0), nil
 	}
 
 	return index.IncomingSearch(
@@ -199,7 +204,7 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 ) (*aggregation.Result, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return &aggregation.Result{}, nil
 	}
 
 	return index.IncomingAggregate(ctx, shardName, params)
@@ -210,7 +215,7 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 ) ([]strfmt.UUID, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return make([]strfmt.UUID, 0), nil
 	}
 
 	return index.IncomingFindUUIDs(ctx, shardName, filters)
@@ -219,9 +224,8 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		err := errors.Errorf("local index %q not found", indexName)
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
@@ -233,7 +237,7 @@ func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 ) (int64, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return 0, errors.Errorf("local index %q not found", indexName)
+		return 0, nil
 	}
 
 	return index.IncomingGetShardQueueSize(ctx, shardName)
@@ -253,9 +257,9 @@ func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
 	indexName, shardName, targetStatus string, schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
-	if index == nil {
-		return errors.Errorf("local index %q not found", indexName)
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return err
 	}
 
 	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
@@ -314,4 +318,18 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	}
 
 	return index.IncomingDigestObjects(ctx, shardName, ids)
+}
+
+func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, indexName string,
+	schemaVersion uint64,
+) (RemoteIndexIncomingRepo, error) {
+	// wait for schema and store to reach version >= schemaVersion
+	if _, err := rii.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
+		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)
+	}
+	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	if index == nil {
+		return nil, fmt.Errorf("local index %q not found", indexName)
+	}
+	return index, nil
 }

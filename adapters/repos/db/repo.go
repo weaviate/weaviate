@@ -212,6 +212,7 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 		index  *Index
 		exists bool
 	)
+	// TODO-RAFT remove backoff. Eventual consistency handled by versioning
 	backoff.Retry(func() error {
 		db.indexLock.RLock()
 		defer db.indexLock.RUnlock()
