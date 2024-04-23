@@ -99,7 +99,8 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo), n.repo, clusterapi.NewNoopAuthHandler())
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager),
+		n.repo, clusterapi.NewNoopAuthHandler())
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
@@ -141,6 +142,11 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
+}
+
+func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64,
+) (*models.Class, error) {
+	return f.schema.GetClass(class), nil
 }
 
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
