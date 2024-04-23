@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
@@ -99,7 +100,7 @@ type dynamic struct {
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
-	if os.Getenv("ASYNC_INDEXING") == "false" {
+	if !configbase.Enabled(os.Getenv("ASYNC_INDEXING")) {
 		return nil, errors.New("the dynamic index can only be created under async indexing environment")
 	}
 	if err := cfg.Validate(); err != nil {

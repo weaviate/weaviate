@@ -108,7 +108,7 @@ func TestDynamic(t *testing.T) {
 
 func TestDynamicReturnsErrorIfNoAsync(t *testing.T) {
 	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "false")
+	os.Unsetenv("ASYNC_INDEXING")
 	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
 	rootPath := t.TempDir()
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
