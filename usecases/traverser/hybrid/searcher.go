@@ -242,7 +242,6 @@ func processDenseSearch(ctx context.Context,
 	return out, nil
 }
 
-
 func decideSearchVector(ctx context.Context,
 	class, query string, targetVectors []string, vector []float32, modules modulesProvider,
 	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,

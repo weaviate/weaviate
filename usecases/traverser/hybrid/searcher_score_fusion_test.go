@@ -24,43 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-type hybridTestSet struct {
-	documents      []*storobj.Object
-	weights        []float64
-	inputScores    [][]float32
-	expectedScores []float32
-	expectedOrder  []uint64
-}
-
-func inputSet() []hybridTestSet {
-	cases := []hybridTestSet{
-		{
-			documents: []*storobj.Object{
-				{Object: models.Object{}, Vector: []float32{1, 2, 3}, VectorLen: 3, DocID: 12345},
-				{Object: models.Object{}, Vector: []float32{4, 5, 6}, VectorLen: 3, DocID: 12346},
-				{Object: models.Object{}, Vector: []float32{7, 8, 9}, VectorLen: 3, DocID: 12347},
-			},
-			weights:        []float64{0.5, 0.5},
-			inputScores:    [][]float32{{1, 2, 3}, {0, 1, 2}},
-			expectedScores: []float32{1, 0.5, 0},
-			expectedOrder:  []uint64{2, 1, 0},
-		},
-
-		{weights: []float64{0.5, 0.5}, inputScores: [][]float32{{0, 2, 0.1}, {0, 0.2, 2}}, expectedScores: []float32{0.55, 0.525, 0}, expectedOrder: []uint64{1, 2, 0}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{0.5, 0.5, 0}, {0, 0.01, 0.001}}, expectedScores: []float32{1, 0.75, 0.025}, expectedOrder: []uint64{1, 0, 2}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{}, {}}, expectedScores: []float32{}, expectedOrder: []uint64{}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{1}, {}}, expectedScores: []float32{0.75}, expectedOrder: []uint64{0}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{}, {1}}, expectedScores: []float32{0.25}, expectedOrder: []uint64{0}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{1, 2}, {}}, expectedScores: []float32{0.75, 0}, expectedOrder: []uint64{1, 0}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{}, {1, 2}}, expectedScores: []float32{0.25, 0}, expectedOrder: []uint64{1, 0}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{1, 1}, {1, 2}}, expectedScores: []float32{1, 0.75}, expectedOrder: []uint64{1, 0}},
-		{weights: []float64{1}, inputScores: [][]float32{{1, 2, 3}}, expectedScores: []float32{1, 0.5, 0}, expectedOrder: []uint64{2, 1, 0}},
-		{weights: []float64{0.75, 0.25}, inputScores: [][]float32{{1, 2, 3, 4}, {1, 2, 3}}, expectedScores: []float32{0.75, 0.75, 0.375, 0}, expectedOrder: []uint64{3, 2, 1, 0}},
-	}
-
-	return cases
-}
-
 func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
