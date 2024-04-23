@@ -128,14 +128,29 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
 
-	// QueryTenants
-	getTenants, _, err := srv.QueryTenants(cls.Class)
+	// QueryTenants all
+	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
-	assert.NotNil(t, getTenants)
+	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.Tenant{{
 		Name:           "T0",
 		ActivityStatus: models.TenantActivityStatusHOT,
-	}}, getTenants)
+	}}, getTenantsAll)
+
+	// QueryTenants one
+	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsOne)
+	assert.Equal(t, []*models.Tenant{{
+		Name:           "T0",
+		ActivityStatus: models.TenantActivityStatusHOT,
+	}}, getTenantsOne)
+
+	// QueryTenants one
+	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsNone)
+	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
 	getTenantTenant, getTenantActivityStatus, _, err := srv.QueryTenantShard(cls.Class, "T0")
