@@ -50,11 +50,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 					DynamicEFFactor:        hnsw.DefaultDynamicEFFactor,
 					Distance:               common.DefaultDistanceMetric,
 					PQ: hnsw.PQConfig{
-						Enabled:        hnsw.DefaultPQEnabled,
-						BitCompression: hnsw.DefaultPQBitCompression,
-						Segments:       hnsw.DefaultPQSegments,
-						Centroids:      hnsw.DefaultPQCentroids,
-						TrainingLimit:  hnsw.DefaultPQTrainingLimit,
+						Enabled:       hnsw.DefaultPQEnabled,
+						Segments:      hnsw.DefaultPQSegments,
+						Centroids:     hnsw.DefaultPQCentroids,
+						TrainingLimit: hnsw.DefaultPQTrainingLimit,
 						Encoder: hnsw.PQEncoder{
 							Type:         hnsw.DefaultPQEncoderType,
 							Distribution: hnsw.DefaultPQEncoderDistribution,
