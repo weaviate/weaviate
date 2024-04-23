@@ -61,7 +61,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 func tenantToGRPC(tenant *models.Tenant) (*pb.Tenant, error) {
 	var status pb.TenantActivityStatus
 	if tenant.ActivityStatus == models.TenantActivityStatusHOT {
-		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT
 	} else if tenant.ActivityStatus == models.TenantActivityStatusWARM {
 		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_WARM
 	} else if tenant.ActivityStatus == models.TenantActivityStatusCOLD {
