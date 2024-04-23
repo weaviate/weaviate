@@ -301,11 +301,6 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 
 	ts := make([]*models.Tenant, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
-		if n := len(ss.Physical); n > len(ts) {
-			ts = make([]*models.Tenant, n)
-		} else if n < len(ts) {
-			ts = ts[:n]
-		}
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue
