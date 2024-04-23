@@ -133,7 +133,7 @@ func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, uint6
 	return model.(*models.Class), 0, nil
 }
 
-func (f *fakeMetaHandler) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
+func (f *fakeMetaHandler) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	args := f.Called(class)
 	return nil, 0, args.Error(0)
 }
