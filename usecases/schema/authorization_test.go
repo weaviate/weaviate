@@ -143,12 +143,6 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
-		{
-			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false},
-			expectedVerb:     "get",
-			expectedResource: tenantsPath,
-		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {

@@ -229,7 +229,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	}
 
 	// If non consistent, fallback to the default implementation
-	return h.getTenants(class)
+	return h.getTenantsByNames(class, tenants)
 }
 
 func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
@@ -291,16 +291,6 @@ func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal,
 func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 	return slices.Contains(phys.BelongsToNodes, localNode) &&
 		phys.Status == models.TenantActivityStatusHOT
-}
-
-// GetTenantsByNames is used to get tenants of a class by their names.
-//
-// Class must exist and has partitioning enabled
-func (h *Handler) GetTenantsByNames(ctx context.Context, principal *models.Principal, class string, tenantNames []string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
-		return nil, err
-	}
-	return h.getTenantsByNames(class, tenantNames)
 }
 
 func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
