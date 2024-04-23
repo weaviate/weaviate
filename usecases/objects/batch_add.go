@@ -89,8 +89,12 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
 
-		if err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj); err != nil {
+		classVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj)
+		if err != nil {
 			batchObjects[i].Err = err
+		}
+		if classVersion > schemaVersion {
+			schemaVersion = classVersion
 		}
 
 		if obj.ID == "" {
@@ -117,12 +121,8 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 		class, ok := classPerClassName[obj.Class]
 		if !ok {
 			var err2 error
-			var classVersion uint64
-			if class, classVersion, err2 = b.schemaManager.GetCachedClass(ctx, principal, obj.Class); err2 != nil {
+			if class, _, err2 = b.schemaManager.GetCachedClass(ctx, principal, obj.Class); err2 != nil {
 				batchObjects[i].Err = err2
-				if classVersion > schemaVersion {
-					schemaVersion = classVersion
-				}
 				continue
 			}
 			classPerClassName[obj.Class] = class
