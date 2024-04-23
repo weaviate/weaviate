@@ -20,27 +20,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
-
-func getClass(t *testing.T, host, class string) *models.Class {
-	t.Helper()
-	helper.SetupClient(host)
-	return helper.GetClass(t, class)
-}
-
-func updateClass(t *testing.T, host string, class *models.Class) {
-	t.Helper()
-	helper.SetupClient(host)
-	helper.UpdateClass(t, class)
-}
 
 func createObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
@@ -98,12 +84,6 @@ func getTenantObjectFromNode(t *testing.T, host, class string, id strfmt.UUID, n
 	t.Helper()
 	helper.SetupClient(host)
 	return helper.GetTenantObjectFromNode(t, class, id, nodename, tenant)
-}
-
-func patchObject(t *testing.T, host string, patch *models.Object) {
-	t.Helper()
-	helper.SetupClient(host)
-	helper.PatchObject(t, patch)
 }
 
 func updateObjectCL(t *testing.T, host string, obj *models.Object, cl replica.ConsistencyLevel) error {
@@ -270,16 +250,6 @@ func countTenantObjects(t *testing.T, host, class string,
 	count, err := meta["count"].(json.Number).Int64()
 	require.Nil(t, err)
 	return count
-}
-
-func getNodes(t *testing.T, host string) *models.NodesStatusResponse {
-	t.Helper()
-	helper.SetupClient(host)
-	verbose := verbosity.OutputVerbose
-	params := nodes.NewNodesGetParams().WithOutput(&verbose)
-	resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-	helper.AssertRequestOk(t, resp, err, nil)
-	return resp.Payload
 }
 
 func vec2String(v []interface{}) (s string) {

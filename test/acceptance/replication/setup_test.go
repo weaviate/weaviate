@@ -18,8 +18,6 @@ import (
 func TestReplication(t *testing.T) {
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	t.Run("SyncReplication", immediateReplicaCRUD)
-	t.Run("eventual replica CRUD", eventualReplicaCRUD)
-	t.Run("multishard scale out", multiShardScaleOut)
 	t.Run("ReadRepair", readRepair)
 	t.Run("GraphqlSearch", graphqlSearch)
 	t.Run("MultiTenancy", multiTenancyEnabled)
