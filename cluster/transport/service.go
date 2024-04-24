@@ -98,7 +98,7 @@ func (s *Service) Leader() string {
 }
 
 func (s *Service) Open() error {
-	s.log.Info("starting cloud rpc server ...", "address", s.address)
+	s.log.WithField("address", s.address).Info("starting cloud rpc server ...")
 	if s.address == "" {
 		return fmt.Errorf("address of rpc server cannot be empty")
 	}

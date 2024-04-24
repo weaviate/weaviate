@@ -19,7 +19,7 @@ import (
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
-	st.log.Debug("server.query", "type", req.Type)
+	st.log.WithField("type", req.Type).Debug("server.query")
 
 	var payload []byte
 	var err error
@@ -54,7 +54,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
 		const msg = "consider upgrading to newer version"
-		st.log.Error("unknown command", "type", req.Type, "more", msg)
+		st.log.WithField("type", req.Type).WithField("more", msg).Error("unknown command")
 		return &cmd.QueryResponse{}, fmt.Errorf("unknown command type %s: %s", req.Type, msg)
 	}
 	return &cmd.QueryResponse{Payload: payload}, nil

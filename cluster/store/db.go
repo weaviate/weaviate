@@ -73,7 +73,8 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 	req.State.SetLocalName(nodeID)
 
 	if err := db.store.RestoreClassDir(cmd.Class); err != nil {
-		db.log.Error("restore class directory from backup %s: "+err.Error(), "class", cmd.Class)
+		db.log.WithField("class", cmd.Class).WithError(err).
+			Error("restore class directory from backup")
 		// continue since we need to add class to the schema anyway
 	}
 
