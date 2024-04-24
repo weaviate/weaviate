@@ -185,7 +185,7 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 	bytes, err := x.marshal()
 	if err != nil {
-		d.log.WithField("action", "delegate.local_state.marshal").Error(err)
+		d.log.WithField("action", "delegate.local_state.marshal").WithError(err).Error("failed to marshal local state")
 		return nil
 	}
 	return bytes

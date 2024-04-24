@@ -60,7 +60,7 @@ func (s *Service) Close(ctx context.Context) (err error) {
 	if !s.store.IsVoter() {
 		s.log.Info("removing this node from cluster prior to shutdown ...")
 		if err := s.Remove(ctx, s.store.ID()); err != nil {
-			s.log.Error("remove this node from cluster: " + err.Error())
+			s.log.WithError(err).Error("remove this node from cluster")
 		} else {
 			s.log.Info("successfully removed this node from the cluster.")
 		}

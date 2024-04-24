@@ -814,7 +814,7 @@ func (st *Store) reloadDB() bool {
 	if !st.dbLoaded.CompareAndSwap(true, false) {
 		// the snapshot already includes the state from the raft log
 		snapIndex := snapshotIndex(st.snapshotStore)
-		st.log.WithField("last_applied_index", st.lastAppliedIndex).
+		st.log.WithField("last_applied_index", st.lastAppliedIndex.Load()).
 			WithField("initial_last_applied_index", st.initialLastAppliedIndex).
 			WithField("last_snapshot_index", snapIndex).Info("load local db from snapshot")
 		if st.initialLastAppliedIndex <= snapIndex {
