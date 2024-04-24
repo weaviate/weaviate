@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"golang.org/x/sys/cpu"
 )
 
 func L2PureGo(a, b []float32) float32 {
@@ -44,9 +45,14 @@ func Test_L2_DistanceImplementation(t *testing.T) {
 			}
 
 			control := L2PureGo(x, y)
-			asmResult := asm.L2(x, y)
 
+			asmResult := asm.L2_Neon(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
+
+			if cpu.ARM64.HasSVE {
+				asmResult := asm.L2_SVE(x, y)
+				assert.InEpsilon(t, control, asmResult, 0.01)
+			}
 		})
 	}
 }
@@ -64,9 +70,13 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 			}
 
 			control := L2PureGo(x, y)
-			asmResult := asm.L2(x, y)
-
+			asmResult := asm.L2_Neon(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
+
+			if cpu.ARM64.HasSVE {
+				asmResult := asm.L2_SVE(x, y)
+				assert.InEpsilon(t, control, asmResult, 0.01)
+			}
 		})
 	}
 }
@@ -85,22 +95,24 @@ func Benchmark_L2_PureGo_VS_SIMD(b *testing.B) {
 
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
-				// L2PureGo(x, y)
-				asm.L2(x, y)
-			}
+			b.Run("pure go", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					L2PureGo(x, y)
+				}
+			})
 
-			// b.Run("pure go", func(b *testing.B) {
-			// 	for i := 0; i < b.N; i++ {
-			// 		L2PureGo(x, y)
-			// 	}
-			// })
+			b.Run("asm Neon", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2_Neon(x, y)
+				}
+			})
 
-			// b.Run("asm Neon / SVE", func(b *testing.B) {
-			// 	for i := 0; i < b.N; i++ {
-			// 		asm.L2(x, y)
-			// 	}
-			// })
+			b.Run("asm SVE", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2_Neon(x, y)
+				}
+			})
+
 		})
 	}
 }
