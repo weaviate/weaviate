@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewTenantExistsParams creates a new TenantExistsParams object,
@@ -75,6 +76,14 @@ type TenantExistsParams struct {
 	// ClassName.
 	ClassName string
 
+	/* Consistency.
+
+	   If consistency is true, the request will be proxied to the leader to ensure strong schema consistency
+
+	   Default: true
+	*/
+	Consistency *bool
+
 	// TenantName.
 	TenantName string
 
@@ -95,7 +104,18 @@ func (o *TenantExistsParams) WithDefaults() *TenantExistsParams {
 //
 // All values with no default are reset to their zero value.
 func (o *TenantExistsParams) SetDefaults() {
-	// no default values defined for this parameter
+	var (
+		consistencyDefault = bool(true)
+	)
+
+	val := TenantExistsParams{
+		Consistency: &consistencyDefault,
+	}
+
+	val.timeout = o.timeout
+	val.Context = o.Context
+	val.HTTPClient = o.HTTPClient
+	*o = val
 }
 
 // WithTimeout adds the timeout to the tenant exists params
@@ -142,6 +162,17 @@ func (o *TenantExistsParams) SetClassName(className string) {
 	o.ClassName = className
 }
 
+// WithConsistency adds the consistency to the tenant exists params
+func (o *TenantExistsParams) WithConsistency(consistency *bool) *TenantExistsParams {
+	o.SetConsistency(consistency)
+	return o
+}
+
+// SetConsistency adds the consistency to the tenant exists params
+func (o *TenantExistsParams) SetConsistency(consistency *bool) {
+	o.Consistency = consistency
+}
+
 // WithTenantName adds the tenantName to the tenant exists params
 func (o *TenantExistsParams) WithTenantName(tenantName string) *TenantExistsParams {
 	o.SetTenantName(tenantName)
@@ -164,6 +195,14 @@ func (o *TenantExistsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
 		return err
+	}
+
+	if o.Consistency != nil {
+
+		// header param consistency
+		if err := r.SetHeaderParam("consistency", swag.FormatBool(*o.Consistency)); err != nil {
+			return err
+		}
 	}
 
 	// path param tenantName

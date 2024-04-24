@@ -285,6 +285,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AddrResolver:       appState.Cluster,
 		Logger:             sLogger(),
 		LogLevel:           logLevel(),
+		LogJSONFormat:      !logTextFormat(),
 		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:   schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:   schemaRepo.SaveLegacySchema,
@@ -318,7 +319,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.CloudService.SchemaReader())
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader())
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
 
@@ -663,7 +664,7 @@ func sLogger() *slog.Logger {
 	}
 
 	var handler slog.Handler
-	if os.Getenv("LOG_FORMAT") == "text" {
+	if logTextFormat() {
 		handler = slog.NewTextHandler(os.Stderr, &opts)
 	} else {
 		handler = slog.NewJSONHandler(os.Stderr, &opts)
@@ -679,6 +680,10 @@ func logLevel() string {
 	default:
 		return "info"
 	}
+}
+
+func logTextFormat() bool {
+	return os.Getenv("LOG_FORMAT") == "text"
 }
 
 type dummyLock struct{}
