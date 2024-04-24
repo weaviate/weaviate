@@ -116,11 +116,16 @@ func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 func (e *executor) DeleteClass(cls string) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls); err != nil {
-		e.logger.WithField("action", "delete_class").
-			WithField("class", cls).Errorf("migrator: %v", err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "delete_class",
+			"class":  cls,
+		}).WithError(err).Errorf("migrator")
 	}
 
-	e.logger.WithField("action", "delete_class").WithField("class", cls).Debug("")
+	e.logger.WithFields(logrus.Fields{
+		"action": "delete_class",
+		"class":  cls,
+	}).Debug("deleting class")
 	e.triggerSchemaUpdateCallbacks()
 
 	return nil
@@ -132,7 +137,10 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		return err
 	}
 
-	e.logger.WithField("action", "add_property").WithField("class", className)
+	e.logger.WithFields(logrus.Fields{
+		"action": "add_property",
+		"class":  className,
+	}).Debug("adding property")
 	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
@@ -175,8 +183,10 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	}
 
 	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
-		e.logger.WithField("action", "update_tenants").
-			WithField("class", class).Error(err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "update_tenants",
+			"class":  class,
+		}).WithError(err).Error("error updating tenants")
 		return err
 	}
 	return nil
@@ -185,8 +195,10 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
 	ctx := context.Background()
 	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
-		e.logger.WithField("action", "delete_tenants").
-			WithField("class", class).Error(err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "delete_tenants",
+			"class":  class,
+		}).WithError(err).Error("error deleting tenants")
 	}
 	return nil
 }
