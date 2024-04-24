@@ -345,15 +345,26 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		for _, name := range updatesCold {
 			name := name
 			eg.Go(func() error {
+				shard := func() ShardLike {
+					idx.shardLocks.Lock(name)
+					defer idx.shardLocks.Unlock(name)
+
+					return idx.shards.Load(name)
+				}()
+
+				if shard == nil {
+					return nil // shard already does not exist or inactive
+				}
+
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)
 
-				shard, ok := idx.shards.Swap(name, nil) // swap shard for nil
-				idx.shards.LoadAndDelete(name)          // then remove entry
+				idx.shards.LoadAndDelete(name) // then remove entry
 
-				if !ok || shard == nil {
-					return nil // shard already does not exist or inactive
-				}
+				// if !ok {
+				// 	fmt.Printf("  ==> [%s] UpdateTenants COLD return\n", name)
+				// 	return nil // shard already does not exist or inactive
+				// }
 
 				if err := shard.Shutdown(ctx); err != nil {
 					ec.Add(err)

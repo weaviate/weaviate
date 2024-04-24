@@ -198,6 +198,7 @@ type Index struct {
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *shardCreateLocks
+	shardLocks       *shardLocks // TODO experiment
 	modules          *modules.Provider
 }
 
@@ -268,6 +269,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:    indexCheckpoints,
 		allocChecker:        allocChecker,
 		shardCreateLocks:    newShardCreateLocks(),
+		shardLocks:          newShardLocks(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -833,14 +835,57 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
-			} else if shard := i.localShard(shardName); shard != nil {
-				i.backupMutex.RLockGuard(func() error {
-					errs = shard.PutObjectBatch(ctx, group.objects)
-					return nil
-				})
 			} else {
-				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+				shard, release, err := i.getLocalShardWithShutdownPrevention(shardName)
+				if err != nil {
+					errs = []error{err}
+				} else if shard != nil {
+					i.backupMutex.RLockGuard(func() error {
+						// fmt.Printf("  ==> [%s] putObjectBatch local start [%s]\n", shardName, time.Now())
+						// defer func() {
+						// 	fmt.Printf("  ==> [%s] putObjectBatch local end [%s]\n", shardName, time.Now())
+						// }()
+
+						defer release()
+
+						// fmt.Printf("  ==> [%s] putObjectBatch local locked [%s]\n", shardName, time.Now())
+
+						// fmt.Printf("  ==> [%s] putObjectBatch start\n", shard.Name())
+						// defer fmt.Printf("  ==> [%s] putObjectBatch end\n", shard.Name())
+
+						errs = shard.PutObjectBatch(ctx, group.objects)
+						return nil
+					})
+				} else {
+					errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+				}
 			}
+
+			// } else if shard := i.localShard(shardName); shard != nil {
+			// 	i.backupMutex.RLockGuard(func() error {
+			// 		fmt.Printf("  ==> [%s] putObjectBatch local start [%s]\n", shardName, time.Now())
+			// 		defer func() {
+			// 			fmt.Printf("  ==> [%s] putObjectBatch local end [%s]\n", shardName, time.Now())
+			// 		}()
+
+			// 		release, err := shard.preventShutdown()
+			// 		if err != nil {
+			// 			errs = []error{err}
+			// 			return nil
+			// 		}
+			// 		defer release()
+
+			// 		fmt.Printf("  ==> [%s] putObjectBatch local locked [%s]\n", shardName, time.Now())
+
+			// 		// fmt.Printf("  ==> [%s] putObjectBatch start\n", shard.Name())
+			// 		// defer fmt.Printf("  ==> [%s] putObjectBatch end\n", shard.Name())
+
+			// 		errs = shard.PutObjectBatch(ctx, group.objects)
+			// 		return nil
+			// 	})
+			// } else {
+			// 	errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+			// }
 			for i, err := range errs {
 				desiredPos := group.pos[i]
 				out[desiredPos] = err
@@ -869,11 +914,6 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
 
-	shard, err := i.getOrInitLocalShard(ctx, shardName)
-	if err != nil {
-		return duplicateErr(ErrShardNotFound, len(objects))
-	}
-
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
 	// string was actually a date type. However, adding this functionality to
@@ -886,6 +926,13 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 			return duplicateErr(err, len(objects))
 		}
 	}
+
+	shard, release, err := i.getOrInitLocalShardWithShutdownPrevention(ctx, shardName)
+	if err != nil {
+		return duplicateErr(ErrShardNotFound, len(objects))
+	}
+
+	defer release()
 
 	return shard.PutObjectBatch(ctx, objects)
 }
@@ -1632,6 +1679,39 @@ func (i *Index) localShard(name string) ShardLike {
 	return i.shards.Load(name)
 }
 
+func (i *Index) getOrInitLocalShardWithShutdownPrevention(ctx context.Context, shardName string,
+) (ShardLike, func(), error) {
+	i.shardLocks.RLock(shardName)
+	defer i.shardLocks.RUnlock(shardName)
+
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
+	if err != nil {
+		return nil, func() {}, err
+	}
+
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return shard, release, nil
+}
+
+func (i *Index) getLocalShardWithShutdownPrevention(shardName string) (ShardLike, func(), error) {
+	i.shardLocks.RLock(shardName)
+	defer i.shardLocks.RUnlock(shardName)
+
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return shard, release, nil
+}
+
 // Intended to run on "receiver" nodes, where local shard
 // is expected to exist and be active
 // Method first tries to get shard from Index::shards map,
@@ -2186,6 +2266,58 @@ func (l *shardCreateLocks) shardLock(name string) *sync.Mutex {
 
 	if _, ok := l.locks[name]; !ok {
 		l.locks[name] = new(sync.Mutex)
+	}
+	return l.locks[name]
+}
+
+type shardLocks struct {
+	main  *sync.Mutex
+	locks map[string]*sync.RWMutex
+}
+
+func newShardLocks() *shardLocks {
+	return &shardLocks{
+		main:  new(sync.Mutex),
+		locks: make(map[string]*sync.RWMutex),
+	}
+}
+
+func (l *shardLocks) Lock(name string) {
+	l.shardLock(name).Lock()
+}
+
+func (l *shardLocks) Unlock(name string) {
+	l.shardLock(name).Unlock()
+}
+
+func (l *shardLocks) Locked(name string, callback func()) {
+	l.Lock(name)
+	defer l.Unlock(name)
+
+	callback()
+}
+
+func (l *shardLocks) RLock(name string) {
+	l.shardLock(name).RLock()
+}
+
+func (l *shardLocks) RUnlock(name string) {
+	l.shardLock(name).RUnlock()
+}
+
+func (l *shardLocks) RLocked(name string, callback func()) {
+	l.RLock(name)
+	defer l.RUnlock(name)
+
+	callback()
+}
+
+func (l *shardLocks) shardLock(name string) *sync.RWMutex {
+	l.main.Lock()
+	defer l.main.Unlock()
+
+	if _, ok := l.locks[name]; !ok {
+		l.locks[name] = new(sync.RWMutex)
 	}
 	return l.locks[name]
 }

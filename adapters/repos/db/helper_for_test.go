@@ -267,6 +267,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),
 		shardCreateLocks:      newShardCreateLocks(),
+		shardLocks:            newShardLocks(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
