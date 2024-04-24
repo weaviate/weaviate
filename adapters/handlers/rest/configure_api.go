@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -283,7 +282,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DB:                 nil,
 		Parser:             schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
 		AddrResolver:       appState.Cluster,
-		Logger:             sLogger(),
+		Logger:             appState.Logger,
 		LogLevel:           logLevel(),
 		LogJSONFormat:      !logTextFormat(),
 		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,
@@ -646,31 +645,6 @@ func logger() *logrus.Logger {
 	}
 
 	return logger
-}
-
-// sLogger returns an initialized standard logger
-// This logger should replace logrus in future
-func sLogger() *slog.Logger {
-	opts := slog.HandlerOptions{}
-	switch os.Getenv("LOG_LEVEL") {
-	case "debug":
-		opts.Level = slog.LevelDebug
-	case "warn":
-		opts.Level = slog.LevelWarn
-	case "error":
-		opts.Level = slog.LevelError
-	default:
-		opts.Level = slog.LevelInfo
-	}
-
-	var handler slog.Handler
-	if logTextFormat() {
-		handler = slog.NewTextHandler(os.Stderr, &opts)
-	} else {
-		handler = slog.NewJSONHandler(os.Stderr, &opts)
-	}
-
-	return slog.New(handler)
 }
 
 func logLevel() string {
