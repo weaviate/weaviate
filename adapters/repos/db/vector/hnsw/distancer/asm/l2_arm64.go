@@ -13,8 +13,6 @@ package asm
 
 import (
 	"unsafe"
-
-	"golang.org/x/sys/cpu"
 )
 
 // To generate the asm code, run:
@@ -28,7 +26,8 @@ import (
 // using SIMD instructions when possible.
 // Vector lengths < 16 are handled by the Go implementation
 // because the overhead of using reflection is too high.
-func L2(x []float32, y []float32) float32 {
+
+func L2_Neon(x []float32, y []float32) float32 {
 	switch len(x) {
 	case 2:
 		return l22[float32, float32](x, y)
@@ -79,19 +78,72 @@ func L2(x []float32, y []float32) float32 {
 	var res float32
 
 	l := len(x)
-	if cpu.ARM64.HasSVE {
-		l2_sve(
-			unsafe.Pointer(unsafe.SliceData(x)),
-			unsafe.Pointer(unsafe.SliceData(y)),
-			unsafe.Pointer(&res),
-			unsafe.Pointer(&l))
-	} else {
-		l2_neon(
-			unsafe.Pointer(unsafe.SliceData(x)),
-			unsafe.Pointer(unsafe.SliceData(y)),
-			unsafe.Pointer(&res),
-			unsafe.Pointer(&l))
+
+	l2_neon(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+}
+
+func L2_SVE(x []float32, y []float32) float32 {
+	switch len(x) {
+	case 2:
+		return l22[float32, float32](x, y)
+	case 4:
+		return l24[float32, float32](x, y)
+	case 6:
+		// manually inlined l26(x, y)
+		diff := x[5] - y[5]
+		sum := diff * diff
+
+		diff = x[4] - y[4]
+		sum += diff * diff
+
+		return l24[float32, float32](x, y) + sum
+	case 8:
+		// manually inlined l28(x, y)
+		diff := x[7] - y[7]
+		sum := diff * diff
+
+		diff = x[6] - y[6]
+		sum += diff * diff
+
+		diff = x[5] - y[5]
+		sum += diff * diff
+
+		diff = x[4] - y[4]
+		sum += diff * diff
+
+		return l24[float32, float32](x, y) + sum
+	case 10:
+		return l210[float32, float32](x, y)
+	case 12:
+		return l212[float32, float32](x, y)
 	}
+
+	// deal with odd lengths and lengths 13, 14, 15
+	if len(x) < 16 {
+		var sum float32
+
+		for i := range x {
+			diff := x[i] - y[i]
+			sum += diff * diff
+		}
+
+		return sum
+	}
+
+	var res float32
+
+	l := len(x)
+	l2_sve(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
 
 	return res
 }
