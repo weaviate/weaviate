@@ -246,7 +246,7 @@ func decideSearchVector(ctx context.Context,
 	class, query string, targetVectors []string, vector []float32, modules modulesProvider,
 	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
 ) ([]float32, error) {
-	if vector != nil && len(vector) != 0 {
+	if len(vector) != 0 {
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
@@ -265,8 +265,6 @@ func decideSearchVector(ctx context.Context,
 			return nil, fmt.Errorf("no vector or modules provided for hybrid search")
 		}
 	}
-
-	return nil, fmt.Errorf("unable to decide search vector for hybrid search")
 }
 
 func vectorFromModuleInput(ctx context.Context, class, input, targetVector string, modules modulesProvider) ([]float32, error) {
