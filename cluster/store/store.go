@@ -441,7 +441,7 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 				st.log.WithFields(logrus.Fields{
 					"got":  idx,
 					"want": version,
-				}).Debug("wait for update version") // TODO-RAFT remove
+				}).Debug("wait for update version")
 			}
 		}
 	}
