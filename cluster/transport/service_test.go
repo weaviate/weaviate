@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
@@ -287,8 +288,7 @@ func NewMockLogger(t *testing.T) MockLogger {
 	m := MockLogger{
 		buf: buf,
 	}
-	m.Logger = logrus.New()
-	m.Logger.SetFormatter(&logrus.JSONFormatter{})
+	m.Logger, _ = logrustest.NewNullLogger()
 	return m
 }
 
