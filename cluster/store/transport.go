@@ -14,8 +14,10 @@ package store
 import (
 	"fmt"
 	"net"
+	"os"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 )
 
@@ -61,12 +63,18 @@ func (a *addrResolver) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) 
 // This is particularly crucial as K8s assigns new IPs on each node restart.
 func (a *addrResolver) NewTCPTransport(
 	bindAddr string, advertise net.Addr,
-	maxPool int, timeout time.Duration,
+	maxPool int, timeout time.Duration, logLevel string, logJsonFormat bool,
 ) (*raft.NetworkTransport, error) {
 	cfg := &raft.NetworkTransportConfig{
 		ServerAddressProvider: a,
 		MaxPool:               tcpMaxPool,
 		Timeout:               tcpTimeout,
+		Logger: hclog.New(&hclog.LoggerOptions{
+			Name:       "raft-net",
+			Output:     os.Stderr,
+			Level:      hclog.LevelFromString(logLevel),
+			JSONFormat: logJsonFormat,
+		}),
 	}
 
 	return raft.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
