@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/sirupsen/logrus"
@@ -44,6 +45,7 @@ func (hclogger *hclogLogrus) GetLevel() hclog.Level {
 	case logrus.WarnLevel:
 		return hclog.Warn
 	case logrus.ErrorLevel:
+		return hclog.Error
 	case logrus.FatalLevel:
 	case logrus.PanicLevel:
 		return hclog.Error
@@ -104,7 +106,7 @@ func (hclogger *hclogLogrus) Error(msg string, args ...interface{}) {
 func (hclogger *hclogLogrus) logToLogrus(level logrus.Level, msg string, args ...interface{}) {
 	logger := hclogger.entry
 	if len(args) > 0 {
-		logger = hclogger.LoggerWith(args)
+		logger = hclogger.LoggerWith(args).WithField("action", strings.TrimSpace(hclogger.name))
 	}
 	logger.Log(level, hclogger.name+msg)
 }
