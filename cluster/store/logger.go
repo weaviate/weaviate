@@ -44,8 +44,8 @@ func (hclogger *hclogLogrus) GetLevel() hclog.Level {
 	case logrus.WarnLevel:
 		return hclog.Warn
 	case logrus.ErrorLevel:
-		return hclog.Error
 	case logrus.FatalLevel:
+	case logrus.PanicLevel:
 		return hclog.Error
 	}
 	return hclog.DefaultLevel
@@ -58,6 +58,7 @@ func (hclogger *hclogLogrus) Log(level hclog.Level, msg string, args ...interfac
 	case hclog.Debug:
 		hclogger.Debug(msg, args...)
 	case hclog.Info:
+	case hclog.NoLevel:
 		hclogger.Info(msg, args...)
 	case hclog.Warn:
 		hclogger.Warn(msg, args...)

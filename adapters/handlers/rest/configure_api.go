@@ -647,31 +647,6 @@ func logger() *logrus.Logger {
 	return logger
 }
 
-// sLogger returns an initialized standard logger
-// This logger should replace logrus in future
-// func sLogger() *slog.Logger {
-// 	opts := slog.HandlerOptions{}
-// 	switch os.Getenv("LOG_LEVEL") {
-// 	case "debug":
-// 		opts.Level = slog.LevelDebug
-// 	case "warn":
-// 		opts.Level = slog.LevelWarn
-// 	case "error":
-// 		opts.Level = slog.LevelError
-// 	default:
-// 		opts.Level = slog.LevelInfo
-// 	}
-
-// 	var handler slog.Handler
-// 	if logTextFormat() {
-// 		handler = slog.NewTextHandler(os.Stderr, &opts)
-// 	} else {
-// 		handler = slog.NewJSONHandler(os.Stderr, &opts)
-// 	}
-
-// 	return slog.New(handler)
-// }
-
 func logLevel() string {
 	switch level := os.Getenv("LOG_LEVEL"); level {
 	case "trace", "debug", "warn", "error":
