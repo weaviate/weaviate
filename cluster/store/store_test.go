@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -799,7 +799,7 @@ func cmdAsBytes(class string,
 type MockStore struct {
 	indexer *MockIndexer
 	parser  *MockParser
-	logger  MockSLog
+	logger  MockLogger
 	cfg     Config
 	store   *Store
 }
@@ -807,7 +807,7 @@ type MockStore struct {
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := &MockIndexer{}
 	parser := &MockParser{}
-	logger := NewMockSLog(t)
+	logger := NewMockLogger(t)
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
@@ -844,17 +844,18 @@ func (m *MockStore) Store(doBefore func(*MockStore)) *Store {
 	return m.store
 }
 
-type MockSLog struct {
+type MockLogger struct {
 	buf    *bytes.Buffer
-	Logger *slog.Logger
+	Logger *logrus.Logger
 }
 
-func NewMockSLog(t *testing.T) MockSLog {
+func NewMockLogger(t *testing.T) MockLogger {
 	buf := new(bytes.Buffer)
-	m := MockSLog{
+	m := MockLogger{
 		buf: buf,
 	}
-	m.Logger = slog.New(slog.NewJSONHandler(buf, nil))
+	m.Logger = logrus.New()
+	m.Logger.SetFormatter(&logrus.JSONFormatter{})
 	return m
 }
 

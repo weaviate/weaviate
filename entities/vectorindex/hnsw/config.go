@@ -77,10 +77,11 @@ func (u *UserConfig) SetDefaults() {
 	u.FlatSearchCutoff = DefaultFlatSearchCutoff
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
 	u.PQ = PQConfig{
-		Enabled:       DefaultPQEnabled,
-		Segments:      DefaultPQSegments,
-		Centroids:     DefaultPQCentroids,
-		TrainingLimit: DefaultPQTrainingLimit,
+		Enabled:        DefaultPQEnabled,
+		BitCompression: DefaultPQBitCompression,
+		Segments:       DefaultPQSegments,
+		Centroids:      DefaultPQCentroids,
+		TrainingLimit:  DefaultPQTrainingLimit,
 		Encoder: PQEncoder{
 			Type:         DefaultPQEncoderType,
 			Distribution: DefaultPQEncoderDistribution,
