@@ -288,8 +288,7 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 
 	st.transport, err = st.addResolver.NewTCPTransport(
 		address, tcpAddr,
-		tcpMaxPool, tcpTimeout,
-		st.logLevel, st.logJsonFormat)
+		tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
 			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -776,7 +775,7 @@ func (st *Store) raftConfig() *raft.Config {
 	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.LogLevel = st.logLevel
 
-	logger := NewHcLogrusLogger(st.log)
+	logger := NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
 
 	return cfg

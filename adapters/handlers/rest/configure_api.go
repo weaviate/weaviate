@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -650,28 +649,28 @@ func logger() *logrus.Logger {
 
 // sLogger returns an initialized standard logger
 // This logger should replace logrus in future
-func sLogger() *slog.Logger {
-	opts := slog.HandlerOptions{}
-	switch os.Getenv("LOG_LEVEL") {
-	case "debug":
-		opts.Level = slog.LevelDebug
-	case "warn":
-		opts.Level = slog.LevelWarn
-	case "error":
-		opts.Level = slog.LevelError
-	default:
-		opts.Level = slog.LevelInfo
-	}
+// func sLogger() *slog.Logger {
+// 	opts := slog.HandlerOptions{}
+// 	switch os.Getenv("LOG_LEVEL") {
+// 	case "debug":
+// 		opts.Level = slog.LevelDebug
+// 	case "warn":
+// 		opts.Level = slog.LevelWarn
+// 	case "error":
+// 		opts.Level = slog.LevelError
+// 	default:
+// 		opts.Level = slog.LevelInfo
+// 	}
 
-	var handler slog.Handler
-	if logTextFormat() {
-		handler = slog.NewTextHandler(os.Stderr, &opts)
-	} else {
-		handler = slog.NewJSONHandler(os.Stderr, &opts)
-	}
+// 	var handler slog.Handler
+// 	if logTextFormat() {
+// 		handler = slog.NewTextHandler(os.Stderr, &opts)
+// 	} else {
+// 		handler = slog.NewJSONHandler(os.Stderr, &opts)
+// 	}
 
-	return slog.New(handler)
-}
+// 	return slog.New(handler)
+// }
 
 func logLevel() string {
 	switch level := os.Getenv("LOG_LEVEL"); level {
