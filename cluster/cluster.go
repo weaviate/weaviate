@@ -52,7 +52,7 @@ func New(cfg store.Config) *Service {
 // Open internal RPC service to handle node communication,
 // bootstrap the Raft node, and restore the database state
 func (c *Service) Open(ctx context.Context, db store.Indexer) error {
-	c.logger.Info("open cluster service", "servers", c.config.ServerName2PortMap)
+	c.logger.WithField("servers", c.config.ServerName2PortMap).Info("open cluster service")
 	if err := c.rpcService.Open(); err != nil {
 		return fmt.Errorf("start rpc service: %w", err)
 	}

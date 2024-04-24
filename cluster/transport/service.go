@@ -98,7 +98,7 @@ func (s *Service) Leader() string {
 }
 
 func (s *Service) Open() error {
-	s.log.Info("starting cloud rpc server ...", "address", s.address)
+	s.log.WithField("address", s.address).Info("starting cloud rpc server ...")
 	if s.address == "" {
 		return fmt.Errorf("address of rpc server cannot be empty")
 	}
@@ -112,7 +112,7 @@ func (s *Service) Open() error {
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	go func() {
 		if err := s.grpcServer.Serve(s.ln); err != nil {
-			s.log.Error("serving incoming requests: " + err.Error())
+			s.log.WithError(err).Error("serving incoming requests")
 			panic("error accepting incoming requests")
 		}
 	}()

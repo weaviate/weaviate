@@ -33,7 +33,7 @@ func (l *logParser) Write(in []byte) (int, error) {
 	res := l.regexp.FindSubmatch(in)
 	if len(res) != 4 {
 		// unable to parse log message
-		l.logrus.Warnf("unable to parse memberlist log message: %s", in)
+		l.logrus.WithField("in", in).Warn("unable to parse memberlist log message")
 	}
 
 	switch string(res[2]) {
@@ -46,7 +46,7 @@ func (l *logParser) Write(in []byte) (int, error) {
 	case "INFO":
 		l.logrus.Info(string(res[3]))
 	default:
-		l.logrus.Warnf("unable to parse memberlist log level from message: %s", in)
+		l.logrus.WithField("in", in).Warn("unable to parse memberlist log level from message")
 	}
 
 	return len(in), nil
