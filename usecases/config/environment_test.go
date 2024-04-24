@@ -255,6 +255,7 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 }
 
 func TestEnvironmentParseClusterConfig(t *testing.T) {
+	hostname, _ := os.Hostname()
 	tests := []struct {
 		name           string
 		envVars        map[string]string
@@ -270,6 +271,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
+				Hostname:       hostname,
 				GossipBindPort: 7100,
 				DataBindPort:   7101,
 				AdvertiseAddr:  "193.0.0.1",
@@ -279,6 +281,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		{
 			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
+				Hostname:       hostname,
 				GossipBindPort: DefaultGossipBindPort,
 				DataBindPort:   DefaultGossipBindPort + 1,
 				AdvertiseAddr:  "",
@@ -290,6 +293,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
+				Hostname:       hostname,
 				GossipBindPort: 7777,
 				DataBindPort:   7778,
 			},
@@ -317,6 +321,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
 			},
 			expectedResult: cluster.Config{
+				Hostname:                hostname,
 				GossipBindPort:          7946,
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,
