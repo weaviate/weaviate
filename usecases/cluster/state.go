@@ -60,9 +60,7 @@ func (ba BasicAuth) Enabled() bool {
 func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
-	if userConfig.Hostname != "" {
-		cfg.Name = userConfig.Hostname
-	}
+	cfg.Name = userConfig.Hostname
 	state := State{
 		config: userConfig,
 		delegate: delegate{
@@ -96,7 +94,6 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 			Error("memberlist not created")
 		return nil, errors.Wrap(err, "create member list")
 	}
-
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")

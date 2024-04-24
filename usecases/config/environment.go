@@ -631,8 +631,13 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 func parseClusterConfig() (cluster.Config, error) {
 	cfg := cluster.Config{}
 
-	if v := os.Getenv("CLUSTER_HOSTNAME"); v != "" {
-		cfg.Hostname = v
+	// by default memberlist assigns hostname to os.Hostname() incase hostname is empty
+	// ref: https://github.com/hashicorp/memberlist/blob/3f82dc10a89f82efe300228752f7077d0d9f87e4/config.go#L303
+	// it's handled at parseClusterConfig step to be consistent from the config start point and conveyed to all
+	// underlying functions see parseRAFTConfig(..) for example
+	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
+	if cfg.Hostname == "" {
+		cfg.Hostname, _ = os.Hostname()
 	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
