@@ -165,8 +165,8 @@ func (hclogger *hclogLogrus) ResetNamed(name string) hclog.Logger {
 	}
 }
 
-func (hclogger *hclogLogrus) SetLevel(hclog.Level) {
-
+func (hclogger *hclogLogrus) SetLevel(l hclog.Level) {
+	hclogger.entry.Level = logrus.Level(l)
 }
 
 func (hclogger *hclogLogrus) StandardLogger(*hclog.StandardLoggerOptions) *log.Logger {
