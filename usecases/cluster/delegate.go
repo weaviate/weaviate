@@ -272,7 +272,7 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 		space, err := du(d.dataPath)
 		if err != nil {
 			d.log.WithField("action", "delegate.local_state.disk_usage").WithError(err).
-				Error("du func error in updater")
+				Error("disk space updater failed")
 		} else {
 			d.setOwnSpace(space)
 		}
