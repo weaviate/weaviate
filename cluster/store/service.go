@@ -15,9 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -29,7 +29,7 @@ import (
 type Service struct {
 	store *Store
 	cl    client
-	log   *slog.Logger
+	log   *logrus.Logger
 }
 
 // client to communicate with remote services

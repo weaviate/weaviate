@@ -52,6 +52,7 @@ require (
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/go-ego/gse v0.80.2
 	github.com/googleapis/gax-go/v2 v2.12.2
+	github.com/hashicorp/go-hclog v1.6.2
 	github.com/hashicorp/raft v1.5.0
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
@@ -109,7 +110,6 @@ require (
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-hclog v1.6.2 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-msgpack/v2 v2.1.1 // indirect

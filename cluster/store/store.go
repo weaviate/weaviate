@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,9 +23,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
@@ -117,7 +116,7 @@ type Config struct {
 	DB            Indexer
 	Parser        Parser
 	AddrResolver  addressResolver
-	Logger        *slog.Logger
+	Logger        *logrus.Logger
 	LogLevel      string
 	LogJSONFormat bool
 	Voter         bool
@@ -153,7 +152,7 @@ type Store struct {
 	nodeID        string
 	host          string
 	db            *localDB
-	log           *slog.Logger
+	log           *logrus.Logger
 	logLevel      string
 	logJsonFormat bool
 
@@ -289,8 +288,7 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 
 	st.transport, err = st.addResolver.NewTCPTransport(
 		address, tcpAddr,
-		tcpMaxPool, tcpTimeout,
-		st.logLevel, st.logJsonFormat)
+		tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
 			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
@@ -776,12 +774,8 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.LogLevel = st.logLevel
-	logger := hclog.New(&hclog.LoggerOptions{
-		Name:       "raft",
-		Level:      hclog.LevelFromString(st.logLevel),
-		JSONFormat: st.logJsonFormat,
-		Output:     os.Stderr,
-	})
+
+	logger := NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
 
 	return cfg
