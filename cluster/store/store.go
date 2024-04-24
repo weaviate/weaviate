@@ -243,10 +243,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
-	st.log.WithField("raft_applied_index", st.raft.AppliedIndex()).
-		WithField("raft_last_index", st.raft.LastIndex()).
-		WithField("last_log_applied_index", st.initialLastAppliedIndex).
-		WithField("last_snapshot_index", lastSnapshotIndex).Info("raft node")
+	st.log.WithFields(logrus.Fields{
+		"raft_applied_index":     st.raft.AppliedIndex(),
+		"raft_last_index":        st.raft.LastIndex(),
+		"last_log_applied_index": st.initialLastAppliedIndex,
+		"last_snapshot_index":    lastSnapshotIndex,
+	}).Info("raft node")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
@@ -292,8 +294,11 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
 			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
-	st.log.WithField("address", address).WithField("tcpMaxPool", tcpMaxPool).
-		WithField("tcpTimeout", tcpTimeout).Info("tcp transport")
+	st.log.WithFields(logrus.Fields{
+		"address":    address,
+		"tcpMaxPool": tcpMaxPool,
+		"tcpTimeout": tcpTimeout,
+	}).Info("tcp transport")
 
 	return
 }
@@ -433,8 +438,10 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
 				return nil
 			} else {
-				st.log.WithField("got", idx).WithField("want", version).
-					Debug("wait for update version") // TODO-RAFT remove
+				st.log.WithFields(logrus.Fields{
+					"got":  idx,
+					"want": version,
+				}).Debug("wait for update version") // TODO-RAFT remove
 			}
 		}
 	}
@@ -536,7 +543,10 @@ func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
 }
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
-	st.log.WithField("type", req.Type).WithField("class", req.Class).Debug("server.execute")
+	st.log.WithFields(logrus.Fields{
+		"type":  req.Type,
+		"class": req.Class,
+	}).Debug("server.execute")
 
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
@@ -572,9 +582,15 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // method was called on the same Raft node as the FSM.
 func (st *Store) Apply(l *raft.Log) interface{} {
 	ret := Response{Version: l.Index}
-	st.log.WithField("type", l.Type).WithField("index", l.Index).Debug("apply command")
+	st.log.WithFields(logrus.Fields{
+		"type":  l.Type,
+		"index": l.Index,
+	}).Debug("apply command")
 	if l.Type != raft.LogCommand {
-		st.log.WithField("type", l.Type).WithField("index", l.Index).Info("not a valid command")
+		st.log.WithFields(logrus.Fields{
+			"type":  l.Type,
+			"index": l.Index,
+		}).Info("not a valid command")
 		return ret
 	}
 	cmd := api.ApplyRequest{}
@@ -593,8 +609,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.loadDatabase(context.Background())
 		}
 		if ret.Error != nil {
-			st.log.WithField("type", l.Type).WithField("index", l.Index).WithError(ret.Error).
-				Error("apply command")
+			st.log.WithFields(logrus.Fields{
+				"type":  l.Type,
+				"index": l.Index,
+			}).WithError(ret.Error).Error("apply command")
 		}
 	}()
 
@@ -635,8 +653,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
 		const msg = "consider upgrading to newer version"
-		st.log.WithField("type", cmd.Type).WithField("class", cmd.Class).WithField("more", msg).
-			Error("unknown command")
+		st.log.WithFields(logrus.Fields{
+			"type":  cmd.Type,
+			"class": cmd.Class,
+			"more":  msg,
+		}).Error("unknown command")
 		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
 
@@ -725,8 +746,10 @@ func (st *Store) Notify(id, addr string) (err error) {
 
 	st.candidates[id] = addr
 	if len(st.candidates) < st.bootstrapExpect {
-		st.log.WithField("expect", st.bootstrapExpect).WithField("got", st.candidates).
-			Debug("number of candidates")
+		st.log.WithFields(logrus.Fields{
+			"expect": st.bootstrapExpect,
+			"got":    st.candidates,
+		}).Debug("number of candidates")
 		return nil
 	}
 	candidates := make([]raft.Server, 0, len(st.candidates))
@@ -814,9 +837,11 @@ func (st *Store) reloadDB() bool {
 	if !st.dbLoaded.CompareAndSwap(true, false) {
 		// the snapshot already includes the state from the raft log
 		snapIndex := snapshotIndex(st.snapshotStore)
-		st.log.WithField("last_applied_index", st.lastAppliedIndex.Load()).
-			WithField("initial_last_applied_index", st.initialLastAppliedIndex).
-			WithField("last_snapshot_index", snapIndex).Info("load local db from snapshot")
+		st.log.WithFields(logrus.Fields{
+			"last_applied_index":         st.lastAppliedIndex.Load(),
+			"initial_last_applied_index": st.initialLastAppliedIndex,
+			"last_snapshot_index":        snapIndex,
+		}).Info("load local db from snapshot")
 		if st.initialLastAppliedIndex <= snapIndex {
 			st.loadDatabase(ctx)
 			return true

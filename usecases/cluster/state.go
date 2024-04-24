@@ -70,7 +70,8 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		},
 	}
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delete_init").Error(err)
+		logger.WithField("action", "init_state.delete_init").WithError(err).
+			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
@@ -87,11 +88,11 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
-		logger.WithField("action", "memberlist_init").
-			WithField("hostname", userConfig.Hostname).
-			WithField("bind_port", userConfig.GossipBindPort).
-			WithError(err).
-			Error("memberlist not created")
+		logger.WithFields(logrus.Fields{
+			"action":    "memberlist_init",
+			"hostname":  userConfig.Hostname,
+			"bind_port": userConfig.GossipBindPort,
+		}).WithError(err).Error("memberlist not created")
 		return nil, errors.Wrap(err, "create member list")
 	}
 	var joinAddr []string
@@ -102,18 +103,19 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	if len(joinAddr) > 0 {
 		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 		if err != nil {
-			logger.WithField("action", "cluster_attempt_join").
-				WithField("remote_hostname", joinAddr[0]).
-				WithError(err).
-				Warn("specified hostname to join cluster cannot be resolved. This is fine" +
+			logger.WithFields(logrus.Fields{
+				"action":          "cluster_attempt_join",
+				"remote_hostname": joinAddr[0],
+			}).WithError(err).Warn(
+				"specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
 			_, err := state.list.Join(joinAddr)
 			if err != nil {
-				logger.WithField("action", "memberlist_init").
-					WithField("remote_hostname", joinAddr).
-					WithError(err).
-					Error("memberlist join not successful")
+				logger.WithFields(logrus.Fields{
+					"action":          "memberlist_init",
+					"remote_hostname": joinAddr,
+				}).WithError(err).Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}

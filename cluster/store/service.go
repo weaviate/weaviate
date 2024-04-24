@@ -249,7 +249,11 @@ func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
 }
 
 func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
-	// log.Printf("membership.join %v %v %v", id, addr, voter)
+	s.log.WithFields(logrus.Fields{
+		"id":      id,
+		"address": addr,
+		"voter":   voter,
+	}).Debug("membership.join")
 	if s.store.IsLeader() {
 		return s.store.Join(id, addr, voter)
 	}
@@ -263,7 +267,7 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 }
 
 func (s *Service) Remove(ctx context.Context, id string) error {
-	// log.Printf("membership.remove %v ", id)
+	s.log.WithField("id", id).Debug("membership.remove")
 	if s.store.IsLeader() {
 		return s.store.Remove(id)
 	}
@@ -277,7 +281,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 }
 
 func (s *Service) Stats() map[string]any {
-	// log.Printf("membership.Stats")
+	s.log.Debug("membership.stats")
 	return s.store.Stats()
 }
 

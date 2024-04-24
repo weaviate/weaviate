@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -54,7 +55,10 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
 		const msg = "consider upgrading to newer version"
-		st.log.WithField("type", req.Type).WithField("more", msg).Error("unknown command")
+		st.log.WithFields(logrus.Fields{
+			"type": req.Type,
+			"more": msg,
+		}).Error("unknown command")
 		return &cmd.QueryResponse{}, fmt.Errorf("unknown command type %s: %s", req.Type, msg)
 	}
 	return &cmd.QueryResponse{Payload: payload}, nil
