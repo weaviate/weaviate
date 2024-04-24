@@ -158,12 +158,11 @@ func (req *AddReferenceInput) validate(
 		return nil, nil, 0, err
 	}
 
-	// TODO-RAFT: Pull the schemaversion here and return it alongside the class
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	return ref, class, 0, validateReferenceSchema(sm, class, req.Property)
+	return ref, class, schemaVersion, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(
