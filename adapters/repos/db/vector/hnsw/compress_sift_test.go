@@ -368,9 +368,10 @@ func TestHnswPqSift(t *testing.T) {
 		fmt.Println("Start compressing...")
 
 		cfg := ent.PQConfig{
-			Enabled:   true,
-			Segments:  dimensions / int(math.Pow(2, float64(segmentRate))),
-			Centroids: centroids,
+			Enabled:        true,
+			Segments:       dimensions / int(math.Pow(2, float64(segmentRate))),
+			Centroids:      centroids,
+			BitCompression: false,
 			Encoder: ent.PQEncoder{
 				Type:         ent.PQEncoderTypeKMeans,
 				Distribution: ent.PQEncoderDistributionLogNormal,
