@@ -102,7 +102,6 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		mp = t.nearParamsVector.modulesProvider.(*modules.Provider)
 	}
 
-
 	res, err := t.vectorSearcher.Aggregate(ctx, *params, mp)
 	if err != nil || res == nil {
 		return nil, err
