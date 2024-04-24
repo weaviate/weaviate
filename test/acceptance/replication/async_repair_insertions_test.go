@@ -103,3 +103,26 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 	}
 }
+
+func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, clusterSize, node int) {
+	if node != 1 {
+		stopNodeAt(ctx, t, compose, node)
+		time.Sleep(10 * time.Second)
+
+		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(node).Name()))
+		time.Sleep(5 * time.Second) // wait for initialization
+	}
+
+	// since node1 is the gossip "leader", the other nodes must be stopped and restarted
+	// after node1 to re-facilitate internode communication
+
+	for n := clusterSize; n >= 1; n-- {
+		stopNodeAt(ctx, t, compose, n)
+		time.Sleep(10 * time.Second)
+	}
+
+	for n := 1; n <= clusterSize; n++ {
+		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(n).Name()))
+		time.Sleep(5 * time.Second) // wait for initialization
+	}
+}
