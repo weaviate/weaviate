@@ -15,9 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"google.golang.org/grpc"
@@ -43,10 +43,10 @@ type Service struct {
 	address    string
 	ln         net.Listener
 	grpcServer *grpc.Server
-	log        *slog.Logger
+	log        *logrus.Logger
 }
 
-func New(ms members, ex executor, address string, l *slog.Logger) *Service {
+func New(ms members, ex executor, address string, l *logrus.Logger) *Service {
 	return &Service{
 		members:  ms,
 		executor: ex,
