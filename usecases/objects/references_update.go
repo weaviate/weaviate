@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -44,6 +45,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 ) *Error {
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
@@ -127,12 +130,11 @@ func (req *PutReferenceInput) validate(
 		return nil, 0, err
 	}
 
-	// TODO-RAFT: Pull the schemaversion here and return it alongside the class
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, 0, err
 	}
-	return refs, 0, validateReferenceSchema(sm, class, req.Property)
+	return refs, schemaVersion, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *PutReferenceInput) validateExistence(
