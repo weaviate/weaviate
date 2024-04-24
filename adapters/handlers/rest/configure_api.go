@@ -283,7 +283,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DB:                 nil,
 		Parser:             schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
 		AddrResolver:       appState.Cluster,
-		Logger:             sLogger(),
+		Logger:             appState.Logger,
 		LogLevel:           logLevel(),
 		LogJSONFormat:      !logTextFormat(),
 		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,

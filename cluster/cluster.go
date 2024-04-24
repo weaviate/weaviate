@@ -14,9 +14,9 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/cluster/transport"
 )
@@ -30,7 +30,7 @@ type Service struct {
 
 	client     *transport.Client
 	rpcService *transport.Service
-	logger     *slog.Logger
+	logger     *logrus.Logger
 }
 
 func New(cfg store.Config) *Service {

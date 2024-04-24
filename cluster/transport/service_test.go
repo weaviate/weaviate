@@ -16,12 +16,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
@@ -38,7 +38,7 @@ func TestService(t *testing.T) {
 		addr        = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
 		members     = &MockMembers{leader: addr}
 		executor    = &MockExecutor{}
-		logger      = NewMockSLog(t)
+		logger      = NewMockLogger(t)
 		adrResolver = MocKAddressResolver{addr: addr, err: nil}
 	)
 	// Empty sever address
@@ -277,17 +277,18 @@ func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.Q
 	return &cmd.QueryResponse{}, nil
 }
 
-type MockSLog struct {
+type MockLogger struct {
 	buf    *bytes.Buffer
-	Logger *slog.Logger
+	Logger *logrus.Logger
 }
 
-func NewMockSLog(t *testing.T) MockSLog {
+func NewMockLogger(t *testing.T) MockLogger {
 	buf := new(bytes.Buffer)
-	m := MockSLog{
+	m := MockLogger{
 		buf: buf,
 	}
-	m.Logger = slog.New(slog.NewJSONHandler(buf, nil))
+	m.Logger = logrus.New()
+	m.Logger.SetFormatter(&logrus.JSONFormatter{})
 	return m
 }
 

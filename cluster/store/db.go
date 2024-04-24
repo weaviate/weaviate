@@ -16,8 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 
+	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -32,7 +32,7 @@ type localDB struct {
 	Schema *schema
 	store  Indexer
 	parser Parser
-	log    *slog.Logger
+	log    *logrus.Logger
 }
 
 func (db *localDB) SetIndexer(idx Indexer) {
