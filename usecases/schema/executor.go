@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type executor struct {
@@ -91,7 +90,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		}
 	} else {
 		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
+			className, asVectorIndexConfig(req.Class)); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
 		}
 	}
