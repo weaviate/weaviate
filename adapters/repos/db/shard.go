@@ -852,9 +852,19 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schema.Vect
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
-	return s.VectorIndex().UpdateUserConfig(updated, func() {
-		s.UpdateStatus(storagestate.StatusReady.String())
+	var callbackErr error
+	err = s.VectorIndex().UpdateUserConfig(updated, func() {
+		callbackErr = s.UpdateStatus(storagestate.StatusReady.String())
 	})
+
+	if err != nil {
+		return err
+	}
+	if callbackErr != nil {
+		return fmt.Errorf("failed to udpate shard %q status to ready: %w", s.name, err)
+	}
+
+	return nil
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
