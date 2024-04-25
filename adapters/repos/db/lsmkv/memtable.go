@@ -28,7 +28,7 @@ type Memtable struct {
 	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
 	roaringSet         *roaringset.BinarySearchTree
-	commitlog          *commitLogger
+	commitlog          memtableCommitLogger
 	size               uint64
 	path               string
 	strategy           string
@@ -41,7 +41,7 @@ type Memtable struct {
 }
 
 func newMemtable(path string, strategy string,
-	secondaryIndices uint16, cl *commitLogger, metrics *Metrics,
+	secondaryIndices uint16, cl memtableCommitLogger, metrics *Metrics,
 ) (*Memtable, error) {
 	m := &Memtable{
 		key:              &binarySearchTree{},

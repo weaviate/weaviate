@@ -772,7 +772,7 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newCommitLogger(path)
+	cl, err := newLazyCommitLogger(path)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
@@ -893,7 +893,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	b.flushLock.RLock()
-	commitLogSize := b.active.commitlog.Size()
+	commitLogSize := b.active.commitlog.size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
