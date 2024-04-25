@@ -260,7 +260,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	}
 	rs := r.stream.readDeletions(len(uuids), level, replyCh)
 	if err := firstBatchError(rs); err != nil {
-		r.log.WithField("op", "put.many").WithField("class", r.class).
+		r.log.WithField("op", "put.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
 	}
 	return rs
