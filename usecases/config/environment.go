@@ -26,10 +26,11 @@ import (
 )
 
 const (
-	DefaultRaftPort             = 8300
-	DefaultRaftInternalPort     = 8301
-	DefaultRaftBootstrapTimeout = 90
-	DefaultRaftBootstrapExpect  = 1
+	DefaultRaftPort                                = 8300
+	DefaultRaftInternalPort                        = 8301
+	DefaultRaftInternalRPCClientMaxCallRecvMsgSize = 1024 * 1024 * 4 // 4MB TODO or should we default higher to handle 1M+ tenants by default?
+	DefaultRaftBootstrapTimeout                    = 90
+	DefaultRaftBootstrapExpect                     = 1
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -391,6 +392,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_INTERNAL_RPC_PORT",
 		func(val int) { cfg.InternalRPCPort = val },
 		DefaultRaftInternalPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_INTERNAL_RPC_CLIENT_MAX_CALL_RECV_MSG_SIZE",
+		func(val int) { cfg.InternalRPCClientMaxCallRecvMsgSize = val },
+		DefaultRaftInternalRPCClientMaxCallRecvMsgSize,
 	); err != nil {
 		return cfg, err
 	}
