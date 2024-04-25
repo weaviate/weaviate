@@ -126,6 +126,10 @@ func (f *fakeDB) GetShardsStatus(class string) (models.ShardStatusList, error) {
 	return args.Get(0).(models.ShardStatusList), nil
 }
 
+func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
+	f.Called()
+}
+
 type fakeAuthorizer struct {
 	err error
 }
