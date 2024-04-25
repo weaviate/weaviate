@@ -472,6 +472,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	for className, tenantNames := range classTenants {
 		class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 		if err != nil || // invalid class
+			class == nil || // class is nil
 			!schema.MultiTenancyEnabled(class) || // non-MT class
 			!class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
