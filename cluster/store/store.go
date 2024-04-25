@@ -121,6 +121,9 @@ type Config struct {
 	LogJSONFormat bool
 	Voter         bool
 
+	// MetadataOnlyVoters  configures the voters to store metadata exclusively, without storing any other data
+	MetadataOnlyVoters bool
+
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
 	// SaveLegacySchema is responsible for loading new schema into boltDB
@@ -130,24 +133,22 @@ type Config struct {
 }
 
 type Store struct {
-	raft             *raft.Raft
-	open             atomic.Bool
-	raftDir          string
-	raftPort         int
-	voter            bool
-	bootstrapExpect  int
-	recoveryTimeout  time.Duration
-	heartbeatTimeout time.Duration
-	electionTimeout  time.Duration
-	snapshotInterval time.Duration
+	raft               *raft.Raft
+	open               atomic.Bool
+	raftDir            string
+	raftPort           int
+	voter              bool
+	bootstrapExpect    int
+	recoveryTimeout    time.Duration
+	heartbeatTimeout   time.Duration
+	electionTimeout    time.Duration
+	metadataOnlyVoters bool
 
 	// applyTimeout timeout limit the amount of time raft waits for a command to be started
 	applyTimeout time.Duration
 
 	// UpdateWaitTimeout Timeout duration for waiting for the update to be propagated to this follower node.
 	updateWaitTimeout time.Duration
-
-	snapshotThreshold uint64
 
 	nodeID        string
 	host          string
@@ -156,11 +157,15 @@ type Store struct {
 	logLevel      string
 	logJsonFormat bool
 
-	bootstrapped  atomic.Bool
-	logStore      *raftbolt.BoltStore
-	addResolver   *addrResolver
-	transport     *raft.NetworkTransport
-	snapshotStore *raft.FileSnapshotStore
+	// snapshot
+	snapshotStore     *raft.FileSnapshotStore
+	snapshotInterval  time.Duration
+	snapshotThreshold uint64
+
+	bootstrapped atomic.Bool
+	logStore     *raftbolt.BoltStore
+	addResolver  *addrResolver
+	transport    *raft.NetworkTransport
 
 	mutex      sync.Mutex
 	candidates map[string]string
@@ -203,6 +208,9 @@ func New(cfg Config) Store {
 		logLevel:          cfg.LogLevel,
 		logJsonFormat:     cfg.LogJSONFormat,
 
+		// if true voters will only serve schema
+		metadataOnlyVoters: cfg.MetadataOnlyVoters,
+
 		// loadLegacySchema is responsible for loading old schema from boltDB
 		loadLegacySchema: cfg.LoadLegacySchema,
 		saveLegacySchema: cfg.SaveLegacySchema,
@@ -237,7 +245,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.loadDatabase(ctx)
 	}
 
-	st.log.WithField("name", st.nodeID).Info("construct a new raft node")
+	st.log.WithFields(logrus.Fields{
+		"name":                 st.nodeID,
+		"metadata_only_voters": st.metadataOnlyVoters,
+	}).Info("construct a new raft node")
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
