@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestNestedReferences(t *testing.T) {
@@ -126,7 +126,7 @@ func TestNestedReferences(t *testing.T) {
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -211,7 +211,7 @@ func TestNestedReferences(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil)
+				err := repo.PutObject(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, 0)
 				require.Nil(t, err)
 			})
 		}
@@ -381,7 +381,7 @@ func TestNestedReferences(t *testing.T) {
 			CreationTimeUnix: 1566464912,
 		}
 
-		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil)
+		err := repo.PutObject(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7}, nil, nil, 0)
 		require.Nil(t, err)
 	})
 }
@@ -584,7 +584,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -612,7 +612,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5}, nil, nil)
+		}, []float32{0.5}, nil, nil, 0)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -621,7 +621,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "target item",
 			},
-		}, []float32{0.5}, nil, nil)
+		}, []float32{0.5}, nil, nil, 0)
 		require.Nil(t, err)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -630,7 +630,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "another target item",
 			},
-		}, []float32{0.5}, nil, nil)
+		}, []float32{0.5}, nil, nil, 0)
 		require.Nil(t, err)
 	})
 
@@ -642,7 +642,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
 		target := crossref.New("localhost", "", targetID)
 
-		err := repo.AddReference(context.Background(), source, target, nil, "")
+		err := repo.AddReference(context.Background(), source, target, nil, "", 0)
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
@@ -680,7 +680,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
 		target := crossref.New("localhost", "", target2ID)
 
-		err := repo.AddReference(context.Background(), source, target, nil, "")
+		err := repo.AddReference(context.Background(), source, target, nil, "", 0)
 		assert.Nil(t, err)
 	})
 

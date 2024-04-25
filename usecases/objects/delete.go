@@ -17,7 +17,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // DeleteObject Class Instance from the connected DB
@@ -37,11 +39,18 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return err
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectDeleteMemory()); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process delete object")
+		return fmt.Errorf("cannot process delete object: %w", err)
+	}
 
 	m.metrics.DeleteObjectInc()
 	defer m.metrics.DeleteObjectDec()
@@ -50,6 +59,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
+	_, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	if err != nil {
+		return fmt.Errorf("could not get class %s: %w", class, err)
+	}
 	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
 		switch err.(type) {
@@ -63,7 +76,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
-	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
+	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, schemaVersion)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
@@ -93,7 +106,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "")
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "", 0)
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,26 +27,27 @@ type retryClient struct {
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
-	req *http.Request, body []byte, decode func([]byte) error,
+	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool,
 ) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
-	try := func(ctx context.Context) (bool, error) {
-		if body != nil {
-			req.Body = io.NopCloser(bytes.NewReader(body))
+	req = req.WithContext(ctx)
+	try := func(ctx context.Context) (b bool, e error) {
+		if data != nil {
+			req.Body = io.NopCloser(bytes.NewReader(data))
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
+		defer res.Body.Close()
 
 		respBody, err := io.ReadAll(res.Body)
 		if err != nil {
 			return shouldRetry(res.StatusCode), fmt.Errorf("read response: %w", err)
 		}
-		defer res.Body.Close()
 
-		if code := res.StatusCode; code != http.StatusOK {
+		if code := res.StatusCode; !success(code) {
 			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
 		}
 
@@ -56,6 +58,34 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		return false, nil
 	}
 	return c.retry(ctx, 9, try)
+}
+
+func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, success func(code int) bool) (code int, err error) {
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	req = req.WithContext(ctx)
+	try := func(ctx context.Context) (bool, error) {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		res, err := c.client.Do(req)
+		if err != nil {
+			return false, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code = res.StatusCode; !success(code) {
+			b, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+		}
+		if resp != nil {
+			if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
+				return false, fmt.Errorf("decode response: %w", err)
+			}
+		}
+		return false, nil
+	}
+	return code, c.retry(ctx, 9, try)
 }
 
 type retryer struct {
@@ -93,4 +123,8 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 		}
 		timer.Stop()
 	}
+}
+
+func successCode(code int) bool {
+	return code >= http.StatusOK && code <= http.StatusIMUsed
 }

@@ -127,7 +127,7 @@ func (r *batchWriter) saveObjects(items objects.BatchObjects) {
 	defer cancel()
 
 	if len(items) > 0 {
-		saved, err := r.vectorRepo.BatchPutObjects(ctx, items, nil)
+		saved, err := r.vectorRepo.BatchPutObjects(ctx, items, nil, 0)
 		if err != nil {
 			r.ec.Add(err)
 		}

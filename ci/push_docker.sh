@@ -27,10 +27,11 @@ function release() {
     tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_hash}"
   fi
 
-  args=("--build-arg=GITHASH=$git_hash" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "-t=$tag_latest" "--push")
+  args=("--build-arg=GITHASH=$git_hash" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
+    args+=("-t=$tag_latest")
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds

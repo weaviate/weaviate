@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/pkg/errors"
@@ -22,7 +23,9 @@ import (
 )
 
 type State struct {
-	config   Config
+	config Config
+	// that lock to serialize access to memberlist
+	listLock sync.RWMutex
 	list     *memberlist.Memberlist
 	delegate delegate
 }
@@ -37,6 +40,8 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
+	Localhost bool `json:"localhost" yaml:"localhost"`
 }
 
 type AuthConfig struct {
@@ -55,9 +60,7 @@ func (ba BasicAuth) Enabled() bool {
 func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
-	if userConfig.Hostname != "" {
-		cfg.Name = userConfig.Hostname
-	}
+	cfg.Name = userConfig.Hostname
 	state := State{
 		config: userConfig,
 		delegate: delegate{
@@ -67,7 +70,8 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		},
 	}
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delete_init").Error(err)
+		logger.WithField("action", "init_state.delete_init").WithError(err).
+			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
@@ -84,35 +88,34 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
-		logger.WithField("action", "memberlist_init").
-			WithField("hostname", userConfig.Hostname).
-			WithField("bind_port", userConfig.GossipBindPort).
-			WithError(err).
-			Error("memberlist not created")
+		logger.WithFields(logrus.Fields{
+			"action":    "memberlist_init",
+			"hostname":  userConfig.Hostname,
+			"bind_port": userConfig.GossipBindPort,
+		}).WithError(err).Error("memberlist not created")
 		return nil, errors.Wrap(err, "create member list")
 	}
-
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
 	}
 
 	if len(joinAddr) > 0 {
-
 		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 		if err != nil {
-			logger.WithField("action", "cluster_attempt_join").
-				WithField("remote_hostname", joinAddr[0]).
-				WithError(err).
-				Warn("specified hostname to join cluster cannot be resolved. This is fine" +
+			logger.WithFields(logrus.Fields{
+				"action":          "cluster_attempt_join",
+				"remote_hostname": joinAddr[0],
+			}).WithError(err).Warn(
+				"specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
 			_, err := state.list.Join(joinAddr)
 			if err != nil {
-				logger.WithField("action", "memberlist_init").
-					WithField("remote_hostname", joinAddr).
-					WithError(err).
-					Error("memberlist join not successful")
+				logger.WithFields(logrus.Fields{
+					"action":          "memberlist_init",
+					"remote_hostname": joinAddr,
+				}).WithError(err).Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
@@ -142,6 +145,9 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	if s.list == nil {
+		return []string{}
+	}
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -195,6 +201,18 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// NodeAddress is used to resolve the node name into an ip address without the port
+func (s *State) NodeAddress(id string) string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+	for _, mem := range s.list.Members() {
+		if mem.Name == id {
+			return mem.Addr.String()
+		}
+	}
+	return ""
 }
 
 func (s *State) SchemaSyncIgnored() bool {
