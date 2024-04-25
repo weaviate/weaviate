@@ -21,9 +21,7 @@ import (
 func extractSchemaVersionFromUrlQuery(values url.Values) uint64 {
 	var schemaVersion uint64
 	if v := values.Get(replica.SchemaVersionKey); v != "" {
-		if vAsUint64, err := strconv.ParseUint(v, 10, 64); err != nil {
-			schemaVersion = vAsUint64
-		}
+		schemaVersion, _ = strconv.ParseUint(v, 10, 64)
 	}
 	return schemaVersion
 }
