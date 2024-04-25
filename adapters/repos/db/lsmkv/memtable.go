@@ -241,8 +241,8 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 }
 
 func (m *Memtable) commitlogSize() int64 {
-	m.Lock()
-	defer m.Unlock()
+	m.RLock()
+	defer m.RUnlock()
 
 	return m.commitlog.size()
 }
