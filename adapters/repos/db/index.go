@@ -24,7 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/utils"
 
 	"github.com/pkg/errors"
 
@@ -788,15 +790,38 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			}()
 			var errs []error
 			if replProps != nil {
-				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
-					replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+				backoff.Retry(func() error {
+					errs = i.replicator.PutObjects(ctx, shardName, group.objects,
+						replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					for _, err := range errs {
+						if err != nil {
+							return err
+						}
+					}
+					return nil
+				}, utils.NewBackoff())
 			} else if shard := i.localShard(shardName); shard != nil {
 				i.backupMutex.RLockGuard(func() error {
-					errs = shard.PutObjectBatch(ctx, group.objects)
+					backoff.Retry(func() error {
+						// load shard again
+						shard = i.localShard(shardName)
+						errs = shard.PutObjectBatch(ctx, group.objects)
+						for _, err := range errs {
+							if err != nil {
+								return err
+							}
+						}
+						return nil
+					}, utils.NewBackoff())
 					return nil
 				})
 			} else {
 				errs = i.remote.BatchPutObjects(ctx, shardName, group.objects, schemaVersion)
+				for _, err := range errs {
+					if err != nil {
+						i.logger.WithError(err).Error("mooga it's from vier")
+					}
+				}
 			}
 			for i, err := range errs {
 				desiredPos := group.pos[i]
