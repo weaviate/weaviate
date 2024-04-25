@@ -69,7 +69,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 			return nil, 0, err
 		}
 		if class == nil {
-			return nil, 0, nil
+			return nil, 0, ErrNotFound
 		}
 		err = h.parser.ParseClass(class)
 		if err != nil {
