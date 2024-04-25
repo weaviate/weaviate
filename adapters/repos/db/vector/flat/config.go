@@ -15,6 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Config struct {
@@ -22,6 +23,7 @@ type Config struct {
 	TargetVector     string
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
+	AllocChecker     memwatch.AllocChecker
 }
 
 func (c Config) Validate() error {

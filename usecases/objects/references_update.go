@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -44,6 +45,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 ) *Error {
 	m.metrics.UpdateReferenceInc()
 	defer m.metrics.UpdateReferenceDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)
 	if err != nil {
@@ -72,7 +75,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	defer unlock()
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
-	parsedTargetRefs, err := input.validate(ctx, principal, validator, m.schemaManager, tenant)
+	parsedTargetRefs, schemaVersion, err := input.validate(ctx, principal, validator, m.schemaManager, tenant)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
 			return &Error{"bad inputs", StatusUnprocessableEntity, err}
@@ -106,7 +109,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		obj.Properties.(map[string]interface{})[input.Property] = input.Refs
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl)
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
@@ -118,20 +121,20 @@ func (req *PutReferenceInput) validate(
 	principal *models.Principal,
 	v *validation.Validator,
 	sm schemaManager, tenant string,
-) ([]*crossref.Ref, error) {
+) ([]*crossref.Ref, uint64, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	refs, err := v.ValidateMultipleRef(ctx, req.Refs, "validate references", tenant)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	schema, err := sm.GetSchema(principal)
+	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return refs, validateReferenceSchema(req.Class, req.Property, schema)
+	return refs, schemaVersion, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *PutReferenceInput) validateExistence(
@@ -158,13 +161,13 @@ func validateReferenceName(class, property string) error {
 	return nil
 }
 
-func validateReferenceSchema(class, property string, sch schema.Schema) error {
-	prop, err := sch.GetProperty(schema.ClassName(class), schema.PropertyName(property))
+func validateReferenceSchema(sm schemaManager, c *models.Class, property string) error {
+	prop, err := schema.GetPropertyByName(c, property)
 	if err != nil {
 		return err
 	}
 
-	dt, err := sch.FindPropertyDataType(prop.DataType)
+	dt, err := schema.FindPropertyDataTypeWithRefs(sm.ReadOnlyClass, prop.DataType, false, "")
 	if err != nil {
 		return err
 	}

@@ -29,27 +29,24 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	if s == nil {
 		return nil, fmt.Errorf(ErrorNoSuchClass, className)
 	}
-	// For each class
+
 	for _, class := range s.Classes {
 		// Check if the name of the class is the given name, that's the class we need
 		if class.Class == className {
 			return class, nil
 		}
 	}
-
 	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
 // GetPropertyByName returns the class by its name
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
-	// For each class-property
 	for _, prop := range c.Properties {
 		// Check if the name of the property is the given name, that's the property we need
 		if prop.Name == strings.Split(propName, ".")[0] {
 			return prop, nil
 		}
 	}
-
 	return nil, fmt.Errorf(ErrorNoSuchProperty, propName, c.Class)
 }
 

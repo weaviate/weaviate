@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -87,7 +87,8 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 	index.initBuckets(context.Background())
 	if uc.BQ.Enabled && uc.BQ.Cache {
-		index.bqCache = cache.NewShardedUInt64LockCache(index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0)
+		index.bqCache = cache.NewShardedUInt64LockCache(
+			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
 	return index, nil
@@ -585,7 +586,7 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 	return resultIDs, resultDist, nil
 }
 
-func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
 		callback()
@@ -693,7 +694,7 @@ func validateImmutableField(u immutableParameter,
 	return nil
 }
 
-func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
+func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) error {
 	initialParsed, ok := initial.(flatent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)

@@ -55,7 +55,7 @@ func (b *backupper) Backup(ctx context.Context,
 		ID:      id,
 		Classes: classes,
 	}
-	if _, err := b.backup(ctx, store, &req); err != nil {
+	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -124,9 +124,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 // Moreover it starts a goroutine in the background which waits for the
 // next instruction from the coordinator (second phase).
 // It will start the backup as soon as it receives an ack, or abort otherwise
-func (b *backupper) backup(ctx context.Context,
-	store nodeStore, req *Request,
-) (CanCommitResponse, error) {
+func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {

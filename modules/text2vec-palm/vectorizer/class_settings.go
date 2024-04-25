@@ -34,7 +34,7 @@ const (
 	DefaultApiEndpoint            = "us-central1-aiplatform.googleapis.com"
 	DefaultModelID                = "textembedding-gecko@001"
 	DefaulGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaulGenerativeAIModelID     = "embedding-gecko-001"
+	DefaulGenerativeAIModelID     = "embedding-001"
 )
 
 var availablePalmModels = []string{
@@ -45,10 +45,13 @@ var availablePalmModels = []string{
 	"textembedding-gecko@002",
 	"textembedding-gecko-multilingual@001",
 	"textembedding-gecko@001",
+	"text-embedding-preview-0409",
+	"text-multilingual-embedding-preview-0409",
 }
 
 var availableGenerativeAIModels = []string{
 	DefaulGenerativeAIModelID,
+	"text-embedding-004",
 }
 
 type classSettings struct {

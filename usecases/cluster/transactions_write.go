@@ -183,11 +183,12 @@ func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
 ) (applied bool, err error) {
 	c.persistence.IterateAll(context.Background(), func(tx *Transaction) {
 		if !slices.Contains(allowedTypes, tx.Type) {
-			c.logger.WithField("action", "resume_transaction").
-				WithField("transaction_id", tx.ID).
-				WithField("transaction_type", tx.Type).
-				Warnf("dangling transaction %q of type %q is not known to be resumable - skipping",
-					tx.ID, tx.Type)
+			c.logger.WithFields(logrus.Fields{
+				"action":           "resume_transaction",
+				"transaction_id":   tx.ID,
+				"transaction_type": tx.Type,
+			}).Warnf("dangling transaction %q of type %q is not known to be resumable - skipping",
+				tx.ID, tx.Type)
 
 			return
 		}
@@ -196,11 +197,11 @@ func (c *TxManager) TryResumeDanglingTxs(ctx context.Context,
 		}
 
 		applied = true
-		c.logger.WithField("action", "resume_transaction").
-			WithField("transaction_id", tx.ID).
-			WithField("transaction_type", tx.Type).
-			Infof("successfully resumed dangling transaction %q of type %q",
-				tx.ID, tx.Type)
+		c.logger.WithFields(logrus.Fields{
+			"action":           "resume_transaction",
+			"transaction_id":   tx.ID,
+			"transaction_type": tx.Type,
+		}).Infof("successfully resumed dangling transaction %q of type %q", tx.ID, tx.Type)
 	})
 
 	return
@@ -458,7 +459,7 @@ func (c *TxManager) CommitWriteTransaction(ctx context.Context,
 		c.logger.WithFields(logrus.Fields{
 			"action": "broadcast_commit_transaction",
 			"id":     tx.ID,
-		}).WithError(err).Errorf("broadcast tx commit failed")
+		}).WithError(err).Error("broadcast tx commit failed")
 		return errors.Wrap(err, "broadcast commit transaction")
 	}
 
@@ -532,7 +533,7 @@ func (c *TxManager) IncomingAbortTransaction(ctx context.Context,
 	c.slowLog.Close("abort_request_received")
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
-		c.logger.WithError(err).Errorf("abort tx: %s", err)
+		c.logger.WithError(err).Error("abort tx")
 	}
 }
 
@@ -550,13 +551,15 @@ func (c *TxManager) IncomingCommitTransaction(ctx context.Context,
 
 	c.slowLog.Update("commit_request_received")
 
-	// cannot use locking because of risk of deadlock, see comment inside method
+	// cleanup requires locking because it accesses c.currentTransaction
+	defer c.incomingTxCommitCleanup(ctx, tx)
+
+	// commit cannot use locking because of risk of deadlock, see comment inside method
 	if err := c.incomingTxCommitApplyCommitFn(ctx, txCopy); err != nil {
 		return err
 	}
 
-	// requires locking because it accesses c.currentTransaction
-	return c.incomingTxCommitCleanup(ctx, tx)
+	return nil
 }
 
 func (c *TxManager) incomingCommitTxValidate(
@@ -603,8 +606,7 @@ func (c *TxManager) incomingTxCommitApplyCommitFn(
 
 func (c *TxManager) incomingTxCommitCleanup(
 	ctx context.Context, tx *Transaction,
-) error {
-	// TODO: only clean up on success - does this make sense?
+) {
 	c.Lock()
 	defer c.Unlock()
 	c.currentTransaction = nil
@@ -621,10 +623,10 @@ func (c *TxManager) incomingTxCommitCleanup(
 	c.slowLog.Close("committed")
 
 	if err := c.persistence.DeleteTx(ctx, tx.ID); err != nil {
-		return fmt.Errorf("close tx on disk: %w", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"action": "incoming_tx_commit_cleanup",
+		}).Error("close tx on disk")
 	}
-
-	return nil
 }
 
 func (c *TxManager) Shutdown() {

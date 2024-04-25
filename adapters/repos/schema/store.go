@@ -15,15 +15,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	clusterStore "github.com/weaviate/weaviate/cluster/store"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema"
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	bolt "go.etcd.io/bbolt"
@@ -192,7 +193,7 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 func (r *store) saveSchemaV1(schema ucs.State) error {
 	schemaJSON, err := json.Marshal(schema)
 	if err != nil {
-		return errors.Wrapf(err, "marshal schema state to json")
+		return fmt.Errorf("marshal schema state to json: %w", err)
 	}
 
 	return r.db.Update(func(tx *bolt.Tx) error {
@@ -217,7 +218,7 @@ func (r *store) loadSchemaV1() (*ucs.State, error) {
 	var state ucs.State
 	err := json.Unmarshal(schemaJSON, &state)
 	if err != nil {
-		return nil, errors.Wrapf(err, "parse schema state from JSON")
+		return nil, fmt.Errorf("parse schema state from JSON: %w", err)
 	}
 
 	return &state, nil
@@ -236,7 +237,7 @@ func (r *store) UpdateClass(_ context.Context, data ucs.ClassPayload) error {
 	return r.db.Update(f)
 }
 
-// NewClass creates a new class if it doesn't exists, otherwise return an error
+// NewClass creates a new class if it doesn't exist, otherwise return an error
 func (r *store) NewClass(_ context.Context, data ucs.ClassPayload) error {
 	classKey := encodeClassName(data.Name)
 	f := func(tx *bolt.Tx) error {
@@ -428,11 +429,38 @@ func (r *store) Save(ctx context.Context, ss ucs.State) error {
 		return fmt.Errorf("inconsistent schema: missing required fields")
 	}
 
+	currState, err := r.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load existing schema state: %w", err)
+	}
+	// If the store already contains the same contents as the incoming
+	// schema state, we don't need to delete and re-put all schema contents.
+	// Doing so can cause a very high MTTR when the number of tenants is on
+	// the order of 100k+.
+	//
+	// Here we have to check equality with rough equivalency checks, because
+	// there is currently no way to make a comparison at the byte-level
+	//
+	// See: https://github.com/weaviate/weaviate/issues/4634
+	if currState.EqualEnough(&ss) {
+		return nil
+	}
+
+	r.log.WithField("action", "save_schema").
+		Infof("Current schema state outdated, updating schema store")
+
 	f := func(tx *bolt.Tx) error {
 		root := tx.Bucket(schemaBucket)
 		return r.saveAllTx(ctx, root, ss)(tx)
 	}
-	return r.db.Update(f)
+
+	err = r.db.Update(f)
+	if err == nil {
+		r.log.WithField("action", "save_schema").
+			Infof("Schema store successfully updated")
+	}
+
+	return err
 }
 
 func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) func(tx *bolt.Tx) error {
@@ -452,7 +480,7 @@ func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) 
 				return fmt.Errorf("context for class %q: %w", cls.Class, err)
 			}
 			sharding := ss.ShardingState[cls.Class]
-			payload, err := ucs.CreateClassPayload(cls, sharding)
+			payload, err := createClassPayload(cls, sharding)
 			if err != nil {
 				return fmt.Errorf("create payload for class %q: %w", cls.Class, err)
 			}
@@ -463,7 +491,12 @@ func (r *store) saveAllTx(ctx context.Context, root *bolt.Bucket, ss ucs.State) 
 			if err := r.updateClass(b, payload); err != nil {
 				return fmt.Errorf("update bucket %q: %w", cls.Class, err)
 			}
+			r.log.WithField("action", "update_schema_store").
+				Debugf("Class updated: %s", cls.Class)
 		}
+
+		r.log.WithField("action", "update_schema_store").
+			Debug("All classes updated")
 
 		return nil
 	}
@@ -536,3 +569,54 @@ func copyFile(dst, src string) error {
 }
 
 // var _ = schemauc.Repo(&Repo{})
+
+func createClassPayload(class *models.Class,
+	shardingState *sharding.State,
+) (pl schema.ClassPayload, err error) {
+	pl.Name = class.Class
+	if pl.Metadata, err = json.Marshal(class); err != nil {
+		return pl, fmt.Errorf("marshal class %q metadata: %w", pl.Name, err)
+	}
+	if shardingState != nil {
+		ss := *shardingState
+		pl.Shards = make([]schema.KeyValuePair, len(ss.Physical))
+		i := 0
+		for name, shard := range ss.Physical {
+			data, err := json.Marshal(shard)
+			if err != nil {
+				return pl, fmt.Errorf("marshal shard %q metadata: %w", name, err)
+			}
+			pl.Shards[i] = schema.KeyValuePair{Key: name, Value: data}
+			i++
+		}
+		ss.Physical = nil
+		if pl.ShardingState, err = json.Marshal(&ss); err != nil {
+			return pl, fmt.Errorf("marshal class %q sharding state: %w", pl.Name, err)
+		}
+	}
+	return pl, nil
+}
+
+func (r *store) LoadLegacySchema() (map[string]clusterStore.ClassState, error) {
+	res := make(map[string]clusterStore.ClassState)
+	legacySchema, err := r.Load(context.Background())
+	if err != nil {
+		return res, fmt.Errorf("could not load legacy schema: %w", err)
+	}
+	for _, c := range legacySchema.ObjectSchema.Classes {
+		res[c.Class] = clusterStore.ClassState{Class: *c, Shards: *legacySchema.ShardingState[c.Class]}
+	}
+	return res, nil
+}
+
+func (r *store) SaveLegacySchema(cluster map[string]clusterStore.ClassState) error {
+	states := ucs.NewState(len(cluster))
+
+	for _, s := range cluster {
+		currState := s // new var to avoid passing pointer to s
+		states.ObjectSchema.Classes = append(states.ObjectSchema.Classes, &currState.Class)
+		states.ShardingState[s.Class.Class] = &currState.Shards
+	}
+
+	return r.Save(context.Background(), states)
+}
