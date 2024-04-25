@@ -240,6 +240,13 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	return v, nil
 }
 
+func (m *Memtable) commitlogSize() int64 {
+	m.Lock()
+	defer m.Unlock()
+
+	return m.commitlog.size()
+}
+
 func (m *Memtable) append(key []byte, values []value) error {
 	start := time.Now()
 	defer m.metrics.append(start.UnixNano())
