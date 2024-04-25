@@ -422,11 +422,12 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		shard.createPropertyIndex(ctx, eg, props...)
-		if err := eg.Wait(); err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
-		}
 		return nil
 	})
+
+	if err := eg.Wait(); err != nil {
+		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+	}
 	return nil
 }
 
