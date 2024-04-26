@@ -72,7 +72,7 @@ type Indexer interface {
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *api.DeleteTenantsRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 
 	// ReloadLocalDB reloads the local database using the latest schema.

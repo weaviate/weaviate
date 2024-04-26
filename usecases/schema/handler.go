@@ -71,7 +71,7 @@ type metaReader interface {
 	ShardOwner(class, shard string) (string, error)
 	TenantShard(class, tenant string) (string, string)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
 	// WithVersion endpoints return the data with the schema version
 	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (store.ClassInfo, error)
@@ -206,14 +206,14 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class string,
+	principal *models.Principal, class, tenant string,
 ) (models.ShardStatusList, error) {
 	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
 	if err != nil {
 		return nil, err
 	}
 
-	return h.metaReader.GetShardsStatus(class)
+	return h.metaReader.GetShardsStatus(class, tenant)
 }
 
 // JoinNode adds the given node to the cluster.

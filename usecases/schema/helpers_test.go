@@ -121,8 +121,8 @@ func (f *fakeDB) UpdateShardStatus(cmd *command.UpdateShardStatusRequest) error 
 	return nil
 }
 
-func (f *fakeDB) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := f.Called(class)
+func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), nil
 }
 
