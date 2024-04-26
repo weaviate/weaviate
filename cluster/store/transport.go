@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
 )
 
 // addressResolver resolves server id into an ip
@@ -61,12 +62,13 @@ func (a *addrResolver) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) 
 // This is particularly crucial as K8s assigns new IPs on each node restart.
 func (a *addrResolver) NewTCPTransport(
 	bindAddr string, advertise net.Addr,
-	maxPool int, timeout time.Duration,
+	maxPool int, timeout time.Duration, logger *logrus.Logger,
 ) (*raft.NetworkTransport, error) {
 	cfg := &raft.NetworkTransportConfig{
 		ServerAddressProvider: a,
 		MaxPool:               tcpMaxPool,
 		Timeout:               tcpTimeout,
+		Logger:                NewHCLogrusLogger("raft-net", logger),
 	}
 
 	return raft.NewTCPTransportWithConfig(bindAddr, advertise, cfg)

@@ -124,32 +124,32 @@ func TestReplicationPutObject(t *testing.T) {
 	client := newReplicationClient(ts.Client())
 	t.Run("EncodeRequest", func(t *testing.T) {
 		obj := &storobj.Object{}
-		_, err := client.PutObject(ctx, "Node1", "C1", "S1", "RID", obj)
+		_, err := client.PutObject(ctx, "Node1", "C1", "S1", "RID", obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "encode")
 	})
 
 	obj := &storobj.Object{MarshallerVersion: 1, Object: anyObject(UUID1)}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.PutObject(ctx, "", "C1", "S1", "", obj)
+		_, err := client.PutObject(ctx, "", "C1", "S1", "", obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.PutObject(ctx, f.host, "C1", "S1", RequestError, obj)
+		resp, err := client.PutObject(ctx, f.host, "C1", "S1", RequestError, obj, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: f.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, obj)
+		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestInternalError, obj)
+		_, err := client.PutObject(ctx, f.host, "C1", "S1", RequestInternalError, obj, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -167,25 +167,25 @@ func TestReplicationDeleteObject(t *testing.T) {
 
 	client := newReplicationClient(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid)
+		_, err := client.DeleteObject(ctx, "", "C1", "S1", "", uuid, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestError, uuid)
+		resp, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestError, uuid, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuid)
+		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, uuid, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestInternalError, uuid)
+		_, err := client.DeleteObject(ctx, fs.host, "C1", "S1", RequestInternalError, uuid, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -248,25 +248,25 @@ func TestReplicationMergeObject(t *testing.T) {
 	client := newReplicationClient(ts.Client())
 	doc := &objects.MergeDocument{ID: uuid}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.MergeObject(ctx, "", "C1", "S1", "", doc)
+		_, err := client.MergeObject(ctx, "", "C1", "S1", "", doc, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestError, doc)
+		resp, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestError, doc, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: f.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, doc)
+		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestMalFormedResponse, doc, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestInternalError, doc)
+		_, err := client.MergeObject(ctx, f.host, "C1", "S1", RequestInternalError, doc, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})
@@ -284,25 +284,25 @@ func TestReplicationAddReferences(t *testing.T) {
 	client := newReplicationClient(ts.Client())
 	refs := []objects.BatchReference{{OriginalIndex: 1}, {OriginalIndex: 2}}
 	t.Run("ConnectionError", func(t *testing.T) {
-		_, err := client.AddReferences(ctx, "", "C1", "S1", "", refs)
+		_, err := client.AddReferences(ctx, "", "C1", "S1", "", refs, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
 
 	t.Run("Error", func(t *testing.T) {
-		resp, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestError, refs)
+		resp, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestError, refs, 0)
 		assert.Nil(t, err)
 		assert.Equal(t, replica.SimpleResponse{Errors: fs.RequestError.Errors}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
-		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, refs)
+		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestMalFormedResponse, refs, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "decode response")
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
-		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestInternalError, refs)
+		_, err := client.AddReferences(ctx, fs.host, "C1", "S1", RequestInternalError, refs, 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "status code")
 	})

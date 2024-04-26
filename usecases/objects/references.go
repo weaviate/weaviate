@@ -22,7 +22,7 @@ import (
 
 func (m *Manager) autodetectToClass(ctx context.Context, principal *models.Principal, fromClass, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
 	// autodetect to class from schema if not part of reference
-	class, _, err := m.schemaManager.GetClass(ctx, principal, fromClass)
+	class, err := m.schemaManager.GetClass(ctx, principal, fromClass)
 	if err != nil {
 		return "", "", false, &Error{"cannot get class", StatusInternalServerError, err}
 	}

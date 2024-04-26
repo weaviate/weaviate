@@ -101,7 +101,7 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 
 	names := nodes.Candidates()
 	if count > len(names) {
-		return fmt.Errorf("not enough replicas: found %d want %d", len(names), count)
+		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
 	}
 
 	// make sure included nodes are unique
@@ -141,7 +141,7 @@ func InitState(id string, config config.Config, nodes nodes, replFactor int64, p
 
 	names := nodes.Candidates()
 	if f, n := replFactor, len(names); f > int64(n) {
-		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+		return nil, fmt.Errorf("not enough storage replicas: found %d want %d", n, f)
 	}
 
 	if err := out.initPhysical(names, replFactor); err != nil {
@@ -295,7 +295,7 @@ func (s *State) initPhysical(nodes []string, replFactor int64) error {
 func (s *State) GetPartitions(lookUp nodes, shards []string, replFactor int64) (map[string][]string, error) {
 	nodes := lookUp.Candidates()
 	if len(nodes) == 0 {
-		return nil, fmt.Errorf("list of node candidates is empty")
+		return nil, fmt.Errorf("list of storage nodes is empty")
 	}
 	if f, n := replFactor, len(nodes); f > int64(n) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)

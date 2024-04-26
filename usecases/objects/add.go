@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -47,6 +48,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }
 
@@ -93,7 +95,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, true, object)
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -109,7 +111,8 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-	class, _, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+
+	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +121,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl)
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}
@@ -147,7 +150,7 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	class, _, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
+	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, obj.Class)
 	if err != nil {
 		return nil, err
 	}

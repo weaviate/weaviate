@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -88,14 +88,8 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
-	time.Sleep(time.Second)
-	assert.True(t, srv.Ready())
-	for i := 0; i < 20; i++ {
-		if srv.store.IsLeader() {
-			break
-		}
-		time.Sleep(time.Millisecond * 100)
-	}
+	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	assert.True(t, srv.store.IsLeader())
 	schema := srv.SchemaReader()
 	assert.Equal(t, schema.Len(), 0)
@@ -109,7 +103,7 @@ func TestServiceEndpoints(t *testing.T) {
 		Class:              "C",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
-	ss := &sharding.State{Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
 	version0, err := srv.AddClass(cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schema.ClassEqual("C"), "C")
@@ -134,14 +128,35 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
 
-	// QueryTenants
-	getTenants, _, err := srv.QueryTenants(cls.Class)
+	// QueryTenants all
+	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
-	assert.NotNil(t, getTenants)
+	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.Tenant{{
 		Name:           "T0",
 		ActivityStatus: models.TenantActivityStatusHOT,
-	}}, getTenants)
+	}}, getTenantsAll)
+
+	// QueryTenants one
+	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsOne)
+	assert.Equal(t, []*models.Tenant{{
+		Name:           "T0",
+		ActivityStatus: models.TenantActivityStatusHOT,
+	}}, getTenantsOne)
+
+	// QueryTenants one
+	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsNone)
+	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
+
+	// Query ShardTenant
+	getTenantTenant, getTenantActivityStatus, _, err := srv.QueryTenantShard(cls.Class, "T0")
+	assert.Nil(t, err)
+	assert.Equal(t, "T0", getTenantTenant)
+	assert.Equal(t, models.TenantActivityStatusHOT, getTenantActivityStatus)
 
 	// QueryShardOwner - Err
 	_, _, err = srv.QueryShardOwner(cls.Class, "T0")
@@ -170,7 +185,9 @@ func TestServiceEndpoints(t *testing.T) {
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
+	assert.Nil(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, version))
 	assert.Equal(t, info, schema.ClassInfo("C"))
+	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), ErrDeadlineExceeded)
 
 	// DeleteClass
 	_, err = srv.DeleteClass("X")
@@ -275,16 +292,24 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
-	time.Sleep(time.Second)
-	assert.True(t, srv.Ready())
-	for i := 0; i < 20; i++ {
-		if srv.store.IsLeader() {
-			break
-		}
-		time.Sleep(time.Millisecond * 100)
-	}
-	clInfo, _ := srv.store.db.Schema.ClassInfo("C", 0)
+	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
+	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
+	clInfo := srv.store.db.Schema.ClassInfo("C")
 	assert.Equal(t, info, clInfo)
+}
+
+// Runs the provided function `predicate` up to `n` times, sleeping `sleepDuration` between each
+// function call until `f` returns true or returns false if all `n` calls return false.
+// Useful in tests which require an unknown but bounded delay where the component under test has
+// a way to indicate when it's ready to proceed.
+func tryNTimesWithWait(n int, sleepDuration time.Duration, predicate func() bool) bool {
+	for i := 0; i < n; i++ {
+		if predicate() {
+			return true
+		}
+		time.Sleep(sleepDuration)
+	}
+	return false
 }
 
 func TestServiceStoreInit(t *testing.T) {
@@ -774,7 +799,7 @@ func cmdAsBytes(class string,
 type MockStore struct {
 	indexer *MockIndexer
 	parser  *MockParser
-	logger  MockSLog
+	logger  MockLogger
 	cfg     Config
 	store   *Store
 }
@@ -782,7 +807,7 @@ type MockStore struct {
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := &MockIndexer{}
 	parser := &MockParser{}
-	logger := NewMockSLog(t)
+	logger := NewMockLogger(t)
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
@@ -804,6 +829,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Parser:            parser,
 			AddrResolver:      &MockAddressResolver{},
 			Logger:            logger.Logger,
+			UpdateWaitTimeout: time.Millisecond * 50,
 		},
 	}
 	s := New(ms.cfg)
@@ -818,17 +844,18 @@ func (m *MockStore) Store(doBefore func(*MockStore)) *Store {
 	return m.store
 }
 
-type MockSLog struct {
+type MockLogger struct {
 	buf    *bytes.Buffer
-	Logger *slog.Logger
+	Logger *logrus.Logger
 }
 
-func NewMockSLog(t *testing.T) MockSLog {
+func NewMockLogger(t *testing.T) MockLogger {
 	buf := new(bytes.Buffer)
-	m := MockSLog{
+	m := MockLogger{
 		buf: buf,
 	}
-	m.Logger = slog.New(slog.NewJSONHandler(buf, nil))
+	m.Logger = logrus.New()
+	m.Logger.SetFormatter(&logrus.JSONFormatter{})
 	return m
 }
 
@@ -901,8 +928,8 @@ func (m *MockIndexer) UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error
 	return args.Error(0)
 }
 
-func (m *MockIndexer) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := m.Called(class)
+func (m *MockIndexer) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := m.Called(class, tenant)
 	return models.ShardStatusList{}, args.Error(1)
 }
 

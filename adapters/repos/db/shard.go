@@ -53,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -98,7 +99,7 @@ type ShardLike interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 
-	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
+	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
@@ -753,7 +754,6 @@ func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGrou
 					return nil
 				})
 			}
-
 			return nil
 		})
 

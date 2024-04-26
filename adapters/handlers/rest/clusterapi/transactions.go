@@ -13,6 +13,7 @@ package clusterapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -37,9 +38,28 @@ type txManager interface {
 // 	DeadlineMilli int64                   `json:"deadlineMilli"`
 // }
 
+type handlerType int
+
+const (
+	schemaTX handlerType = iota
+	classifyTX
+)
+
 type txHandler struct {
-	manager txManager
-	auth    auth
+	manager     txManager
+	auth        auth
+	handlerType handlerType
+}
+
+func newTxHandler(manager txManager, auth auth, handlerType handlerType) txHandler {
+	if handlerType != schemaTX && handlerType != classifyTX {
+		panic(fmt.Sprintf("unknown handler type: %q", handlerType))
+	}
+	return txHandler{
+		manager:     manager,
+		auth:        auth,
+		handlerType: handlerType,
+	}
 }
 
 func (h *txHandler) Transactions() http.Handler {
@@ -106,12 +126,27 @@ func (h *txHandler) incomingTransaction() http.Handler {
 	// 		return
 	// 	}
 
-	// 	txPayload, err := ucs.UnmarshalTransaction(payload.Type, payload.Payload)
-	// 	if err != nil {
-	// 		http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
-	// 			http.StatusInternalServerError)
-	// 		return
+	// 	var (
+	// 		txPayload interface{}
+	// 		err       error
+	// 	)
+	// 	switch h.handlerType {
+	// 	case schemaTX:
+	// 		txPayload, err = ucs.UnmarshalTransaction(payload.Type, payload.Payload)
+	// 		if err != nil {
+	// 			http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
+	// 				http.StatusInternalServerError)
+	// 			return
+	// 		}
+	// 	case classifyTX:
+	// 		txPayload, err = classification.UnmarshalTransaction(payload.Type, payload.Payload)
+	// 		if err != nil {
+	// 			http.Error(w, errors.Wrap(err, "decode tx payload").Error(),
+	// 				http.StatusInternalServerError)
+	// 			return
+	// 		}
 	// 	}
+
 	// 	txType := payload.Type
 	// 	tx := &cluster.Transaction{
 	// 		ID:       payload.ID,

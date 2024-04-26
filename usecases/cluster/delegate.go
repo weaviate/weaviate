@@ -144,7 +144,7 @@ func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	space, err := diskSpace(d.dataPath)
 	if err != nil {
 		lastTime = lastTime.Add(-minUpdatePeriod)
-		d.log.Errorf("calculate disk space: %v", err)
+		d.log.WithError(err).Error("calculate disk space")
 	}
 
 	d.setOwnSpace(space)
@@ -185,7 +185,8 @@ func (d *delegate) LocalState(join bool) []byte {
 	}
 	bytes, err := x.marshal()
 	if err != nil {
-		d.log.WithField("action", "delegate.local_state.marshal").Error(err)
+		d.log.WithField("action", "delegate.local_state.marshal").WithError(err).
+			Error("failed to marshal local state")
 		return nil
 	}
 	return bytes
@@ -202,8 +203,10 @@ func (d *delegate) MergeRemoteState(data []byte, join bool) {
 	}
 	var x spaceMsg
 	if err := x.unmarshal(data); err != nil || x.Node == "" {
-		d.log.WithField("action", "delegate.merge_remote.unmarshal").
-			WithField("data", string(data)).Error(err)
+		d.log.WithFields(logrus.Fields{
+			"action": "delegate.merge_remote.unmarshal",
+			"data":   string(data),
+		}).WithError(err).Error("failed to unmarshal remote state")
 		return
 	}
 	info := NodeInfo{x.DiskUsage, time.Now().UnixMilli()}
@@ -268,7 +271,8 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 		}
 		space, err := du(d.dataPath)
 		if err != nil {
-			d.log.WithField("action", "delegate.local_state.disk_usage").Error(err)
+			d.log.WithField("action", "delegate.local_state.disk_usage").WithError(err).
+				Error("disk space updater failed")
 		} else {
 			d.setOwnSpace(space)
 		}
