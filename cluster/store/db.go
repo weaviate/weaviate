@@ -67,7 +67,7 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 		func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 		func() error { return db.store.AddClass(req) },
 		schemaOnly,
-		applyDbLast,
+		applyDbFirst,
 		triggerSchemaCallback,
 	)
 }
@@ -96,7 +96,7 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 		func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 		func() error { return db.store.AddClass(req) },
 		schemaOnly,
-		applyDbLast,
+		applyDbFirst,
 		triggerSchemaCallback,
 	)
 }
@@ -123,6 +123,8 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		return nil
 	}
 
+	// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
+	// We need the schema to first parse the update and apply it so that we can use it in the DB update.
 	return db.apply(
 		cmd.GetType().String(),
 		func() error { return db.Schema.updateClass(req.Class.Class, update) },
@@ -158,6 +160,9 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 		func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 		func() error { return db.store.AddProperty(cmd.Class, req) },
 		schemaOnly,
+		// Apply the DB first to ensure the underlying buckets related to properties are created/deleted *before* the
+		// schema is updated. This allows us to have object write waiting on the right schema version to proceed only
+		// once the buck buckets are present.
 		applyDbFirst,
 		triggerSchemaCallback,
 	)
