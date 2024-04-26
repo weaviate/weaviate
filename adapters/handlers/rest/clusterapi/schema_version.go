@@ -12,16 +12,21 @@
 package clusterapi
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func extractSchemaVersionFromUrlQuery(values url.Values) uint64 {
-	var schemaVersion uint64
+func extractSchemaVersionFromUrlQuery(values url.Values) (uint64, error) {
 	if v := values.Get(replica.SchemaVersionKey); v != "" {
-		schemaVersion, _ = strconv.ParseUint(v, 10, 64)
+		schemaVersion, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %q is an invalid value for %s", err, v, replica.SchemaVersionKey)
+		}
+
+		return schemaVersion, nil
 	}
-	return schemaVersion
+	return 0, nil
 }
