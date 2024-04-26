@@ -226,8 +226,8 @@ func (f *fakeMetaHandler) Read(class string, reader func(*models.Class, *shardin
 	return args.Error(0)
 }
 
-func (f *fakeMetaHandler) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := f.Called(class)
+func (f *fakeMetaHandler) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 

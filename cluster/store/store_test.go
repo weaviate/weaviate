@@ -928,8 +928,8 @@ func (m *MockIndexer) UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error
 	return args.Error(0)
 }
 
-func (m *MockIndexer) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := m.Called(class)
+func (m *MockIndexer) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := m.Called(class, tenant)
 	return models.ShardStatusList{}, args.Error(1)
 }
 
