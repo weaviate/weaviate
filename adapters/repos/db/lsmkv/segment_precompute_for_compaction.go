@@ -45,7 +45,6 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
@@ -59,6 +58,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
 		contReader = contentReader.NewMMap(contents)
+		defer file.Close()
 	} else {
 		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))
 	}
@@ -128,6 +128,10 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 			return nil, err
 		}
 		out = append(out, files...)
+	}
+
+	if err := seg.close(); err != nil {
+		return nil, err
 	}
 
 	return out, nil
